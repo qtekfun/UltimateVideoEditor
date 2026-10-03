@@ -26,7 +26,7 @@ EglContext::~EglContext() {
     }
 }
 
-Status EglContext::init(Error* error) {
+Status EglContext::init(Error* error, bool recordable) {
     display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display_ == EGL_NO_DISPLAY) return fail(error, Status::EglError, "eglGetDisplay");
     if (!eglInitialize(display_, nullptr, nullptr)) return fail(error, Status::EglError, "eglInitialize");
@@ -35,6 +35,7 @@ Status EglContext::init(Error* error) {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
         EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+        recordable ? EGL_RECORDABLE_ANDROID : EGL_NONE, recordable ? 1 : EGL_NONE,
         EGL_NONE,
     };
     EGLint numConfigs = 0;
@@ -158,6 +159,10 @@ int EglContext::createReleaseFence() const {
 
 void EglContext::setPresentationTime(int64_t ns) const {
     if (ns > 0 && presentationTime_ != nullptr && window_ != EGL_NO_SURFACE) presentationTime_(display_, window_, ns);
+}
+
+void EglContext::setPresentationTimeExact(int64_t ns) const {
+    if (ns >= 0 && presentationTime_ != nullptr && window_ != EGL_NO_SURFACE) presentationTime_(display_, window_, ns);
 }
 
 void EglContext::bindImageToTexture(GLenum target, EGLImageKHR image) const {

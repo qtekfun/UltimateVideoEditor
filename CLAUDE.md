@@ -47,6 +47,10 @@ latency run logged under tag `UVAudioTest`). Its assets are ffmpeg-generated ton
 APKs share one package on the device, so do not run two agents' installs/instrumentation against it at the same time.
 A debug-only harness for the native timeline: `adb -s <serial> shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity`
 (push a file with audio to `/sdcard/Android/data/com.ultimatevideo.uveditor/files/demo_media.mp4` to see waveforms).
+Export: `uv_export_host_tests` covers `encode/export_math.h` (PTS, audio sample tiling, progress, clip selection). A debug-only
+harness exports a file without UI: `am start -n com.ultimatevideo.uveditor/.debug.ExportDemoActivity --es video <in.mp4> --es out <out.mp4>
+[--es codec avc|hevc] [--ei w 1280 --ei h 720 --ei fps 30] [--es layout single|split]`, then `ffprobe` the pulled file; the outcome is
+written to `<out>.result.txt` (see the class comment). Exported audio is shifted earlier by the AAC encoder delay (`kAacDelaySamples`).
 
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests

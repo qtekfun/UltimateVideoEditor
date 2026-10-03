@@ -14,6 +14,11 @@
             android:name=".debug.TimelineDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.UVEditor" />
+        <!-- Debug-only harness that exports a file through the native pipeline; see ExportDemoActivity. -->
+        <activity
+            android:name=".debug.ExportDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
     </application>
 
 </manifest>

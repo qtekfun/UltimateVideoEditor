@@ -13,6 +13,8 @@ import androidx.compose.ui.unit.dp
 internal object EditorIcons {
     val Play = icon("Play", "M8,5v14l11,-7z")
 
+    val Export = icon("Export", "M9,16h6v-6h4l-7,-7 -7,7h4zM5,18h14v2H5z")
+
     val Add = icon("Add", "M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z")
 
     val Delete = icon("Delete", "M6,19c0,1.1 0.9,2 2,2h8c1.1,0 2,-0.9 2,-2V7H6v12zM19,4h-3.5l-1,-1h-5l-1,1H5v2h14V4z")

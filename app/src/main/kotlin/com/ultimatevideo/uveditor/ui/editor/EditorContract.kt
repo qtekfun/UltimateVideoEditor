@@ -15,6 +15,9 @@ data class EditorState(
     val loadError: String? = null,
     val projectName: String = "",
     val fps: FrameRate = FrameRate(30, 1),
+    /** Project canvas size in pixels; the export defaults to it. */
+    val width: Int = 1920,
+    val height: Int = 1080,
     /** Committed timeline; only changes through the undo history. */
     val timeline: Timeline = Timeline(),
     /** Provisional timeline while a clip is being dragged; discarded or committed on release. */
