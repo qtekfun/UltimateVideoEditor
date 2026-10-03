@@ -67,8 +67,8 @@ object LaneOps {
 
     /**
      * Takes a clip off the base and puts it on an overlay lane ([toTrackId]) or on a brand new lane above
-     * the others (null). The base closes the gap the clip leaves and the overlays follow it, exactly like
-     * a delete; the clip then lands at [newStart] replacing whatever it covers on the overlay.
+     * the others (null). It is a move: the base closes the gap the clip leaves, but no overlay is deleted
+     * or shifted; the clip lands at [newStart] replacing whatever it covers on the overlay lane.
      */
     fun liftFromBase(timeline: Timeline, clipId: String, toTrackId: String?, newStart: FrameIndex): EditResult<Timeline> {
         val source = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
@@ -80,7 +80,7 @@ object LaneOps {
             val dest = timeline.track(toTrackId) ?: return failure(EditError.TrackNotFound(toTrackId))
             if (dest.id == base.id || dest.type != TrackType.VIDEO) return failure(EditError.TrackTypeMismatch(clipId, toTrackId))
         }
-        var current = when (val closed = ClipDeletion.delete(timeline, clipId)) {
+        var current = when (val closed = TimelineOps.rippleDelete(timeline, clipId)) {
             is EditResult.Success -> closed.value
             is EditResult.Failure -> return closed
         }
