@@ -1,0 +1,102 @@
+package com.ultimatevideo.uveditor.ui.editor.layout
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class EditorLayoutControllerTest {
+    private class MemoryStore : LayoutStore {
+        val saved = mutableMapOf<LayoutKey, LayoutState>()
+        var writes = 0
+
+        override fun load(key: LayoutKey): LayoutState? = saved[key]
+
+        override fun save(key: LayoutKey, state: LayoutState) {
+            saved[key] = state
+            writes++
+        }
+    }
+
+    private val phone = WindowMetrics(412f, 892f)
+    private val phoneSideways = WindowMetrics(892f, 412f)
+    private val tablet = WindowMetrics(1280f, 800f)
+
+    @Test
+    fun `a fresh install starts from the defaults of the window`() {
+        val controller = EditorLayoutController(MemoryStore(), tablet)
+        assertEquals(LayoutState.defaultFor(tablet), controller.state)
+        assertEquals(Dock.LEFT, controller.tray.dock)
+    }
+
+    @Test
+    fun `a discrete change is saved and a drag is saved once when it ends`() {
+        val store = MemoryStore()
+        val controller = EditorLayoutController(store, phone)
+        controller.dispatch(LayoutAction.SetLaneHeight(LaneHeight.LARGE))
+        assertEquals(1, store.writes)
+        for (step in 1..20) controller.dispatch(LayoutAction.SetPreviewFraction(0.4f + step * 0.01f), persist = false)
+        assertEquals(1, store.writes)
+        controller.commit()
+        assertEquals(2, store.writes)
+        assertEquals(0.6f, store.saved.getValue(LayoutKey.of(phone)).previewFraction, 0.0001f)
+    }
+
+    @Test
+    fun `each window class and orientation keeps its own layout`() {
+        val store = MemoryStore()
+        val controller = EditorLayoutController(store, phone)
+        controller.dispatch(LayoutAction.SetLaneHeight(LaneHeight.LARGE))
+        controller.onWindow(phoneSideways)
+        // The sideways layout is new: defaults, not the portrait one.
+        assertEquals(LaneHeight.MEDIUM, controller.state.laneHeight)
+        controller.dispatch(LayoutAction.SetLaneHeight(LaneHeight.SMALL))
+        controller.onWindow(phone)
+        assertEquals(LaneHeight.LARGE, controller.state.laneHeight)
+        controller.onWindow(phoneSideways)
+        assertEquals(LaneHeight.SMALL, controller.state.laneHeight)
+    }
+
+    @Test
+    fun `a size change inside the same class only clamps`() {
+        val store = MemoryStore()
+        val controller = EditorLayoutController(store, tablet)
+        controller.dispatch(LayoutAction.SetSideWidth(Side.LEFT, 500f))
+        val writesBefore = store.writes
+        // Split screen narrows the window but it is still wide and landscape.
+        controller.onWindow(WindowMetrics(900f, 800f))
+        assertEquals(WindowMetrics(900f, 800f).maxSideWidthDp, controller.state.leftWidthDp, 0.0001f)
+        assertEquals(writesBefore, store.writes)
+    }
+
+    @Test
+    fun `a saved layout is clamped to the window it is loaded in`() {
+        val store = MemoryStore()
+        store.saved[LayoutKey.of(phone)] = LayoutState(tray = PanelState(Dock.LEFT), previewFraction = 5f)
+        val controller = EditorLayoutController(store, phone)
+        assertEquals(Dock.BOTTOM, controller.state.tray.dock)
+        assertEquals(LayoutState.MAX_PREVIEW_FRACTION, controller.state.previewFraction, 0.0001f)
+    }
+
+    @Test
+    fun `customise mode is never saved and reset clears it`() {
+        val store = MemoryStore()
+        val controller = EditorLayoutController(store, tablet)
+        controller.dispatch(LayoutAction.SetCustomising(true))
+        assertTrue(controller.customising)
+        assertFalse(store.saved.getValue(LayoutKey.of(tablet)).customising)
+        controller.dispatch(LayoutAction.Reset)
+        assertFalse(controller.customising)
+    }
+
+    @Test
+    fun `the store may know nothing`() {
+        val controller = EditorLayoutController(NoLayoutStore, phone)
+        controller.dispatch(LayoutAction.ApplyPreset(LayoutPreset.TIMELINE_FOCUS))
+        assertEquals(LayoutPreset.TIMELINE_FOCUS, controller.state.preset)
+        assertNull(NoLayoutStore.load(LayoutKey.of(phone)))
+        assertNotNull(controller.window)
+    }
+}

@@ -57,6 +57,8 @@ public:
     void invalidate();
     // The live indicator of what releasing a dragged clip would do; DropHintKind::None clears it.
     void setDropHint(const DropHint& hint);
+    // Lane height as a multiple of the default (see Layout::forDensity); redraws and keeps the scroll valid.
+    void setLaneScale(float scale);
     HitResult hitTest(float x, float y) const;
 
     class Gl;  // render-thread only (public so file-local helpers can name it)
