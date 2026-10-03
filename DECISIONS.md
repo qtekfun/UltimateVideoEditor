@@ -528,3 +528,33 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 
 
 **Update:** per the user ("if you take a clip off the base, it goes to the layer where I drop it"), lifting is a pure move: overlays are never deleted or shifted. Trade-off: overlays that sat over later base footage no longer line up with it after the base closes. Alternative: shift later overlays with the base (risks overlap with overlays that cross the lifted range).
+
+## Editor performance: keep the playhead out of the chrome
+
+**Decision:** `EditorScreen` no longer reads the whole `EditorState` at its root. The playhead (which changes every 16 ms while playing) is removed from the state the chrome (toolbar, banners, dialogs, panels) reads (`chromeOf`), so a tick recomposes only the timecode; the effects that need the playhead read the live state through `StateEffect` (a `snapshotFlow` keyed on exactly what each effect uses). While the inspector is open it gets the live state, because its keyframe diamond and pose depend on the playhead.
+**Why:** every tick used to recompose the root and all ~25 toolbar buttons and re-evaluate every effect key. Written from reading the code; the before/after numbers are in the PR when the OPPO was reachable, otherwise the PR says they were not measured.
+**Alternative:** pull the playhead out of `EditorState` into its own flow (cleaner, but touches the ViewModel, every playhead-dependent getter and ~100 tests).
+
+## Insert on non-base lanes
+
+**Decision:** on overlay/audio/title lanes a drop whose start edge is within 10 frames of a cut between two touching clips inserts there and shifts only that lane's later clips right; free space, gaps and the lane ends stay plain moves (so moving a clip near the start of a lane never inserts). Command `InsertOnLane`, one undo step, decided by `DropPlan` so the indicator matches.
+**Why:** the user deferred it earlier and asked for it afterwards; limiting it to interior cuts avoids surprising inserts when moving clips around free space.
+**Alternative:** also insert at lane ends and at the edges of gaps (more reachable, more accidental shifts).
+
+## Speed change on the base carries the overlays
+
+**Decision:** changing the speed of a base clip (`MagneticBase.setSpeed`) ripples the following base clips and moves the overlays like a trim of its end: a shorter clip removes the freed frames from every other track (clips inside them go, crossing ones are trimmed, later ones shift left), a longer one opens the same room after the clip's old end. Overlays inside the clip's own range stay where they are.
+**Why:** the speed inspector already rippled the base, leaving overlays out of step with it.
+**Alternative:** scale overlays inside the range with the clip (not exact: an overlay has its own speed).
+
+## Photo thumbnails
+
+**Decision:** a photo clip now carries its asset key in the snapshot and the editor asks the native thumbnail worker for photo assets too. `ThumbDecoder::open` falls back from "no video track" to `AImageDecoder` (decoded scaled down, EXIF applied by the decoder) and every time maps to the one tile (`rgbaToTile`, host-tested). A photo the decoder cannot read simply shows no tile, as before.
+**Why:** the cheapest path with no new snapshot field or GL code: the existing tile store, atlas and drawing do the rest.
+**Alternative:** rasterise the still in Kotlin (the preview already does) and upload the bitmap as a tile (an extra JNI call per photo).
+
+## Deferred: animated GIF/WebP, dragging lane headers
+
+**Decision:** neither is done. Animated GIF/WebP needs per-frame timing and decode caches in the still pipeline (it is not cheap); lane reorder keeps the up/down buttons because the native canvas draws no lane header to grab, and a new hit target and gesture could not be verified without the OPPO.
+**Why:** both would be unverified native/gesture work.
+**Alternative:** `AImageDecoder` animated frames into the title-texture path as a follow-up; a long-press on a lane's empty area as the reorder gesture.
