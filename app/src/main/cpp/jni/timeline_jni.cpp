@@ -141,6 +141,10 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetPlayhead)(JNIEnv*, jobject, jlong handle,
     if (TimelineHandle* h = from(handle)) h->renderer->setPlayhead(frame);
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeEnsureVisible)(JNIEnv*, jobject, jlong handle, jlong frame) {
+    if (TimelineHandle* h = from(handle)) h->renderer->ensureVisible(frame);
+}
+
 // Returns {kind, trackIndex, clipKey, frame}.
 JNIEXPORT jlongArray JNICALL JNI_FN(nativeHitTest)(JNIEnv* env, jobject, jlong handle, jfloat x, jfloat y) {
     TimelineHandle* h = from(handle);

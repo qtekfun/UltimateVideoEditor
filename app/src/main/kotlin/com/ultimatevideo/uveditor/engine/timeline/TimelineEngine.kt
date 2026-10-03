@@ -84,6 +84,9 @@ class TimelineEngine(
     fun isAutoFit(): Boolean = NativeTimeline.nativeIsAutoFit(live())
     fun setPlayhead(frame: Long) = NativeTimeline.nativeSetPlayhead(live(), frame)
 
+    /** Scrolls, keeping the zoom, until [frame] is on screen (pages when it leaves the view). */
+    fun ensureVisible(frame: Long) = NativeTimeline.nativeEnsureVisible(live(), frame)
+
     fun hitTest(x: Float, y: Float): TimelineHit {
         val r = NativeTimeline.nativeHitTest(live(), x, y) ?: throw EngineException("hitTest failed")
         val kind = HitKind.entries.getOrElse(r[0].toInt()) { HitKind.NONE }

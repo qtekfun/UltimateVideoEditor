@@ -301,9 +301,58 @@ bool PreviewEngine::applyScene(int canvasW, int canvasH, std::vector<SceneLayer>
     return !scene_.empty();
 }
 
+void PreviewEngine::playScene(int canvasW, int canvasH, std::vector<SceneLayer> layers, decode::Rational fps) {
+    thread_->post([this, canvasW, canvasH, fps, layers = std::move(layers)]() mutable {
+        if (fps.num <= 0 || fps.den <= 0) {
+            report(Error{Status::InvalidArgument, "playScene needs a positive frame rate"});
+            return;
+        }
+        if (!applyScene(canvasW, canvasH, std::move(layers))) {
+            playing_ = false;
+            sceneMode_ = false;
+            ++playGeneration_;
+            return;
+        }
+        for (SceneLayer& layer : scene_) layer.baseFrame = layer.frame;
+        sceneFps_ = fps;
+        sceneMode_ = true;
+        playing_ = true;
+        playStart_ = Clock::now();
+        ++playGeneration_;
+        tickScene(playGeneration_);
+    });
+}
+
+void PreviewEngine::tickScene(uint64_t generation) {
+    if (!playing_ || !sceneMode_ || generation != playGeneration_) return;
+    const int64_t elapsedNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() + kPresentLead - playStart_).count();
+    const int64_t advanced = static_cast<int64_t>(static_cast<__int128>(elapsedNs) * sceneFps_.num /
+                                                  (static_cast<__int128>(sceneFps_.den) * 1000000000));
+    for (SceneLayer& layer : scene_) {
+        if (layer.title != 0) continue;  // a title is a still: nothing to advance
+        auto decoder = decoderFor(layer.asset);
+        if (!decoder) continue;
+        const int64_t last = std::min<int64_t>(std::max<int64_t>(decoder->info().durationFrames - 1, 0), layer.limitFrame - 1);
+        const int64_t frame = std::clamp<int64_t>(layer.baseFrame + advanced, 0, std::max<int64_t>(last, 0));
+        if (frame != layer.frame) {
+            layer.frame = frame;
+            decoder->setTarget(frame);
+        }
+    }
+    const auto frameDueNs = [&](int64_t frames) {
+        return static_cast<int64_t>(static_cast<__int128>(frames) * sceneFps_.den * 1000000000 / sceneFps_.num);
+    };
+    const auto due = playStart_ + std::chrono::nanoseconds(frameDueNs(advanced));
+    maybeDraw(false, std::chrono::duration_cast<std::chrono::nanoseconds>(due.time_since_epoch()).count());
+    thread_->postAt([this, generation] { tickScene(generation); },
+                    playStart_ + std::chrono::nanoseconds(frameDueNs(advanced + 1)) - kPresentLead);
+}
+
 void PreviewEngine::setScene(int canvasW, int canvasH, std::vector<SceneLayer> layers) {
     thread_->post([this, canvasW, canvasH, layers = std::move(layers)]() mutable {
         playing_ = false;
+        sceneMode_ = false;
         ++playGeneration_;
         applyScene(canvasW, canvasH, std::move(layers));
         maybeDraw(false);
@@ -324,6 +373,7 @@ void PreviewEngine::seek(uint32_t assetId, int64_t frame) {
 void PreviewEngine::play(uint32_t assetId, int64_t startFrame) {
     thread_->post([this, assetId, startFrame] {
         if (!applyScene(0, 0, {SceneLayer{assetId, startFrame, LayerTransform{}}})) return;
+        sceneMode_ = false;
         playing_ = true;
         playStart_ = Clock::now();
         playStartFrame_ = scene_[0].frame;
@@ -335,6 +385,7 @@ void PreviewEngine::play(uint32_t assetId, int64_t startFrame) {
 void PreviewEngine::pause() {
     thread_->post([this] {
         playing_ = false;
+        sceneMode_ = false;
         ++playGeneration_;
     });
 }

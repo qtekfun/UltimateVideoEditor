@@ -15,6 +15,7 @@ import com.ultimatevideo.uveditor.engine.audio.AudioPlaybackEngine
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,6 +58,11 @@ internal fun audioSnapshotOf(
  * are registered lazily (opening does blocking I/O, so it happens off the main thread) and the
  * latest snapshot is applied once they are known. Failures are reported through [onError], never
  * swallowed; if the audio device cannot start, playback continues silently on the system clock.
+ *
+ * The output stream is only open while it is needed: it opens on [play], closes [IDLE_STOP_MILLIS]
+ * after a [pause] (so a quick pause/play does not reopen the device) and at once in [releaseDevice],
+ * which the screen calls when the app goes to the background. Mixer state (assets, snapshot, the
+ * position) survives a closed stream, and scrubbing while paused never needs the device.
  */
 class EditorAudio(
     private val context: Context,
@@ -65,14 +71,14 @@ class EditorAudio(
 ) : PlaybackOutput, AutoCloseable {
 
     private val engine: AudioPlaybackEngine? = try {
-        AudioPlaybackEngine().also { it.start() }
+        AudioPlaybackEngine()
     } catch (e: EngineException) {
         onError("Audio is unavailable: ${e.message}")
         null
-    } catch (e: AudioException) {
-        onError("Audio is unavailable: ${e.message}")
-        null
     }
+
+    private var streamOpen = false
+    private var stopJob: Job? = null
 
     private val registered = HashSet<Long>()
     private val opening = HashSet<Long>()
@@ -159,7 +165,9 @@ class EditorAudio(
 
     override fun play(fromFrame: Long) {
         val engine = engine ?: return
+        stopJob?.cancel()
         try {
+            openStream(engine)
             engine.seek(fromFrame)
             engine.play()
         } catch (e: AudioException) {
@@ -168,7 +176,33 @@ class EditorAudio(
     }
 
     override fun pause() {
-        engine?.pause()
+        val engine = engine ?: return
+        engine.pause()
+        stopJob?.cancel()
+        // Close the device after a short idle, not at once: pausing and resuming within a moment is common.
+        stopJob = scope.launch {
+            delay(IDLE_STOP_MILLIS)
+            closeStream(engine)
+        }
+    }
+
+    override fun releaseDevice() {
+        val engine = engine ?: return
+        stopJob?.cancel()
+        engine.pause()
+        closeStream(engine)
+    }
+
+    private fun openStream(engine: AudioPlaybackEngine) {
+        if (streamOpen) return
+        engine.start()
+        streamOpen = true
+    }
+
+    private fun closeStream(engine: AudioPlaybackEngine) {
+        if (!streamOpen) return
+        streamOpen = false
+        engine.stop()
     }
 
     override fun seek(frame: Long) {
@@ -184,10 +218,12 @@ class EditorAudio(
 
     override fun close() {
         closed = true
+        stopJob?.cancel()
         engine?.close()
     }
 
     private companion object {
         const val FAULT_POLL_MILLIS = 500L
+        const val IDLE_STOP_MILLIS = 1_500L
     }
 }

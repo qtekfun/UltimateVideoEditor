@@ -163,13 +163,20 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         )
     }
 
-    // Show the composite under the playhead (every video track, bottom first); while playing this runs
-    // on every tick. It follows the visible timeline, so a transform being dragged shows live.
-    LaunchedEffect(state.playhead, state.visibleTimeline, state.assets, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
+    // Show the composite under the playhead (every video track, bottom first). Paused, every change
+    // shows a still frame. Playing, the playhead is the audio clock: the native preview runs by
+    // itself and is only re-anchored when the composition changes or drifts from it, never seeked
+    // per tick. It follows the visible timeline, so a transform being dragged shows live.
+    LaunchedEffect(state.playhead, state.isPlaying, state.visibleTimeline, state.assets, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
         val layers = previewRequestsAt(state.visibleTimeline, state.assets, state.fps, state.playhead) { viewModel.assetKey(it).toInt() }
-        // In a gap the preview keeps its last frame.
-        if (layers.isNotEmpty()) preview.show(PreviewScene(state.canvasWidth, state.canvasHeight, layers))
+        val scene = PreviewScene(state.canvasWidth, state.canvasHeight, layers)
+        when {
+            state.isPlaying -> preview.follow(scene, state.playhead.value, state.fps)
+            layers.isNotEmpty() -> preview.show(scene)
+            // In a gap, or at the end after playing, the preview keeps its last frame.
+            else -> preview.stopFollowing()
+        }
     }
 
     val editing = remember(viewModel) {
@@ -214,7 +221,11 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     LaunchedEffect(committedEnd, state.isLoading) {
         if (!state.isLoading && engine.isAutoFit()) engine.fitToContent()
     }
-    LaunchedEffect(state.playhead) { engine.setPlayhead(state.playhead.value) }
+    LaunchedEffect(state.playhead) {
+        engine.setPlayhead(state.playhead.value)
+        // Playing, or jumping to the next/previous edit, can take the playhead off screen.
+        engine.ensureVisible(state.playhead.value)
+    }
 
     val requestedWaveforms = remember { mutableSetOf<String>() }
     LaunchedEffect(state.assets) {
@@ -232,7 +243,11 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     BackHandler { viewModel.onIntent(EditorIntent.Back) }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onIntent(EditorIntent.Flush) }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        // Flush pauses playback; the audio device is then freed until the next play.
+        viewModel.onIntent(EditorIntent.Flush)
+        audio.releaseDevice()
+    }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         when {
