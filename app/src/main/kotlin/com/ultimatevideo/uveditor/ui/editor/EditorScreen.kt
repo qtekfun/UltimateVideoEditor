@@ -367,6 +367,16 @@ private fun EditorMain(
 ) {
     val hasSelection = state.selectedClipId != null
     var stickersOpen by remember { mutableStateOf(false) }
+    var templatesOpen by remember { mutableStateOf(false) }
+    if (templatesOpen) {
+        TextTemplateSheet(
+            onApply = { id, text ->
+                viewModel.onIntent(EditorIntent.ApplyTextTemplate(id, text))
+                templatesOpen = false
+            },
+            onDismiss = { templatesOpen = false },
+        )
+    }
     if (stickersOpen) {
         StickerSheet(
             onPick = {
@@ -470,6 +480,8 @@ private fun EditorMain(
             ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
             ToolButton(EditorIcons.Captions, "Auto captions for the selected clip", onClick = onCaptions)
             ToolButton(EditorIcons.Sticker, "Add a sticker at the playhead") { stickersOpen = true }
+            ToolButton(EditorIcons.TextTemplate, "Add an animated text template at the playhead") { templatesOpen = true }
+            MarkerMenu(state, viewModel::onIntent)
             ToolButton(
                 EditorIcons.Transition,
                 "Add a crossfade between the selected clip and the next",
@@ -616,7 +628,7 @@ private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace,
 
 /** Small icon-only button; [description] is read by screen readers. */
 @Composable
-private fun ToolButton(
+internal fun ToolButton(
     icon: ImageVector,
     description: String,
     modifier: Modifier = Modifier,

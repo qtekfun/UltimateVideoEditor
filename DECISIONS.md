@@ -397,3 +397,46 @@ thumbnail needs a native upload path into the thumbnail atlas, which could not b
 was not reachable), so it is deferred rather than shipped blind. **Alternative:** pre-seed the on-disk tile cache from Kotlin
 (couples to the tile file format). Animated GIF/WebP are also deferred: `ImageDecoder` returns the first frame, which is what shows.
 
+## 2026-10-04 · Beat detection: Kotlin, on the waveform peak cache, amplitude only
+**Chosen:** beats come from a pure-Kotlin detector (`domain.beat.BeatDetector`) fed with the loudness envelope of the existing
+waveform peak cache (`waveforms/<assetId>.peaks`, finest level, ~750 bins/s): onset curve = positive rise of log energy, tempo =
+autocorrelation over 60-180 BPM with a prior near 120, beats on the best phase pulled to onsets. **Why:** no second audio decode, no new
+native code or JNI, deterministic and unit-testable with synthetic click tracks, and it runs off the main thread in milliseconds.
+**Limits:** amplitude only (no spectrum), so speech or ambience gives "no clear beat", and a fast pulse may be found at half tempo (the
+beats still sit on real beats). It needs the waveform to exist first, which the timeline already requests for every clip on screen.
+**Alternative:** spectral-flux onsets in C++ over decoded PCM (more robust on dense music, but a new native analysis path that could not
+be checked on the device here), or a tempo library.
+
+## 2026-10-04 · Markers: absolute frames, two kinds, beats replaced per clip range
+**Chosen:** markers sit at absolute project frames and do not move when clips are edited; `MANUAL` (placed at the playhead, toggled on
+the nearest one within 2 frames) and `BEAT` (detected). Re-analysing replaces only the beats inside the analysed clip's timeline range;
+manual markers are never touched, and "Clear detected beats" removes all beats. **Why:** a marker is a point of the *edit* (a cut target),
+not of a clip, and replacing per range lets several clips each keep their own beats. **Alternative:** anchor beat markers to their clip
+so they travel with it (they would also need re-mapping through retime and trims on every edit).
+
+## 2026-10-04 · "Cut to beat": selected base clip and everything after it, nearest marker, never past the media
+**Chosen:** applies to the selected base-track clip and every later base clip, ending each on the nearest marker after its start (tie:
+the earlier one). A clip with media can only grow as far as its source allows (titles and stills freely); when the nearest marker is out
+of reach the latest reachable one is used, and a clip with none is left alone. It uses `MagneticBase.trim`, so the base ripples and
+overlays follow, all as one undo step. **Why:** the editor has a single selection, and "from here to the end" is the usual way a montage is
+tightened to a song. **Alternative:** multi-select and cut only those clips; or fixed beat-multiple lengths (every clip = N beats).
+
+## 2026-10-04 · Snap to markers: on by default, one toggle
+**Chosen:** moving, trimming and dropping snap to markers with the same 8-frame threshold as clip edges; a "Snap to markers" switch in the
+markers menu turns it off. **Why:** the point of beat markers is to land cuts on them, and a dense beat grid can make dragging sticky, so
+it must be switchable. **Alternative:** snap only to manual markers, or only while a modifier gesture is held.
+
+## 2026-10-04 · Text templates are data over titles, keyframes and plain bar stickers
+**Chosen:** a template is a list of layers (text or bar) with a resting pose and keys given in seconds/canvas fractions; applying it creates
+ordinary title and sticker clips with ordinary keyframes in one undo step, so preview and export match with no new render code. Bars are two
+new sticker ids (`shape:bar-dark`, `shape:bar-accent`) that the picker does not list. Text is always centre-aligned and moved by offsets; a lane
+is reused only if it is free over the range, otherwise a new one is added (nothing is overwritten). **Why:** the title rasteriser and caption
+styles are changing in parallel work, so a background field on `TitleContent` would collide; bars as stickers reuse the still path.
+**Alternative:** a `background` on `TitleContent` (one clip instead of two, but touches the rasteriser) or per-word animated text.
+**Not verified:** how the templates look on the device (positions are canvas fractions chosen by reasoning, not by eye).
+
+## 2026-10-04 · Markers and templates in the editor UI: one flag menu and one sheet
+**Chosen:** the toolbar gets two buttons: a flag opening a menu (marker at playhead, find beats, cut to beat, clear beats, snap switch) and a
+text-template sheet with an optional text field. **Why:** the toolbar already scrolls sideways; five more icons would bury the rest.
+**Alternative:** a dedicated "Beats" panel with a BPM readout and per-beat editing, once markers are draggable on the ruler.
+

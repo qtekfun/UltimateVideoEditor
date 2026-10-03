@@ -55,6 +55,14 @@ struct RetimeSnapshot {
     bool freeze() const { return (flags & 2) != 0; }
 };
 
+// A ruler marker at timeline frame `frame`. flags: bit0 = detected beat (otherwise placed by the user).
+struct MarkerSnapshot {
+    int64_t frame;
+    int32_t flags;
+
+    bool beat() const { return (flags & 1) != 0; }
+};
+
 // Source frame offset (from sourceIn) of timeline frame `local` of a clip `duration` frames long; the
 // boundary of frame `local`, so `retimeBoundary(c, 0) .. retimeBoundary(c, duration)` is the whole span.
 // A null `retime` is 1x forward. A reversed clip's offsets fall from the end of its range.
@@ -76,6 +84,8 @@ struct TimelineSnapshot {
     std::vector<KeyframeSnapshot> keyframes;
     // Retimed clips only, sorted by clipKey (see retimeOf).
     std::vector<RetimeSnapshot> retimes;
+    // Sorted by frame (version 5; empty before).
+    std::vector<MarkerSnapshot> markers;
 
     int64_t endFrame() const;
     // The retime of one clip, or null when it plays at 1x forward.
@@ -84,8 +94,8 @@ struct TimelineSnapshot {
     std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> keyframesOf(int64_t clipKey) const;
 };
 
-// Wire layout (little endian), version 4 (version 3 is the same without the retime trailer, version 2
-// also without the keyframe trailer):
+// Wire layout (little endian), version 5 (version 4 is the same without the marker trailer, version 3
+// also without the retime trailer, version 2 also without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
 //   tracks: i32 type * trackCount
 //   clips : i64 clipKey, i32 trackIndex, i64 assetKey, i64 start, i64 duration, i64 sourceIn,
@@ -95,14 +105,16 @@ struct TimelineSnapshot {
 //   keyframes (v3): i32 keyframeCount, then per keyframe: i64 clipKey, i64 frame           (16 bytes each)
 //   retimes (v4): i32 retimeCount, then per retimed clip:
 //           i64 clipKey, i64 sourceSpanFrames, i32 flags(bit0=reverse, bit1=freeze), i32 reserved   (24 bytes each)
+//   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 reserved   (16 bytes each)
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
-constexpr uint32_t kSnapshotVersion = 4;
+constexpr uint32_t kSnapshotVersion = 5;
 constexpr uint32_t kSnapshotMinVersion = 2;
 constexpr size_t kSnapshotHeaderBytes = 24;
 constexpr size_t kSnapshotClipBytes = 56;
 constexpr size_t kSnapshotTransitionBytes = 32;
 constexpr size_t kSnapshotKeyframeBytes = 16;
 constexpr size_t kSnapshotRetimeBytes = 24;
+constexpr size_t kSnapshotMarkerBytes = 16;
 
 core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* out);
 

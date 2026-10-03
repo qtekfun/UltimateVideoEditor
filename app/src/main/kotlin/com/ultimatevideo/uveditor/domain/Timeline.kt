@@ -183,6 +183,8 @@ data class Track(
 data class Timeline(
     val tracks: List<Track> = emptyList(),
     val transitions: List<Transition> = emptyList(),
+    /** Ruler markers (manual and detected beats), sorted by frame with unique frames; see [MarkerOps]. */
+    val markers: List<Marker> = emptyList(),
 ) {
     fun track(id: String): Track? = tracks.firstOrNull { it.id == id }
 
@@ -285,6 +287,7 @@ data class Timeline(
             if (!seenTransitionIds.add(transition.id)) violations += "duplicate transition id ${transition.id}"
             transitionProblem(transition)?.let { violations += "transition ${transition.id}: $it" }
         }
+        violations += MarkerOps.violations(markers)
         return violations
     }
 }

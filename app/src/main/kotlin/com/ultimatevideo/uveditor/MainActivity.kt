@@ -21,6 +21,8 @@ import com.ultimatevideo.uveditor.data.AndroidMediaImporter
 import com.ultimatevideo.uveditor.data.ContentResolverTransferIO
 import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.engine.NativeEngineClient
+import com.ultimatevideo.uveditor.engine.timeline.WaveformBeatSource
+import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.editor.EditorScreen
 import com.ultimatevideo.uveditor.ui.editor.EditorViewModel
 import com.ultimatevideo.uveditor.ui.hub.HubIntent
@@ -56,7 +58,14 @@ class MainActivity : ComponentActivity() {
                     val editorViewModel: EditorViewModel = viewModel(
                         viewModelStoreOwner = owner,
                         factory = viewModelFactory {
-                            initializer { EditorViewModel(projectId, repository, mediaImporter) }
+                            initializer {
+                                EditorViewModel(
+                                    projectId,
+                                    repository,
+                                    mediaImporter,
+                                    beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
+                                )
+                            }
                         },
                     )
                     EditorScreen(editorViewModel, projectId, onClose = { openProjectId = null })
