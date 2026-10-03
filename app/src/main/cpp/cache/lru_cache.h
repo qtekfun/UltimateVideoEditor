@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <iterator>
 #include <list>
 #include <mutex>
 #include <unordered_map>
@@ -19,6 +20,15 @@ public:
     // Inserts or replaces. Returns the evicted values so callers can release them outside the lock.
     // An entry larger than the whole budget is rejected (returned in the eviction list).
     std::vector<V> put(const K& key, V value, size_t bytes) {
+        return put(key, std::move(value), bytes, [](const K&) { return false; });
+    }
+
+    // Like put(), but eviction takes the least recently used entry that `isProtected` does not
+    // claim, and only falls back to protected ones when nothing else is left. Playback prefetch
+    // needs this: frames ahead of the playhead are older in recency than frames just played, so
+    // plain LRU would throw away exactly what is about to be shown.
+    template <typename Protect>
+    std::vector<V> put(const K& key, V value, size_t bytes, Protect isProtected) {
         std::vector<V> evicted;
         std::lock_guard<std::mutex> lock(mu_);
         auto it = index_.find(key);
@@ -35,7 +45,7 @@ public:
         order_.push_front(Entry{key, std::move(value), bytes});
         index_[key] = order_.begin();
         used_ += bytes;
-        evictLocked(evicted);
+        evictLocked(evicted, isProtected);
         return evicted;
     }
 
@@ -59,7 +69,7 @@ public:
         std::vector<V> evicted;
         std::lock_guard<std::mutex> lock(mu_);
         budget_ = budgetBytes;
-        evictLocked(evicted);
+        evictLocked(evicted, [](const K&) { return false; });
         return evicted;
     }
 
@@ -111,13 +121,22 @@ private:
         size_t bytes;
     };
 
-    void evictLocked(std::vector<V>& evicted) {
+    template <typename Protect>
+    void evictLocked(std::vector<V>& evicted, Protect isProtected) {
         while (used_ > budget_ && !order_.empty()) {
-            Entry& last = order_.back();
-            used_ -= last.bytes;
-            index_.erase(last.key);
-            evicted.push_back(std::move(last.value));
-            order_.pop_back();
+            auto victim = order_.end();
+            for (auto it = order_.end(); it != order_.begin();) {  // least recently used first
+                --it;
+                if (!isProtected(it->key)) {
+                    victim = it;
+                    break;
+                }
+            }
+            if (victim == order_.end()) victim = std::prev(order_.end());
+            used_ -= victim->bytes;
+            index_.erase(victim->key);
+            evicted.push_back(std::move(victim->value));
+            order_.erase(victim);
         }
     }
 
