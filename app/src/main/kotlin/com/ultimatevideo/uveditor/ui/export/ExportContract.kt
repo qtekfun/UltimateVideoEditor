@@ -24,7 +24,12 @@ data class ExportInput(
 
 sealed interface ExportPhase {
     data object Configuring : ExportPhase
-    data class Running(val progressPermille: Int) : ExportPhase
+    /** [startedAtMs] is the wall-clock start (for a ticking elapsed time); [estimate] is what the engine's progress implies. */
+    data class Running(
+        val progressPermille: Int,
+        val startedAtMs: Long = 0,
+        val estimate: ExportEstimate = ExportEstimate(),
+    ) : ExportPhase
     data class Done(val uri: String, val fileName: String) : ExportPhase
     data class Failed(val message: String) : ExportPhase
 }

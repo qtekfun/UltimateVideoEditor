@@ -20,12 +20,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
+import kotlinx.coroutines.delay
 
 /** Hosts the export flow: the document picker, the share sheet and the settings/progress dialog. */
 @Composable
@@ -64,7 +68,7 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
         text = {
             when (phase) {
                 ExportPhase.Configuring -> Settings(state, onIntent)
-                is ExportPhase.Running -> Progress(phase.progressPermille)
+                is ExportPhase.Running -> Progress(phase)
                 is ExportPhase.Done -> Text("Saved ${phase.fileName}.")
                 is ExportPhase.Failed -> Text(phase.message, color = MaterialTheme.colorScheme.error)
             }
@@ -92,10 +96,33 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
 }
 
 @Composable
-private fun Progress(permille: Int) {
+private fun Progress(phase: ExportPhase.Running) {
+    // A once-a-second tick keeps the elapsed time moving between the engine's progress reports.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(phase.startedAtMs) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val estimate = phase.estimate
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        LinearProgressIndicator(progress = { permille / 1000f }, modifier = Modifier.fillMaxWidth())
-        Text("${permille / 10}%", style = MaterialTheme.typography.labelLarge)
+        LinearProgressIndicator(progress = { phase.progressPermille / 1000f }, modifier = Modifier.fillMaxWidth())
+        Text("${phase.progressPermille / 10}%", style = MaterialTheme.typography.labelLarge)
+        val elapsed = if (phase.startedAtMs > 0) formatDuration((now - phase.startedAtMs).coerceAtLeast(0)) else null
+        val left = when {
+            estimate.stalled -> "Waiting for the encoder…"
+            estimate.remainingMs != null -> "About ${formatDuration(estimate.remainingMs)} left"
+            else -> "Estimating time left…"
+        }
+        Text(listOfNotNull(elapsed?.let { "$it elapsed" }, left).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
+        if (estimate.framesPerSecond != null && estimate.speedFactor != null) {
+            Text(
+                "%.0f frames/s · %.1fx real time".format(estimate.framesPerSecond, estimate.speedFactor),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

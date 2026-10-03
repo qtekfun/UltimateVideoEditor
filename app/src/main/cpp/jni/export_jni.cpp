@@ -102,7 +102,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
     jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jlongArray sourceClips,
-    jlongArray sourceTable, jintArray titleMeta, jobjectArray titlePixels, jobject audioSnapshot, jint outputFd) {
+    jlongArray sourceTable, jintArray titleMeta, jobjectArray titlePixels, jintArray lutMeta, jobjectArray lutData, jobject audioSnapshot,
+    jint outputFd) {
     ExportParams params;
     params.width = width;
     params.height = height;
@@ -287,6 +288,44 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
             if (buffer != nullptr) env->DeleteLocalRef(buffer);
             if (!valid) {
                 throwExport(env, Status::InvalidArgument, "a title image is not a direct RGBA buffer of the given size");
+                closeAll(params.assetFds, outputFd);
+                return 0;
+            }
+        }
+    }
+
+    // LUTs: `lutMeta` holds {key, size} per LUT and `lutData` one direct float buffer of size^3 * 3
+    // values each (red varying fastest); the values are copied.
+    const jsize lutMetaLength = lutMeta == nullptr ? 0 : env->GetArrayLength(lutMeta);
+    const jsize lutCount = lutData == nullptr ? 0 : env->GetArrayLength(lutData);
+    if (static_cast<size_t>(lutMetaLength) != static_cast<size_t>(lutCount) * 2) {
+        throwExport(env, Status::InvalidArgument, "LUT descriptions do not match the LUT tables");
+        closeAll(params.assetFds, outputFd);
+        return 0;
+    }
+    if (lutCount > 0) {
+        std::vector<jint> meta(static_cast<size_t>(lutMetaLength));
+        env->GetIntArrayRegion(lutMeta, 0, lutMetaLength, meta.data());
+        for (jsize n = 0; n < lutCount; ++n) {
+            const jint key = meta[static_cast<size_t>(n) * 2];
+            const jint size = meta[static_cast<size_t>(n) * 2 + 1];
+            jobject buffer = env->GetObjectArrayElement(lutData, n);
+            const void* data = buffer == nullptr ? nullptr : env->GetDirectBufferAddress(buffer);
+            const jlong capacity = buffer == nullptr ? 0 : env->GetDirectBufferCapacity(buffer);
+            const int64_t count = static_cast<int64_t>(size) * size * size * 3;
+            const bool valid = key > 0 && size >= 2 && size <= 65 && data != nullptr &&
+                               capacity >= count * static_cast<int64_t>(sizeof(float));
+            if (valid) {
+                uv::encode::LutImage lut;
+                lut.key = static_cast<uint32_t>(key);
+                lut.size = size;
+                const auto* floats = static_cast<const float*>(data);
+                lut.rgb.assign(floats, floats + count);
+                params.luts.push_back(std::move(lut));
+            }
+            if (buffer != nullptr) env->DeleteLocalRef(buffer);
+            if (!valid) {
+                throwExport(env, Status::InvalidArgument, "a LUT is not a direct float buffer of the given size");
                 closeAll(params.assetFds, outputFd);
                 return 0;
             }

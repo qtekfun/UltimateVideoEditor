@@ -112,6 +112,9 @@ data class ExportKeyframe(
 /** A rasterised title for the export: premultiplied RGBA in canvas pixels, see `TitleBitmap`. */
 class ExportTitle(val key: Int, val width: Int, val height: Int, val pixels: ByteBuffer)
 
+/** A 3D LUT for the export: [size]^3 RGB floats (red varying fastest) in a direct, native-order buffer. */
+class ExportLut(val key: Int, val size: Int, val rgb: ByteBuffer)
+
 /**
  * Everything the native exporter needs. Descriptors are raw (already detached) and are owned by
  * the exporter from the moment [ExportRunner.start] is called, even if it throws.
@@ -132,6 +135,8 @@ class ExportRequest(
     val audioSnapshot: ByteBuffer?,
     val outputFd: Int,
     val titles: List<ExportTitle> = emptyList(),
+    /** The LUTs the clips' LUT effects refer to; a LUT that is absent leaves its clip ungraded. */
+    val luts: List<ExportLut> = emptyList(),
 )
 
 interface ExportListener {

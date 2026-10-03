@@ -50,6 +50,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.ui.preview.wantedOutputSpace
 import com.ultimatevideo.uveditor.ui.preview.DisplayHdr
@@ -103,6 +104,7 @@ import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
 import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
+import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
 import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
 import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
@@ -134,6 +136,16 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // The app-wide LUT library, shared by the effects section, the preview and the export.
+    val lutStore = remember(context) { LutStore(File(context.applicationContext.filesDir, "luts")) }
+    val lutLibrary: LutLibraryViewModel = viewModel(
+        key = "luts",
+        factory = viewModelFactory {
+            initializer { LutLibraryViewModel(lutStore, ContentResolverLutReader(context.applicationContext)) }
+        },
+    )
+    val lutState by lutLibrary.state.collectAsStateWithLifecycle()
+
     val exportViewModel: ExportViewModel = viewModel(
         key = "export-$projectId",
         factory = viewModelFactory {
@@ -144,11 +156,23 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     titleRasterizer = AndroidTitleRasterizer(),
                     stillRasterizer = AndroidStillRasterizer(context.applicationContext),
                     hdrSupport = MediaCodecHdrExportSupport(),
+                    lutLoader = lutStore::load,
                 )
             }
         },
     )
     ExportHost(exportViewModel)
+    if (state.lutPickerOpen) {
+        LutPickerDialog(
+            state = lutState,
+            onPick = { viewModel.onIntent(EditorIntent.AddLut(it)) },
+            onImport = { uri -> lutLibrary.import(uri) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
+            onDismiss = {
+                lutLibrary.clearError()
+                viewModel.onIntent(EditorIntent.CloseLutPicker)
+            },
+        )
+    }
 
     val captionsViewModel: CaptionsViewModel = viewModel(
         key = "captions-$projectId",
@@ -214,7 +238,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     DisposableEffect(engine) { onDispose { engine.close() } }
 
     val preview = remember {
-        EditorPreview(context, scope) { viewModel.onIntent(EditorIntent.ReportError(it)) }
+        EditorPreview(context, scope, lutLoader = lutStore::load) { viewModel.onIntent(EditorIntent.ReportError(it)) }
     }
     DisposableEffect(preview) { onDispose { preview.close() } }
 
@@ -359,6 +383,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         audio.releaseDevice()
     }
 
+    CompositionLocalProvider(LocalLutNames provides lutState.names) {
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         when {
             state.isLoading -> Column(
@@ -396,6 +421,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 }
             }
         }
+    }
     }
 }
 

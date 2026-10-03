@@ -41,6 +41,8 @@ internal object NativeExport {
         sourceTable: LongArray,
         titleMeta: IntArray,
         titlePixels: Array<ByteBuffer>,
+        lutMeta: IntArray,
+        lutData: Array<ByteBuffer>,
         audioSnapshot: ByteBuffer?,
         outputFd: Int,
     ): Long
@@ -122,13 +124,19 @@ class NativeExportRunner : ExportRunner {
             titleMeta[i * TITLE_INTS + 2] = title.height
         }
         val titlePixels = Array(request.titles.size) { request.titles[it].pixels }
+        val lutMeta = IntArray(request.luts.size * 2)
+        request.luts.forEachIndexed { i, lut ->
+            lutMeta[i * 2] = lut.key
+            lutMeta[i * 2 + 1] = lut.size
+        }
+        val lutData = Array(request.luts.size) { request.luts[it].rgb }
         val s = request.settings
         val handle = try {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
                 request.canvasWidth, request.canvasHeight, s.codec.value or (if (s.hdr) HDR_FLAG else 0), s.videoBitrate, s.audioBitrate, request.totalFrames,
                 keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
-                sourceClips, sourceTable, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
+                sourceClips, sourceTable, titleMeta, titlePixels, lutMeta, lutData, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")

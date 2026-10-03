@@ -155,7 +155,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 }
 
 namespace {
-constexpr jsize kParamsPerLayer = 7;
+constexpr jsize kParamsPerLayer = 8;
 
 // `ids` holds `idStride` longs per layer ({assetId, frame} and, for playback, the exclusive limit
 // frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity, direction}, both bottom to top.
@@ -203,6 +203,8 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx
         const jfloat* p = &paramValues[static_cast<size_t>(i) * kParamsPerLayer];
         layer.transform = uv::render::LayerTransform{p[0], p[1], p[2], p[3], p[4], p[5]};
         layer.direction = p[6] < 0.0f ? -1 : 1;
+        // -1 (or anything out of range) keeps the asset's own colour; 0..2 is a SourceTransfer override.
+        layer.source = (p[7] >= 0.0f && p[7] <= 2.0f) ? static_cast<int32_t>(p[7]) : -1;
         out->push_back(layer);
     }
     return true;
@@ -238,6 +240,25 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     const auto* bytes = static_cast<const uint8_t*>(data);
     fromHandle(handle)->engine->uploadTitle(static_cast<uint32_t>(key), width, height,
                                             std::vector<uint8_t>(bytes, bytes + needed));
+}
+
+// `rgb` is a direct float buffer of size^3 * 3 values (red varying fastest); it is copied.
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadLut(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint size, jobject rgb) {
+    const void* data = rgb == nullptr ? nullptr : env->GetDirectBufferAddress(rgb);
+    const jlong capacity = rgb == nullptr ? 0 : env->GetDirectBufferCapacity(rgb);
+    const int64_t count = static_cast<int64_t>(size) * size * size * 3;
+    if (key <= 0 || size < 2 || size > 65 || data == nullptr || capacity < count * static_cast<int64_t>(sizeof(float))) {
+        throwPreview(env, Status::InvalidArgument, "LUT data does not match the given size");
+        return;
+    }
+    const auto* floats = static_cast<const float*>(data);
+    fromHandle(handle)->engine->uploadLut(static_cast<uint32_t>(key), size, std::vector<float>(floats, floats + count));
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseLut(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
+    fromHandle(handle)->engine->releaseLut(static_cast<uint32_t>(key));
 }
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseTitle(
