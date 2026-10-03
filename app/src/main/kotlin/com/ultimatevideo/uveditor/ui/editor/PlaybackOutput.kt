@@ -15,4 +15,7 @@ interface PlaybackOutput {
 
     /** Project frame being heard right now, or null if the output cannot report one. */
     fun heardFrame(): Long?
+
+    /** Frees the audio device (the app is in the background). Playing again reopens it. */
+    fun releaseDevice() {}
 }

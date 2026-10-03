@@ -38,6 +38,22 @@ class TimelineSurfaceView(
 
     private var downHit: TimelineHit? = null
     private var dragging = false
+    private var dragX = 0f
+    private var dragY = 0f
+
+    // While a clip is dragged with the finger near a side edge the timeline keeps scrolling, so a
+    // clip can be carried beyond what is on screen. Runs once per frame and moves the clip with it.
+    private val edgeScroll = object : Runnable {
+        override fun run() {
+            if (!dragging) return
+            val dx = edgeScrollSpeed(dragX, width.toFloat(), resources.displayMetrics.density)
+            if (dx != 0f) {
+                engine.scrollBy(dx, 0f)
+                editing()?.onDragMove(engine.hitTest(dragX, dragY))
+            }
+            postOnAnimation(this)
+        }
+    }
 
     private val scaleDetector = ScaleGestureDetector(
         context,
@@ -61,6 +77,8 @@ class TimelineSurfaceView(
                 if (scaleDetector.isInProgress) return true
                 if (!dragging) tryStartDrag()
                 if (dragging) {
+                    dragX = e2.x
+                    dragY = e2.y
                     editing()?.onDragMove(engine.hitTest(e2.x, e2.y))
                 } else {
                     engine.scrollBy(distanceX, distanceY)
@@ -102,6 +120,7 @@ class TimelineSurfaceView(
         if (!handler.canDrag(hit)) return
         dragging = true
         handler.onDragStart(hit)
+        postOnAnimation(edgeScroll)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) = engine.surfaceCreated(holder.surface)
@@ -124,3 +143,21 @@ class TimelineSurfaceView(
 }
 
 private const val MAX_EXCLUSION_DP = 200
+private const val EDGE_ZONE_DP = 56f
+private const val EDGE_MAX_SPEED_DP = 14f
+
+/**
+ * Pixels to scroll this frame for a finger at [x] in a view [width] pixels wide: zero away from
+ * the sides, then growing to [EDGE_MAX_SPEED_DP] dp per frame at the very edge. Negative scrolls
+ * back in time. Right of the view centre only the right zone counts and vice versa.
+ */
+internal fun edgeScrollSpeed(x: Float, width: Float, density: Float): Float {
+    val zone = EDGE_ZONE_DP * density
+    if (width <= 2 * zone) return 0f
+    val maxSpeed = EDGE_MAX_SPEED_DP * density
+    return when {
+        x < zone -> -maxSpeed * ((zone - x) / zone).coerceIn(0f, 1f)
+        x > width - zone -> maxSpeed * ((x - (width - zone)) / zone).coerceIn(0f, 1f)
+        else -> 0f
+    }
+}

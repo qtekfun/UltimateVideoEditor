@@ -44,6 +44,8 @@ public:
     // Source of video thumbnails; held weakly so the owner can destroy it first. May be empty.
     void setThumbnails(std::weak_ptr<thumb::ThumbnailService> service);
     void setPlayhead(int64_t frame);
+    // Scrolls (without changing the zoom) so that `frame` is on screen; see Viewport::ensureVisible.
+    void ensureVisible(int64_t frame);
     void scrollBy(float dx, float dy);
     void zoomBy(float factor, float focusX);
     // Zooms to show the whole timeline and resumes following it on resize.
