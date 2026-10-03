@@ -453,6 +453,7 @@ private fun EditorMain(
 ) {
     val hasSelection = state.selectedClipId != null
     var stickersOpen by remember { mutableStateOf(false) }
+    var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     var templatesOpen by remember { mutableStateOf(false) }
@@ -525,6 +526,14 @@ private fun EditorMain(
                     onEnd = { viewModel.onIntent(EditorIntent.EndAppearanceEdit(commit = true)) },
                     modifier = Modifier.fillMaxSize(),
                 )
+                if (scopesOpen) {
+                    ScopesPanel(
+                        engine = previewEngine,
+                        colorSpace = state.colorSpace,
+                        onError = { viewModel.onIntent(EditorIntent.ReportError(it)) },
+                        modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(SCOPES_WIDTH).fillMaxHeight(SCOPES_HEIGHT).padding(6.dp),
+                    )
+                }
             } else {
                 Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
             }
@@ -567,6 +576,9 @@ private fun EditorMain(
             ToolButton(EditorIcons.Sticker, "Add a sticker at the playhead") { stickersOpen = true }
             ToolButton(EditorIcons.TextTemplate, "Add an animated text template at the playhead") { templatesOpen = true }
             MarkerMenu(state, viewModel::onIntent)
+            ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
+                scopesOpen = !scopesOpen
+            }
             ToolButton(
                 EditorIcons.Transition,
                 "Add a crossfade between the selected clip and the next",
@@ -856,4 +868,8 @@ private suspend fun requestThumbnails(
 }
 
 private const val PREVIEW_WEIGHT = 0.4f
+
+// The scopes overlay covers this share of the preview box, bottom left.
+private const val SCOPES_WIDTH = 0.6f
+private const val SCOPES_HEIGHT = 0.6f
 private const val TIMELINE_WEIGHT = 0.6f

@@ -66,6 +66,11 @@ add_executable(uv_grade_host_tests grade_host_tests.cpp)
 target_include_directories(uv_grade_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_grade_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# Video scopes: where samples land in the waveform, parade, vectorscope and histogram.
+add_executable(uv_scope_host_tests scope_host_tests.cpp)
+target_include_directories(uv_scope_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_scope_host_tests PRIVATE -Wall -Wextra -Werror)
+
 # HDR (HLG / PQ) colour conversion maths, the CPU reference of the composite shader.
 add_executable(uv_hdr_host_tests hdr_host_tests.cpp)
 target_include_directories(uv_hdr_host_tests PRIVATE ${ENGINE_DIR})
@@ -75,6 +80,7 @@ enable_testing()
 add_test(NAME uv_hdr_host_tests COMMAND uv_hdr_host_tests)
 add_test(NAME uv_effects_host_tests COMMAND uv_effects_host_tests)
 add_test(NAME uv_grade_host_tests COMMAND uv_grade_host_tests)
+add_test(NAME uv_scope_host_tests COMMAND uv_scope_host_tests)
 add_test(NAME uv_captions_host_tests COMMAND uv_captions_host_tests)
 add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)

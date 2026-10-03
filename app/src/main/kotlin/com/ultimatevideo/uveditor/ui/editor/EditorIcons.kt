@@ -115,6 +115,9 @@ internal object EditorIcons {
     /** A flag: markers and beats on the ruler. */
     val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
 
+    /** Four bars of different heights: the video scopes. */
+    val Scopes = icon("Scopes", "M4,14h3v6H4zM9,8h3v12H9zM14,11h3v9h-3zM19,4h3v16h-3z")
+
     /** Large and small letters: the text templates. */
     val TextTemplate = icon("TextTemplate", "M2.5,4v3h5v12h3V7h5V4h-13zM21.5,9h-9v3h3v7h3v-7h3V9z")
 
