@@ -173,7 +173,7 @@ class ExportViewModelTest {
         assertEquals(listOf("content://a", "content://out/movie.mp4"), io.opened)
         assertEquals(io.nextFd - 1, request.outputFd)
         assertEquals(setOf(100), request.assetFds.values.toSet())
-        assertEquals(ExportPhase.Running(0), vm.state.value.phase)
+        assertEquals(0, (vm.state.value.phase as ExportPhase.Running).progressPermille)
     }
 
     @Test
@@ -195,13 +195,34 @@ class ExportViewModelTest {
         vm.openAndStart()
 
         runner.listener!!.onProgress(420)
-        assertEquals(ExportPhase.Running(420), vm.state.value.phase)
+        assertEquals(420, (vm.state.value.phase as ExportPhase.Running).progressPermille)
 
         runner.listener!!.onFinished(null)
 
         assertEquals(ExportPhase.Done("content://out/movie.mp4", "My movie.mp4"), vm.state.value.phase)
         assertTrue(runner.handle.closed)
         assertTrue(io.deleted.isEmpty())
+    }
+
+    @Test
+    fun `progress carries an elapsed start and a smoothed time left`() {
+        var now = 10_000L
+        val vm = ExportViewModel(io, runner, dispatcher, clock = { now })
+        vm.openAndStart()
+        assertEquals(10_000L, (vm.state.value.phase as ExportPhase.Running).startedAtMs)
+
+        // 100 permille every 2 s: after 8 s, 400 permille done and 12 s left.
+        for (step in 1..16) {
+            now = 10_000L + step * 500L
+            runner.listener!!.onProgress(step * 25)
+        }
+        val running = vm.state.value.phase as ExportPhase.Running
+        val left = checkNotNull(running.estimate.remainingMs)
+        assertTrue("left was $left", left in 11_000..13_000)
+        assertTrue(checkNotNull(running.estimate.speedFactor) > 0.0)
+
+        runner.listener!!.onFinished(null)
+        assertTrue(vm.state.value.phase is ExportPhase.Done)
     }
 
     @Test
