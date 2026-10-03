@@ -151,6 +151,35 @@ object MagneticBase {
         return EditResult.Success(result.withTrack(updated.withClips(updated.clips.map { if (it.id == clipId) placed else it })).pruned())
     }
 
+    /**
+     * Changes a clip's speed with ripple. On the base the following base clips shift by the change in
+     * length and the overlays follow like they do for a trim of its end: a shorter clip removes the
+     * freed frames from every other track, a longer one opens the same room after it. Elsewhere it is
+     * [TimelineOps.setSpeed] with ripple on that lane only.
+     */
+    fun setSpeed(timeline: Timeline, clipId: String, num: Long, den: Long): EditResult<Timeline> {
+        val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        val base = ClipDeletion.baseTrack(timeline)
+        if (base == null || track.id != base.id) return TimelineOps.setSpeed(timeline, clipId, num, den, ripple = true)
+        val before = checkNotNull(track.clip(clipId))
+        var result = when (val retimed = TimelineOps.setSpeed(timeline, clipId, num, den, ripple = true)) {
+            is EditResult.Success -> retimed.value
+            is EditResult.Failure -> return retimed
+        }
+        val after = checkNotNull(result.trackOfClip(clipId)?.clip(clipId))
+        val delta = after.durationFrames - before.durationFrames
+        if (delta == 0L) return EditResult.Success(result)
+        result = if (delta < 0) {
+            when (val cut = removeFromOverlays(result, base.id, after.timelineEnd, before.timelineEnd)) {
+                is EditResult.Success -> cut.value
+                is EditResult.Failure -> return cut
+            }
+        } else {
+            shiftStartingAt(result, { it.id != base.id }, before.timelineEnd, delta)
+        }
+        return EditResult.Success(result.pruned())
+    }
+
     // region reorder
 
     private fun reorder(timeline: Timeline, clipId: String, newStart: FrameIndex): EditResult<Timeline> {
