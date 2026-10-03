@@ -40,6 +40,7 @@ internal fun previewRequestsAt(
                     fpsDen = fps.den,
                     transform = transform,
                     title = content,
+                    fx = clip.fx,
                 )
             }
             RenderKind.VIDEO -> {
@@ -56,6 +57,7 @@ internal fun previewRequestsAt(
                         transform = transform,
                         // Playback holds the clip's last frame instead of running into trimmed-away media.
                         endFrame = clip.sourceInFrame + clip.durationFrames,
+                        fx = clip.fx,
                     )
                 }
             }
