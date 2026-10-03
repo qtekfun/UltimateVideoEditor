@@ -39,6 +39,20 @@ struct Viewport {
 
     static constexpr double kFitMargin = 1.03;
 
+    // Where a frame lands, as a fraction of the view width from the left, when ensureVisible()
+    // has to scroll to it; the view is only moved if the frame is outside the inner band.
+    static constexpr double kFollowEdge = 0.1;
+
+    // Brings `frame` into view by paging: if it is outside the band [10%, 90%] of the view the
+    // timeline jumps so that it sits 10% from the left, and otherwise stays put. Scrolls only; the
+    // caller clamps. Returns true if it moved.
+    bool ensureVisible(int64_t frame) {
+        const double x = frameToX(frame);
+        if (x >= viewWidth * kFollowEdge && x <= viewWidth * (1.0 - kFollowEdge)) return false;
+        scrollX = std::max(0.0, static_cast<double>(frame) * pxPerFrame - viewWidth * kFollowEdge);
+        return true;
+    }
+
     void clamp(int64_t endFrame, double contentHeight, double viewHeight) {
         // Allow scrolling half a screen past the last clip so the end can be edited.
         const double maxX = std::max(0.0, static_cast<double>(endFrame) * pxPerFrame - viewWidth * 0.5);

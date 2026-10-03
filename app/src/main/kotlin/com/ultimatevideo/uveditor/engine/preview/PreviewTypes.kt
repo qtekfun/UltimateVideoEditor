@@ -55,11 +55,16 @@ data class LayerPlacement(
     }
 }
 
-/** One layer of the preview scene: [frame] of an open asset, in the frame rate the asset was opened with. */
+/**
+ * One layer of the preview scene: [frame] of an open asset, in the frame rate the asset was opened with.
+ * [endFrame] only matters to playback: the layer holds its last frame instead of advancing to it
+ * (exclusive, the clip's out point). Null means the end of the asset.
+ */
 data class PreviewLayer(
     val assetId: Int,
     val frame: Long,
     val placement: LayerPlacement = LayerPlacement.IDENTITY,
+    val endFrame: Long? = null,
 )
 
 data class AssetInfo(

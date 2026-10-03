@@ -108,16 +108,22 @@ static void testPlanCells() {
     CHECK(cells.front().x0 == 100.0 && cells.front().x1 == 300.0);  // anchored to the clip's left edge
     CHECK(cells.back().x1 == 1100.0);
     for (const CellPlan& c : cells) CHECK(c.key.asset == 7 && c.key.level == 3);
-    // Cell k starts 100k frames after the clip start: 0 s, 3.33 s, 6.67 s ... nearest 4 s tiles.
+    // Cell k is sampled at its centre, 100k+50 frames after the clip start: 1.67 s, 5 s, 8.33 s ...
+    // nearest 4 s tiles.
     CHECK(cells[0].key.index == 0);
-    CHECK(cells[1].key.index == 1);  // 3.33 s -> 4 s tile
-    CHECK(cells[2].key.index == 2);  // 6.67 s -> 8 s tile
-    CHECK(cells[3].key.index == 3);  // 10 s = 2.5 tiles, rounds half up
+    CHECK(cells[1].key.index == 1);  // 5 s -> 4 s tile
+    CHECK(cells[2].key.index == 2);  // 8.33 s -> 8 s tile
+    CHECK(cells[3].key.index == 3);  // 11.67 s -> 12 s tile
 
     // Source offset shifts which tiles are asked for (sourceIn = 90 frames = 3 s).
     p.sourceInFrame = 90;
     planClipCells(p, &cells);
-    CHECK(cells[0].key.index == tileIndexForTimeUs(3000000, 3));
+    CHECK(cells[0].key.index == tileIndexForTimeUs(3000000 + 1666666, 3));
+
+    // A clip trimmed to start at 1 s must not open on the tile at 0 s, which is media it cut away.
+    p.sourceInFrame = 30;
+    planClipCells(p, &cells);
+    CHECK(tileTimeUs(3, cells[0].key.index) >= 1000000);
 
     // Scrolled so only the middle of the clip is visible: only those cells, same anchoring.
     p = baseParams();
