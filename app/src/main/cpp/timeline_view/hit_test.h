@@ -16,6 +16,8 @@ enum class HitKind : int32_t {
     ClipRightEdge = 4,
     EmptyTrack = 5,
     Playhead = 6,  // the playhead handle in the ruler
+    Outside = 8,      // the finger left the panel (set by the renderer, which knows the panel size)
+    AboveLanes = 7,  // below the ruler but above the first lane (room left by the bottom-anchored stack)
 };
 
 struct HitResult {

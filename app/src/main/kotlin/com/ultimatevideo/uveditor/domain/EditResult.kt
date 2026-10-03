@@ -49,6 +49,12 @@ sealed interface EditError {
     /** The timeline has no video track to act as the magnetic base. */
     data object NoBaseTrack : EditError
 
+    /** The base track is the guide: it stays the lowest video lane and cannot be reordered. */
+    data class BaseTrackCannotMove(val trackId: String) : EditError
+
+    /** A lane cannot move that way (already first/last of its kind, or nothing to swap with). */
+    data class TrackCannotMove(val trackId: String, val reason: String) : EditError
+
     /** A base-track clip cannot be dragged onto another track: that would leave a gap in the base. */
     data class BaseClipCannotLeave(val clipId: String) : EditError
 }

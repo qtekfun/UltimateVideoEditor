@@ -16,9 +16,12 @@ HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout
         }
         return res;
     }
-    const double yy = y + vp.scrollY - layout.rulerHeight;  // y inside the scrolled track area
+    const double yy = y + vp.scrollY - layout.rulerHeight - layout.inset;  // y inside the scrolled track area
     const double stride = layout.trackHeight + layout.trackGap;
-    if (yy < 0) return res;
+    if (yy < 0) {
+        res.kind = HitKind::AboveLanes;
+        return res;
+    }
     const int track = static_cast<int>(yy / stride);
     if (track < 0 || track >= static_cast<int>(snap.tracks.size())) return res;
     if (yy - track * stride > layout.trackHeight) return res;  // inside the gap
