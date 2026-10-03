@@ -528,3 +528,9 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 
 
 **Update:** per the user ("if you take a clip off the base, it goes to the layer where I drop it"), lifting is a pure move: overlays are never deleted or shifted. Trade-off: overlays that sat over later base footage no longer line up with it after the base closes. Alternative: shift later overlays with the base (risks overlap with overlays that cross the lifted range).
+
+## Export time estimate (elapsed, time left, throughput)
+
+**Decision:** a pure `ExportEstimator` smooths the engine's progress (EMA of the rate over samples at least 0.5 s apart, alpha 0.3). Nothing is shown until 2 s and 3 samples, remaining time is clamped to 24 h, a progress stall of 8 s shows "Waiting for the encoder…" instead of a guess, and throughput is frames/s and x real time from the whole run. The dialog ticks the elapsed time once a second; durations are rounded (5 s steps above two minutes) so they do not flicker. The clock is injected so tests are exact.
+**Why:** the export bar alone gives no idea of how long a 4K or multi-layer export will take; a raw `elapsed / progress` extrapolation jumps wildly at the start and on stalls.
+**Alternative:** a pre-export estimate from project complexity (layers, effects, resolution). Not done: it needs calibration data from several devices and clips, and the live estimate is accurate after a couple of seconds. There is no export notification in the app yet, so there is nothing else to show it in.

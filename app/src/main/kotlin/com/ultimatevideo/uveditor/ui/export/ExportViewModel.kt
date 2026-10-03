@@ -44,6 +44,7 @@ class ExportViewModel(
     private val stillRasterizer: StillRasterizer = StillRasterizer { _, _, _ ->
         throw StillRasterException("This build cannot draw pictures")
     },
+    private val clock: () -> Long = System::currentTimeMillis,
     /** Reads a LUT of the library by key; null when it is missing (its effect then leaves the clip ungraded). */
     private val lutLoader: (Int) -> CubeLut? = { null },
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
@@ -52,6 +53,7 @@ class ExportViewModel(
     private var outputUri: String? = null
     private var handle: ExportHandle? = null
     private val lock = Any()
+    private var estimator: ExportEstimator? = null
 
     override fun onIntent(intent: ExportIntent) {
         when (intent) {
@@ -191,7 +193,7 @@ class ExportViewModel(
             reduce { copy(phase = ExportPhase.Failed("This device cannot export HDR at ${resolution.label}. Choose SDR or a lower resolution.")) }
             return
         }
-        reduce { copy(phase = ExportPhase.Running(0)) }
+        reduce { copy(phase = ExportPhase.Running(0, startedAtMs = clock())) }
         outputUri = uri
         viewModelScope.launch {
             val failure = try {
@@ -271,11 +273,24 @@ class ExportViewModel(
             titles = titleImages + stillImages,
             luts = source.timeline.lutKeys().mapNotNull { key -> lutLoader(key)?.let { ExportLut(key, it.size, it.toDirectBuffer()) } },
         )
+        val totalFrames = request.totalFrames
+        synchronized(lock) {
+            estimator = ExportEstimator(
+                totalFrames = totalFrames,
+                movieSeconds = totalFrames * rate.den.toDouble() / rate.num,
+                startedAtMs = (state.value.phase as? ExportPhase.Running)?.startedAtMs ?: clock(),
+            )
+        }
         val started = runner.start(
             request,
             object : ExportListener {
                 override fun onProgress(permille: Int) {
-                    reduce { if (phase is ExportPhase.Running) copy(phase = ExportPhase.Running(permille)) else this }
+                    val now = clock()
+                    val estimate = synchronized(lock) { estimator?.onProgress(permille, now) } ?: ExportEstimate()
+                    reduce {
+                        val running = phase as? ExportPhase.Running
+                        if (running != null) copy(phase = running.copy(progressPermille = permille, estimate = estimate)) else this
+                    }
                 }
 
                 override fun onFinished(error: ExportException?) {
@@ -288,7 +303,10 @@ class ExportViewModel(
 
     /** Releases the engine (joins its thread), then publishes the outcome and cleans up on failure. */
     private fun finish(error: ExportException?) {
-        val finished = synchronized(lock) { handle.also { handle = null } }
+        val finished = synchronized(lock) {
+            estimator = null
+            handle.also { handle = null }
+        }
         finished?.close()
         val uri = outputUri
         if (error == null && uri != null) {
