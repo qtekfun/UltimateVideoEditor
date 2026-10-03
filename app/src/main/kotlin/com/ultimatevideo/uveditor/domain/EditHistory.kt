@@ -4,6 +4,14 @@ package com.ultimatevideo.uveditor.domain
 sealed interface EditCommand {
     fun apply(timeline: Timeline): EditResult<Timeline>
 
+    data class AddTrack(val track: Track, val index: Int) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.addTrack(timeline, track, index)
+    }
+
+    data class RemoveTrack(val trackId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.removeTrack(timeline, trackId)
+    }
+
     data class Split(val trackId: String, val at: FrameIndex, val newClipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.split(timeline, trackId, at, newClipId)
     }
