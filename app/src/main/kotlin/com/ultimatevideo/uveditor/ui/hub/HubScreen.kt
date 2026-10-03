@@ -1,23 +1,26 @@
 package com.ultimatevideo.uveditor.ui.hub
 
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -38,20 +41,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ultimatevideo.uveditor.data.ProjectOverview
 import com.ultimatevideo.uveditor.data.ProjectSummary
+import com.ultimatevideo.uveditor.data.ProjectThumbnails
 import com.ultimatevideo.uveditor.data.UnreadableProject
 import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit) {
+fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnails: ProjectThumbnails? = null) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
@@ -65,6 +76,10 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit) {
         val id = pendingExportId
         pendingExportId = null
         if (uri != null && id != null) viewModel.onIntent(HubIntent.ExportTo(id, uri.toString()))
+    }
+    // Only reads the clip's format once; the clip is not added to the project and no permission is kept.
+    val matchLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.onIntent(HubIntent.MatchFromClip(uri.toString()))
     }
 
     LaunchedEffect(viewModel) {
@@ -85,6 +100,8 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit) {
         snackbar = snackbar,
         onIntent = viewModel::onIntent,
         onImport = { importLauncher.launch(arrayOf("*/*")) },
+        onPickMatchClip = { matchLauncher.launch(arrayOf("video/*", "image/*")) },
+        thumbnails = thumbnails,
     )
 }
 
@@ -95,13 +112,15 @@ internal fun HubContent(
     snackbar: SnackbarHostState,
     onIntent: (HubIntent) -> Unit,
     onImport: () -> Unit,
+    onPickMatchClip: () -> Unit = {},
+    thumbnails: ProjectThumbnails? = null,
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = { Text("ultimateVE") },
-                actions = { TextButton(onClick = onImport) { Text("Import") } },
+                actions = { HubOverflowMenu(onImport) },
             )
         },
         floatingActionButton = {
@@ -113,11 +132,12 @@ internal fun HubContent(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             state.resumeProject?.let { ResumeBanner(it, onIntent) }
+            if (state.showSearch) SearchBar(state, onIntent)
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading -> Unit
                     state.projects.isEmpty() -> WelcomeState(state.unreadable, onIntent)
-                    else -> ProjectGrid(state, onIntent)
+                    else -> ProjectGrid(state, onIntent, thumbnails)
                 }
             }
             Text(
@@ -129,7 +149,7 @@ internal fun HubContent(
         }
     }
 
-    state.newProjectDraft?.let { NewProjectDialog(it, nameTaken = state.newNameTaken, onIntent = onIntent) }
+    state.newProjectDraft?.let { NewProjectSheet(it, nameTaken = state.newNameTaken, onIntent = onIntent, onPickClip = onPickMatchClip) }
     state.renameDraft?.let { draft ->
         TextDialog(
             title = "Rename project",
@@ -152,6 +172,42 @@ internal fun HubContent(
     }
 }
 
+/** The one overflow menu of the top bar: importing a project file lives here, not on its own button. */
+@Composable
+private fun HubOverflowMenu(onImport: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Import project file") }, onClick = { open = false; onImport() })
+        }
+    }
+}
+
+/** Search and sorting, shown once the list is longer than a screen. */
+@Composable
+private fun SearchBar(state: HubState, onIntent: (HubIntent) -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = { onIntent(HubIntent.SearchChanged(it)) },
+            label = { Text("Search projects") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Sort by", style = MaterialTheme.typography.labelMedium)
+            ProjectSort.entries.forEach { sort ->
+                FilterChip(
+                    selected = state.sort == sort,
+                    onClick = { onIntent(HubIntent.SortSelected(sort)) },
+                    label = { Text(sort.label) },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun WelcomeState(unreadable: List<UnreadableProject>, onIntent: (HubIntent) -> Unit) {
     Column(
@@ -161,7 +217,7 @@ private fun WelcomeState(unreadable: List<UnreadableProject>, onIntent: (HubInte
     ) {
         Text("Welcome to ultimateVE", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Create a project to start editing, or import one from a file.",
+            "Create a project to start editing, or import one from the ⋮ menu.",
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
@@ -212,48 +268,63 @@ private fun UnreadableProjects(unreadable: List<UnreadableProject>, onIntent: (H
 }
 
 @Composable
-private fun ProjectGrid(state: HubState, onIntent: (HubIntent) -> Unit) {
+private fun ProjectGrid(state: HubState, onIntent: (HubIntent) -> Unit, thumbnails: ProjectThumbnails?) {
+    val visible = state.visibleProjects
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 300.dp),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(state.projects, key = { it.id }) { project -> ProjectCard(project, onIntent) }
+        if (visible.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("No project matches \"${state.query.trim()}\".", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        items(visible, key = { it.id }) { project -> ProjectCard(project, onIntent, thumbnails) }
         if (state.unreadable.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { UnreadableProjects(state.unreadable, onIntent) }
         }
     }
 }
 
+/** A project: the first frame of its first clip, its name, a short format line, its length and last change. */
 @Composable
-private fun ProjectCard(project: ProjectSummary, onIntent: (HubIntent) -> Unit) {
+private fun ProjectCard(project: ProjectSummary, onIntent: (HubIntent) -> Unit, thumbnails: ProjectThumbnails?) {
     var menuOpen by remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth().clickable { onIntent(HubIntent.OpenProject(project.id)) }) {
         Row(
-            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            ProjectThumbnail(project, thumbnails)
+            Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(project.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 val s = project.settings
                 Text(
-                    "${s.width}×${s.height} · ${formatFps(s.fpsNum, s.fpsDen)} fps · ${s.colorSpace}",
+                    "${resolutionShortName(s.width, s.height)} · ${formatFps(s.fpsNum, s.fpsDen)} fps · ${colorSpaceShortName(s.colorSpace)}",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                val length = if (project.durationFrames > 0) {
+                    ProjectOverview.formatDuration(project.durationFrames, s.fpsNum, s.fpsDen)
+                } else {
+                    "Empty"
+                }
                 Text(
-                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                        .format(Date(project.lastModifiedMillis)),
+                    "$length · " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(project.lastModifiedMillis)),
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
             Box {
-                IconButton(onClick = { menuOpen = true }) { Text("⋮") }
+                IconButton(
+                    onClick = { menuOpen = true },
+                    modifier = Modifier.semantics { contentDescription = "Actions for ${project.name}" },
+                ) { Text("⋮") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     MenuItem("Rename") { menuOpen = false; onIntent(HubIntent.RequestRename(project)) }
                     MenuItem("Duplicate") { menuOpen = false; onIntent(HubIntent.Clone(project.id)) }
-                    MenuItem("Export") { menuOpen = false; onIntent(HubIntent.RequestExport(project)) }
+                    MenuItem("Export project file") { menuOpen = false; onIntent(HubIntent.RequestExport(project)) }
                     MenuItem("Delete") { menuOpen = false; onIntent(HubIntent.RequestDelete(project)) }
                 }
             }
@@ -261,78 +332,38 @@ private fun ProjectCard(project: ProjectSummary, onIntent: (HubIntent) -> Unit) 
     }
 }
 
+/** The cached first frame of the project, made off the main thread; a plain tile while it loads or when there is none. */
+@Composable
+private fun ProjectThumbnail(project: ProjectSummary, thumbnails: ProjectThumbnails?) {
+    val bitmap by produceState<Bitmap?>(initialValue = null, project.id, project.thumbnail) {
+        value = thumbnails?.load(project.id, project.thumbnail)
+    }
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = Modifier
+            .width(96.dp)
+            .height(64.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        val image = bitmap
+        if (image != null) {
+            Image(
+                bitmap = image.asImageBitmap(),
+                contentDescription = "First frame of ${project.name}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text("▶", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable
 private fun MenuItem(label: String, onClick: () -> Unit) {
     DropdownMenuItem(text = { Text(label) }, onClick = onClick)
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun NewProjectDialog(draft: NewProjectDraft, nameTaken: Boolean, onIntent: (HubIntent) -> Unit) {
-    AlertDialog(
-        onDismissRequest = { onIntent(HubIntent.DismissDialogs) },
-        title = { Text("New project") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = draft.name,
-                    onValueChange = { onIntent(HubIntent.DraftNameChanged(it)) },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    isError = nameTaken,
-                    supportingText = if (nameTaken) ({ Text(NAME_TAKEN_MESSAGE) }) else null,
-                )
-                Text("Format and resolution", style = MaterialTheme.typography.labelLarge)
-                ProjectPresets.resolutionGroups.forEach { group ->
-                    Text(group.title, style = MaterialTheme.typography.bodySmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        group.presets.forEach { preset ->
-                            FilterChip(
-                                selected = preset == draft.resolution,
-                                onClick = { onIntent(HubIntent.DraftResolutionSelected(preset)) },
-                                label = { Text(preset.label) },
-                            )
-                        }
-                    }
-                }
-                Text("Frame rate", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ProjectPresets.fps.forEach { preset ->
-                        FilterChip(
-                            selected = preset == draft.fps,
-                            onClick = { onIntent(HubIntent.DraftFpsSelected(preset)) },
-                            label = { Text(preset.label) },
-                        )
-                    }
-                }
-                Text("Colour space", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ProjectPresets.colorSpaces.forEach { preset ->
-                        FilterChip(
-                            selected = preset == draft.colorSpace,
-                            onClick = { onIntent(HubIntent.DraftColorSpaceSelected(preset)) },
-                            label = { Text(preset.label) },
-                        )
-                    }
-                }
-                Text(
-                    "The project colour space is the working and export space. Each clip is converted to it individually, so " +
-                        "SDR and HLG clips can be mixed; set a clip's source colour in its inspector.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onIntent(HubIntent.ConfirmCreate) }, enabled = draft.canCreate && !nameTaken) {
-                Text("Create")
-            }
-        },
-        dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissDialogs) }) { Text("Cancel") } },
-    )
 }
 
 @Composable
@@ -361,5 +392,3 @@ private fun TextDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
-
-private const val NAME_TAKEN_MESSAGE = "A project with this name already exists"

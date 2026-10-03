@@ -21,18 +21,39 @@ automated tests so far; see [Known limits](#known-limits).
 
 ## Project hub
 
-The first screen lists your projects with their size, frame rate, colour space and last change.
+The first screen lists your projects as cards: the first frame of the first clip, the name, a short
+format line ("1080p · 30 fps · SDR"), the length and the last change. Tap a card to open it.
 
-- **New project**: pick a name, a resolution (grouped by 16:9, 9:16, 1:1 and 4:5), a frame rate and a
-  project colour space. The project colour space is the working and output space; every clip is
-  converted to it individually.
-- **Import** (top right): imports a `project.json` file that was exported from another device.
-- **⋮ menu on a project**: rename, clone, delete and export the project file.
+- **New project** (the one button at the bottom right): opens the sheet described below.
+- **⋮ in the top bar**: **Import project file** brings in a `project.json` exported from another device.
+- **⋮ on a card**: rename, duplicate, export the project file, delete.
+- With more than six projects a **search field** and **Sort by** (Recent or Name) appear.
 - Projects that cannot be read are listed with **Recover** (from the `.bak` of the last good save) and
   **Delete**. After a crash the hub offers to reopen the project you had open.
 
 Projects live in the app's private storage. Your media is never copied: projects only reference the files
-you imported.
+you imported. The card pictures are made on the device and cached; nothing is uploaded anywhere.
+
+### New project
+
+The sheet opens with your last choices, or 1080p, 30 fps, SDR the first time.
+
+1. **Name**: prefilled with a free name ("New project", "New project 2"…).
+2. **Quick start**: one tap fills everything below. YouTube 1080p30, YouTube 4K30, TikTok · Reels · Shorts
+   9:16, Instagram 4:5, Square 1:1, Cinema 24p, or **Match first clip**. You can still change any value.
+3. Four selectors, each showing only its current value:
+   - **Aspect ratio**: 16:9, 9:16, 1:1, 4:5, 4:3, 21:9 or Custom size (type width and height).
+   - **Resolution**: 720p, 1080p, 1440p, 4K, or Custom short side. 1080p means 1920 × 1080 in landscape and
+     1080 × 1920 in vertical. The exact pixels are written below the selector.
+   - **Frame rate**: 23.976, 24, 25, 29.97, 30, 50, 59.94, 60 or 120 fps.
+   - **Colour space**: SDR Rec.709 or HDR Rec.2020 HLG. It is the working and output space: every clip is
+     converted to it individually, so SDR and HLG clips can be mixed.
+4. A one-line summary and a small rectangle with the shape of the picture.
+5. **Create**.
+
+**Match first clip** asks you to choose a video or photo and copies its size, frame rate and colour space
+(PQ clips use the HLG project space). The clip is only read; it is not added to the project and the app keeps
+no access to it. A format taken from a clip is not remembered for next time.
 
 ## Editor layout
 

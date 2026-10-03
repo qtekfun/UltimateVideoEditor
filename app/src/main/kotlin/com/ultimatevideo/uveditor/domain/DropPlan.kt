@@ -51,8 +51,9 @@ data class DropDecision(val kind: DropKind, val command: EditCommand?, val hint:
  * body of a clip, it is an OVERWRITE of the frames the clip covers. The base has no free space: past
  * its end the clip is appended, a base clip dragged within the base only reorders, and dragged onto an overlay lane (or above the lanes) it is lifted off the base: the base closes its gap and the overlays stay put.
  *
- * On every other lane (overlay, audio, title) there is no insert: landing on existing clips is always
- * an OVERWRITE and free space is a plain MOVE. Inserting on those lanes is deferred.
+ * On every other lane (overlay, audio, title) an INSERT happens only in a cut between two touching clips
+ * (the lane's later clips shift right, nothing else moves); elsewhere landing on existing clips is an
+ * OVERWRITE and free space is a plain MOVE.
  */
 object DropPlan {
     const val INSERT_RADIUS_FRAMES = 10L
@@ -91,7 +92,7 @@ object DropPlan {
      * What dropping a clip that is not on the timeline yet (dragged from the media tray or from another
      * app) would do. Same rules as [decide], from the user's side: on the base, near a cut (or the lane's
      * start / end) it INSERTs, over the body of a clip it OVERWRITEs, past the end it appends; on any other
-     * lane it OVERWRITEs what it covers and otherwise just places the clip; above the top lane a video
+     * lane it INSERTs into a cut between two touching clips, OVERWRITEs what it covers, and otherwise just places the clip; above the top lane a video
      * clip makes a NEW_LANE; far outside, or over a lane of the wrong kind (audio on a video lane and the
      * other way round), the drop CANCELs.
      *
@@ -144,6 +145,14 @@ object DropPlan {
                         DropKind.OVERWRITE,
                         EditCommand.OverwriteNewClip(clip, lane.id, at),
                         DropHint(DropKind.OVERWRITE, lane.id, at.value, minOf(at.value + length, laneEnd).coerceAtLeast(at.value)),
+                    )
+                }
+                // Other lanes insert only into a cut between two touching clips, like a clip dragged there.
+                cutNear(lane.clips, start.value)?.let { cut ->
+                    return DropDecision(
+                        DropKind.INSERT,
+                        EditCommand.InsertNewOnLane(clip, lane.id, FrameIndex(cut)),
+                        DropHint(DropKind.INSERT, lane.id, cut, cut),
                     )
                 }
                 val at = snapNew(timeline, start, length, snap)
@@ -225,10 +234,19 @@ object DropPlan {
                 DropHint(DropKind.OVERWRITE, lane.id, start.value, start.value + length),
             )
         }
+        val laneInsert = { at: Long ->
+            DropDecision(
+                DropKind.INSERT,
+                EditCommand.InsertOnLane(clipId, lane.id, FrameIndex(at)),
+                DropHint(DropKind.INSERT, lane.id, at, at),
+            )
+        }
         return when {
             onBase && others.isEmpty() -> insert(0L)
             onBase && start.value >= laneEnd -> insert(laneEnd)
             onBase -> junctionNear(others, start.value)?.let(insert) ?: overwrite()
+            // Other lanes insert only into a cut between two touching clips: free space and the ends stay plain moves.
+            cutNear(others, start.value) != null -> laneInsert(checkNotNull(cutNear(others, start.value)))
             others.any { it.timelineStart < start + length && it.timelineEnd > start } -> overwrite()
             else -> DropDecision(
                 DropKind.MOVE,
@@ -237,6 +255,14 @@ object DropPlan {
             )
         }
     }
+
+    /** The cut between two touching clips of [clips] (sorted) nearest to [frame] within the radius, or null. */
+    internal fun cutNear(clips: List<Clip>, frame: Long): Long? =
+        clips.zipWithNext()
+            .filter { (left, right) -> left.timelineEnd == right.timelineStart }
+            .map { (left, _) -> left.timelineEnd.value }
+            .filter { kotlin.math.abs(it - frame) <= INSERT_RADIUS_FRAMES }
+            .minByOrNull { kotlin.math.abs(it - frame) }
 
     /** The junction of [clips] (sorted) nearest to [frame] within the radius, or null. */
     internal fun junctionNear(clips: List<Clip>, frame: Long): Long? {

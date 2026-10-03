@@ -529,6 +529,36 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 
 **Update:** per the user ("if you take a clip off the base, it goes to the layer where I drop it"), lifting is a pure move: overlays are never deleted or shifted. Trade-off: overlays that sat over later base footage no longer line up with it after the base closes. Alternative: shift later overlays with the base (risks overlap with overlays that cross the lifted range).
 
+## Editor performance: keep the playhead out of the chrome
+
+**Decision:** `EditorScreen` no longer reads the whole `EditorState` at its root. The playhead (which changes every 16 ms while playing) is removed from the state the chrome (toolbar, banners, dialogs, panels) reads (`chromeOf`), so a tick recomposes only the timecode; the effects that need the playhead read the live state through `StateEffect` (a `snapshotFlow` keyed on exactly what each effect uses). While the inspector is open it gets the live state, because its keyframe diamond and pose depend on the playhead.
+**Why:** every tick used to recompose the root and all ~25 toolbar buttons and re-evaluate every effect key. Written from reading the code; the before/after numbers are in the PR when the OPPO was reachable, otherwise the PR says they were not measured.
+**Alternative:** pull the playhead out of `EditorState` into its own flow (cleaner, but touches the ViewModel, every playhead-dependent getter and ~100 tests).
+
+## Insert on non-base lanes
+
+**Decision:** on overlay/audio/title lanes a drop whose start edge is within 10 frames of a cut between two touching clips inserts there and shifts only that lane's later clips right; free space, gaps and the lane ends stay plain moves (so moving a clip near the start of a lane never inserts). Command `InsertOnLane`, one undo step, decided by `DropPlan` so the indicator matches.
+**Why:** the user deferred it earlier and asked for it afterwards; limiting it to interior cuts avoids surprising inserts when moving clips around free space.
+**Alternative:** also insert at lane ends and at the edges of gaps (more reachable, more accidental shifts).
+
+## Speed change on the base carries the overlays
+
+**Decision:** changing the speed of a base clip (`MagneticBase.setSpeed`) ripples the following base clips and moves the overlays like a trim of its end: a shorter clip removes the freed frames from every other track (clips inside them go, crossing ones are trimmed, later ones shift left), a longer one opens the same room after the clip's old end. Overlays inside the clip's own range stay where they are.
+**Why:** the speed inspector already rippled the base, leaving overlays out of step with it.
+**Alternative:** scale overlays inside the range with the clip (not exact: an overlay has its own speed).
+
+## Photo thumbnails
+
+**Decision:** a photo clip now carries its asset key in the snapshot and the editor asks the native thumbnail worker for photo assets too. `ThumbDecoder::open` falls back from "no video track" to `AImageDecoder` (decoded scaled down, EXIF applied by the decoder) and every time maps to the one tile (`rgbaToTile`, host-tested). A photo the decoder cannot read simply shows no tile, as before.
+**Why:** the cheapest path with no new snapshot field or GL code: the existing tile store, atlas and drawing do the rest.
+**Alternative:** rasterise the still in Kotlin (the preview already does) and upload the bitmap as a tile (an extra JNI call per photo).
+
+## Deferred: animated GIF/WebP, dragging lane headers
+
+**Decision:** neither is done. Animated GIF/WebP needs per-frame timing and decode caches in the still pipeline (it is not cheap); lane reorder keeps the up/down buttons because the native canvas draws no lane header to grab, and a new hit target and gesture could not be verified without the OPPO.
+**Why:** both would be unverified native/gesture work.
+**Alternative:** `AImageDecoder` animated frames into the title-texture path as a follow-up; a long-press on a lane's empty area as the reorder gesture.
+
 ## Per-clip source colour space (mixing SDR, HLG and PQ in one project)
 
 **Decision:** `Clip.colorOverride` (SDR / HLG / PQ, null = Auto) says how a clip's source is read; the project colour space stays the working and export space. Each preview layer carries it as a fifth-to-eighth `params` float (`-1` auto, `0..2` a `SourceTransfer`), the native layer then picks `colorModeFor(override, outputSpace)` instead of the asset's detected mode (and it is part of the draw signature, so changing it redraws); the export spec already carried a per-clip `colorMode`, which now prefers the override. The inspector shows "Auto (detected space)" plus the three overrides and a one-line note of what conversion applies in this project. Detection now falls back to HDR10 static metadata (`KEY_HDR_STATIC_INFO`) when a file has no transfer, and an explicit SDR transfer always wins. JSON: `ClipDto.colorOverride` (an id, unknown values read as Auto). The New Project dialog says the project space is the working/export space and clips are converted individually.
@@ -540,6 +570,12 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Decision:** a pure `ExportEstimator` smooths the engine's progress (EMA of the rate over samples at least 0.5 s apart, alpha 0.3). Nothing is shown until 2 s and 3 samples, remaining time is clamped to 24 h, a progress stall of 8 s shows "Waiting for the encoder…" instead of a guess, and throughput is frames/s and x real time from the whole run. The dialog ticks the elapsed time once a second; durations are rounded (5 s steps above two minutes) so they do not flicker. The clock is injected so tests are exact.
 **Why:** the export bar alone gives no idea of how long a 4K or multi-layer export will take; a raw `elapsed / progress` extrapolation jumps wildly at the start and on stalls.
 **Alternative:** a pre-export estimate from project complexity (layers, effects, resolution). Not done: it needs calibration data from several devices and clips, and the live estimate is accurate after a couple of seconds. There is no export notification in the app yet, so there is nothing else to show it in.
+
+## FFmpeg fallback: designed, not built; Vulkan: evaluated, not adopted
+
+**Decision:** the FFmpeg software-decode fallback is documented (`docs/ffmpeg-fallback.md`) but not implemented. ffmpeg-kit is archived and the Media3 extension is audio-only; the prebuilt `org.bytedeco:ffmpeg` arm64 jars work but add ~20 MB (23 MB for the GPL variant; `libavcodec.so` alone is 27 MB unpacked) for a feature nothing needs yet, so the recommended path is a minimal static LGPL build made in GitHub Actions and downloaded by checksum, plugged in behind an `IVideoDecoder` seam that writes software frames into CPU-writable `AHardwareBuffer`s so the cache and render path stay unchanged. Vulkan is evaluated in `docs/vulkan-evaluation.md`: not adopted, because the GLES renderer costs ~5% of a 4K60 frame and a second backend doubles the parity surface.
+**Why:** both would be native code that cannot be validated without a device and real clips (ProRes/MPEG-2 files for FFmpeg), and neither fixes a problem the author has; building them blind would add risk and maintenance for no visible gain.
+**Alternative:** vendor the bytedeco shared libs today (fast to wire, big APK, no control over the codec set) or start the Vulkan port now; both remain open if the triggers in the documents occur.
 
 ## 3D LUTs as a per-clip effect
 
@@ -558,3 +594,15 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 - **Thumbnails** come from `MediaMetadataRetriever` (first frame) and `ImageDecoder`, in a 12 MB in-memory LRU; no disk cache and nothing leaves the device.
 - **The bottom tray starts collapsed** (a thin tab strip) with half and full heights; sticker and template toolbar buttons now open its tabs instead of modal sheets.
 - **Audio on a video lane cancels** instead of jumping to the nearest audio lane, so what the indicator shows is always what happens.
+
+## New-project sheet: selectors, quick presets and "match first clip" (WP-U1)
+
+**Decision:** the sheet has four dropdowns (aspect ratio, resolution as the short side, frame rate, colour space) plus a quick-start chip row; the pixel size is computed (short side x shape, both sides rounded to even) and written under the selector, with Custom size / Custom short side as typed fields validated to even values 128..8192. "Match first clip" reads a picked clip with a new `ClipPeeker` (no persistable permission, no import), copies size (as a Custom size), frame rate (a listed rate or a one-off) and colour space (PQ maps to the HLG project space); a photo only gives its size. The last selector choices are saved in a small SharedPreferences store; a format taken from a clip is not saved. The sheet is a bottom sheet below 600 dp and a dialog above.
+**Why:** the old dialog showed ~25 chips at once; dropdowns show one value each and presets cover the common cases in one tap. Reading a clip without taking a permission avoids spending one of Android's 512 persisted grants on a clip that is not in the project.
+**Alternative:** keep chips (cluttered), or make "match" import the clip into the media library (spends a permission and adds media the user did not ask for). Photo EXIF orientation is not applied when reading a photo's size (a rotated photo may report its sensor orientation); the user can edit the size afterwards.
+
+## Hub cards: thumbnail, length, search and sort (WP-U1)
+
+**Decision:** cards show a 320 px first frame of the earliest video/photo clip (via `MediaMetadataRetriever` or a bounded bitmap decode), cached as JPEG in the app cache keyed by a hash of source and time (older files of that project are removed), the project length (end of the last clip, from `project.json` in the summary) and a short format line. Search and sort (Recent / Name) appear only above six projects. Import moved to the top-bar overflow menu.
+**Why:** a card should identify the project at a glance; the cache directory may be cleared by the system and is regenerated, so there is nothing to migrate or clean up, and nothing leaves the device.
+**Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).

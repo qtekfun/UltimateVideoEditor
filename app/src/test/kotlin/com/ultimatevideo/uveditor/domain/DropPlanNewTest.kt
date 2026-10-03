@@ -51,10 +51,21 @@ class DropPlanNewTest {
 
     @Test
     fun `an overlay lane overwrites what it covers and places the clip in free space`() {
-        assertEquals(DropKind.OVERWRITE, decide(70, DropTarget.Lane("v2")).kind)
+        assertEquals(DropKind.OVERWRITE, decide(80, DropTarget.Lane("v2")).kind)
         val free = decide(110, DropTarget.Lane("v2"))
         assertEquals(DropKind.MOVE, free.kind)
         assertEquals(EditCommand.OverwriteNewClip(incoming, "v2", f(110)), free.command)
+    }
+
+    @Test
+    fun `near a cut between two touching clips of an overlay lane inserts there`() {
+        // "p" and "q" touch at 60.
+        val d = decide(66, DropTarget.Lane("v2"))
+        assertEquals(DropKind.INSERT, d.kind)
+        assertEquals(DropHint(DropKind.INSERT, "v2", 60, 60), d.hint)
+        assertEquals(EditCommand.InsertNewOnLane(incoming, "v2", f(60)), d.command)
+        // The end of a lane and a gap between clips are not cuts: they stay plain placements or overwrites.
+        assertEquals(DropKind.MOVE, decide(110, DropTarget.Lane("v2")).kind)
     }
 
     @Test
@@ -77,7 +88,7 @@ class DropPlanNewTest {
     @Test
     fun `audio lands on an audio lane and overwrites what it covers`() {
         val audio = clip("snd", 0, 40)
-        assertEquals(DropKind.OVERWRITE, decide(90, DropTarget.Lane("a1"), TrackType.AUDIO, audio).kind)
+        assertEquals(DropKind.OVERWRITE, decide(80, DropTarget.Lane("a1"), TrackType.AUDIO, audio).kind)
         assertEquals(DropKind.MOVE, decide(160, DropTarget.Lane("a1"), TrackType.AUDIO, audio).kind)
     }
 
@@ -88,12 +99,12 @@ class DropPlanNewTest {
             EditCommand.OverwriteNewClip(incoming, "v2", f(212)),
             decide(215, DropTarget.Lane("v2"), withSnap = withPlayhead).command,
         )
-        // The clip's end (start + 30) is within 3 frames of 100, the end of "q": the start becomes 70.
-        val d = decide(67, DropTarget.Lane("v2"))
-        assertEquals(DropKind.OVERWRITE, d.kind)
-        assertEquals(70L, d.hint.startFrame)
+        // The clip's end (start + 30 = 148) is within 2 frames of 150, the start of "r": the start becomes 120.
+        val d = decide(118, DropTarget.Lane("v2"))
+        assertEquals(DropKind.MOVE, d.kind)
+        assertEquals(120L, d.hint.startFrame)
         // Without a snap the position is kept exactly.
-        assertEquals(67L, decide(67, DropTarget.Lane("v2"), withSnap = null).hint.startFrame)
+        assertEquals(118L, decide(118, DropTarget.Lane("v2"), withSnap = null).hint.startFrame)
     }
 
     @Test
@@ -124,6 +135,25 @@ class DropPlanNewTest {
         assertTrue(result.track("v1")!!.clips.any { it.id == "new" && it.timelineStart == f(40) })
         // Overlays over the replaced range 40..70 are trimmed or removed, not kept whole.
         assertTrue(result.track("v2")!!.clips.none { it.timelineStart < f(70) && it.timelineEnd > f(40) })
+    }
+
+    @Test
+    fun `inserting a new clip into a cut of an overlay shifts only that lane`() {
+        val t = scene()
+        val result = LaneOps.insertNewOnLane(t, incoming, "v2", f(60)).getOrFail()
+        assertEquals(emptyList<String>(), result.invariantViolations())
+        assertEquals(listOf("p", "new", "q", "r"), result.track("v2")!!.clips.map { it.id })
+        assertEquals(f(90), result.track("v2")!!.clips.first { it.id == "q" }.timelineStart)
+        assertEquals(f(180), result.track("v2")!!.clips.first { it.id == "r" }.timelineStart)
+        assertEquals(t.track("v1"), result.track("v1"))
+        assertEquals(t, EditHistory(t).execute(EditCommand.InsertNewOnLane(incoming, "v2", f(60))).getOrFail().undo().timeline)
+    }
+
+    @Test
+    fun `inserting a new clip inside a clip or on the base is refused`() {
+        assertTrue(LaneOps.insertNewOnLane(scene(), incoming, "v2", f(30)).errorOrFail() is EditError.Overlap)
+        assertTrue(LaneOps.insertNewOnLane(scene(), incoming, "v1", f(100)).errorOrFail() is EditError.InvalidClip)
+        assertEquals(EditError.DuplicateClipId("a"), LaneOps.insertNewOnLane(scene(), clip("a", 0, 5), "v2", f(60)).errorOrFail())
     }
 
     @Test

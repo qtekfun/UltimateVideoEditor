@@ -1,15 +1,21 @@
 #include "thumbnail/thumb_decoder.h"
 
+#include <android/bitmap.h>
+#include <android/imagedecoder.h>
 #include <android/log.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaExtractor.h>
 #include <media/NdkMediaFormat.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <vector>
 
+#include "thumbnail/rgba_tile.h"
 #include "thumbnail/yuv_tile.h"
 
 #define LOG_TAG "uv_thumb"
@@ -47,6 +53,47 @@ int32_t intOr(AMediaFormat* f, const char* key, int32_t fallback) {
     return AMediaFormat_getInt32(f, key, &v) ? v : fallback;
 }
 
+constexpr int64_t kMaxStillPixels = 64LL * 1000 * 1000;  // refuse to decode more than this when it cannot be scaled down
+
+// Decodes the photo behind `fd` (not owned) into one tile. Large photos are decoded already scaled down
+// (twice the tile size, so the averaging has something to work with) when the codec can scale; EXIF
+// orientation is applied by the decoder.
+Status decodeStillTile(int fd, std::vector<uint16_t>* tile) {
+    if (::lseek(fd, 0, SEEK_SET) < 0) return Status::IoError;
+    AImageDecoder* decoder = nullptr;
+    if (AImageDecoder_createFromFd(fd, &decoder) != ANDROID_IMAGE_DECODER_SUCCESS || decoder == nullptr) {
+        return Status::UnsupportedFormat;
+    }
+    struct Guard {
+        AImageDecoder* d;
+        ~Guard() { AImageDecoder_delete(d); }
+    } guard{decoder};
+    const AImageDecoderHeaderInfo* info = AImageDecoder_getHeaderInfo(decoder);
+    int32_t width = AImageDecoderHeaderInfo_getWidth(info);
+    int32_t height = AImageDecoderHeaderInfo_getHeight(info);
+    if (width <= 0 || height <= 0) return Status::UnsupportedFormat;
+    if (AImageDecoder_setAndroidBitmapFormat(decoder, ANDROID_BITMAP_FORMAT_RGBA_8888) != ANDROID_IMAGE_DECODER_SUCCESS) {
+        return Status::CodecError;
+    }
+    const double scale = std::max(static_cast<double>(kTileWidth) * 2 / width, static_cast<double>(kTileHeight) * 2 / height);
+    if (scale < 1.0) {
+        const int32_t tw = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(width * scale)));
+        const int32_t th = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(height * scale)));
+        if (AImageDecoder_setTargetSize(decoder, tw, th) == ANDROID_IMAGE_DECODER_SUCCESS) {
+            width = tw;
+            height = th;
+        }
+    }
+    if (static_cast<int64_t>(width) * height > kMaxStillPixels) return Status::UnsupportedFormat;
+    const size_t stride = AImageDecoder_getMinimumStride(decoder);
+    std::vector<uint8_t> pixels(stride * static_cast<size_t>(height));
+    if (AImageDecoder_decodeImage(decoder, pixels.data(), stride, pixels.size()) != ANDROID_IMAGE_DECODER_SUCCESS) {
+        return Status::CodecError;
+    }
+    tile->assign(kTilePixels, 0);
+    return rgbaToTile(pixels.data(), width, height, stride, tile->data()) ? Status::Ok : Status::CodecError;
+}
+
 }  // namespace
 
 struct ThumbDecoder::Impl {
@@ -54,6 +101,9 @@ struct ThumbDecoder::Impl {
     AMediaCodec* codec = nullptr;
     int rotation = 0;
     int64_t durationUs = 0;
+    // A photo: the one tile every time maps to, decoded when the asset was opened.
+    bool still = false;
+    std::vector<uint16_t> stillTile;
 
     bool positionValid = false;  // decoder is running forward from a known place
     bool inputEos = false;
@@ -258,7 +308,13 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
         }
         if (f != nullptr) AMediaFormat_delete(f);
     }
-    if (format == nullptr) return fail(Status::UnsupportedFormat);
+    if (format == nullptr) {
+        // No video track: a photo has one picture whatever the time, so its tile is decoded once here.
+        if (decodeStillTile(fd, &impl->stillTile) != Status::Ok) return fail(Status::UnsupportedFormat);
+        impl->still = true;
+        if (status != nullptr) *status = Status::Ok;
+        return std::unique_ptr<ThumbDecoder>(new ThumbDecoder(std::move(impl)));
+    }
 
     int32_t rot = 0;
     int64_t durationUs = 0;
@@ -296,6 +352,10 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
 
 Status ThumbDecoder::decodeTile(int64_t timeUs, const std::atomic<bool>& cancel, uint16_t* out) {
     if (out == nullptr) return Status::InvalidArgument;
+    if (impl_->still) {
+        std::copy(impl_->stillTile.begin(), impl_->stillTile.end(), out);
+        return Status::Ok;
+    }
     int64_t target = std::max<int64_t>(0, timeUs);
     if (impl_->durationUs > 0) target = std::min(target, std::max<int64_t>(0, impl_->durationUs - 1));
     return impl_->decodeAt(target, cancel, out);
