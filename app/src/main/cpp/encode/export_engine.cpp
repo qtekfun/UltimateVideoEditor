@@ -46,6 +46,8 @@ constexpr int64_t kAacDelaySamples = 2048;
 constexpr int64_t kIdleCheckFrames = 30;
 constexpr int32_t kDecodeAhead = 4;  // frames the decoder may run ahead of the frame being drawn
 constexpr auto kDecodeStall = std::chrono::seconds(15);
+constexpr auto kDecodeRecoverAfter = std::chrono::seconds(3);  // a frame this late makes the decoder seek afresh
+constexpr int64_t kSlowFetchMs = 500;  // a frame this late is logged with the decoder's state
 
 struct ExportFailure {
     Status status;
@@ -267,7 +269,10 @@ public:
         for (const audio::AudioFault& f : faults) {
             if (f.kind == audio::AudioFault::Kind::Decode) {
                 fail(f.status == Status::Ok ? Status::CodecError : f.status,
-                     "an audio clip could not be decoded for the export");
+                     "an audio clip could not be decoded for the export (clip " + std::to_string(f.clipKey) + ")");
+            }
+            if (f.kind == audio::AudioFault::Kind::OfflineStall) {
+                fail(Status::CodecError, "the audio of clip " + std::to_string(f.clipKey) + " was not ready after 30 s");
             }
         }
     }
@@ -469,28 +474,54 @@ private:
         return *assets_.emplace(slot, std::move(state)).first->second;
     }
 
-    // Returns the decoded frame for `source`, waiting for the decoder. If the stream never
-    // produces that exact frame, the nearest earlier decoded one is used.
+    // Returns the decoded frame for `source`, waiting for the decoder. A different frame stands in only
+    // when the stream is known never to produce `source` (it skipped it, or it lies past the last frame):
+    // a frame that is merely late must be waited for, or the export shows the previous picture twice.
     std::shared_ptr<decode::GpuFrame> fetch(AssetState& asset, int64_t source) {
         asset.decoder->setTarget(source);
-        auto lastProgress = Clock::now();
+        const auto began = Clock::now();
+        auto lastProgress = began;
+        auto lastRecover = began;
         size_t seen = 0;
         for (;;) {
             checkDecoderError();
             drain(asset);
             {
                 std::lock_guard<std::mutex> lock(asset.mu);
-                auto exact = asset.frames.find(source);
-                if (exact != asset.frames.end()) return exact->second;
-                auto later = asset.frames.upper_bound(source);
-                if (later != asset.frames.end() && later != asset.frames.begin()) return std::prev(later)->second;
+                const FramePick pick = pickSourceFrame(asset.frames, source, asset.decoder->isUnavailable(source));
+                if (pick.kind != FramePick::Kind::Wait) {
+                    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - began).count();
+                    if (waited > kSlowFetchMs) {
+                        UV_LOGW("slow frame: source %lld took %lld ms (%s)", static_cast<long long>(source),
+                                static_cast<long long>(waited), asset.decoder->describe().c_str());
+                    }
+                    if (pick.kind == FramePick::Kind::Substitute) {
+                        UV_LOGW("frame %lld is not in the stream: showing %lld instead", static_cast<long long>(source),
+                                static_cast<long long>(pick.frame));
+                    }
+                    return asset.frames.at(pick.frame);
+                }
                 if (asset.frames.size() != seen) {
                     seen = asset.frames.size();
                     lastProgress = Clock::now();
                 }
             }
+            if (Clock::now() - lastProgress > kDecodeRecoverAfter && Clock::now() - lastRecover > kDecodeRecoverAfter) {
+                lastRecover = Clock::now();
+                asset.decoder->recover(source);
+            }
             if (Clock::now() - lastProgress > kDecodeStall) {
-                fail(Status::CodecError, "the decoder stalled at source frame " + std::to_string(source));
+                std::string have;
+                {
+                    std::lock_guard<std::mutex> lock(asset.mu);
+                    if (!asset.frames.empty()) {
+                        have = " cached " + std::to_string(asset.frames.begin()->first) + ".." + std::to_string(asset.frames.rbegin()->first) +
+                               " (" + std::to_string(asset.frames.size()) + ")";
+                    }
+                }
+                const std::string state = asset.decoder->describe();
+                UV_LOGE("decoder stalled: wanted %lld;%s; %s", static_cast<long long>(source), have.c_str(), state.c_str());
+                fail(Status::CodecError, "the decoder stalled at source frame " + std::to_string(source) + " (" + state + ")");
             }
             std::unique_lock<std::mutex> lock(wakeMu_);
             wakeCv_.wait_for(lock, std::chrono::milliseconds(20));

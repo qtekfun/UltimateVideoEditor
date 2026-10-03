@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
+#include <map>
 #include <vector>
 
 #include "core/crossfade_math.h"
@@ -138,6 +140,27 @@ inline int64_t sourceFrameFor(const VideoClip& clip, int64_t frame, int64_t asse
     }
     if (assetFrames <= 0) return std::max<int64_t>(wanted, 0);
     return std::clamp<int64_t>(wanted, 0, assetFrames - 1);
+}
+
+// What the exporter does about source frame `wanted` given the frames decoded so far (`cached`, an
+// ordered map keyed by frame). A frame that is only late is waited for: standing in the previous
+// picture would show it twice and shift the rest of the clip by a frame. A stand-in is used only when
+// the stream is known never to produce `wanted` (`unavailable`): then the nearest earlier decoded
+// frame, or the nearest later one when nothing earlier exists, and keep waiting if the cache is empty.
+struct FramePick {
+    enum class Kind { Exact, Substitute, Wait };
+    Kind kind = Kind::Wait;
+    int64_t frame = -1;  // the cached frame to show, for Exact and Substitute
+};
+
+template <typename Map>
+FramePick pickSourceFrame(const Map& cached, int64_t wanted, bool unavailable) {
+    if (cached.count(wanted) != 0) return {FramePick::Kind::Exact, wanted};
+    if (!unavailable) return {};
+    auto later = cached.upper_bound(wanted);
+    if (later != cached.begin()) return {FramePick::Kind::Substitute, std::prev(later)->first};
+    if (later != cached.end()) return {FramePick::Kind::Substitute, later->first};
+    return {};
 }
 
 // How many already-decoded frames a decoder keeps behind the frame being drawn while a clip plays

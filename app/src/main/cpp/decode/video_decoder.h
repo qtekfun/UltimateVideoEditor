@@ -68,6 +68,15 @@ public:
 
     int64_t framesDecoded() const { return framesDecoded_.load(); }
 
+    // Thread-safe. True when the stream is known never to produce `frame` (it was skipped, or lies past
+    // the last decodable frame), so a reader may stand in an earlier frame instead of waiting for it.
+    bool isUnavailable(int64_t frame) const;
+    // Thread-safe. For a reader whose frame has not arrived for a while: forgets what is "in flight" and
+    // makes the decoder seek afresh to `frame` instead of trusting its running state.
+    void recover(int64_t frame);
+    // Thread-safe one-line snapshot of the decode thread (positions, flags, counters) for stall reports.
+    std::string describe() const;
+
 private:
     VideoDecoder() = default;
 
@@ -98,6 +107,7 @@ private:
     std::atomic<int64_t> target_{0};
     std::atomic<int32_t> lookBehind_{30};
     std::atomic<int32_t> lookAhead_{60};
+    std::atomic<bool> forceSeek_{false};  // recover(): the next step seeks even if the codec looks positioned
 
     // Decode-thread state.
     int64_t decodePos_ = 0;          // next frame the codec will output (valid when !awaitingFirst_)
@@ -107,7 +117,19 @@ private:
     bool failed_ = false;            // unrecoverable codec error; worker idles until shutdown
     int64_t seekGoal_ = -1;          // frame we seeked for; -1 when satisfied
     int64_t lastFrame_ = 0;          // highest decodable frame
+    mutable std::mutex unavailableMu_;  // unavailable_ is read by the render thread (isUnavailable)
     std::set<int64_t> unavailable_;  // frames the stream never produced
+
+    // Mirrors of decode-thread state for describe()/isUnavailable(), readable from any thread.
+    std::atomic<int64_t> sharedLastFrame_{0};
+    std::atomic<int64_t> sharedDecodePos_{0};
+    std::atomic<int64_t> sharedSeekGoal_{-1};
+    std::atomic<int64_t> sharedLastOutFrame_{-1};
+    std::atomic<int64_t> sharedSeeks_{0};
+    std::atomic<int64_t> sharedMarkedUnavailable_{0};
+    std::atomic<bool> sharedPrimed_{false};
+    std::atomic<bool> sharedInputEos_{false};
+    std::atomic<bool> sharedFailed_{false};
 
     std::mutex readerMu_;  // guards reader_ between drainImages() and shutdown()
 
