@@ -20,6 +20,7 @@ internal object NativePreview {
     external fun nativeSurfaceChanged(handle: Long)
     external fun nativeOpenAsset(handle: Long, assetId: Int, fd: Int, fpsNum: Int, fpsDen: Int): LongArray
     external fun nativeCloseAsset(handle: Long, assetId: Int)
+    external fun nativeSetScene(handle: Long, canvasWidth: Int, canvasHeight: Int, ids: LongArray, params: FloatArray)
     external fun nativeSeek(handle: Long, assetId: Int, frame: Long)
     external fun nativePlay(handle: Long, assetId: Int, startFrame: Long)
     external fun nativePause(handle: Long)
@@ -78,6 +79,32 @@ class PreviewEngine private constructor(
 
     fun closeAsset(assetId: Int) = NativePreview.nativeCloseAsset(requireHandle(), assetId)
 
+    /**
+     * Shows [layers] (bottom to top) composited on a [canvasWidth] x [canvasHeight] project canvas that
+     * is letterboxed into the surface. Each layer's asset must be open; frames are in the frame rate
+     * the asset was opened with. The scene is drawn once every layer's frame is decoded, so a layer
+     * that is still catching up delays the whole update rather than showing a half-built composite.
+     * Replaces any earlier scene and stops [play]. Cheap enough to call on every playhead tick.
+     */
+    fun setScene(canvasWidth: Int, canvasHeight: Int, layers: List<PreviewLayer>) {
+        require(canvasWidth > 0 && canvasHeight > 0) { "canvas must be positive: ${canvasWidth}x$canvasHeight" }
+        val ids = LongArray(layers.size * 2)
+        val params = FloatArray(layers.size * PARAMS_PER_LAYER)
+        layers.forEachIndexed { i, layer ->
+            ids[i * 2] = layer.assetId.toLong()
+            ids[i * 2 + 1] = layer.frame
+            val p = layer.placement
+            val base = i * PARAMS_PER_LAYER
+            params[base] = p.positionX
+            params[base + 1] = p.positionY
+            params[base + 2] = p.scaleX
+            params[base + 3] = p.scaleY
+            params[base + 4] = p.rotationDegrees
+            params[base + 5] = p.opacity
+        }
+        NativePreview.nativeSetScene(requireHandle(), canvasWidth, canvasHeight, ids, params)
+    }
+
     /** Shows [frame] of the asset as soon as it is decoded; also moves the look-ahead window. */
     fun seek(assetId: Int, frame: Long) = NativePreview.nativeSeek(requireHandle(), assetId, frame)
 
@@ -106,6 +133,9 @@ class PreviewEngine private constructor(
     companion object {
         /** 1 GiB, the reference budget for high-end devices. */
         const val DEFAULT_CACHE_BUDGET_BYTES: Long = 1L shl 30
+
+        /** posX, posY, scaleX, scaleY, rotationDeg, opacity: the layout `nativeSetScene` reads. */
+        private const val PARAMS_PER_LAYER = 6
 
         /** @throws PreviewException if EGL/GLES initialisation fails. */
         fun create(

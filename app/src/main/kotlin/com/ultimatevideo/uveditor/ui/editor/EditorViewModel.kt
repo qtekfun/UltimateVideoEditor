@@ -563,6 +563,7 @@ class EditorViewModel(
         EditError.NegativeStart -> "A clip cannot start before the beginning of the timeline"
         EditError.SourceOutOfRange -> "That is beyond the end of the source media"
         is EditError.InvalidTrim -> "That trim is not possible: ${error.reason}"
+        is EditError.InvalidAppearance -> "That value is not allowed: ${error.reason}"
         is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
         is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"

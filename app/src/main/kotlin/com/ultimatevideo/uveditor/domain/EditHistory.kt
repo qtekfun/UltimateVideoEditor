@@ -37,6 +37,14 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.rippleAppend(timeline, clipId)
     }
 
+    data class SetTransform(val clipId: String, val transform: ClipTransform) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setTransform(timeline, clipId, transform)
+    }
+
+    data class SetGain(val clipId: String, val gainDb: Double) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setGain(timeline, clipId, gainDb)
+    }
+
     data class Trim(
         val clipId: String,
         val edge: TrimEdge,

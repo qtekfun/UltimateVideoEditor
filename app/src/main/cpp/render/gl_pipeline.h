@@ -2,10 +2,12 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 #include "decode/gpu_frame.h"
 #include "decode/status.h"
 #include "render/gl_context.h"
+#include "render/layout_math.h"
 
 namespace uv::render {
 
@@ -13,6 +15,14 @@ namespace uv::render {
 enum class ColorMode : int {
     Sdr709 = 0,
     Hlg2020ToSdr709 = 1,
+};
+
+// One layer of a composited frame. `frame` must stay alive for the duration of the draw call.
+struct LayerDraw {
+    const decode::GpuFrame* frame = nullptr;
+    ColorMode mode = ColorMode::Sdr709;
+    int turns = 0;  // clockwise quarter turns for display, from the container rotation
+    LayerTransform transform;
 };
 
 // GLES programs used by the preview. Render thread only, with the EGL context current.
@@ -35,6 +45,14 @@ public:
     // `turns` quarter turns, and applies the colour mode. Does not swap.
     decode::Status draw(const decode::GpuFrame& frame, ColorMode mode, int turns, int surfaceWidth,
                         int surfaceHeight, decode::Error* error);
+
+    // Composites `layers` (bottom to top) over black into the currently bound framebuffer, which is
+    // `surfaceWidth` x `surfaceHeight`. The project canvas (`canvasWidth` x `canvasHeight`) is
+    // letterboxed into it and every layer is clipped to the canvas. Pass the framebuffer size as the
+    // canvas size to fill it, which is what an offscreen (export) render does after binding its own
+    // framebuffer. Does not bind a framebuffer, swap or wait for the GPU.
+    decode::Status drawScene(const std::vector<LayerDraw>& layers, int canvasWidth, int canvasHeight,
+                             int surfaceWidth, int surfaceHeight, decode::Error* error);
 
     // Drops GL objects cached for decoder buffers (call when a decoder goes away).
     void clearSourceCache();
@@ -64,6 +82,8 @@ private:
     unsigned fbo_ = 0;
     int compositeModeLoc_ = -1;
     int compositeTurnsLoc_ = -1;
+    int compositeXformLoc_ = -1;
+    int compositeOpacityLoc_ = -1;
     std::unordered_map<uint64_t, ImageTexture> frameTextures_;       // GpuFrame::id -> GL_TEXTURE_2D
     std::unordered_map<AHardwareBuffer*, ImageTexture> sourceTextures_;  // decoder buffer -> external texture
 };

@@ -207,29 +207,38 @@ void PreviewEngine::closeAsset(uint32_t assetId) {
     thread_->post([this, assetId] {
         cache_.eraseIf([assetId](const FrameKey& k) { return k.asset == assetId; });
         if (pipeline_) pipeline_->clearSourceCache();  // the reader's buffers are gone with the decoder
-        if (hasCurrent_ && curAsset_ == assetId) {
-            hasCurrent_ = false;
-            playing_ = false;
+        const auto gone = std::remove_if(scene_.begin(), scene_.end(), [assetId](const SceneLayer& l) { return l.asset == assetId; });
+        if (gone != scene_.end()) {
+            scene_.erase(gone, scene_.end());
             drawnValid_ = false;
+            if (scene_.empty()) playing_ = false;
         }
     });
 }
 
 void PreviewEngine::applyWindowForBudget() {
-    // The window must fit the cache or the decoder would evict what it just produced and loop.
-    std::vector<std::shared_ptr<VideoDecoder>> decoders;
+    // The windows must fit the cache or the decoders would evict what they just produced and loop.
+    // Every open asset gets an equal share of the budget.
+    std::vector<std::pair<uint32_t, std::shared_ptr<VideoDecoder>>> decoders;
     {
         std::lock_guard<std::mutex> lock(assetMu_);
-        for (auto& entry : assets_) decoders.push_back(entry.second.decoder);
+        for (auto& entry : assets_) decoders.emplace_back(entry.first, entry.second.decoder);
     }
-    const size_t budget = cache_.budgetBytes();
-    for (auto& d : decoders) {
+    if (decoders.empty()) return;
+    const size_t share = cache_.budgetBytes() / decoders.size();
+    for (auto& [assetId, d] : decoders) {
         const size_t frameBytes = std::max<size_t>(1, static_cast<size_t>(d->info().width) * d->info().height * 4);
-        const int64_t capacity = static_cast<int64_t>(budget / frameBytes);
+        const int64_t capacity = static_cast<int64_t>(share / frameBytes);
         const int32_t ahead = static_cast<int32_t>(std::clamp<int64_t>(capacity * 2 / 3, 1, kDefaultLookAhead));
         const int32_t behind = static_cast<int32_t>(std::clamp<int64_t>(capacity / 4, 0, kDefaultLookBehind));
-        windowBehind_.store(behind);
-        windowAhead_.store(ahead);
+        {
+            std::lock_guard<std::mutex> lock(assetMu_);
+            auto it = assets_.find(assetId);
+            if (it != assets_.end()) {
+                it->second.windowBehind = behind;
+                it->second.windowAhead = ahead;
+            }
+        }
         d->setWindow(behind, ahead);
     }
 }
@@ -249,26 +258,42 @@ void PreviewEngine::setColorMode(uint32_t assetId, ColorMode mode) {
     thread_->post([this] { maybeDraw(true); });
 }
 
-void PreviewEngine::setCurrent(uint32_t assetId, int64_t frame) {
-    auto decoder = decoderFor(assetId);
-    if (!decoder) {
-        report(Error{Status::NotFound, "asset " + std::to_string(assetId) + " is not open"});
-        return;
+bool PreviewEngine::applyScene(int canvasW, int canvasH, std::vector<SceneLayer> layers) {
+    std::vector<SceneLayer> kept;
+    kept.reserve(layers.size());
+    for (SceneLayer& layer : layers) {
+        auto decoder = decoderFor(layer.asset);
+        if (!decoder) {
+            report(Error{Status::NotFound, "asset " + std::to_string(layer.asset) + " is not open"});
+            continue;
+        }
+        const int64_t last = std::max<int64_t>(decoder->info().durationFrames - 1, 0);
+        layer.frame = std::clamp<int64_t>(layer.frame, 0, last);
+        layer.transform.opacity = clampOpacity(layer.transform.opacity);
+        decoder->setTarget(layer.frame);
+        kept.push_back(layer);
     }
-    const int64_t last = std::max<int64_t>(decoder->info().durationFrames - 1, 0);
-    frame = std::clamp<int64_t>(frame, 0, last);
-    hasCurrent_ = true;
-    curAsset_ = assetId;
-    curFrame_ = frame;
-    decoder->setTarget(frame);
+    scene_ = std::move(kept);
+    canvasW_ = canvasW;
+    canvasH_ = canvasH;
+    return !scene_.empty();
+}
+
+void PreviewEngine::setScene(int canvasW, int canvasH, std::vector<SceneLayer> layers) {
+    thread_->post([this, canvasW, canvasH, layers = std::move(layers)]() mutable {
+        playing_ = false;
+        ++playGeneration_;
+        applyScene(canvasW, canvasH, std::move(layers));
+        maybeDraw(false);
+    });
 }
 
 void PreviewEngine::seek(uint32_t assetId, int64_t frame) {
     thread_->post([this, assetId, frame] {
-        setCurrent(assetId, frame);
-        if (playing_) {  // keep playing from the new position
+        applyScene(0, 0, {SceneLayer{assetId, frame, LayerTransform{}}});
+        if (playing_ && !scene_.empty()) {  // keep playing from the new position
             playStart_ = Clock::now();
-            playStartFrame_ = curFrame_;
+            playStartFrame_ = scene_[0].frame;
         }
         maybeDraw(false);
     });
@@ -276,11 +301,10 @@ void PreviewEngine::seek(uint32_t assetId, int64_t frame) {
 
 void PreviewEngine::play(uint32_t assetId, int64_t startFrame) {
     thread_->post([this, assetId, startFrame] {
-        setCurrent(assetId, startFrame);
-        if (!hasCurrent_) return;
+        if (!applyScene(0, 0, {SceneLayer{assetId, startFrame, LayerTransform{}}})) return;
         playing_ = true;
         playStart_ = Clock::now();
-        playStartFrame_ = curFrame_;
+        playStartFrame_ = scene_[0].frame;
         ++playGeneration_;
         tick(playGeneration_);
     });
@@ -295,7 +319,8 @@ void PreviewEngine::pause() {
 
 void PreviewEngine::tick(uint64_t generation) {
     if (!playing_ || generation != playGeneration_) return;
-    auto decoder = decoderFor(curAsset_);
+    // Native playback drives a single layer (see play()).
+    auto decoder = scene_.empty() ? nullptr : decoderFor(scene_[0].asset);
     if (!decoder) {
         playing_ = false;
         return;
@@ -311,8 +336,8 @@ void PreviewEngine::tick(uint64_t generation) {
         frame = last;
         playing_ = false;
     }
-    if (frame != curFrame_) {
-        curFrame_ = frame;
+    if (frame != scene_[0].frame) {
+        scene_[0].frame = frame;
         decoder->setTarget(frame);
     }
     const auto frameDueNs = [&](int64_t framesFromStart) {
@@ -364,11 +389,24 @@ void PreviewEngine::drain(uint32_t assetId) {
                 return -1;
             }
             const size_t bytes = gpuFrame->bytes();
-            // Evict outside the playback window first; see LruCache::put.
-            const int64_t behind = windowBehind_.load();
-            const int64_t ahead = windowAhead_.load();
-            const auto inWindow = [&](const FrameKey& k) {
-                return hasCurrent_ && k.asset == curAsset_ && k.frame >= curFrame_ - behind && k.frame <= curFrame_ + ahead;
+            // Evict outside every layer's playback window first; see LruCache::put.
+            struct Window {
+                uint32_t asset;
+                int64_t lo;
+                int64_t hi;
+            };
+            std::vector<Window> windows;
+            {
+                std::lock_guard<std::mutex> lock(assetMu_);
+                for (const SceneLayer& layer : scene_) {
+                    auto it = assets_.find(layer.asset);
+                    if (it == assets_.end()) continue;
+                    windows.push_back({layer.asset, layer.frame - it->second.windowBehind, layer.frame + it->second.windowAhead});
+                }
+            }
+            const auto inWindow = [&windows](const FrameKey& k) {
+                return std::any_of(windows.begin(), windows.end(),
+                                   [&k](const Window& w) { return k.asset == w.asset && k.frame >= w.lo && k.frame <= w.hi; });
             };
             for (auto& old : cache_.put(key, std::move(gpuFrame), bytes, inWindow)) {
                 if (old.use_count() == 1 && pool_.size() < kPoolSize) pool_.push_back(std::move(old));
@@ -381,29 +419,47 @@ void PreviewEngine::drain(uint32_t assetId) {
 }
 
 void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
-    if (!egl_ || !egl_->hasWindow() || !hasCurrent_) return;
-    const FrameKey key{curAsset_, curFrame_};
-    if (!force && drawnValid_ && drawnKey_ == key) return;
-    std::shared_ptr<GpuFrame> frame;
-    if (!cache_.get(key, &frame)) {
-        if (playing_) stalls_.fetch_add(1);
-        return;
-    }
-    ColorMode mode = ColorMode::Sdr709;
-    int turns = 0;
+    if (!egl_ || !egl_->hasWindow() || scene_.empty()) return;
+
+    // Every layer's frame must be cached before anything is drawn, or a scrub would flash a
+    // half-updated composite. The frames are held by shared_ptr, so they outlive the draw call.
+    std::vector<std::shared_ptr<GpuFrame>> frames;
+    std::vector<LayerDraw> layers;
+    std::vector<DrawnLayer> signature;
+    frames.reserve(scene_.size());
+    layers.reserve(scene_.size());
+    signature.reserve(scene_.size());
     {
         std::lock_guard<std::mutex> lock(assetMu_);
-        auto it = assets_.find(curAsset_);
-        if (it != assets_.end()) {
-            mode = it->second.mode;
-            turns = it->second.turns;
+        for (const SceneLayer& layer : scene_) {
+            auto asset = assets_.find(layer.asset);
+            if (asset == assets_.end()) continue;  // closed meanwhile; closeAsset() prunes the scene
+            std::shared_ptr<GpuFrame> frame;
+            if (!cache_.get(FrameKey{layer.asset, layer.frame}, &frame)) {
+                if (playing_) stalls_.fetch_add(1);
+                return;
+            }
+            frames.push_back(frame);
+            layers.push_back(LayerDraw{frame.get(), asset->second.mode, asset->second.turns, layer.transform});
+            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform});
         }
     }
+    if (layers.empty()) return;
+    if (!force && drawnValid_ && drawnCanvasW_ == canvasW_ && drawnCanvasH_ == canvasH_ && drawn_ == signature) return;
+
+    // Single-asset mode has no project canvas: use the first layer's displayed size.
+    int canvasW = canvasW_;
+    int canvasH = canvasH_;
+    if (canvasW <= 0 || canvasH <= 0) {
+        displaySize(static_cast<int>(frames[0]->width()), static_cast<int>(frames[0]->height()), layers[0].turns, &canvasW, &canvasH);
+    }
+
     Error error{Status::Ok, ""};
     const auto drawStart = Clock::now();
     const int drawW = egl_->windowWidth();
     const int drawH = egl_->windowHeight();
-    const Status drawStatus = pipeline_->draw(*frame, mode, turns, drawW, drawH, &error);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    const Status drawStatus = pipeline_->drawScene(layers, canvasW, canvasH, drawW, drawH, &error);
     const auto swapStart = Clock::now();
     if (drawStatus == Status::Ok) egl_->setPresentationTime(presentNs);
     const Status swapStatus = drawStatus == Status::Ok ? egl_->swap(&error) : drawStatus;
@@ -422,7 +478,9 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
             if (egl_->hasWindow()) maybeDraw(true);
         });
     }
-    drawnKey_ = key;
+    drawn_ = std::move(signature);
+    drawnCanvasW_ = canvasW_;
+    drawnCanvasH_ = canvasH_;
     drawnValid_ = true;
     framesDrawn_.fetch_add(1);
 }

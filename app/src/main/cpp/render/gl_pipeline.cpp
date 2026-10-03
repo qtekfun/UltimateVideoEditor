@@ -79,7 +79,7 @@ Status GlPipeline::buildProgram(const char* vertex, const char* fragment, unsign
 
 Status GlPipeline::init(Error* error) {
     if (Status s = buildProgram(kFullscreenVertex, kBlitFragment, &blitProgram_, error); s != Status::Ok) return s;
-    if (Status s = buildProgram(kFullscreenVertex, kCompositeFragment, &compositeProgram_, error);
+    if (Status s = buildProgram(kQuadVertex, kCompositeFragment, &compositeProgram_, error);
         s != Status::Ok) {
         return s;
     }
@@ -90,6 +90,8 @@ Status GlPipeline::init(Error* error) {
     glUniform1i(glGetUniformLocation(compositeProgram_, "uTex"), 0);
     compositeModeLoc_ = glGetUniformLocation(compositeProgram_, "uMode");
     compositeTurnsLoc_ = glGetUniformLocation(compositeProgram_, "uTurns");
+    compositeXformLoc_ = glGetUniformLocation(compositeProgram_, "uXform");
+    compositeOpacityLoc_ = glGetUniformLocation(compositeProgram_, "uOpacity");
     glGenVertexArrays(1, &vao_);
     glGenFramebuffers(1, &fbo_);
     return Status::Ok;
@@ -207,24 +209,59 @@ void GlPipeline::clear(int surfaceWidth, int surfaceHeight) {
 
 Status GlPipeline::draw(const GpuFrame& frame, ColorMode mode, int turns, int surfaceWidth, int surfaceHeight,
                         Error* error) {
-    unsigned texture = 0;
-    bool created = false;
-    if (Status s = frameTexture(frame, &texture, &created, error); s != Status::Ok) return s;
-
-    clear(surfaceWidth, surfaceHeight);
+    // A single layer on a canvas of its own (displayed) size fills the letterboxed viewport.
     int displayW = 0;
     int displayH = 0;
     displaySize(static_cast<int>(frame.width()), static_cast<int>(frame.height()), turns, &displayW, &displayH);
-    const Viewport vp = letterbox(displayW, displayH, surfaceWidth, surfaceHeight);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    const std::vector<LayerDraw> layers{LayerDraw{&frame, mode, turns, LayerTransform{}}};
+    return drawScene(layers, displayW, displayH, surfaceWidth, surfaceHeight, error);
+}
+
+Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWidth, int canvasHeight,
+                             int surfaceWidth, int surfaceHeight, Error* error) {
+    // Resolve every texture first: a failure must not leave a half-drawn frame on the surface.
+    std::vector<unsigned> textures;
+    textures.reserve(layers.size());
+    for (const LayerDraw& layer : layers) {
+        unsigned texture = 0;
+        bool created = false;
+        if (layer.frame == nullptr) {
+            if (error != nullptr) *error = Error{Status::InvalidArgument, "layer without a frame"};
+            return Status::InvalidArgument;
+        }
+        if (Status s = frameTexture(*layer.frame, &texture, &created, error); s != Status::Ok) return s;
+        textures.push_back(texture);
+    }
+
+    glViewport(0, 0, surfaceWidth, surfaceHeight);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    const Viewport vp = letterbox(canvasWidth, canvasHeight, surfaceWidth, surfaceHeight);
     glViewport(vp.x, vp.y, vp.w, vp.h);
 
     glUseProgram(compositeProgram_);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform1i(compositeModeLoc_, static_cast<int>(mode));
-    glUniform1i(compositeTurnsLoc_, turns);
     glBindVertexArray(vao_);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glActiveTexture(GL_TEXTURE0);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    for (size_t i = 0; i < layers.size(); ++i) {
+        const LayerDraw& layer = layers[i];
+        int displayW = 0;
+        int displayH = 0;
+        displaySize(static_cast<int>(layer.frame->width()), static_cast<int>(layer.frame->height()), layer.turns,
+                    &displayW, &displayH);
+        const QuadMap map = layerQuadMap(canvasWidth, canvasHeight, displayW, displayH, layer.transform);
+        float matrix[9];
+        quadMapToMat3(map, matrix);
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, matrix);
+        glUniform1f(compositeOpacityLoc_, clampOpacity(layer.transform.opacity));
+        glUniform1i(compositeModeLoc_, static_cast<int>(layer.mode));
+        glUniform1i(compositeTurnsLoc_, layer.turns);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+    glDisable(GL_BLEND);
     return Status::Ok;
 }
 
