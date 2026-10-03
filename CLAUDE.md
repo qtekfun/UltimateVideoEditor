@@ -36,6 +36,13 @@ Read `PRD.md` (what), `SPECS.md` (how), `PLAN.md` (order of work) before writing
 7. **Strict typing.** Kotlin: no `!!`, minimise nullable types, `explicitApi` for library-like modules.
    C++: RAII, no raw owning pointers, `-Wall -Wextra -Werror` for engine code.
 
+## Native host tests
+Pure-logic C++ (snapshot parsing, viewport, hit-testing, waveform peaks) is tested on the desktop without GoogleTest:
+`cmake -S app/src/main/cpp/tests -B /tmp/uv-host -G Ninja && cmake --build /tmp/uv-host && /tmp/uv-host/uv_host_tests`
+(CMake/Ninja from `$ANDROID_HOME/cmake/<ver>/bin`). Add new pure sources to `tests/CMakeLists.txt`.
+A debug-only harness for the native timeline: `adb -s <serial> shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity`
+(push a file with audio to `/sdcard/Android/data/com.ultimatevideo.uveditor/files/demo_media.mp4` to see waveforms).
+
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests
   covering collisions, gaps, and boundary frames. Write them with the operation, not afterwards.
