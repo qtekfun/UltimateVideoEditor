@@ -6,6 +6,12 @@ import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
@@ -698,7 +704,8 @@ private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace,
     )
 }
 
-/** Small icon-only button; [description] is read by screen readers. */
+/** Small icon-only button; [description] is read by screen readers and shown as a tooltip on long press. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ToolButton(
     icon: ImageVector,
@@ -707,8 +714,14 @@ internal fun ToolButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
-        Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(description) } },
+        state = rememberTooltipState(),
+    ) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
+            Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
+        }
     }
 }
 
