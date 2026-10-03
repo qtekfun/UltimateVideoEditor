@@ -64,8 +64,20 @@ private:
     std::thread thread_;
 };
 
-// Preview of one asset at a time: decode workers fill the frame cache, the render thread
-// colour-converts and presents cached frames on the attached Surface.
+// One layer of the scene: which frame of which open asset is shown, and how it is placed.
+struct SceneLayer {
+    uint32_t asset = 0;
+    int64_t frame = 0;
+    LayerTransform transform;
+};
+
+// Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
+// the render thread colour-converts and composites cached frames on the attached Surface.
+//
+// Two ways to drive it:
+//  - setScene(): the editor path. A project canvas plus layers bottom-to-top, each with its own
+//    transform and opacity. It is redrawn once every layer's frame is cached.
+//  - seek()/play(): single asset, shown full-surface with no transform (debug harness).
 class PreviewEngine {
 public:
     using ErrorSink = std::function<void(const decode::Error&)>;
@@ -85,6 +97,12 @@ public:
     decode::Result<decode::AssetInfo> openAsset(uint32_t assetId, int fd, decode::Rational fpsOverride);
     void closeAsset(uint32_t assetId);
 
+    // Replaces the scene. `canvasW` x `canvasH` is the project resolution the layers are placed on
+    // (letterboxed into the surface). Layers are listed bottom to top; their frames are indices in
+    // each asset's own frame rate, clamped to the asset. Layers of assets that are not open are
+    // reported and dropped. Stops native playback. Cheap enough to call on every playhead tick.
+    void setScene(int canvasW, int canvasH, std::vector<SceneLayer> layers);
+
     void seek(uint32_t assetId, int64_t frame);
     void play(uint32_t assetId, int64_t startFrame);
     void pause();
@@ -97,6 +115,22 @@ private:
         std::shared_ptr<decode::VideoDecoder> decoder;
         ColorMode mode = ColorMode::Sdr709;
         int turns = 0;  // clockwise quarter turns for display, from the container rotation
+        // Look-behind/ahead its decoder keeps filled; frames inside it are evicted last.
+        int32_t windowBehind = 0;
+        int32_t windowAhead = 0;
+    };
+
+    // What the last draw showed, to skip redundant draws.
+    struct DrawnLayer {
+        uint32_t asset;
+        int64_t frame;
+        LayerTransform transform;
+        bool operator==(const DrawnLayer& o) const {
+            return asset == o.asset && frame == o.frame && transform.posX == o.transform.posX &&
+                   transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
+                   transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&
+                   transform.opacity == o.transform.opacity;
+        }
     };
 
     PreviewEngine(size_t cacheBudgetBytes, ErrorSink sink);
@@ -108,7 +142,8 @@ private:
     void drain(uint32_t assetId);
     // `presentNs` (CLOCK_MONOTONIC) asks the compositor to show the frame at that time; 0 = asap.
     void maybeDraw(bool force, int64_t presentNs = 0);
-    void setCurrent(uint32_t assetId, int64_t frame);
+    // Installs `layers` as the scene and points each decoder at its frame. Returns false if none remain.
+    bool applyScene(int canvasW, int canvasH, std::vector<SceneLayer> layers);
     void tick(uint64_t generation);
     void report(const decode::Error& error);
 
@@ -123,11 +158,13 @@ private:
     std::unique_ptr<GlPipeline> pipeline_;
     // Buffers evicted from the cache are recycled: allocating a 4K buffer per frame is too slow.
     std::vector<std::shared_ptr<decode::GpuFrame>> pool_;
-    bool hasCurrent_ = false;
-    uint32_t curAsset_ = 0;
-    int64_t curFrame_ = 0;
+    std::vector<SceneLayer> scene_;  // bottom to top
+    int canvasW_ = 0;                // 0 = single-asset mode: the canvas is the first layer's displayed size
+    int canvasH_ = 0;
     bool drawnValid_ = false;
-    FrameKey drawnKey_{0, 0};
+    std::vector<DrawnLayer> drawn_;
+    int drawnCanvasW_ = 0;
+    int drawnCanvasH_ = 0;
     bool playing_ = false;
     uint64_t playGeneration_ = 0;
     int64_t playStartFrame_ = 0;
@@ -144,10 +181,6 @@ private:
     };
     void logStageTimes();
     StageTimes times_;
-
-    // Look-behind/ahead the decoders keep filled; frames inside it are evicted last.
-    std::atomic<int32_t> windowBehind_{0};
-    std::atomic<int32_t> windowAhead_{0};
 
     std::atomic<int64_t> framesDrawn_{0};
     std::atomic<int64_t> stalls_{0};

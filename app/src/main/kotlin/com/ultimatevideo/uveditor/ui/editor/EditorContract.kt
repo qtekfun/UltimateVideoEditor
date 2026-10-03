@@ -1,6 +1,8 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -15,9 +17,9 @@ data class EditorState(
     val loadError: String? = null,
     val projectName: String = "",
     val fps: FrameRate = FrameRate(30, 1),
-    /** Project canvas size in pixels; the export defaults to it. */
-    val width: Int = 1920,
-    val height: Int = 1080,
+    /** Project resolution: the canvas the preview composites on and clip positions are measured in. */
+    val canvasWidth: Int = 1920,
+    val canvasHeight: Int = 1080,
     /** Committed timeline; only changes through the undo history. */
     val timeline: Timeline = Timeline(),
     /** Provisional timeline while a clip is being dragged; discarded or committed on release. */
@@ -31,9 +33,26 @@ data class EditorState(
     val canRedo: Boolean = false,
     val isImporting: Boolean = false,
     val isPlaying: Boolean = false,
+    /** The appearance inspector (transform and gain of the selected clip) replaces the timeline while open. */
+    val inspectorOpen: Boolean = false,
 ) : UiState {
     /** What the canvas should draw right now. */
     val visibleTimeline: Timeline get() = dragPreview ?: timeline
+
+    /** The selected clip as currently shown (including an edit in progress), if it is a video clip. */
+    val selectedVideoClip: Clip?
+        get() {
+            val id = selectedClipId ?: return null
+            val track = visibleTimeline.trackOfClip(id)?.takeIf { it.type == TrackType.VIDEO } ?: return null
+            return track.clip(id)
+        }
+
+    /** The selected clip as currently shown, whatever its track type. */
+    val selectedClip: Clip? get() = selectedClipId?.let { visibleTimeline.trackOfClip(it)?.clip(it) }
+
+    /** True when the selected video clip is under the playhead, so a gesture on the preview edits what is visible. */
+    val selectedClipVisible: Boolean
+        get() = selectedVideoClip?.let { playhead >= it.timelineStart && playhead < it.timelineEnd } ?: false
 
     /** "V1", "A2": the position of the selected track among tracks of its type, top to bottom. */
     val selectedTrackLabel: String?
@@ -72,6 +91,24 @@ sealed interface EditorIntent : UiIntent {
     data object SeekNext : EditorIntent
     data object Undo : EditorIntent
     data object Redo : EditorIntent
+
+    data object ToggleInspector : EditorIntent
+
+    /**
+     * Edits of the selected clip's look and sound. A session is Begin, any number of Update/Gesture
+     * steps (shown live but not yet in the undo history) and End: with `commit` the result becomes
+     * one undo step. A [TransformGesture] outside a session starts one by itself.
+     */
+    data object BeginAppearanceEdit : EditorIntent
+    data class UpdateTransform(val transform: ClipTransform) : EditorIntent
+    data class UpdateGain(val gainDb: Double) : EditorIntent
+
+    /** One step of a touch gesture on the preview: pan in project canvas pixels, zoom factor, clockwise degrees. */
+    data class TransformGesture(val panX: Double, val panY: Double, val zoom: Double, val rotationDegrees: Double) : EditorIntent
+    data class EndAppearanceEdit(val commit: Boolean) : EditorIntent
+
+    /** Back to the original placement and unity gain, as one undo step. */
+    data object ResetAppearance : EditorIntent
 
     data class ImportMedia(val uris: List<String>) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent

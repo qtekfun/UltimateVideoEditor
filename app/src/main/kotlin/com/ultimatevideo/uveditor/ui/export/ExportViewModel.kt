@@ -158,6 +158,8 @@ class ExportViewModel(
             settings = settings,
             projectFpsNum = source.fps.num,
             projectFpsDen = source.fps.den,
+            canvasWidth = source.projectWidth,
+            canvasHeight = source.projectHeight,
             totalFrames = outputFrameCount(plan.projectFrames, source.fps, rate),
             assetFds = opened,
             videoClips = plan.videoClips,

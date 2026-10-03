@@ -22,6 +22,8 @@ internal object NativeExport {
         fpsDen: Int,
         projectFpsNum: Int,
         projectFpsDen: Int,
+        canvasWidth: Int,
+        canvasHeight: Int,
         codec: Int,
         videoBitrate: Int,
         audioBitrate: Int,
@@ -29,6 +31,7 @@ internal object NativeExport {
         assetKeys: LongArray,
         assetFds: IntArray,
         clips: LongArray,
+        transforms: DoubleArray,
         audioSnapshot: ByteBuffer?,
         outputFd: Int,
     ): Long
@@ -50,6 +53,7 @@ class NativeExportRunner : ExportRunner {
         val keys = request.assetFds.keys.toLongArray()
         val fds = IntArray(keys.size) { request.assetFds.getValue(keys[it]) }
         val clips = LongArray(request.videoClips.size * CLIP_LONGS)
+        val transforms = DoubleArray(request.videoClips.size * CLIP_DOUBLES)
         request.videoClips.forEachIndexed { i, c ->
             val o = i * CLIP_LONGS
             clips[o] = c.startFrame
@@ -58,13 +62,20 @@ class NativeExportRunner : ExportRunner {
             clips[o + 3] = c.assetKey
             clips[o + 4] = c.layer.toLong()
             clips[o + 5] = c.colorMode.toLong()
+            val t = i * CLIP_DOUBLES
+            transforms[t] = c.positionX
+            transforms[t + 1] = c.positionY
+            transforms[t + 2] = c.scaleX
+            transforms[t + 3] = c.scaleY
+            transforms[t + 4] = c.rotationDegrees
+            transforms[t + 5] = c.opacity
         }
         val s = request.settings
         val handle = try {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
-                s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
-                keys, fds, clips, request.audioSnapshot, request.outputFd,
+                request.canvasWidth, request.canvasHeight, s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
+                keys, fds, clips, transforms, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
@@ -91,5 +102,6 @@ class NativeExportRunner : ExportRunner {
 
     private companion object {
         const val CLIP_LONGS = 6
+        const val CLIP_DOUBLES = 6
     }
 }

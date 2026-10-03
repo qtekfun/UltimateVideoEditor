@@ -4,16 +4,18 @@ import com.ultimatevideo.uveditor.data.model.ClipDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
+import com.ultimatevideo.uveditor.data.model.TransformDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
 
 /**
- * Converts between the on-disk DTOs and the editing [Timeline]. The domain model only carries
- * what editing needs (placement and source range), so per-clip extras such as transform, gain
- * and colour override are carried over from the previously saved DTO.
+ * Converts between the on-disk DTOs and the editing [Timeline]. The domain model carries
+ * placement, source range, transform and gain; extras it does not model yet (colour override)
+ * are carried over from the previously saved DTO.
  *
  * Source ranges are expressed in project frames (time-based), so a clip's timeline length equals
  * its source length at 1x speed.
@@ -61,6 +63,27 @@ object TimelineMapper {
         timelineStart = FrameIndex(dto.timelineStartFrame),
         sourceIn = FrameIndex(dto.sourceInFrame),
         sourceOut = FrameIndex(dto.sourceOutFrame),
+        transform = toTransform(dto.id, dto.transform),
+        gainDb = dto.gainDb,
+    )
+
+    private fun toTransform(clipId: String, dto: TransformDto): ClipTransform {
+        if (dto.position.size != 2 || dto.scale.size != 2) throw ProjectError.Corrupt("clip $clipId has a malformed transform")
+        return ClipTransform(
+            positionX = dto.position[0],
+            positionY = dto.position[1],
+            scaleX = dto.scale[0],
+            scaleY = dto.scale[1],
+            rotationDegrees = dto.rotation,
+            opacity = dto.opacity,
+        )
+    }
+
+    private fun toTransformDto(transform: ClipTransform) = TransformDto(
+        scale = listOf(transform.scaleX, transform.scaleY),
+        rotation = transform.rotationDegrees,
+        position = listOf(transform.positionX, transform.positionY),
+        opacity = transform.opacity,
     )
 
     private fun toClipDto(clip: Clip, prototype: ClipDto?): ClipDto =
@@ -70,6 +93,8 @@ object TimelineMapper {
             timelineStartFrame = clip.timelineStart.value,
             sourceInFrame = clip.sourceIn.value,
             sourceOutFrame = clip.sourceOut.value,
+            transform = toTransformDto(clip.transform),
+            gainDb = clip.gainDb,
         )
 
     private fun trackType(name: String): TrackType = when (name) {

@@ -51,7 +51,10 @@ data class ExportSettings(
     }
 }
 
-/** One video clip to render. Frames are project frames; a lower [layer] is drawn on top. */
+/**
+ * One video clip to render. Frames are project frames; a lower [layer] is drawn on top. The
+ * transform mirrors `ClipTransform`: canvas pixels (+x right, +y down), clockwise degrees, opacity 0..1.
+ */
 data class VideoClipSpec(
     val startFrame: Long,
     val durationFrames: Long,
@@ -59,6 +62,12 @@ data class VideoClipSpec(
     val assetKey: Long,
     val layer: Int,
     val colorMode: Int,
+    val positionX: Double = 0.0,
+    val positionY: Double = 0.0,
+    val scaleX: Double = 1.0,
+    val scaleY: Double = 1.0,
+    val rotationDegrees: Double = 0.0,
+    val opacity: Double = 1.0,
 )
 
 /**
@@ -66,12 +75,15 @@ data class VideoClipSpec(
  * the exporter from the moment [ExportRunner.start] is called, even if it throws.
  *
  * [totalFrames] counts output frames at [ExportSettings.fpsNum]/[ExportSettings.fpsDen];
- * [projectFpsNum]/[projectFpsDen] is the rate the clips' frames are expressed in.
+ * [projectFpsNum]/[projectFpsDen] is the rate the clips' frames are expressed in, and
+ * [canvasWidth] x [canvasHeight] the project resolution that clip positions are measured in.
  */
 class ExportRequest(
     val settings: ExportSettings,
     val projectFpsNum: Int,
     val projectFpsDen: Int,
+    val canvasWidth: Int,
+    val canvasHeight: Int,
     val totalFrames: Long,
     val assetFds: Map<Long, Int>,
     val videoClips: List<VideoClipSpec>,

@@ -39,6 +39,7 @@ constexpr int32_t kAudioChunkFrames = 1024;
 // earlier by that much so sound lines up with picture in players that ignore the delay; the first
 // 42.7 ms of the mix are therefore not heard.
 constexpr int64_t kAacDelaySamples = 2048;
+constexpr int64_t kIdleCheckFrames = 30;
 constexpr int32_t kDecodeAhead = 4;  // frames the decoder may run ahead of the frame being drawn
 constexpr auto kDecodeStall = std::chrono::seconds(15);
 
@@ -314,8 +315,8 @@ private:
 
 // Decoded frames of one asset, shared between the decoder thread (isCached) and the export thread.
 struct AssetState {
-    int fd = -1;  // closed when the state goes away if the decoder never took it
     std::unique_ptr<decode::VideoDecoder> decoder;
+    int64_t lastUsedFrame = 0;  // output frame that last needed this decoder
     decode::AssetInfo info;
     int turns = 0;
     std::mutex mu;
@@ -350,17 +351,37 @@ public:
         const int w = egl_.windowWidth();
         const int h = egl_.windowHeight();
         const int64_t projectFrame = outputToProjectFrame(frame, params_.fps, params_.projectFps);
-        const VideoClip* clip = clipAt(params_.clips, projectFrame);
-        if (clip == nullptr) {
-            pipeline_->clear(w, h);
-        } else {
-            AssetState& asset = assetFor(clip->assetKey);
+
+        // Every clip under the playhead, bottom layer first. `held` keeps the frames alive until the draw.
+        struct Used {
+            AssetState* asset;
+            int64_t source;
+        };
+        std::vector<std::shared_ptr<decode::GpuFrame>> held;
+        std::vector<render::LayerDraw> layers;
+        std::vector<Used> used;
+        for (const VideoClip* clip : layersAt(params_.clips, projectFrame)) {
+            AssetState& asset = assetFor(clip->assetKey, clip->layer);
+            asset.lastUsedFrame = frame;
             const int64_t source = sourceFrameFor(*clip, projectFrame, asset.info.durationFrames);
-            std::shared_ptr<decode::GpuFrame> gpu = fetch(asset, source);
-            const auto mode = static_cast<render::ColorMode>(clip->colorMode);
-            if (pipeline_->draw(*gpu, mode, asset.turns, w, h, &e) != decode::Status::Ok) failDecode(e, "drawing a frame failed");
-            evictBefore(asset, source);
+            held.push_back(fetch(asset, source));
+            render::LayerDraw layer;
+            layer.frame = held.back().get();
+            layer.mode = static_cast<render::ColorMode>(clip->colorMode);
+            layer.turns = asset.turns;
+            layer.transform = render::LayerTransform{
+                static_cast<float>(clip->posX),   static_cast<float>(clip->posY),     static_cast<float>(clip->scaleX),
+                static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), static_cast<float>(clip->opacity)};
+            layers.push_back(layer);
+            used.push_back({&asset, source});
         }
+        // No layers draws black: a gap in the timeline.
+        if (pipeline_->drawScene(layers, params_.canvasWidth, params_.canvasHeight, w, h, &e) != decode::Status::Ok) {
+            failDecode(e, "drawing a frame failed");
+        }
+        for (const Used& u : used) evictBefore(*u.asset, u.source);
+        if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
+
         egl_.setPresentationTimeExact(frameToNs(frame, params_.fps));
         if (egl_.swap(&e) != decode::Status::Ok) failDecode(e, "presenting a frame to the encoder failed");
     }
@@ -371,8 +392,11 @@ public:
     }
 
 private:
-    AssetState& assetFor(int64_t key) {
-        auto it = assets_.find(key);
+    // One decoder per (media, layer): two layers showing the same file at different source frames
+    // must not fight over a single decoder's position.
+    AssetState& assetFor(int64_t key, int32_t layer) {
+        const auto slot = std::make_pair(key, layer);
+        auto it = assets_.find(slot);
         if (it != assets_.end()) return *it->second;
         auto fdIt = fds_.find(key);
         if (fdIt == fds_.end() || fdIt->second < 0) fail(Status::InvalidArgument, "a clip refers to media that was not provided");
@@ -401,7 +425,7 @@ private:
         state->info = state->decoder->info();
         state->turns = ((state->info.rotationDegrees / 90) % 4 + 4) % 4;
         state->decoder->setWindow(0, kDecodeAhead);
-        return *assets_.emplace(key, std::move(state)).first->second;
+        return *assets_.emplace(slot, std::move(state)).first->second;
     }
 
     // Returns the decoded frame for `source`, waiting for the decoder. If the stream never
@@ -487,6 +511,22 @@ private:
         }
     }
 
+    // Hardware decoders are scarce: close the ones no clip has needed for a couple of seconds.
+    void releaseIdleDecoders(int64_t frame) {
+        const int64_t idle = std::max<int64_t>(60, static_cast<int64_t>(2) * params_.fps.num / params_.fps.den);
+        bool released = false;
+        for (auto it = assets_.begin(); it != assets_.end();) {
+            if (frame - it->second->lastUsedFrame > idle) {
+                it->second->decoder->shutdown();
+                it = assets_.erase(it);
+                released = true;
+            } else {
+                ++it;
+            }
+        }
+        if (released) pipeline_->clearSourceCache();
+    }
+
     void wake() {
         std::lock_guard<std::mutex> lock(wakeMu_);
         wakeCv_.notify_all();
@@ -496,7 +536,7 @@ private:
     render::EglContext egl_;
     std::unique_ptr<render::GlPipeline> pipeline_;
     std::map<int64_t, int> fds_;
-    std::map<int64_t, std::unique_ptr<AssetState>> assets_;
+    std::map<std::pair<int64_t, int32_t>, std::unique_ptr<AssetState>> assets_;
     std::vector<std::shared_ptr<decode::GpuFrame>> pool_;
 
     std::mutex wakeMu_;
@@ -570,6 +610,10 @@ void ExportJob::execute() {
         params_.projectFps.num <= 0 || params_.projectFps.den <= 0 || params_.totalFrames <= 0 ||
         params_.videoBitrate <= 0) {
         fail(Status::InvalidArgument, "invalid export settings");
+    }
+    if (params_.canvasWidth <= 0 || params_.canvasHeight <= 0) {  // no project size given: use the output's
+        params_.canvasWidth = params_.width;
+        params_.canvasHeight = params_.height;
     }
     const bool hasAudio = !params_.audioSnapshot.empty();
     const auto begin = Clock::now();

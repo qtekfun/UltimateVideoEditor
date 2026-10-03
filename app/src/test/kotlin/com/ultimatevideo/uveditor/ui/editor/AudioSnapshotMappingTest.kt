@@ -41,6 +41,18 @@ class AudioSnapshotMappingTest {
     }
 
     @Test
+    fun `clip gain reaches the mixer`() {
+        val tl = timeline(
+            track("v1", clip("c1", 0, 100, asset = "a").copy(gainDb = -6.0), clip("c2", 100, 50, asset = "a")),
+        )
+
+        val spec = snapshot(tl, asset("a", true))
+
+        assertEquals(-6f, spec.clips.first { it.clipKey == keys.keyFor("c1") }.gainDb, 0f)
+        assertEquals(0f, spec.clips.first { it.clipKey == keys.keyFor("c2") }.gainDb, 0f)
+    }
+
+    @Test
     fun `clips of media without audio and clips without media are silent`() {
         val tl = timeline(
             track("v1", clip("c1", 0, 100, asset = "mute"), clip("t1", 100, 10, asset = null)),

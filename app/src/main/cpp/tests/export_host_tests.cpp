@@ -90,10 +90,38 @@ void progressIsClampedAndMonotonic() {
     CHECK_EQ(previous, 1000);
 }
 
+VideoClip makeClip(int64_t start, int64_t duration, int64_t sourceIn, int64_t asset, int32_t layer) {
+    VideoClip c;
+    c.startFrame = start;
+    c.durationFrames = duration;
+    c.sourceInFrame = sourceIn;
+    c.assetKey = asset;
+    c.layer = layer;
+    return c;
+}
+
+void layersAreListedBottomFirst() {
+    std::vector<VideoClip> clips;
+    clips.push_back(makeClip(0, 100, 0, 1, 0));    // top track
+    clips.push_back(makeClip(0, 100, 0, 2, 2));    // bottom track
+    clips.push_back(makeClip(50, 100, 0, 3, 1));   // middle track, starts later
+    const auto at10 = layersAt(clips, 10);
+    CHECK_EQ(at10.size(), 2);
+    CHECK_EQ(at10[0]->assetKey, 2);  // drawn first, so it ends up underneath
+    CHECK_EQ(at10[1]->assetKey, 1);
+    const auto at60 = layersAt(clips, 60);
+    CHECK_EQ(at60.size(), 3);
+    CHECK_EQ(at60[0]->assetKey, 2);
+    CHECK_EQ(at60[1]->assetKey, 3);
+    CHECK_EQ(at60[2]->assetKey, 1);
+    CHECK_EQ(layersAt(clips, 150).size(), 0);  // ends are exclusive and the gap is empty
+    CHECK_EQ(layersAt(clips, 149).size(), 1);
+}
+
 void topLayerWinsAndGapsAreEmpty() {
     std::vector<VideoClip> clips;
-    clips.push_back({0, 100, 0, 1, 1, 0});    // lower track
-    clips.push_back({50, 100, 10, 2, 0, 0});  // top track, overlaps frames 50..149
+    clips.push_back(makeClip(0, 100, 0, 1, 1));    // lower track
+    clips.push_back(makeClip(50, 100, 10, 2, 0));  // top track, overlaps frames 50..149
     const VideoClip* a = clipAt(clips, 10);
     const VideoClip* b = clipAt(clips, 60);
     const VideoClip* c = clipAt(clips, 120);
@@ -117,7 +145,7 @@ void outputFramesMapToProjectFrames() {
 }
 
 void sourceFrameMapsAndClamps() {
-    const VideoClip clip{100, 50, 20, 1, 0, 0};
+    const VideoClip clip = makeClip(100, 50, 20, 1, 0);
     CHECK_EQ(sourceFrameFor(clip, 100, 1000), 20);
     CHECK_EQ(sourceFrameFor(clip, 149, 1000), 69);
     CHECK_EQ(sourceFrameFor(clip, 149, 60), 59);   // media shorter than the clip range: hold the last frame
@@ -133,6 +161,7 @@ int main() {
     ptsDoesNotDriftOverLongTimelines();
     audioSamplesTileWithVideoFrames();
     progressIsClampedAndMonotonic();
+    layersAreListedBottomFirst();
     topLayerWinsAndGapsAreEmpty();
     outputFramesMapToProjectFrames();
     sourceFrameMapsAndClamps();
