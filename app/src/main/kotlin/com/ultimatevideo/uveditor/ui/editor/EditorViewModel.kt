@@ -10,6 +10,10 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.domain.AddCaptions
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.DropHint
+import com.ultimatevideo.uveditor.domain.DropKind
+import com.ultimatevideo.uveditor.domain.DropPlan
+import com.ultimatevideo.uveditor.domain.DropTarget
 import com.ultimatevideo.uveditor.domain.ClipDeletion
 import com.ultimatevideo.uveditor.domain.ClipFx
 import com.ultimatevideo.uveditor.domain.ClipGain
@@ -70,7 +74,10 @@ class EditorViewModel(
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
 
-    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long)
+    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long) {
+        /** Last lane the finger was over, kept while it crosses a gap between lanes. */
+        var target: DropTarget? = null
+    }
 
     /** An inspector or preview-gesture edit in progress: shown live, committed as one undo step on release. */
     private class AppearanceSession(
@@ -121,7 +128,7 @@ class EditorViewModel(
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             is EditorIntent.DragStart -> dragStart(intent.hit)
-            is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex)
+            is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
             EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.DeleteClip(it)) }
@@ -129,6 +136,7 @@ class EditorViewModel(
             EditorIntent.TogglePlay -> togglePlay()
             is EditorIntent.AddTrack -> addTrack(intent.type)
             EditorIntent.RemoveSelectedTrack -> removeSelectedTrack()
+            is EditorIntent.MoveSelectedTrack -> moveSelectedTrack(intent.delta)
             EditorIntent.SeekPrevious -> seekTo(previousEditPoint())
             EditorIntent.SeekNext -> seekTo(nextEditPoint())
             EditorIntent.Undo -> undo()
@@ -357,7 +365,8 @@ class EditorViewModel(
             HitKind.EMPTY_TRACK -> reduce {
                 copy(selectedClipId = null, selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId)
             }
-            HitKind.NONE -> reduce { copy(selectedClipId = null) }
+            // Above the lanes (room left by the bottom-anchored stack) a tap is a tap on nothing; OUTSIDE only occurs mid-drag.
+            HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE -> reduce { copy(selectedClipId = null) }
         }
     }
 
@@ -465,6 +474,7 @@ class EditorViewModel(
             copy(
                 timeline = committed,
                 dragPreview = null,
+                dropHint = null,
                 canUndo = canUndo,
                 canRedo = canRedo,
                 selectedClipId = selectedClipId?.takeIf { committed.trackOfClip(it) != null },
@@ -515,6 +525,15 @@ class EditorViewModel(
         if (execute(EditCommand.AddTrack(track, index))) reduce { copy(selectedTrackId = track.id, selectedClipId = null) }
     }
 
+    private fun moveSelectedTrack(delta: Int) {
+        val id = state.value.selectedTrackId
+        if (id == null) {
+            emit(EditorEffect.ShowMessage("Tap a track to select it first"))
+            return
+        }
+        execute(EditCommand.MoveTrack(id, delta))
+    }
+
     private fun removeSelectedTrack() {
         val track = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
         if (track == null) {
@@ -553,7 +572,26 @@ class EditorViewModel(
         pendingDragCommand = null
     }
 
-    private fun dragMove(frame: Long, trackIndex: Int) {
+    /**
+     * The drop target under the finger. [trackIndex] indexes the timeline being shown, which during a
+     * drag may contain the provisional new lane; that lane (not in the committed timeline) keeps the
+     * target on 'add a lane' so the preview does not flicker as it appears.
+     */
+    private fun dropTarget(session: DragSession, committed: Timeline, trackIndex: Int, zone: DragZone): DropTarget? = when (zone) {
+        DragZone.OUTSIDE -> DropTarget.Outside
+        DragZone.ABOVE_LANES -> DropTarget.AboveLanes
+        DragZone.LANES -> {
+            val shown = state.value.dragPreview ?: committed
+            val id = shown.tracks.getOrNull(trackIndex)?.id
+            when {
+                id == null -> session.target
+                committed.track(id) == null -> DropTarget.AboveLanes
+                else -> DropTarget.Lane(id)
+            }
+        }
+    }
+
+    private fun dragMove(frame: Long, trackIndex: Int, zone: DragZone) {
         val session = drag ?: return
         if (session.mode == DragMode.PLAYHEAD) {
             setPlayhead(frame)
@@ -565,16 +603,10 @@ class EditorViewModel(
         val playhead = state.value.playhead
         val command = when (session.mode) {
             DragMode.MOVE -> {
-                val destination = base.tracks.getOrNull(trackIndex)
-                    ?.takeIf { it.type == sourceTrack.type && it.id != sourceTrack.id }
-                    ?.id
-                EditCommand.MoveClip(
-                    clipId = session.clipId,
-                    newStart = FrameIndex((frame - session.grabOffset).coerceAtLeast(0)),
-                    // A base clip only reorders within the base, so the lane under the finger is ignored.
-                    toTrackId = destination.takeUnless { sourceTrack.id == ClipDeletion.baseTrack(base)?.id },
-                    snap = Snap(playhead, SNAP_THRESHOLD_FRAMES),
-                )
+                val target = dropTarget(session, base, trackIndex, zone)
+                session.target = target
+                moveDrag(session, base, FrameIndex((frame - session.grabOffset).coerceAtLeast(0)), target ?: DropTarget.Lane(sourceTrack.id), playhead)
+                return
             }
             DragMode.TRIM_START -> EditCommand.TrimClip(
                 clipId = session.clipId,
@@ -593,8 +625,38 @@ class EditorViewModel(
         val result = command.apply(base)
         if (result is EditResult.Success) {
             pendingDragCommand = if (result.value == base) null else command
-            reduce { copy(dragPreview = result.value) }
+            reduce { copy(dragPreview = result.value, dropHint = null) }
         }
+    }
+
+    /**
+     * One step of a clip move: [DropPlan] decides what releasing here would do, the preview shows it
+     * and the hint tells the timeline which indicator to draw. The decision's command is what a
+     * release applies, so the indicator and the result always agree.
+     */
+    private fun moveDrag(session: DragSession, base: Timeline, start: FrameIndex, target: DropTarget, playhead: FrameIndex) {
+        val decision = DropPlan.decide(base, session.clipId, start, target, Snap(playhead, SNAP_THRESHOLD_FRAMES)) ?: return
+        val command = decision.command
+        if (command == null) {
+            // Cancel: the clip shows where it started and a release changes nothing.
+            pendingDragCommand = null
+            reduce { copy(dragPreview = null, dropHint = decision.hint) }
+            return
+        }
+        val result = command.apply(base) as? EditResult.Success ?: return
+        val preview = result.value
+        pendingDragCommand = if (preview == base) null else command
+        val hint = when (decision.kind) {
+            DropKind.MOVE -> null
+            // Reordering inside the base lands at a cut: show it as an insertion marker there.
+            DropKind.REORDER -> preview.trackOfClip(session.clipId)?.clip(session.clipId)?.let {
+                DropHint(DropKind.INSERT, preview.trackOfClip(session.clipId)?.id, it.timelineStart.value, it.timelineStart.value)
+            }
+            // The new lane exists only in the preview: point at the lane that is not in the committed timeline.
+            DropKind.NEW_LANE -> DropHint(DropKind.NEW_LANE, preview.tracks.firstOrNull { base.track(it.id) == null }?.id, decision.hint.startFrame, decision.hint.endFrame)
+            else -> decision.hint
+        }
+        reduce { copy(dragPreview = preview, dropHint = hint) }
     }
 
     private fun dragEnd(commit: Boolean) {
@@ -602,7 +664,7 @@ class EditorViewModel(
         drag = null
         pendingDragCommand = null
         if (commit && command != null && execute(command)) return
-        reduce { copy(dragPreview = null) }
+        reduce { copy(dragPreview = null, dropHint = null) }
     }
 
     private fun snapFrame(timeline: Timeline, movingClipId: String, frame: Long, playhead: FrameIndex): FrameIndex {
@@ -1092,6 +1154,8 @@ class EditorViewModel(
         is EditError.TransitionNotFound -> "The transition no longer exists"
         EditError.NoBaseTrack -> "Add a video track first"
         is EditError.BaseClipCannotLeave -> "The base track is the guide: reorder its clips there, or cut and paste to an overlay"
+        is EditError.BaseTrackCannotMove -> "The base track stays at the bottom of the video lanes"
+        is EditError.TrackCannotMove -> "That lane cannot move further: ${error.reason}"
         is EditError.NotATitle -> "That clip is not a title"
         is EditError.InvalidKeyframe -> "That keyframe is not possible: ${error.reason}"
         is EditError.KeyframeNotFound -> "There is no keyframe there"

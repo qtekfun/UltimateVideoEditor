@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.editor
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.DropHint
 import com.ultimatevideo.uveditor.domain.ClipDeletion
 import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.ClipTransform
@@ -36,6 +37,12 @@ data class EditorState(
     val timeline: Timeline = Timeline(),
     /** Provisional timeline while a clip is being dragged; discarded or committed on release. */
     val dragPreview: Timeline? = null,
+    /**
+     * What releasing the dragged clip would do, drawn over the timeline during the drag. Decided by
+     * [com.ultimatevideo.uveditor.domain.DropPlan], the same function that runs the drop; its lane id
+     * refers to a lane of [visibleTimeline].
+     */
+    val dropHint: DropHint? = null,
     val assets: List<MediaAssetDto> = emptyList(),
     val playhead: FrameIndex = FrameIndex.ZERO,
     val selectedClipId: String? = null,
@@ -150,12 +157,16 @@ data class EditorState(
 /** How the speed is spread over the selected clip; [NONE] is a constant speed. */
 enum class SpeedRampShape { NONE, EASE_IN, EASE_OUT, BELL }
 
+/** Where the finger is relative to the lanes during a drag. */
+enum class DragZone { LANES, ABOVE_LANES, OUTSIDE }
+
 sealed interface EditorIntent : UiIntent {
     data class TapTimeline(val hit: TimelineHit) : EditorIntent
     data class SetPlayhead(val frame: Long) : EditorIntent
 
     data class DragStart(val hit: TimelineHit) : EditorIntent
-    data class DragMove(val frame: Long, val trackIndex: Int) : EditorIntent
+    /** [trackIndex] is the lane under the finger in the timeline being shown (-1 over a gap or nothing). */
+    data class DragMove(val frame: Long, val trackIndex: Int, val zone: DragZone = DragZone.LANES) : EditorIntent
     data class DragEnd(val commit: Boolean) : EditorIntent
 
     data object SplitAtPlayhead : EditorIntent
@@ -165,6 +176,9 @@ sealed interface EditorIntent : UiIntent {
 
     data class AddTrack(val type: TrackType) : EditorIntent
     data object RemoveSelectedTrack : EditorIntent
+
+    /** Moves the selected lane up (-1) or down (+1) among the lanes of its kind; the base never moves. */
+    data class MoveSelectedTrack(val delta: Int) : EditorIntent
 
     /** Jump to the previous / next clip boundary (start or end of a clip), or the timeline start. */
     data object SeekPrevious : EditorIntent

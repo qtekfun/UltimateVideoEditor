@@ -98,3 +98,10 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - Every clip-manipulation feature ships with unit tests for collisions and gaps.
 - Profile on the reference device at the end of each phase (frame time, memory, battery).
 - Keep CLAUDE.md and SPECS.md updated when decisions change.
+
+## Lane layout and drops (added after the first on-device review)
+- [x] Video stack anchored to the bottom of the timeline panel (overlays above, base below, audio under it)
+- [x] Drop zones decided by position with a live native indicator: insert (base), overwrite, new lane, cancel
+- [x] Move lanes up/down (toolbar)
+- [ ] Verified on the OPPO (the device was unreachable when this was written)
+- [ ] Insert on overlay/audio lanes (deferred)

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "audio/waveform_peaks.h"
+#include "timeline_view/drop_hint.h"
 #include "timeline_view/hit_test.h"
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
@@ -251,6 +252,79 @@ static void testViewport() {
     CHECK(vp.scrollX == 0.0);
 }
 
+static void testBottomAnchoredLanes() {
+    const auto lay = timeline::Layout::forDensity(1.0f);  // ruler 28, track 64, gap 4
+    // Three lanes in a 600 px panel: the stack rests on the bottom, free room is above it.
+    const auto a = lay.anchoredBottom(3, 600.0f);
+    CHECK(a.inset == 600.0f - (28.0f + 3 * 68.0f));
+    CHECK(a.trackTop(2) + lay.trackHeight + lay.trackGap == 600.0f);
+    // The scroll range ignores the inset, so a short stack never scrolls.
+    CHECK(a.contentHeight(3) == lay.contentHeight(3));
+    // A stack taller than the panel has no inset and scrolls.
+    CHECK(lay.anchoredBottom(20, 600.0f).inset == 0.0f);
+
+    timeline::TimelineSnapshot s;
+    auto buf = makeSnapshot(3, {clip(1, 0, 10, 100), clip(2, 1, 0, 100), clip(3, 2, 0, 100)});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    timeline::Viewport vp;
+    vp.pxPerFrame = 1.0;
+    // Lane 0 (the topmost overlay) is found where the anchored layout draws it...
+    auto r = timeline::hitTest(s, vp, a, 60, a.trackTop(0) + 10);
+    CHECK(r.kind == timeline::HitKind::Clip && r.trackIndex == 0 && r.clipKey == 1);
+    // ...the base (last lane) sits at the bottom...
+    r = timeline::hitTest(s, vp, a, 60, a.trackTop(2) + 10);
+    CHECK(r.trackIndex == 2 && r.clipKey == 3);
+    // ...and the room above the stack is the 'add a lane' zone, not a lane.
+    r = timeline::hitTest(s, vp, a, 60, lay.rulerHeight + 5);
+    CHECK(r.kind == timeline::HitKind::AboveLanes && r.trackIndex == -1);
+    // The ruler stays the ruler.
+    r = timeline::hitTest(s, vp, a, 60, 10);
+    CHECK(r.kind == timeline::HitKind::Ruler);
+    // Without an inset nothing is 'above the lanes'.
+    r = timeline::hitTest(s, vp, lay, 60, lay.rulerHeight + 1);
+    CHECK(r.kind != timeline::HitKind::AboveLanes);
+}
+
+static void testDropHintGeometry() {
+    const auto lay = timeline::Layout::forDensity(1.0f).anchoredBottom(3, 600.0f);  // ruler 28, track 64, gap 4
+    timeline::Viewport vp;
+    vp.pxPerFrame = 2.0;
+    vp.scrollX = 20.0;
+    const float bar = 3.0f;
+    using timeline::DropHint;
+    using timeline::DropHintKind;
+
+    // Insert: a thin bar centred on the junction, as tall as the lane.
+    auto r = timeline::dropHintRect({DropHintKind::Insert, 2, 100, 100}, vp, lay, 400.0f, 600.0f, 3, bar);
+    CHECK(r.valid);
+    CHECK(r.x0 == 180.0f - 1.5f && r.x1 == 180.0f + 1.5f);
+    CHECK(r.y0 == lay.trackTop(2) && r.y1 == lay.trackTop(2) + lay.trackHeight);
+
+    // Overwrite: the replaced frames, never thinner than the bar.
+    r = timeline::dropHintRect({DropHintKind::Overwrite, 0, 50, 80}, vp, lay, 400.0f, 600.0f, 3, bar);
+    CHECK(r.valid && r.x0 == 80.0f && r.x1 == 140.0f && r.y0 == lay.trackTop(0));
+    r = timeline::dropHintRect({DropHintKind::Overwrite, 0, 50, 50}, vp, lay, 400.0f, 600.0f, 3, bar);
+    CHECK(r.valid && r.x1 - r.x0 == 2.0f * bar);
+
+    // New lane: the whole lane width.
+    r = timeline::dropHintRect({DropHintKind::NewLane, 0, 10, 40}, vp, lay, 400.0f, 600.0f, 3, bar);
+    CHECK(r.valid && r.x0 == 0.0f && r.x1 == 400.0f);
+
+    // Cancel washes the lane area under the ruler, whatever lane it names.
+    r = timeline::dropHintRect({DropHintKind::Cancel, -1, 0, 0}, vp, lay, 400.0f, 600.0f, 3, bar);
+    CHECK(r.valid && r.y0 == lay.rulerHeight && r.y1 == 600.0f && r.x1 == 400.0f);
+
+    // Nothing to draw: no hint, or a lane that is not in the snapshot.
+    CHECK(!timeline::dropHintRect({}, vp, lay, 400.0f, 600.0f, 3, bar).valid);
+    CHECK(!timeline::dropHintRect({DropHintKind::Insert, 3, 0, 0}, vp, lay, 400.0f, 600.0f, 3, bar).valid);
+    CHECK(!timeline::dropHintRect({DropHintKind::Overwrite, -1, 0, 5}, vp, lay, 400.0f, 600.0f, 3, bar).valid);
+
+    // Scrolling the lane stack moves the indicator with it.
+    vp.scrollY = 10.0;
+    r = timeline::dropHintRect({DropHintKind::NewLane, 0, 0, 0}, vp, lay, 400.0f, 600.0f, 3, bar);
+    CHECK(r.y0 == lay.trackTop(0) - 10.0f);
+}
+
 static void testHitTest() {
     timeline::TimelineSnapshot s;
     auto buf = makeSnapshot(2, {clip(1, 0, 10, 100), clip(2, 1, 0, 5)});
@@ -442,6 +516,8 @@ int main() {
     testSnapshotRejectsBadInput();
     testViewport();
     testHitTest();
+    testBottomAnchoredLanes();
+    testDropHintGeometry();
     testPeaks();
     testViewportFit();
     testViewportEnsureVisible();
