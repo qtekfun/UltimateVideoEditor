@@ -143,7 +143,7 @@ object TimelineMapper {
         curves = dto.curves?.let(::toCurves),
     )
 
-    private fun toCurves(dto: GradeCurvesDto) = GradeCurves(
+    internal fun toCurves(dto: GradeCurvesDto) = GradeCurves(
         master = toCurve(dto.master),
         red = toCurve(dto.red),
         green = toCurve(dto.green),
@@ -154,7 +154,7 @@ object TimelineMapper {
     private fun toCurve(points: List<CurvePointDto>) =
         if (points.isEmpty()) GradeCurve() else GradeCurve(points.map { CurvePoint(it.x, it.y) })
 
-    private fun toCurvesDto(curves: GradeCurves) = GradeCurvesDto(
+    internal fun toCurvesDto(curves: GradeCurves) = GradeCurvesDto(
         master = toCurvePoints(curves.master),
         red = toCurvePoints(curves.red),
         green = toCurvePoints(curves.green),

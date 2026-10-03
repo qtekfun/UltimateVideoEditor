@@ -104,6 +104,7 @@ import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
 import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
+import com.ultimatevideo.uveditor.data.LookStore
 import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
 import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
@@ -145,6 +146,17 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         },
     )
     val lutState by lutLibrary.state.collectAsStateWithLifecycle()
+
+    // Saved colour looks and the copy/paste clipboard of the colour section; everything stays on the device.
+    val lookStore = remember(context) { LookStore(File(context.applicationContext.filesDir, "looks")) }
+    val lookLibrary: LookLibraryViewModel = viewModel(
+        key = "looks",
+        factory = viewModelFactory { initializer { LookLibraryViewModel(lookStore) } },
+    )
+    val lookState by lookLibrary.state.collectAsStateWithLifecycle()
+    val lookActions = remember(lookState, lookLibrary) {
+        LookActions(lookState, lookLibrary::save, lookLibrary::delete, lookLibrary::copy, lookLibrary::clearError)
+    }
 
     val exportViewModel: ExportViewModel = viewModel(
         key = "export-$projectId",
@@ -383,7 +395,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         audio.releaseDevice()
     }
 
-    CompositionLocalProvider(LocalLutNames provides lutState.names) {
+    CompositionLocalProvider(LocalLutNames provides lutState.names, LocalLookActions provides lookActions) {
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         when {
             state.isLoading -> Column(

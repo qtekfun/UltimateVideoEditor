@@ -46,6 +46,7 @@ import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.EditError
 import com.ultimatevideo.uveditor.domain.EditHistory
 import com.ultimatevideo.uveditor.domain.EditResult
+import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
@@ -150,7 +151,9 @@ class EditorViewModel(
         // Typing in the title field is only provisional: any other action first makes it final.
         if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
         // Same for an effect slider: it stays provisional until released or until something else happens.
-        if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateMask && intent !is EditorIntent.EndFxEdit) {
+        if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateGrade && intent !is EditorIntent.UpdateMask &&
+            intent !is EditorIntent.EndFxEdit
+        ) {
             endFxEdit(commit = true)
         }
         when (intent) {
@@ -202,6 +205,8 @@ class EditorViewModel(
             is EditorIntent.RemoveEffect -> withSelection { execute(EditCommand.RemoveEffect(it, intent.effectId)) }
             is EditorIntent.MoveEffect -> withSelection { execute(EditCommand.MoveEffect(it, intent.effectId, intent.toIndex)) }
             is EditorIntent.UpdateEffect -> updateEffect(intent.effectId, intent.values)
+            is EditorIntent.UpdateGrade -> updateGrade(intent.effectId, intent.values, intent.curves)
+            is EditorIntent.ApplyGrade -> applyGrade(intent.values, intent.curves)
             is EditorIntent.SetBlendMode -> withSelection { execute(EditCommand.SetBlendMode(it, intent.mode)) }
             is EditorIntent.SetClipColor -> withSelection { execute(EditCommand.SetColorOverride(it, intent.space)) }
             is EditorIntent.UpdateMask -> updateMask(intent.mask)
@@ -1070,6 +1075,30 @@ class EditorViewModel(
         }
         session.fx = session.fx.copy(effects = session.fx.effects.map { if (it.id == effectId) changed else it })
         showFx(session)
+    }
+
+    private fun updateGrade(effectId: String, values: List<Double>, curves: GradeCurves?) {
+        val session = beginFx() ?: return
+        val effect = session.fx.effect(effectId) ?: return
+        val changed = effect.copy(values = values, curves = curves?.takeUnless { it.isIdentity })
+        if (effect.type != EffectType.COLOR_GRADE) return
+        changed.problem()?.let {
+            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            return
+        }
+        session.fx = session.fx.copy(effects = session.fx.effects.map { if (it.id == effectId) changed else it })
+        showFx(session)
+    }
+
+    /** A look or a pasted grade: replaces the clip's first colour grade, or adds one, as one undo step. */
+    private fun applyGrade(values: List<Double>, curves: GradeCurves?) = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        val existing = clip.fx.effects.firstOrNull { it.type == EffectType.COLOR_GRADE }
+        if (existing == null && clip.fx.effects.size >= ClipFx.MAX_EFFECTS) {
+            emit(EditorEffect.ShowMessage("A clip can have at most ${ClipFx.MAX_EFFECTS} effects"))
+            return@withSelection
+        }
+        execute(EditCommand.SetGrade(clipId, existing?.id ?: idGenerator(), values, curves))
     }
 
     private fun updateMask(mask: ClipMask?) {
