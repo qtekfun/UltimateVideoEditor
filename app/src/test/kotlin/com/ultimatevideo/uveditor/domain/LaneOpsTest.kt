@@ -159,10 +159,10 @@ class LaneOpsTest {
     )
 
     @Test
-    fun `lifting a base clip closes the base gap, overlays follow and the clip lands on the overlay`() {
+    fun `lifting a base clip closes the base gap, leaves every overlay alone and lands the clip on the overlay`() {
         val result = LaneOps.liftFromBase(liftScene(), "b", "v2", f(20)).getOrFail()
         assertLayout(result, "v1", at("a", 0, 100), at("c", 100, 200))
-        assertLayout(result, "v2", at("b", 20, 70), at("x", 110, 150))
+        assertLayout(result, "v2", at("b", 20, 70), at("x", 160, 200))
     }
 
     @Test
