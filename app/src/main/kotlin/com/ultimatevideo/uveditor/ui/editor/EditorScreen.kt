@@ -72,6 +72,7 @@ import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.captions.CaptionModelStore
 import com.ultimatevideo.uveditor.engine.captions.HttpModelSource
 import com.ultimatevideo.uveditor.engine.captions.WhisperTranscriber
+import com.ultimatevideo.uveditor.domain.captions.captionCount
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsViewModel
@@ -143,6 +144,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     CaptionsHost(
         captionsViewModel,
         onClips = { viewModel.onIntent(EditorIntent.AddCaptionClips(it)) },
+        onRestyle = { style, canvasHeight -> viewModel.onIntent(EditorIntent.RestyleCaptions(style, canvasHeight)) },
         onMessage = { text ->
             snackbar.currentSnackbarData?.dismiss()
             scope.launch { snackbar.showSnackbar(text) }
@@ -150,11 +152,15 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     )
     val openCaptions: () -> Unit = {
         val target = state.captionTarget()
-        if (target == null) {
+        val existing = state.timeline.captionCount()
+        if (target != null) {
+            captionsViewModel.onIntent(CaptionsIntent.Open(target, existing))
+        } else if (existing > 0) {
+            // No clip to transcribe, but there are captions to put in another style.
+            captionsViewModel.onIntent(CaptionsIntent.OpenRestyle(existing, state.canvasHeight))
+        } else {
             snackbar.currentSnackbarData?.dismiss()
             scope.launch { snackbar.showSnackbar("Select a clip with audio to caption") }
-        } else {
-            captionsViewModel.onIntent(CaptionsIntent.Open(target))
         }
     }
     val openExport = {

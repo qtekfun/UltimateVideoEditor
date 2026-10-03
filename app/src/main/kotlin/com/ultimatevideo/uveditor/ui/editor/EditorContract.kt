@@ -210,6 +210,9 @@ sealed interface EditorIntent : UiIntent {
      */
     data class AddCaptionClips(val clips: List<Clip>) : EditorIntent
 
+    /** Puts every generated caption on the timeline in [style], as one undo step. */
+    data class RestyleCaptions(val style: com.ultimatevideo.uveditor.domain.captions.CaptionStyle, val canvasHeight: Int) : EditorIntent
+
     /** A crossfade across the cut between the selected clip and the one right after it. */
     data object AddTransition : EditorIntent
     data class SetTransitionDuration(val frames: Long) : EditorIntent

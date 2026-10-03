@@ -270,7 +270,7 @@ fun Clip.cropped(from: Long, to: Long): Clip {
     val keys = Keyframes.cropped(keyframes, from, to, transform)
     val length = to - from
     // Titles, photos and stickers have no source to read: their range is just their length.
-    if (!hasMedia) return copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(length), keyframes = keys)
+    if (!hasMedia) return copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(length), keyframes = keys, title = title?.shiftedBy(from))
     if (!isRetimed) return copy(sourceIn = sourceIn + from, sourceOut = sourceIn + to, keyframes = keys)
     val r = retime
     if (r.isFreeze) return copy(retimedFrames = length.takeIf { it != 1L }, speedRamp = emptyList(), keyframes = keys)
