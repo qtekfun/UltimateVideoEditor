@@ -132,6 +132,20 @@ data class TitleDto(
     val alignment: String = "center",
     val bold: Boolean = false,
     val outline: Boolean = false,
+    /** Timed words of a caption (clip frames); empty for plain titles. Optional so older projects load. */
+    val words: List<TitleWordDto> = emptyList(),
+    /** `none`, `karaoke`, `pop_in` or `typewriter`. */
+    val animation: String = "none",
+    /** Colour of the emphasised word, `#AARRGGBB`. */
+    val highlight: String = "#FFFFE600",
+)
+
+/** One word of a caption with its timing in clip frames. */
+@Serializable
+data class TitleWordDto(
+    val text: String,
+    val start: Long,
+    val end: Long,
 )
 
 /**

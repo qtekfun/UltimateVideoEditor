@@ -363,3 +363,37 @@ one job; caching the NDK build output (skipped until the build time proves it ma
 not wanted yet). Instrumented tests are deliberately not in CI (no device, and they wipe app data).
 Housekeeping in the same PR: `scripts/run-native-tests.sh` was not executable in git (CI would have failed), a committed
 `.pyc` was removed and `__pycache__` ignored, and CLAUDE.md now calls the test phone an OPPO (CPH2841).
+
+## 2026-10-03 · Animated captions: look per frame in Kotlin, exporter splits clips by look
+**Chosen:** a caption keeps its words with timing (`TitleContent.words`, clip frames) and an `animation`; `CaptionAnimator`
+(pure integer maths) gives the `TitleLook` for a frame, the preview keys its raster by that look and the exporter emits one
+`VideoClipSpec` per run of equal look. The rasteriser hides/highlights words with spans (transparent hidden words keep the
+block size, so nothing moves) and redraws the active word scaled around its centre. **Why:** no native or shader change, and
+the preview and the export cannot disagree because both use the same function and the same rasteriser. **Alternatives:**
+one clip per word state at generation (clutters the timeline and loses the phrase); a native text renderer with per-glyph
+state (a new engine subsystem); evaluating looks in C++ like keyframes (a second implementation to keep in step).
+**Costs:** a caption is re-rasterised for each new look (a typewriter phrase of 30 letters is 30 small bitmaps; the cache
+holds 96); during playback each change of look re-anchors the native clock, as an animated clip already does.
+
+## 2026-10-03 · Animated captions: the four new styles and their numbers
+**Chosen:** Karaoke (highlight + 110 % swell on the spoken word, all words visible), Word pop (words appear as spoken, newest
+highlighted and settling 135 -> 118 -> 106 -> 100 % in 2-frame steps), Typewriter (letters appear across each word's span),
+Bounce (phrase enters with eased keyframes 50 % -> 115 % -> 94 % -> 100 %). The pop steps are counted in frames, not
+milliseconds, so the pop is shorter at 60 fps than at 30 fps. **Why:** frame counts keep the maths integer and the picture
+set small; the difference is a few tens of milliseconds. **Alternative:** time-based steps converted with the project rate.
+
+## 2026-10-03 · Animated captions: entrance is keyframes, highlight uses the title's own colour fields
+**Chosen:** bounce/scale-in are real keyframes on the clip (editable with the existing keyframe tools, cropped correctly by
+split/trim), added when a caption is generated or restyled, so a restyle replaces any keyframes the user had on a caption.
+`TitleContent.highlightArgb` (default yellow) is the one emphasis colour. **Why:** reuses the keyframe pipeline in preview
+and export with no new code path. **Alternative:** keep the user's keyframes on restyle (then a hand-made animation fights the
+style's entrance).
+
+## 2026-10-03 · Restyle all captions: scope, reset and what survives
+**Chosen:** "restyle" applies to every clip with the `caption-` id prefix on every title track (not only the selected one),
+as one undo step; text, timing and timeline position survive, while size, colours, vertical position, animation and entrance
+follow the style. Colour swatches override the chosen style's colours and reset when another style is picked; the sheet also
+opens alone (no clip needed) when captions exist but no clip with audio is selected. **Why:** the goal is a quick look
+change for a whole video; captions are found by id prefix because generated captions are the only titles with word timing.
+**Alternatives:** restyle only the selected track; keep manual positions; tag captions with an explicit flag in the JSON.
+Text edited by hand loses its word timing (words are re-spaced evenly across the clip) rather than keeping stale timing.

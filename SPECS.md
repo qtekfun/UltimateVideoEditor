@@ -288,8 +288,8 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   character limit, duration, pauses and sentence ends, and times each cue so cues never overlap or leave the clip.
 - Captions are ordinary title clips (`outline = true` so they read over any footage) on a new title track
   placed on top, added by one `AddCaptions` command, so one Undo removes them all and they stay editable.
-  Four static styles (Classic, Bold, Pop, Impact) set size, colour, position and chunking. Animated and
-  word-highlight styles need keyframes and are a follow-up.
+  Four static styles (Classic, Bold, Pop, Impact) set size, colour, position and chunking; the animated styles
+  (Karaoke, Word pop, Typewriter, Bounce) are in section 5.15.
 
 ### 5.11 Keyframes, canvas formats and upload presets
 - **Keyframes.** A clip (video or title) may carry `keyframes`: poses (position, scale, rotation, opacity) at
@@ -416,6 +416,38 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   (new lane), wash (cancel).
 - **Lane ops** (`domain/LaneOps`): `moveToNewLane`, `overwriteMove`, `moveTrack` (up/down among lanes of the same kind;
   the base never moves), each one undo step.
+
+### 5.15 Animated captions
+
+- **Data.** A caption is a title clip whose `TitleContent` also carries `words` (`TitleWord(text, startFrame, endFrame)` in
+  clip frames, 0 = the clip's first frame), an `animation` (`NONE`, `KARAOKE`, `POP_IN`, `TYPEWRITER`) and a
+  `highlightArgb`. In JSON they are the optional `words`, `animation` (`none|karaoke|pop_in|typewriter`) and `highlight`
+  fields of the title, so older projects load unchanged. `CaptionPlanner` fills `CaptionCue.words` with each cue's words;
+  split/trim/overwrite move the words with the clip through `Clip.cropped` (`TitleContent.shiftedBy`), and editing the
+  text re-spaces the words evenly instead of leaving stale timing. Words that no longer appear in the text in order
+  make the caption draw as a static title.
+- **Looks.** `domain/captions/CaptionAnimator.lookAt(title, clipFrame)` gives a `TitleLook` (words/characters shown,
+  active word, its size in percent) with integer maths only. Karaoke: all words show, the word being spoken is
+  highlighted at 110 %. Word pop: words appear as they start, the newest is highlighted and settles 135 -> 118 -> 106 ->
+  100 % in steps of 2 frames. Typewriter: letters appear across each word's span, the space before a word comes with its
+  first letter. A look is a renderer detail (`TitleContent.look`), never stored.
+- **Same pictures in preview and export.** The preview sets the look for the frame it shows
+  (`previewRequestsAt` -> `CaptionAnimator.contentAt`) and keys its raster by (content without timing, look, canvas);
+  a look change changes the key, which re-anchors the native clock like any animated clip. The exporter splits the clip
+  into one `VideoClipSpec` per run of equal look (`ExportPlan.titleParts`; only the first run fades in with a
+  transition, stretched to cover the whole fade), so no native change was needed. Both go through the same
+  `AndroidTitleRasterizer`.
+- **Rasterising.** Hidden words/letters are transparent spans, so the block keeps its size and the text does not move.
+  The active word is drawn again, scaled around its own centre (`ScaledWord`), when it fits on one line; the bitmap margin
+  grows with the pop size. Word spans colour the fill pass and the outline pass separately.
+- **Entrance.** Bounce and scale-in are ordinary keyframes added when the caption is made
+  (`CaptionEntrance.keyframes`: ease, overshoot to 115 %, settle on the normal pose; short clips keep the last step),
+  so they are editable and travel with the clip.
+- **Styles and restyle.** `CaptionStyle` gains `animation`, `highlightArgb` and `entrance`; Karaoke, Word pop,
+  Typewriter and Bounce join the four static styles. `RestyleCaptions` puts every generated caption (id prefix
+  `caption-`) in a style as one undo step: text, timing and timeline place stay; position, animation, entrance and
+  colours follow the style (captions without word timing get evenly spaced words). The captions sheet shows a card per
+  style, text/highlight colour swatches, and "Restyle N existing" (or opens alone to restyle when no clip is selected).
 
 ## 6. Timeline operations (specification for tests)
 

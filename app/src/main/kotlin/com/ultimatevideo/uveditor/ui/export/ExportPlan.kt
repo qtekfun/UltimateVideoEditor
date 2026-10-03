@@ -7,6 +7,8 @@ import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
+import com.ultimatevideo.uveditor.domain.captions.LookSegment
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
 import com.ultimatevideo.uveditor.engine.export.ExportKeyframe
@@ -28,9 +30,16 @@ internal data class ExportPlan(
     val titles: Map<Int, TitleContent> = emptyMap(),
 )
 
-private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0) = VideoClipSpec(
-    startFrame = startFrame,
-    durationFrames = durationFrames,
+private fun RenderClip.toSpec(
+    assetKey: Long,
+    colorMode: Int,
+    titleKey: Int = 0,
+    start: Long = startFrame,
+    duration: Long = durationFrames,
+    crossfadeIn: Long = crossfadeInFrames,
+) = VideoClipSpec(
+    startFrame = start,
+    durationFrames = duration,
     sourceInFrame = sourceInFrame,
     assetKey = assetKey,
     layer = layer,
@@ -41,7 +50,7 @@ private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0)
     scaleY = transform.scaleY,
     rotationDegrees = transform.rotationDegrees,
     opacity = transform.opacity,
-    crossfadeInFrames = crossfadeInFrames,
+    crossfadeInFrames = crossfadeIn,
     lane = lane,
     titleKey = titleKey,
     keyframes = keyframes.map {
@@ -63,6 +72,32 @@ private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0)
 )
 
 private val SDR = SourceColorSpace.SDR.nativeModeValue
+
+/** One stretch of a title clip that is drawn from a single picture, in project frames. */
+internal data class TitlePart(val start: Long, val duration: Long, val crossfadeIn: Long, val content: TitleContent)
+
+/**
+ * The stretches of title clip [this] that share one picture: one part for a plain title, one per
+ * change of look for an animated caption. Only the first part fades in with the clip's transition,
+ * and it is stretched to cover the whole fade so the fade is not restarted halfway.
+ */
+internal fun RenderClip.titleParts(content: TitleContent): List<TitlePart> {
+    val origin = keyframeOriginFrame
+    var segments = CaptionAnimator.segments(content, startFrame - origin, endFrame - origin)
+    if (crossfadeInFrames > 0 && segments.size > 1) {
+        val rampEnd = startFrame - origin + crossfadeInFrames
+        val inRamp = segments.takeWhile { it.startFrame < rampEnd }
+        segments = listOf(LookSegment(inRamp.first().startFrame, inRamp.last().endFrame, inRamp.first().look)) + segments.drop(inRamp.size)
+    }
+    return segments.mapIndexed { i, segment ->
+        TitlePart(
+            start = origin + segment.startFrame,
+            duration = segment.endFrame - segment.startFrame,
+            crossfadeIn = if (i == 0) crossfadeInFrames else 0L,
+            content = content.copy(look = segment.look),
+        )
+    }
+}
 
 /**
  * Plans an export of [timeline]. Returns null when it is empty. The first visual track (video or
@@ -94,8 +129,18 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
             }
             RenderKind.TITLE -> {
                 val content = clip.title ?: continue
-                val titleKey = titles.getOrPut(content) { titles.size + 1 }
-                videoClips += clip.toSpec(assetKey = 0L, colorMode = SDR, titleKey = titleKey)
+                // An animated caption is one spec per stretch over which its picture is the same.
+                for (part in clip.titleParts(content)) {
+                    val titleKey = titles.getOrPut(part.content.withoutTiming()) { titles.size + 1 }
+                    videoClips += clip.toSpec(
+                        assetKey = 0L,
+                        colorMode = SDR,
+                        titleKey = titleKey,
+                        start = part.start,
+                        duration = part.duration,
+                        crossfadeIn = part.crossfadeIn,
+                    )
+                }
             }
         }
     }
