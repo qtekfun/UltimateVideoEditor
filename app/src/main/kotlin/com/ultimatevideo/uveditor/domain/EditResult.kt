@@ -31,6 +31,11 @@ sealed interface EditError {
     data class InvalidKeyframe(val reason: String) : EditError
     data class KeyframeNotFound(val frame: Long) : EditError
 
+    /** An effect, blend mode or mask that cannot be applied (invalid value, audio clip, unknown id). */
+    data class InvalidEffect(val reason: String) : EditError
+
+    data class EffectNotFound(val effectId: String) : EditError
+
     data class NotATitle(val clipId: String) : EditError
     data class TransitionNotFound(val transitionId: String) : EditError
     data class DuplicateTransitionId(val transitionId: String) : EditError

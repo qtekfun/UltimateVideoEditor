@@ -46,6 +46,68 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(transform = transform, gainDb = gainDb) }
     }
 
+    // --- Effects, blend mode and mask -------------------------------------------------------
+
+    private fun fxTarget(timeline: Timeline, clipId: String): EditResult<Clip> {
+        val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (track.type == TrackType.AUDIO) return failure(EditError.InvalidEffect("audio clips have no picture to change"))
+        return EditResult.Success(checkNotNull(track.clip(clipId)))
+    }
+
+    private fun updateFx(timeline: Timeline, clipId: String, change: (ClipFx) -> ClipFx): EditResult<Timeline> {
+        when (val target = fxTarget(timeline, clipId)) {
+            is EditResult.Failure -> return target
+            is EditResult.Success -> {
+                val next = change(target.value.fx)
+                next.problem()?.let { return failure(EditError.InvalidEffect(it)) }
+                return updateClip(timeline, clipId) { it.copy(fx = next) }
+            }
+        }
+    }
+
+    /** Appends [effect] to the clip's chain (it runs after the ones already there). */
+    fun addEffect(timeline: Timeline, clipId: String, effect: Effect): EditResult<Timeline> =
+        updateFx(timeline, clipId) { it.copy(effects = it.effects + effect) }
+
+    fun removeEffect(timeline: Timeline, clipId: String, effectId: String): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        if ((target as EditResult.Success).value.fx.effect(effectId) == null) return failure(EditError.EffectNotFound(effectId))
+        return updateFx(timeline, clipId) { fx -> fx.copy(effects = fx.effects.filter { it.id != effectId }) }
+    }
+
+    /** Replaces the values of one effect; its type does not change. */
+    fun setEffectValues(timeline: Timeline, clipId: String, effectId: String, values: List<Double>): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        if ((target as EditResult.Success).value.fx.effect(effectId) == null) return failure(EditError.EffectNotFound(effectId))
+        return updateFx(timeline, clipId) { fx ->
+            fx.copy(effects = fx.effects.map { if (it.id == effectId) it.copy(values = values) else it })
+        }
+    }
+
+    /** Moves an effect to [toIndex] in the chain (clamped), which changes how effects combine. */
+    fun moveEffect(timeline: Timeline, clipId: String, effectId: String, toIndex: Int): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        val effects = (target as EditResult.Success).value.fx.effects
+        val effect = effects.firstOrNull { it.id == effectId } ?: return failure(EditError.EffectNotFound(effectId))
+        val rest = effects.filter { it.id != effectId }
+        val reordered = rest.toMutableList().apply { add(toIndex.coerceIn(0, rest.size), effect) }
+        return updateFx(timeline, clipId) { it.copy(effects = reordered) }
+    }
+
+    fun setBlendMode(timeline: Timeline, clipId: String, mode: BlendMode): EditResult<Timeline> =
+        updateFx(timeline, clipId) { it.copy(blendMode = mode) }
+
+    /** Sets the mask, or removes it when [mask] is null. */
+    fun setMask(timeline: Timeline, clipId: String, mask: ClipMask?): EditResult<Timeline> =
+        updateFx(timeline, clipId) { it.copy(mask = mask) }
+
+    /** Back to a plain clip: no effects, normal blend, no mask. */
+    fun clearFx(timeline: Timeline, clipId: String): EditResult<Timeline> =
+        updateFx(timeline, clipId) { ClipFx.NONE }
+
     /** Adds a keyframe at [keyframe].frame (clip frames), or replaces the one already there. */
     fun setKeyframe(timeline: Timeline, clipId: String, keyframe: Keyframe): EditResult<Timeline> {
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
@@ -215,6 +277,7 @@ object TimelineOps {
         clip.transform.problem()?.let { return failure(EditError.InvalidClip(it)) }
         ClipGain.problem(clip.gainDb)?.let { return failure(EditError.InvalidClip(it)) }
         Keyframes.problem(clip.keyframes, clip.durationFrames)?.let { return failure(EditError.InvalidClip(it)) }
+        clip.fx.problem()?.let { return failure(EditError.InvalidClip(it)) }
         if (track.type == TrackType.TITLE && clip.title == null) return failure(EditError.InvalidClip("a title track only holds titles"))
         if (track.type != TrackType.TITLE && clip.title != null) return failure(EditError.InvalidClip("titles belong on a title track"))
         clip.title?.problem()?.let { return failure(EditError.InvalidClip(it)) }

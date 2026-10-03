@@ -123,6 +123,8 @@ data class Clip(
      * returns to when its last keyframe is removed.
      */
     val keyframes: List<Keyframe> = emptyList(),
+    /** Effects, blend mode and mask of a video or title clip; neutral by default. */
+    val fx: ClipFx = ClipFx.NONE,
 ) {
     val durationFrames: Long get() = sourceOut - sourceIn
     val timelineEnd: FrameIndex get() = timelineStart + durationFrames
@@ -223,6 +225,8 @@ data class Timeline(
                 clip.transform.problem()?.let { violations += "clip ${clip.id} transform: $it" }
                 Keyframes.problem(clip.keyframes, clip.durationFrames)?.let { violations += "clip ${clip.id} $it" }
                 ClipGain.problem(clip.gainDb)?.let { violations += "clip ${clip.id} $it" }
+                clip.fx.problem()?.let { violations += "clip ${clip.id} fx: $it" }
+                if (track.type == TrackType.AUDIO && !clip.fx.isNeutral) violations += "audio clip ${clip.id} has visual effects"
                 when {
                     track.type == TrackType.TITLE && clip.title == null -> violations += "clip ${clip.id} on a title track has no title"
                     track.type != TrackType.TITLE && clip.title != null -> violations += "clip ${clip.id} has a title but is not on a title track"
