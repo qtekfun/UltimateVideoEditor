@@ -35,7 +35,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Media import (SAF picker, persisted URI permission), media library panel (probe verified on device and picker opens; the picker-to-timeline path was not seen end to end)
 - [x] Background waveform extraction and on-disk peak cache
 - [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; play/seek transport and playhead drag verified on device; clip drag/trim, split and delete implemented and unit-tested but not yet verified on device; thumbnails pending)
-- **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank.
+- **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank. (Waveforms are now normalised per media and use the whole clip body; zoom fits the whole project until the user zooms by hand. Both are host-tested only: not yet seen on the device.)
 
 ## Phase 4 — Decode, preview and audio playback
 - [x] EGL/GLES 3.2 preview compositor on a `SurfaceView`

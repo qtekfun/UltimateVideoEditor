@@ -131,6 +131,15 @@ JNIEXPORT void JNICALL JNI_FN(nativeZoomBy)(JNIEnv*, jobject, jlong handle, jflo
     if (TimelineHandle* h = from(handle)) h->renderer->zoomBy(factor, focusX);
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeFitToContent)(JNIEnv*, jobject, jlong handle) {
+    if (TimelineHandle* h = from(handle)) h->renderer->fitToContent();
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(nativeIsAutoFit)(JNIEnv*, jobject, jlong handle) {
+    TimelineHandle* h = from(handle);
+    return (h != nullptr && h->renderer->isAutoFit()) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL JNI_FN(nativeFling)(JNIEnv*, jobject, jlong handle, jfloat vx) {
     if (TimelineHandle* h = from(handle)) h->renderer->fling(vx);
 }

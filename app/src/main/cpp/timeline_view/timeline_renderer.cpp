@@ -98,6 +98,9 @@ struct TimelineRenderer::State {
     float flingVelocity = 0.0f;  // px/s
     bool flingStarted = false;
     bool dirty = true;
+    // True until the user zooms by hand. While true the zoom follows the whole timeline: it is
+    // refitted on resize and whenever fitToContent() is called.
+    bool autoFit = true;
 
     ANativeWindow* requestedWindow = nullptr;
     bool windowRequestPending = false;
@@ -364,6 +367,8 @@ void TimelineRenderer::surfaceChanged(int width, int height) {
         if (resized && state_->requestedWindow != nullptr) state_->windowRequestPending = true;
         state_->width = width;
         state_->height = height;
+        state_->vp.viewWidth = std::max(1, width);
+        if (state_->autoFit) state_->vp.fitTo(state_->snapshot->endFrame());
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -420,10 +425,28 @@ void TimelineRenderer::zoomBy(float factor, float focusX) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state_->vp.zoomAt(factor, focusX);
+        state_->autoFit = false;  // the user chose a zoom; stop overriding it
         state_->clampViewport();
         state_->dirty = true;
     }
     wake();
+}
+
+void TimelineRenderer::fitToContent() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->autoFit = true;
+        state_->vp.viewWidth = std::max(1, state_->width);
+        state_->vp.fitTo(state_->snapshot->endFrame());
+        state_->clampViewport();
+        state_->dirty = true;
+    }
+    wake();
+}
+
+bool TimelineRenderer::isAutoFit() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return state_->autoFit;
 }
 
 void TimelineRenderer::fling(float velocityX) {
@@ -596,7 +619,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling.
         if (c.assetKey >= 0 && lookup_) {
             if (auto peaks = lookup_(c.assetKey)) {
-                const float wTop = type == TrackType::Audio ? top + header : top + layout.trackHeight * 0.62f;
+                // The whole body below the header: there are no thumbnails yet to share it with.
+                const float wTop = top + header;
                 const float mid = (wTop + bottom) * 0.5f;
                 const float half = (bottom - wTop) * 0.5f - 1.0f;
                 g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
@@ -604,6 +628,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 const int64_t firstCol = static_cast<int64_t>(std::floor((std::max(0.0f, fx0) + vp.scrollX) / colW));
                 const int64_t lastCol = static_cast<int64_t>(std::floor((std::min(W, fx1) + vp.scrollX) / colW));
                 const Color wave = scaled(base, 1.6f);
+                const float reference = audio::referenceLevel(*peaks);
                 for (int64_t col = firstCol; col <= lastCol; ++col) {
                     const int64_t f0 = static_cast<int64_t>(std::floor(col * colW / ppf)) - c.startFrame;
                     const int64_t f1 = static_cast<int64_t>(std::floor((col + 1) * colW / ppf)) - c.startFrame;
@@ -616,7 +641,9 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                     s1 = std::max(s1, s0 + 1);
                     int16_t mm[2];
                     audio::queryPeaks(*peaks, s0, s1, 1, mm);
-                    const float lo = std::max(-1.0f, mm[0] / 32768.0f), hi = std::min(1.0f, mm[1] / 32768.0f);
+                    // Normalised to the media's loudest sample so quiet audio still has visible shape.
+                    const float lo = std::min(0.0f, audio::displayAmplitude(mm[0] / 32768.0f, reference));
+                    const float hi = std::max(0.0f, audio::displayAmplitude(mm[1] / 32768.0f, reference));
                     const float x = static_cast<float>(col * colW - vp.scrollX);
                     g.rect(x, mid - hi * half - 0.5f, x + colW, mid - lo * half + 0.5f, wave);
                 }

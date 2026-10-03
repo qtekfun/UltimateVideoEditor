@@ -197,6 +197,60 @@ static void testPeaks() {
     CHECK(col[0] == 0 && col[1] == 0);
 }
 
+static void testViewportFit() {
+    timeline::Viewport vp;
+    vp.viewWidth = 1000.0;
+    vp.pxPerFrame = 4.0;
+    vp.scrollX = 123.0;
+
+    vp.fitTo(500);
+    // The whole 500 frames fit in the width with a small margin, scrolled back to the start.
+    CHECK(vp.scrollX == 0.0);
+    CHECK(vp.frameToX(500) < 1000.0);
+    CHECK(vp.frameToX(500) > 940.0);
+
+    // An empty timeline leaves the zoom untouched.
+    const double before = vp.pxPerFrame;
+    vp.fitTo(0);
+    CHECK(vp.pxPerFrame == before);
+
+    // Absurdly long or short timelines are clamped to the supported zoom range.
+    vp.fitTo(1'000'000'000);
+    CHECK(vp.pxPerFrame == timeline::Viewport::kMinPxPerFrame);
+    vp.fitTo(1);
+    CHECK(vp.pxPerFrame == timeline::Viewport::kMaxPxPerFrame);
+}
+
+static void testWaveformDisplay() {
+    // Quiet audio: its own loudest sample is 3000/32768 (about 9%), well above the floor.
+    std::vector<int16_t> pcm(512, 0);
+    pcm[10] = 3000;
+    pcm[300] = -1500;
+    audio::PeakBuilder b(48000, 1);
+    b.addInterleaved(pcm.data(), pcm.size());
+    const auto p = b.finish();
+    const float ref = audio::referenceLevel(p);
+    CHECK(ref > 0.09f && ref < 0.092f);
+
+    // The loudest sample fills the display; a sample a quarter as loud is half as tall (sqrt).
+    CHECK(audio::displayAmplitude(ref, ref) > 0.999f);
+    CHECK(audio::displayAmplitude(ref * 0.25f, ref) > 0.49f && audio::displayAmplitude(ref * 0.25f, ref) < 0.51f);
+    // Signed, clamped and monotonic.
+    CHECK(audio::displayAmplitude(-ref * 0.25f, ref) < -0.49f);
+    CHECK(audio::displayAmplitude(ref * 4.0f, ref) <= 1.0f);
+    CHECK(audio::displayAmplitude(0.0f, ref) == 0.0f);
+    CHECK(audio::displayAmplitude(ref * 0.1f, ref) < audio::displayAmplitude(ref * 0.2f, ref));
+
+    // Near-silence is not amplified into a loud-looking waveform: the reference has a floor.
+    std::vector<int16_t> hiss(512, 5);
+    audio::PeakBuilder q(48000, 1);
+    q.addInterleaved(hiss.data(), hiss.size());
+    const auto quiet = q.finish();
+    CHECK(audio::referenceLevel(quiet) == audio::kMinReferenceLevel);
+    CHECK(audio::displayAmplitude(5.0f / 32768.0f, audio::referenceLevel(quiet)) < 0.1f);
+    CHECK(audio::referenceLevel(audio::PeakPyramid{}) == audio::kMinReferenceLevel);
+}
+
 static void testPeaksFile() {
     std::vector<int16_t> pcm(5000);
     for (size_t i = 0; i < pcm.size(); ++i) pcm[i] = static_cast<int16_t>((i * 37) % 2000 - 1000);
@@ -227,6 +281,8 @@ int main() {
     testViewport();
     testHitTest();
     testPeaks();
+    testViewportFit();
+    testWaveformDisplay();
     testPeaksFile();
     if (g_failures == 0) std::puts("host tests: all passed");
     return g_failures == 0 ? 0 : 1;

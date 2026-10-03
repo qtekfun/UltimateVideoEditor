@@ -53,6 +53,16 @@ private:
 // coarsest level that still has at least one peak per column. Out-of-range columns yield (0,0).
 void queryPeaks(const PeakPyramid& p, int64_t startFrame, int64_t endFrame, int columns, int16_t* outMinMax);
 
+// Loudest absolute sample of the whole source as a fraction of full scale, never below
+// kMinReferenceLevel so near-silence is not blown up into a loud-looking waveform.
+constexpr float kMinReferenceLevel = 0.02f;
+float referenceLevel(const PeakPyramid& p);
+
+// Maps a signed amplitude (fraction of full scale) to a display height in [-1, 1]: normalised to
+// `reference` and square-rooted, so quiet passages stay visible next to loud ones and the
+// transients that mark cut points stand out. Sign is preserved.
+float displayAmplitude(float amplitude, float reference);
+
 // File format "UVPK" v1: magic, version, sampleRate, totalFrames, levelCount, then per level
 // {samplesPerPeak, count, int16 data[count*2]}. Writes are atomic (temp file + rename).
 core::Status savePeaks(const std::string& path, const PeakPyramid& p);

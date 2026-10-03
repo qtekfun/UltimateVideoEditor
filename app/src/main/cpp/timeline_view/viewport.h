@@ -29,6 +29,16 @@ struct Viewport {
         scrollX = frameAtFocus * pxPerFrame - focusX;
     }
 
+    // Zooms so frames [0, endFrame) span the view width with a small margin, and scrolls to the
+    // start. An empty timeline keeps the current zoom.
+    void fitTo(int64_t endFrame) {
+        if (endFrame <= 0 || viewWidth <= 1.0) return;
+        pxPerFrame = std::clamp(viewWidth / (static_cast<double>(endFrame) * kFitMargin), kMinPxPerFrame, kMaxPxPerFrame);
+        scrollX = 0.0;
+    }
+
+    static constexpr double kFitMargin = 1.03;
+
     void clamp(int64_t endFrame, double contentHeight, double viewHeight) {
         // Allow scrolling half a screen past the last clip so the end can be edited.
         const double maxX = std::max(0.0, static_cast<double>(endFrame) * pxPerFrame - viewWidth * 0.5);
