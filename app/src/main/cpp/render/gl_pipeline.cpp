@@ -120,6 +120,8 @@ Status GlPipeline::init(Error* error) {
     effectDirLoc_ = glGetUniformLocation(effectProgram_, "uDir");
     effectSigmaLoc_ = glGetUniformLocation(effectProgram_, "uSigma");
     effectStepLoc_ = glGetUniformLocation(effectProgram_, "uStep");
+    effectLutSizeLoc_ = glGetUniformLocation(effectProgram_, "uLutSize");
+    glUniform1i(glGetUniformLocation(effectProgram_, "uLut"), 1);  // the LUT lives on texture unit 1
     glGenVertexArrays(1, &vao_);
     glGenFramebuffers(1, &fbo_);
     glGenFramebuffers(1, &fxFbo_);
@@ -164,6 +166,42 @@ Status GlPipeline::uploadTitle(uint32_t key, int width, int height, const uint8_
     }
     titleTextures_[key] = entry;
     return Status::Ok;
+}
+
+Status GlPipeline::uploadLut(uint32_t key, int size, const float* rgb, Error* error) {
+    GLint max3d = 0;
+    glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &max3d);
+    if (key == 0 || size < 2 || rgb == nullptr || size > max3d) {
+        if (error != nullptr) *error = Error{Status::InvalidArgument, "invalid LUT"};
+        return Status::InvalidArgument;
+    }
+    releaseLut(key);
+    LutTexture entry;
+    entry.size = size;
+    glGenTextures(1, &entry.texture);
+    glBindTexture(GL_TEXTURE_3D, entry.texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    // RGB16F is texture-filterable in ES 3.x (RGB32F is not without an extension), so the shader's
+    // trilinear lookup works everywhere; the driver converts the floats on upload.
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGB16F, size, size, size, 0, GL_RGB, GL_FLOAT, rgb);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, &entry.texture);
+        return glFail(error, "LUT texture upload failed");
+    }
+    lutTextures_[key] = entry;
+    return Status::Ok;
+}
+
+void GlPipeline::releaseLut(uint32_t key) {
+    auto it = lutTextures_.find(key);
+    if (it == lutTextures_.end()) return;
+    glDeleteTextures(1, &it->second.texture);
+    lutTextures_.erase(it);
 }
 
 void GlPipeline::releaseTitle(uint32_t key) {
@@ -328,6 +366,15 @@ void GlPipeline::effectPass(unsigned sourceTexture, const FxTarget& destination,
     glUniform2f(effectDirLoc_, dirX, dirY);
     glUniform1f(effectSigmaLoc_, sigma);
     glUniform1f(effectStepLoc_, step);
+    if (op.type == core::EffectType::Lut) {
+        const auto lut = lutTextures_.find(static_cast<uint32_t>(op.v[0]));
+        if (lut != lutTextures_.end()) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_3D, lut->second.texture);
+            glUniform1f(effectLutSizeLoc_, static_cast<float>(lut->second.size));
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
@@ -381,6 +428,8 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
     int current = 0;
     for (const core::EffectOp& op : layer.fx.effects) {
         const int other = 1 - current;
+        // A LUT that was never uploaded (a missing file) leaves the pixels as they are.
+        if (op.type == core::EffectType::Lut && !hasLut(static_cast<uint32_t>(op.v[0]))) continue;
         if (op.type == core::EffectType::Blur) {
             const float sigma = blurSigmaPx(op.v[0], static_cast<float>(height));
             if (sigma < kMinBlurSigmaPx) continue;

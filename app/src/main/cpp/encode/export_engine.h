@@ -28,6 +28,13 @@ struct TitleImage {
     std::vector<uint8_t> rgba;
 };
 
+// A 3D LUT for a LUT effect: size^3 RGB float triples, red varying fastest (the .cube order).
+struct LutImage {
+    uint32_t key = 0;
+    int32_t size = 0;
+    std::vector<float> rgb;
+};
+
 struct ExportParams {
     int32_t width = 0;
     int32_t height = 0;
@@ -45,6 +52,7 @@ struct ExportParams {
     int64_t totalFrames = 0;
     std::vector<VideoClip> clips;
     std::vector<TitleImage> titles;  // referenced by VideoClip::titleKey
+    std::vector<LutImage> luts;      // referenced by the LUT effects' first value
     // (assetKey, fd): the job owns the descriptors and closes them.
     std::vector<std::pair<int64_t, int>> assetFds;
     // Audio snapshot (audio/audio_snapshot.h layout); empty means the movie has no audio track.
