@@ -190,7 +190,7 @@ object TimelineOps {
         SpeedLimits.problem(num, den)?.let { return failure(EditError.InvalidSpeed(it)) }
         val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
-        if (clip.title != null) return failure(EditError.InvalidSpeed("a title has no media to speed up or slow down"))
+        if (!clip.hasMedia) return failure(EditError.InvalidSpeed("a title, photo or sticker has no media to speed up or slow down"))
         val span = clip.sourceSpan
         if (span == 1L) return failure(EditError.InvalidSpeed("a one-frame clip has no speed; change its length instead"))
         val newDuration = maxOf(1L, Math.floorDiv(span * den + num / 2, num))
@@ -214,7 +214,7 @@ object TimelineOps {
     /** Plays the clip's source range backwards (or forwards again). Position, length and animation stay. */
     fun setReverse(timeline: Timeline, clipId: String, reverse: Boolean): EditResult<Timeline> {
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
-        if (clip.title != null) return failure(EditError.InvalidSpeed("a title has no media to reverse"))
+        if (!clip.hasMedia) return failure(EditError.InvalidSpeed("a title, photo or sticker has no media to reverse"))
         return success(updateTimeline(timeline, clipId) { it.copy(reverse = reverse) }.pruned())
     }
 
@@ -224,7 +224,7 @@ object TimelineOps {
      */
     fun setSpeedRamp(timeline: Timeline, clipId: String, ramp: List<SpeedKey>): EditResult<Timeline> {
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
-        if (clip.title != null) return failure(EditError.InvalidSpeed("a title has no media to ramp"))
+        if (!clip.hasMedia) return failure(EditError.InvalidSpeed("a title, photo or sticker has no media to ramp"))
         if (ramp.isNotEmpty() && clip.sourceSpan == 1L) return failure(EditError.InvalidSpeed("a one-frame clip has no speed to ramp"))
         SpeedRamps.problem(ramp, clip.durationFrames)?.let { return failure(EditError.InvalidSpeed(it)) }
         return success(updateTimeline(timeline, clipId) { it.copy(speedRamp = ramp) }.pruned())
@@ -249,7 +249,7 @@ object TimelineOps {
         if (durationFrames <= 0) return failure(EditError.InvalidClip("a freeze frame needs a positive length"))
         if (timeline.trackOfClip(freezeClipId) != null) return failure(EditError.DuplicateClipId(freezeClipId))
         val clip = track.clips.firstOrNull { at >= it.timelineStart && at < it.timelineEnd } ?: return failure(EditError.SplitOutsideClip)
-        if (clip.assetId == null) return failure(EditError.InvalidClip("only clips with media can be frozen"))
+        if (clip.assetId == null || !clip.hasMedia) return failure(EditError.InvalidClip("only clips with media can be frozen"))
         val offset = at - clip.timelineStart
         val splitting = offset > 0
         if (splitting && (freezeClipId == rightClipId || timeline.trackOfClip(rightClipId) != null)) {
@@ -304,8 +304,8 @@ object TimelineOps {
         val offset = at - clip.timelineStart
         val left = clip.cropped(0, offset)
         val rightRaw = clip.cropped(offset, clip.durationFrames).copy(id = newClipId, timelineStart = at)
-        // A title has no media, so both halves keep a source range starting at 0.
-        val right = if (clip.title != null) rightRaw.copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(rightRaw.durationFrames)) else rightRaw
+        // A title, photo or sticker has no media length, so [cropped] gives both halves a range starting at 0.
+        val right = rightRaw
         // The right half is the one now adjacent to whatever followed the clip, so it inherits the
         // outgoing transition; the left half keeps the incoming one.
         val carried = timeline.transitions.map { if (it.fromClipId == clip.id) it.copy(fromClipId = newClipId) else it }
@@ -393,6 +393,9 @@ object TimelineOps {
         if (track.type == TrackType.TITLE && clip.title == null) return failure(EditError.InvalidClip("a title track only holds titles"))
         if (track.type != TrackType.TITLE && clip.title != null) return failure(EditError.InvalidClip("titles belong on a title track"))
         clip.title?.problem()?.let { return failure(EditError.InvalidClip(it)) }
+        if (clip.still != null && (track.type != TrackType.VIDEO || clip.assetId == null || clip.title != null)) {
+            return failure(EditError.InvalidClip("a photo or sticker belongs on a video track"))
+        }
         val start = clip.timelineStart
         val end = clip.timelineEnd
         val result = mutableListOf<Clip>()
@@ -463,10 +466,10 @@ object TimelineOps {
         }
         if (trimmed.durationFrames <= 0) return failure(EditError.InvalidTrim("clip would be empty"))
         if (trimmed.timelineStart < FrameIndex.ZERO) return failure(EditError.NegativeStart)
-        // A title has no source media: its range is only its length, so it can grow freely.
-        val result = if (clip.title != null) trimmed.copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(trimmed.durationFrames)) else trimmed
+        // A title, photo or sticker has no source length: its range is only its length (see [cropped]), so it can grow freely.
+        val result = trimmed
         if (result.sourceIn < FrameIndex.ZERO) return failure(EditError.SourceOutOfRange)
-        if (sourceLength != null && clip.title == null && result.sourceOut.value > sourceLength) return failure(EditError.SourceOutOfRange)
+        if (sourceLength != null && clip.hasMedia && result.sourceOut.value > sourceLength) return failure(EditError.SourceOutOfRange)
         others.firstOrNull { it.overlaps(result) }?.let { return failure(EditError.Overlap(it.id)) }
         return success(timeline.withTrack(track.withClips(track.clips.map { if (it.id == clipId) result else it })).pruned())
     }
@@ -548,7 +551,7 @@ object TimelineOps {
     private fun outgoingHandleProblem(timeline: Timeline, transition: Transition, sourceLength: Long?): String? {
         if (sourceLength == null) return null
         val from = timeline.trackOfClip(transition.fromClipId)?.clip(transition.fromClipId) ?: return null
-        if (from.title != null) return null
+        if (!from.hasMedia) return null
         val lastNeeded = from.retime.sourceFrameAt(from.durationFrames - 1 + transition.postFrames)
         return if (lastNeeded >= sourceLength || lastNeeded < 0) "outgoing clip has no media after its out point" else null
     }

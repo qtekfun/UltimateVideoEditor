@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import kotlinx.coroutines.CoroutineDispatcher
@@ -21,6 +22,8 @@ data class ProbedMedia(
     val colorSpace: String,
     val hasVideo: Boolean,
     val hasAudio: Boolean,
+    /** A still picture: no frames, no audio, [durationMicros] is 0 and the editor picks a default length. */
+    val isImage: Boolean = false,
 )
 
 /** The media file could not be opened or understood. Always carries a user-presentable message. */
@@ -80,6 +83,7 @@ class AndroidMediaImporter(
     }
 
     internal fun probe(uri: Uri): ProbedMedia {
+        if (context.contentResolver.getType(uri)?.startsWith("image/") == true) return probeImage(uri)
         val extractor = MediaExtractor()
         try {
             try {
@@ -95,6 +99,31 @@ class AndroidMediaImporter(
         } finally {
             extractor.release()
         }
+    }
+
+    /** Reads only the header: enough to know the platform can decode it. EXIF orientation is applied when it is drawn. */
+    private fun probeImage(uri: Uri): ProbedMedia {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        try {
+            context.contentResolver.openInputStream(uri).use { stream ->
+                if (stream == null) throw MediaImportException("Cannot open the selected picture")
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+        } catch (e: IOException) {
+            throw MediaImportException("Cannot open the selected picture", e)
+        } catch (e: SecurityException) {
+            throw MediaImportException("No permission to read the selected picture", e)
+        }
+        if (options.outWidth <= 0 || options.outHeight <= 0) throw MediaImportException("This picture format is not supported")
+        return ProbedMedia(
+            durationMicros = 0,
+            fpsNum = FpsRational.DEFAULT_FPS,
+            fpsDen = 1,
+            colorSpace = ColorSpaceNames.SDR,
+            hasVideo = false,
+            hasAudio = false,
+            isImage = true,
+        )
     }
 
     private fun probeTracks(extractor: MediaExtractor, uri: Uri): ProbedMedia {

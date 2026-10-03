@@ -18,6 +18,11 @@ import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.engine.title.TitleKeyCache
 import com.ultimatevideo.uveditor.engine.title.TitleRasterException
 import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
+import com.ultimatevideo.uveditor.engine.still.AndroidStillRasterizer
+import com.ultimatevideo.uveditor.engine.still.StillKeyCache
+import com.ultimatevideo.uveditor.engine.still.StillRasterException
+import com.ultimatevideo.uveditor.engine.still.StillRasterizer
+import com.ultimatevideo.uveditor.engine.still.StillRef
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,6 +49,8 @@ data class PreviewRequest(
     val reverse: Boolean = false,
     /** Effects, blend mode and mask of the layer. */
     val fx: ClipFx = ClipFx.NONE,
+    /** A photo or sticker: a picture drawn like a title, with no decoder ([assetKey], [uri] and [sourceFrame] are unused). */
+    val still: StillRef? = null,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -73,6 +80,7 @@ class EditorPreview(
     private val scope: CoroutineScope,
     private val maxDecoders: Int = DecoderLimits.maxPreviewDecoders(),
     private val rasterizer: TitleRasterizer = AndroidTitleRasterizer(),
+    private val stillRasterizer: StillRasterizer = AndroidStillRasterizer(context),
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -102,6 +110,13 @@ class EditorPreview(
     private var reportedSkipped: Set<Int> = emptySet()
     private val titleKeys = TitleKeyCache()
     private val brokenTitles = HashSet<Int>()
+
+    // Photos and stickers are decoded off the main thread and uploaded like titles; a layer is
+    // left out until its picture is on the GPU, then the scene is resent (as for an opening asset).
+    private val stillKeys = StillKeyCache()
+    private val loadingStills = HashSet<Int>()
+    private val uploadedStills = HashSet<Int>()
+    private val brokenStills = HashSet<Int>()
 
     /** Shows [scene] as a still frame (paused, scrubbing, editing). Stops any native playback. */
     fun show(scene: PreviewScene) {
@@ -179,7 +194,7 @@ class EditorPreview(
     /** Plans decoders for [scene], opens what is missing and returns the layers that can be drawn now. */
     private fun prepare(engine: PreviewEngine, scene: PreviewScene): List<Ready> {
         latest = scene
-        val media = scene.layers.filter { it.title == null }
+        val media = scene.layers.filter { it.title == null && it.still == null }
         val neededTopFirst = media.asReversed().map { it.assetKey }.filter { it !in failed }
         val plan = DecoderPlanner.plan(maxDecoders, neededTopFirst, open.toList())
 
@@ -193,17 +208,23 @@ class EditorPreview(
             if (key in plan.render && key !in open && key !in opening) openThen(engine, layer)
         }
         // Layers whose asset is still opening are left out for now; the scene is resent when they are ready.
-        val readyRequests = scene.layers.filter { it.title != null || (it.assetKey in open && it.assetKey in plan.render) }
-        for (layer in readyRequests) if (layer.title == null) touch(layer.assetKey)
+        val readyRequests = scene.layers.filter { it.title != null || it.still != null || (it.assetKey in open && it.assetKey in plan.render) }
+        for (layer in readyRequests) if (layer.title == null && layer.still == null) touch(layer.assetKey)
         val ready = readyRequests.mapNotNull { layer ->
             val title = layer.title
-            if (title == null) {
-                Ready(layer, titleKey = 0)
-            } else {
-                titleKeyFor(engine, scene, title)?.let { Ready(layer, titleKey = it) }
+            val still = layer.still
+            when {
+                title != null -> titleKeyFor(engine, scene, title)?.let { Ready(layer, titleKey = it) }
+                still != null -> stillKeyFor(engine, scene, still)?.let { Ready(layer, titleKey = it) }
+                else -> Ready(layer, titleKey = 0)
             }
         }
         for (key in titleKeys.drain()) engine.releaseTitle(key)
+        for (key in stillKeys.drain()) {
+            uploadedStills -= key
+            loadingStills -= key
+            engine.releaseTitle(key)
+        }
         return ready
     }
 
@@ -240,6 +261,43 @@ class EditorPreview(
             }
         }
         return key.takeIf { it !in brokenTitles }
+    }
+
+    /**
+     * Key of the uploaded picture of [still] on this canvas, or null while it is still being decoded
+     * (the scene is shown again when it is ready) or if it cannot be shown.
+     */
+    private fun stillKeyFor(engine: PreviewEngine, scene: PreviewScene, still: StillRef): Int? {
+        val (key, fresh) = stillKeys.keyFor(still, scene.canvasWidth, scene.canvasHeight)
+        if (key in brokenStills) return null
+        if (fresh) {
+            loadingStills += key
+            scope.launch {
+                val outcome = try {
+                    Result.success(withContext(Dispatchers.IO) { stillRasterizer.rasterize(still, scene.canvasWidth, scene.canvasHeight) })
+                } catch (e: StillRasterException) {
+                    Result.failure(e)
+                }
+                loadingStills -= key
+                // Evicted or closed while decoding: nothing to upload.
+                if (!stillKeys.contains(key)) return@launch
+                val bitmap = outcome.getOrNull()
+                if (bitmap == null) {
+                    brokenStills += key
+                    onError(outcome.exceptionOrNull()?.message ?: "A picture could not be shown")
+                } else {
+                    try {
+                        engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
+                        uploadedStills += key
+                    } catch (e: PreviewException) {
+                        brokenStills += key
+                        onError("A picture could not be shown: ${e.message}")
+                    }
+                }
+                if (!following) latest?.let(::show)
+            }
+        }
+        return key.takeIf { it in uploadedStills }
     }
 
     /** Marks [key] as the most recently shown asset. */

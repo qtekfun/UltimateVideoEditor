@@ -188,6 +188,12 @@ sealed interface EditorIntent : UiIntent {
 
     data object ToggleInspector : EditorIntent
 
+    /**
+     * Puts the built-in sticker [stickerId] on an overlay lane at the playhead (the selected overlay
+     * lane, else the top one, making one above the base if there is none), selects it and opens the inspector.
+     */
+    data class AddSticker(val stickerId: String) : EditorIntent
+
     /** Puts a new title on the title track (made if needed) at the playhead, selects it and opens the inspector. */
     data object AddTitle : EditorIntent
 
