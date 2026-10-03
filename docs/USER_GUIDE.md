@@ -9,14 +9,15 @@ automated tests so far; see [Known limits](#known-limits).
 1. [Project hub](#project-hub)
 2. [Editor layout](#editor-layout)
 3. [Toolbar icons](#toolbar-icons)
-4. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops)
-5. [Inspector](#inspector)
-6. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
-7. [Markers and beats](#markers-and-beats)
-8. [Colour spaces and HDR](#colour-spaces-and-hdr)
-9. [Exporting](#exporting)
-10. [Missing media and recovery](#missing-media-and-recovery)
-11. [Known limits](#known-limits)
+4. [Media tray](#media-tray)
+5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops)
+6. [Inspector](#inspector)
+7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
+8. [Markers and beats](#markers-and-beats)
+9. [Colour spaces and HDR](#colour-spaces-and-hdr)
+10. [Exporting](#exporting)
+11. [Missing media and recovery](#missing-media-and-recovery)
+12. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -62,8 +63,9 @@ From top to bottom:
 2. **Preview**: the current frame, with the timecode, previous / play-pause / next and a fit button.
 3. **Toolbar**: the tools below (scrolls sideways when it does not fit).
 4. **Timeline**: ruler, tracks, playhead.
+5. **Media tray** at the bottom (see [Media tray](#media-tray)): collapsed to a thin tab strip until you open it.
 
-On wide screens (tablet, foldable open) the media and inspector panels sit beside the preview.
+On wide screens (tablet, foldable open) the media tray is a permanent panel beside the preview.
 
 ## Toolbar icons
 
@@ -82,8 +84,8 @@ Every icon has a text description: long press it to see its name, or use a scree
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
 | T | Add a title | Adds a text title at the playhead. |
 | CC | Captions | Opens the captions sheet: type captions, import a `.srt` / `.vtt` file, choose a style and restyle all captions. |
-| ☺ | Add a sticker | Opens the sticker picker (built-in shapes and emoji). |
-| Tt | Text templates | Adds an animated text template (lower third, pop title, slide-in headline, subtitle bar). |
+| ☺ | Stickers | Opens the media tray on the **Stickers** tab (built-in shapes and emoji). |
+| Tt | Titles and templates | Opens the media tray on the **Titles** tab (lower third, pop title, slide-in headline, subtitle bar). |
 | ⇄ | Crossfade | Adds a crossfade between the selected clip and the next one. |
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
@@ -94,6 +96,32 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ▲ / ▼ | Move lane up / down | Reorders the selected overlay lane. The base track never moves. |
 
 If an icon looks different on your device, its description always matches the table.
+
+## Media tray
+
+The tray keeps everything you can add in one place. On a phone it sits under the timeline: drag its header
+up or down, or use the arrow button, to switch between collapsed, half and full height. On a tablet it is a
+panel on the left.
+
+- **Tabs**: **Media** (videos and photos of the project), **Stickers**, **Titles** (text templates) and
+  **Audio** (audio files of the project).
+- **Media and Audio tabs**: a grid or a list (the Grid/List button), a search box, and on the Media tab the
+  filters All, Video, Photos and Unused. Each tile shows a thumbnail, the duration, an **HLG** or **PQ** badge
+  for HDR files, **×N** when the file is used N times on the timeline, and a red **Missing** cover when the
+  file cannot be read (relink it from the banner).
+- **Import** (the first tile): adds files to the tray without putting them on the timeline.
+- **Add at the playhead**: tap a tile. Stickers and templates are also added with a tap.
+- **Drag onto the timeline**: long-press a tile and drag. While you drag, the timeline shows what releasing
+  will do, exactly like moving a clip: near a cut on the base track a vertical bar means **Insert**; over a
+  base clip a tinted range means **Overwrite**; on an overlay, audio or title lane a tinted range shows where
+  the clip lands (and replaces what it covers); above the top lane a green placeholder means a **new lane**;
+  a red tint (wrong kind of lane, for instance audio on a video lane, or far outside) means **cancel**. The
+  timeline scrolls when you hold near its sides. Release to drop; undo removes it in one step.
+- **Reorder**: long-press a tile and drop it on another tile of the tray to change the order of the library.
+- **Files from other apps**: on tablets and in split screen you can drag videos, photos or audio from another
+  app (for example Files) onto the tray, to add them to the library, or onto the timeline, to place them where
+  you drop. If the source does not allow keeping access, the files work in this session and may need to be
+  relinked after you restart the app.
 
 ## Timeline: tracks, gestures and drops
 
@@ -150,14 +178,14 @@ reverse do not apply to them.
 ## Titles, captions, stickers and templates
 
 - **T** adds a title. Drag it on the preview to move it (for a lower third, drag it to the bottom).
-- **Tt** opens templates: lower third, pop title, slide-in headline and subtitle bar. Type your text first if
-  you want, then apply; each template is a normal editable title with keyframes.
+- **Tt** opens the Titles tab of the tray: lower third, pop title, slide-in headline and subtitle bar. Type your
+  text first if you want, then tap a template; each one is a normal editable title with keyframes.
 - **CC** opens the captions sheet. Type a caption, set where it starts and how long it lasts (the buttons step by one
   frame or one second; the next caption starts where the last one ended), and tap Add. Or import a `.srt` or `.vtt`
   subtitle file (it can start at the project start or at the playhead). Pick a style: Classic, Bold, Pop, Impact,
   Karaoke, Word pop, Typewriter or Bounce, and text and highlight colours. "Restyle" changes every caption at once.
   Nothing is sent anywhere: the app has no network access.
-- **☺** adds stickers on an overlay lane.
+- **☺** opens the Stickers tab; tap a sticker to add it on an overlay lane.
 
 ## Markers and beats
 
@@ -202,3 +230,4 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 - Reverse playback of long-GOP 4K footage is slow.
 - Beat detection only reads loudness, not pitch.
 - Inserting (shifting later clips) works on the base track only; other tracks overwrite.
+- Dragging stickers and templates onto the timeline is not available yet (tap them); dragging media assets is.
