@@ -73,11 +73,28 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
         "transform": { "scale": [1.0, 1.0], "rotation": 0.0, "position": [0, 0] },
         "gainDb": 0.0, "colorOverride": null } ] }
   ],
-  "transitions": []
+  "transitions": [
+    { "id": "transition-1", "type": "crossfade", "fromClipId": "clip-101", "toClipId": "clip-102",
+      "durationFrames": 30 }
+  ]
 }
 ```
 
-- Track types: `video`, `audio`, `title` (title clips carry text/style payload instead of `assetId`).
+- Track types: `video`, `audio`, `title`. A clip on a `title` track has no `assetId` and carries a
+  `title` object instead (a clip with `title` on any other track is invalid):
+  `{ "text", "sizeFraction", "color": "#AARRGGBB", "alignment": "left|center|right", "bold" }`.
+  `sizeFraction` is the font size as a fraction of the project height (0.01 to 0.5), so a title looks the
+  same at any resolution. Its placement uses the clip's `transform`; the text block is centred on the
+  canvas before it. A title's source range is `[0, duration)`.
+- A transition joins two clips of one track where `fromClipId` ends exactly where `toClipId` starts. It
+  is centred on the cut: `preFrames = durationFrames / 2` before it and the rest after it, so the clips do
+  not move and the project length does not change. It consumes media beyond the trim points: the
+  outgoing clip keeps playing for `postFrames` past its out point and the incoming one is already playing
+  `preFrames` before its in point. A transition is rejected (or dropped when an edit makes it
+  impossible) if the clips are not adjacent, it is shorter than 2 frames, it reaches past either clip,
+  the incoming clip has no media before its in point, the outgoing one has none after its out point, or
+  it overlaps the other transition of the same clip. Splitting the outgoing clip hands the transition to the
+  right half (the one now at the cut).
 - Clip appearance (`transform`, `gainDb`) lives in the domain `Clip` and is saved as is:
   - The clip's frame is first fitted ("contain") into the project canvas, then `scale` (`[x, y]`,
     each > 0) is applied about its centre, then `rotation` (degrees, **clockwise**), then the centre is
@@ -161,9 +178,28 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   zoom levels, and caches them on disk (`waveforms/<assetId>.peaks`). Timeline renderer reads the cache.
 
 ### 5.7 Titles and transitions
-- Title clips rendered as text to a texture (native text raster, font from system/bundled) and
-  composited as a layer. Transitions (MVP: crossfade) are modelled between adjacent clips and
-  evaluated in the compositor.
+- **One render plan.** `domain/RenderPlan.kt` turns the timeline into `RenderClip`s: every clip with its
+  transitions folded in (extended range, `crossfadeInFrames` for the incoming clip's fade, `crossfadeOutFrames`
+  for the outgoing clip's audio fade, a decoder `lane`, and `layer` counted from the top over video and title
+  tracks). The preview (`previewRequestsAt`), the exporter (`buildExportPlan`) and the audio mixer
+  (`audioSnapshotOf`) all start from it, so a transition looks and sounds the same everywhere. The native
+  compositor only knows layers with an opacity: it has no notion of a transition.
+- **Crossfade curve.** Over `d` frames the incoming clip's opacity at frame `k` is `(k + 0.5) / d` (never exactly
+  0 or 1 inside the fade, symmetric); the outgoing clip stays opaque underneath, so the picture is
+  `out * (1 - p) + in * p`. Audio uses equal-power gains `cos` and `sin` of the same progress, so both fades
+  cover exactly the same samples. Within a layer the later-starting clip is drawn on top. The curve is
+  implemented in `CrossfadeCurve` (Kotlin) and `core/crossfade_math.h` (C++) and checked with shared vectors.
+- **Decoders.** Two cuts of the same file that show together (the two sides of a transition) need two decoders:
+  the preview opens the file under `assetKey + lane * 2^20`, the exporter keys decoders by `layer * 2 + lane`.
+  Both respect the device's decoder limit; in the preview the top layer wins when it is exceeded.
+- **Titles.** Text is rasterised on the Kotlin side (`AndroidTitleRasterizer`: `StaticLayout` + `Canvas` into an
+  ARGB bitmap cropped to the text block, at project canvas pixels) and uploaded as an RGBA texture keyed by
+  title appearance (`TitleKeyCache`, LRU). The compositor draws it 1:1 (no "contain" fit) with the clip's
+  transform and treats it as premultiplied alpha. The exporter rasterises with the same code and the same
+  canvas, which is what makes preview and export identical; a title is therefore drawn at project resolution
+  and scaled by the export size, not re-rasterised at the export resolution.
+- **Wire formats.** Timeline snapshot version 2 appends the transitions (for the canvas markers); audio
+  snapshot version 2 has 64-byte clips with `fadeInFrames`/`fadeOutFrames`.
 
 ### 5.8 Undo/redo
 - Command pattern in `domain/`: every edit is an invertible command applied to the timeline state;

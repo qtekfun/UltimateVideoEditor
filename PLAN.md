@@ -51,8 +51,10 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** 4K60 single-layer playback without drops; no measurable A/V drift on a long timeline.
 
 ## Phase 5 — Titles and transitions
-- [ ] Title clips (text, font, colour, position) and composition
-- [ ] Crossfade transition between adjacent clips
+- [x] Title clips (text, size, colour, alignment, bold, position/scale/rotation/opacity) and composition
+- [x] Crossfade transition between adjacent clips (video opacity ramp, equal-power audio, handles-aware limits)
+- _Status:_ domain, JSON, preview, export, audio and editor UI are implemented and unit-tested (see the PR for
+  what was and was not verified on the device). Not done: other transition types, title animations, custom fonts.
 - **Gate:** titles and transitions render in preview and match export.
 
 ## Phase 6 — Export
