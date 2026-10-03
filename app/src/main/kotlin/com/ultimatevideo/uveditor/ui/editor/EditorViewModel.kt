@@ -10,6 +10,7 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.domain.AddCaptions
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipDeletion
 import com.ultimatevideo.uveditor.domain.ClipFx
 import com.ultimatevideo.uveditor.domain.ClipGain
 import com.ultimatevideo.uveditor.domain.ClipMask
@@ -567,19 +568,20 @@ class EditorViewModel(
                 val destination = base.tracks.getOrNull(trackIndex)
                     ?.takeIf { it.type == sourceTrack.type && it.id != sourceTrack.id }
                     ?.id
-                EditCommand.Move(
+                EditCommand.MoveClip(
                     clipId = session.clipId,
                     newStart = FrameIndex((frame - session.grabOffset).coerceAtLeast(0)),
-                    toTrackId = destination,
+                    // A base clip only reorders within the base, so the lane under the finger is ignored.
+                    toTrackId = destination.takeUnless { sourceTrack.id == ClipDeletion.baseTrack(base)?.id },
                     snap = Snap(playhead, SNAP_THRESHOLD_FRAMES),
                 )
             }
-            DragMode.TRIM_START -> EditCommand.Trim(
+            DragMode.TRIM_START -> EditCommand.TrimClip(
                 clipId = session.clipId,
                 edge = TrimEdge.START,
                 frame = snapFrame(base, session.clipId, frame, playhead),
             )
-            DragMode.TRIM_END -> EditCommand.Trim(
+            DragMode.TRIM_END -> EditCommand.TrimClip(
                 clipId = session.clipId,
                 edge = TrimEdge.END,
                 frame = snapFrame(base, session.clipId, frame, playhead),
@@ -1059,9 +1061,13 @@ class EditorViewModel(
         }
         val length = assetLengthFrames(asset.id) ?: return null
         val clip = Clip("clip-${idGenerator()}", asset.id, start, FrameIndex.ZERO, FrameIndex(length))
-        if (!execute(EditCommand.Overwrite(track.id, clip))) return null
+        // On the base track new media is inserted (everything after ripples); elsewhere it overwrites.
+        val onBase = track.id == ClipDeletion.baseTrack(history.timeline)?.id
+        val command = if (onBase) EditCommand.InsertBase(clip, start) else EditCommand.Overwrite(track.id, clip)
+        if (!execute(command)) return null
         reduce { copy(selectedClipId = clip.id, selectedTrackId = track.id) }
-        return clip.timelineEnd
+        // The base inserts at a clip boundary, which may differ from [start]: continue from where the clip landed.
+        return history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.timelineEnd ?: clip.timelineEnd
     }
 
     /** Length of an asset in project frames, or null if it is not in the library. */
@@ -1084,6 +1090,8 @@ class EditorViewModel(
         is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
         is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
         is EditError.TransitionNotFound -> "The transition no longer exists"
+        EditError.NoBaseTrack -> "Add a video track first"
+        is EditError.BaseClipCannotLeave -> "The base track is the guide: reorder its clips there, or cut and paste to an overlay"
         is EditError.NotATitle -> "That clip is not a title"
         is EditError.InvalidKeyframe -> "That keyframe is not possible: ${error.reason}"
         is EditError.KeyframeNotFound -> "There is no keyframe there"

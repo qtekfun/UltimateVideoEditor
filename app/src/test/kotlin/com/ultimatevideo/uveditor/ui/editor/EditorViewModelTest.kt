@@ -87,6 +87,19 @@ class EditorViewModelTest {
         ),
     )
 
+    /** Overlay v2 (x, y) over the base v1 (c1, c2), for the free-form behaviour of non-base tracks. */
+    private fun overlayProject() = ProjectDto(
+        id = "p1",
+        name = "Test",
+        settings = settings,
+        mediaLibrary = listOf(asset),
+        tracks = listOf(
+            TrackDto("v2", "video", 0, listOf(clipDto("x", 0), clipDto("y", 100))),
+            TrackDto("v1", "video", 1, listOf(clipDto("c1", 0), clipDto("c2", 100))),
+            TrackDto("a1", "audio", 2),
+        ),
+    )
+
     private val video5s = ProbedMedia(5_000_000, 30, 1, "Rec709-SDR", hasVideo = true, hasAudio = true)
     private val audio2s = ProbedMedia(2_000_000, 30, 1, "Rec709-SDR", hasVideo = false, hasAudio = true)
 
@@ -266,19 +279,35 @@ class EditorViewModelTest {
         h.vm.onIntent(EditorIntent.DragStart(grab))
         h.vm.onIntent(EditorIntent.DragMove(frame = 250, trackIndex = 0))
 
-        assertEquals(FrameIndex(240), h.state.dragPreview?.track("v1")?.clip("c1")?.timelineStart)
+        // The base is magnetic: dragging c1 past c2 swaps them with no gap.
+        assertEquals(FrameIndex(100), h.state.dragPreview?.track("v1")?.clip("c1")?.timelineStart)
         assertEquals(FrameIndex(0), h.clips("v1").first().timelineStart)
         assertFalse(h.state.canUndo)
 
         h.vm.onIntent(EditorIntent.DragEnd(commit = true))
 
         assertNull(h.state.dragPreview)
-        assertEquals(FrameIndex(240), h.state.timeline.track("v1")?.clip("c1")?.timelineStart)
+        assertEquals(FrameIndex(100), h.state.timeline.track("v1")?.clip("c1")?.timelineStart)
+        assertEquals(FrameIndex(0), h.state.timeline.track("v1")?.clip("c2")?.timelineStart)
         assertTrue(h.state.canUndo)
     }
 
     @Test
-    fun `dragging snaps to a neighbouring clip edge`() = runTest(dispatcher) {
+    fun `dragging an overlay snaps to a neighbouring clip edge`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.select("x")
+        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("x", frame = 0)))
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 203, trackIndex = 0))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+
+        assertEquals(FrameIndex(200), h.state.timeline.track("v2")?.clip("x")?.timelineStart)
+        // Overlays are free: the base did not move.
+        assertEquals(listOf(0L, 100L), h.clips("v1").map { it.timelineStart.value })
+    }
+
+    @Test
+    fun `dragging a base clip past its neighbour reorders the base without a gap`() = runTest(dispatcher) {
         val h = harness()
         h.select("c1")
         h.vm.onIntent(EditorIntent.DragStart(h.hitOn("c1", frame = 0)))
@@ -286,14 +315,14 @@ class EditorViewModelTest {
         h.vm.onIntent(EditorIntent.DragMove(frame = 203, trackIndex = 0))
         h.vm.onIntent(EditorIntent.DragEnd(commit = true))
 
-        assertEquals(FrameIndex(200), h.state.timeline.track("v1")?.clip("c1")?.timelineStart)
+        assertEquals(listOf("c2" to 0L, "c1" to 100L), h.clips("v1").map { it.id to it.timelineStart.value })
     }
 
     @Test
-    fun `dragging onto another clip is rejected and cancelling discards the preview`() = runTest(dispatcher) {
-        val h = harness()
-        h.select("c1")
-        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("c1", frame = 0)))
+    fun `dragging an overlay onto another clip is rejected and cancelling discards the preview`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.select("x")
+        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("x", frame = 0)))
 
         h.vm.onIntent(EditorIntent.DragMove(frame = 150, trackIndex = 0))
         assertNull(h.state.dragPreview)
@@ -303,7 +332,7 @@ class EditorViewModelTest {
         h.vm.onIntent(EditorIntent.DragEnd(commit = false))
 
         assertNull(h.state.dragPreview)
-        assertEquals(FrameIndex(0), h.clips("v1").first().timelineStart)
+        assertEquals(FrameIndex(0), h.clips("v2").first().timelineStart)
         assertFalse(h.state.canUndo)
     }
 
@@ -514,7 +543,7 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `trimming the left edge moves the start and the source in point together`() = runTest(dispatcher) {
+    fun `trimming the left edge of a base clip keeps its start and advances the source in point`() = runTest(dispatcher) {
         val h = harness()
         h.select("c2")
         h.vm.onIntent(EditorIntent.DragStart(h.hitOn("c2", frame = 101, kind = HitKind.CLIP_LEFT_EDGE)))
@@ -522,26 +551,57 @@ class EditorViewModelTest {
         h.vm.onIntent(EditorIntent.DragMove(frame = 130, trackIndex = 0))
         h.vm.onIntent(EditorIntent.DragEnd(commit = true))
 
+        // Magnetic base: the clip stays where the previous one ends and simply gets shorter.
         val c2 = h.clips("v1").last()
-        assertEquals(FrameIndex(130), c2.timelineStart)
+        assertEquals(FrameIndex(100), c2.timelineStart)
         assertEquals(FrameIndex(30), c2.sourceIn)
-        assertEquals(FrameIndex(200), c2.timelineEnd)
+        assertEquals(FrameIndex(170), c2.timelineEnd)
     }
 
     @Test
-    fun `importing places a clip at the playhead on the video track and selects it`() = runTest(dispatcher) {
+    fun `trimming the left edge of an overlay moves the start and the source in point together`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.select("y")
+        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("y", frame = 101, kind = HitKind.CLIP_LEFT_EDGE)))
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 130, trackIndex = 0))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+
+        val y = h.clips("v2").last()
+        assertEquals(FrameIndex(130), y.timelineStart)
+        assertEquals(FrameIndex(30), y.sourceIn)
+        assertEquals(FrameIndex(200), y.timelineEnd)
+    }
+
+    @Test
+    fun `importing past the end of the base appends the clip there and selects it`() = runTest(dispatcher) {
         val h = harness(importer = FakeImporter(mapOf("content://new" to video5s)))
         h.vm.onIntent(EditorIntent.SetPlayhead(300))
 
         h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://new")))
         advanceUntilIdle()
 
+        // The base has no gaps: a playhead past its end appends right after the last clip.
         val placed = h.clips("v1").last()
-        assertEquals(FrameIndex(300), placed.timelineStart)
+        assertEquals(FrameIndex(200), placed.timelineStart)
         assertEquals(150, placed.durationFrames)
         assertEquals(h.state.selectedClipId, placed.id)
         assertEquals(2, h.state.assets.size)
         assertFalse(h.state.isImporting)
+    }
+
+    @Test
+    fun `importing with the playhead inside a base clip inserts at the nearest cut and ripples the rest`() = runTest(dispatcher) {
+        val h = harness(importer = FakeImporter(mapOf("content://new" to video5s)))
+        h.vm.onIntent(EditorIntent.SetPlayhead(130))
+
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://new")))
+        advanceUntilIdle()
+
+        // 130 is closer to the start of c2 (100) than to its end: the new clip goes before c2.
+        val layout = h.clips("v1").map { it.timelineStart.value to it.timelineEnd.value }
+        assertEquals(listOf(0L to 100L, 100L to 250L, 250L to 350L), layout)
+        assertEquals("c2", h.clips("v1").last().id)
     }
 
     @Test
@@ -584,14 +644,14 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `adding a library asset places it at the playhead`() = runTest(dispatcher) {
+    fun `adding a library asset to an empty base starts it at zero whatever the playhead`() = runTest(dispatcher) {
         val h = harness(project(withClips = false))
         h.vm.onIntent(EditorIntent.SetPlayhead(20))
 
         h.vm.onIntent(EditorIntent.AddAsset("a1"))
 
         val clip = h.clips("v1").single()
-        assertEquals(FrameIndex(20), clip.timelineStart)
+        assertEquals(FrameIndex(0), clip.timelineStart)
         assertEquals(300, clip.durationFrames)
     }
 
