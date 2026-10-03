@@ -33,10 +33,11 @@ struct Buf {
 };
 
 static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& clips,
-                        const std::vector<timeline::TransitionSnapshot>& transitions = {}) {
+                        const std::vector<timeline::TransitionSnapshot>& transitions = {},
+                        const std::vector<timeline::KeyframeSnapshot>& keyframes = {}, uint32_t version = timeline::kSnapshotVersion) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
-    w.put<uint32_t>(timeline::kSnapshotVersion);
+    w.put<uint32_t>(version);
     w.put<int32_t>(30000);
     w.put<int32_t>(1001);
     w.put<int32_t>(tracks);
@@ -61,6 +62,13 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         w.put<int64_t>(t.preFrames);
         w.put<int64_t>(t.postFrames);
     }
+    if (version >= 3) {
+        w.put<int32_t>(static_cast<int32_t>(keyframes.size()));
+        for (const auto& k : keyframes) {
+            w.put<int64_t>(k.clipKey);
+            w.put<int64_t>(k.frame);
+        }
+    }
     return w;
 }
 
@@ -70,7 +78,7 @@ static timeline::ClipSnapshot clip(int64_t key, int track, int64_t start, int64_
 
 static void testSnapshotRoundTrip() {
     auto buf = makeSnapshot(2, {clip(7, 0, 0, 100), clip(8, 1, 50, 25)});
-    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4);
+    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4);
     timeline::TimelineSnapshot s;
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
     CHECK(s.tracks.size() == 2 && s.clips.size() == 2);
@@ -97,9 +105,37 @@ static void testSnapshotTransitions() {
     auto negative = makeSnapshot(1, {clip(1, 0, 0, 10)}, {{0, 5, -1, 1}});
     CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
     auto huge = makeSnapshot(1, {clip(1, 0, 0, 10)});
-    huge.b[huge.b.size() - 4] = 0x7F;  // claims far more transitions than there are bytes
-    huge.b[huge.b.size() - 1] = 0x7F;
+    huge.b[huge.b.size() - 8] = 0x7F;  // claims far more transitions than there are bytes
+    huge.b[huge.b.size() - 5] = 0x7F;
     CHECK(timeline::parseSnapshot(huge.b.data(), huge.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+static void testSnapshotKeyframes() {
+    timeline::TimelineSnapshot s;
+    // Markers are sorted per clip however they arrive, and each clip finds its own run.
+    auto buf = makeSnapshot(1, {clip(7, 0, 0, 100), clip(9, 0, 100, 50)}, {}, {{9, 20}, {7, 40}, {7, 5}});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.keyframes.size() == 3);
+    const auto [a, b] = s.keyframesOf(7);
+    CHECK(b - a == 2 && a[0].frame == 5 && a[1].frame == 40);
+    const auto [c, d] = s.keyframesOf(9);
+    CHECK(d - c == 1 && c[0].frame == 20);
+    const auto [e, f] = s.keyframesOf(123);
+    CHECK(e == f);
+
+    // A version 2 snapshot (no keyframe trailer) still parses and has none.
+    auto v2 = makeSnapshot(1, {clip(1, 0, 0, 10)}, {{0, 5, 1, 1}}, {}, 2);
+    CHECK(timeline::parseSnapshot(v2.b.data(), v2.b.size(), &s) == core::Status::Ok);
+    CHECK(s.transitions.size() == 1 && s.keyframes.empty());
+
+    // A keyframe count that disagrees with the bytes, a negative frame and a future version are rejected.
+    auto truncated = buf.b;
+    truncated.pop_back();
+    CHECK(timeline::parseSnapshot(truncated.data(), truncated.size(), &s) == core::Status::BadSnapshot);
+    auto negative = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {{1, -1}});
+    CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
+    auto future = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, 4);
+    CHECK(timeline::parseSnapshot(future.b.data(), future.b.size(), &s) == core::Status::BadSnapshot);
 }
 
 static void testSnapshotRejectsBadInput() {
@@ -324,6 +360,7 @@ static void testPeaksFile() {
 int main() {
     testSnapshotRoundTrip();
     testSnapshotTransitions();
+    testSnapshotKeyframes();
     testSnapshotRejectsBadInput();
     testViewport();
     testHitTest();

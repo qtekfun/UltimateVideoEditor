@@ -24,6 +24,9 @@ data class SnapshotClip(
  */
 data class SnapshotTransition(val trackIndex: Int, val cutFrame: Long, val preFrames: Long, val postFrames: Long)
 
+/** A keyframe marker on the clip with key [clipKey], [frame] frames after the clip's start. */
+data class SnapshotKeyframe(val clipKey: Long, val frame: Long)
+
 /**
  * Immutable view of the timeline sent to the native canvas. Deliberately independent of the
  * editing model so the engine boundary stays a plain data contract (see SPECS.md 5.2).
@@ -35,8 +38,14 @@ data class TimelineSnapshot(
     val tracks: List<SnapshotTrackType>,
     val clips: List<SnapshotClip>,
     val transitions: List<SnapshotTransition> = emptyList(),
+    val keyframes: List<SnapshotKeyframe> = emptyList(),
 ) {
     init {
+        val clipKeys = clips.mapTo(HashSet()) { it.clipKey }
+        for (keyframe in keyframes) {
+            require(keyframe.clipKey in clipKeys) { "a keyframe references missing clip ${keyframe.clipKey}" }
+            require(keyframe.frame >= 0) { "a keyframe is before its clip's first frame" }
+        }
         require(fpsNum > 0 && fpsDen > 0) { "fps must be positive: $fpsNum/$fpsDen" }
         for (clip in clips) {
             require(clip.trackIndex in tracks.indices) { "clip ${clip.clipKey} references missing track ${clip.trackIndex}" }
@@ -55,7 +64,7 @@ data class TimelineSnapshot(
     /** Encodes into a direct little-endian buffer (layout documented in timeline_snapshot.h). */
     fun encode(): ByteBuffer {
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + clips.size * CLIP_BYTES +
-            TRAILER_BYTES + transitions.size * TRANSITION_BYTES
+            TRAILER_BYTES + transitions.size * TRANSITION_BYTES + KEYFRAME_TRAILER_BYTES + keyframes.size * KEYFRAME_BYTES
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -83,13 +92,18 @@ data class TimelineSnapshot(
             buffer.putLong(transition.preFrames)
             buffer.putLong(transition.postFrames)
         }
+        buffer.putInt(keyframes.size)
+        for (keyframe in keyframes) {
+            buffer.putLong(keyframe.clipKey)
+            buffer.putLong(keyframe.frame)
+        }
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53545655 // "UVTS"
-        const val VERSION = 2
+        const val VERSION = 3
         const val HEADER_BYTES = 24
         const val TRACK_BYTES = 4
         const val CLIP_BYTES = 56
@@ -97,5 +111,9 @@ data class TimelineSnapshot(
         /** The transition count that follows the clips. */
         const val TRAILER_BYTES = 4
         const val TRANSITION_BYTES = 32
+
+        /** The keyframe count that follows the transitions (version 3). */
+        const val KEYFRAME_TRAILER_BYTES = 4
+        const val KEYFRAME_BYTES = 16
     }
 }

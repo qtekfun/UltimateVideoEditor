@@ -115,9 +115,21 @@ data class Clip(
     val transform: ClipTransform = ClipTransform.IDENTITY,
     val gainDb: Double = 0.0,
     val title: TitleContent? = null,
+    /**
+     * Animated pose, in clip frames (0 is the clip's first frame). Empty means [transform] holds for
+     * the whole clip; otherwise the keyframes drive the pose and [transform] is only what the clip
+     * returns to when its last keyframe is removed.
+     */
+    val keyframes: List<Keyframe> = emptyList(),
 ) {
     val durationFrames: Long get() = sourceOut - sourceIn
     val timelineEnd: FrameIndex get() = timelineStart + durationFrames
+
+    /** The pose [relativeFrame] frames after the clip's start. */
+    fun transformAt(relativeFrame: Long): ClipTransform = Keyframes.evaluate(keyframes, relativeFrame, transform)
+
+    /** The pose at the project frame [frame]. */
+    fun transformAtProjectFrame(frame: FrameIndex): ClipTransform = transformAt(frame - timelineStart)
 
     fun overlaps(other: Clip): Boolean = timelineStart < other.timelineEnd && other.timelineStart < timelineEnd
 }
@@ -207,6 +219,7 @@ data class Timeline(
                 if (clip.timelineStart < FrameIndex.ZERO) violations += "clip ${clip.id} starts before frame 0"
                 if (clip.sourceIn < FrameIndex.ZERO) violations += "clip ${clip.id} has negative sourceIn"
                 clip.transform.problem()?.let { violations += "clip ${clip.id} transform: $it" }
+                Keyframes.problem(clip.keyframes, clip.durationFrames)?.let { violations += "clip ${clip.id} $it" }
                 ClipGain.problem(clip.gainDb)?.let { violations += "clip ${clip.id} $it" }
                 when {
                     track.type == TrackType.TITLE && clip.title == null -> violations += "clip ${clip.id} on a title track has no title"

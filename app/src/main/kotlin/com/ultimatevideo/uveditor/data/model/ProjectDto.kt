@@ -63,6 +63,19 @@ data class ClipDto(
     val colorOverride: String? = null,
     /** Text payload; present exactly on clips of `title` tracks. */
     val title: TitleDto? = null,
+    /** Animated pose in clip frames; empty means [transform] holds for the whole clip. */
+    val keyframes: List<KeyframeDto> = emptyList(),
+)
+
+/**
+ * A pose at [frame] clip frames after the clip's start. [interpolation] is how the animation moves
+ * from this keyframe to the next: `linear`, `ease` or `hold`.
+ */
+@Serializable
+data class KeyframeDto(
+    val frame: Long,
+    val transform: TransformDto = TransformDto(),
+    val interpolation: String = "linear",
 )
 
 /**

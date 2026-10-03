@@ -21,6 +21,9 @@ constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/expor
 constexpr size_t kClipLongs = 9;     // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey
 constexpr size_t kTitleInts = 3;     // key, width, height per title
 constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
+constexpr size_t kKeyClipLongs = 2;  // keyframe origin frame, keyframe count per clip
+constexpr size_t kKeyLongs = 2;      // frame, interpolation per keyframe
+constexpr size_t kKeyDoubles = 6;    // the same six pose values per keyframe
 
 void throwExport(JNIEnv* env, Status code, const std::string& message) {
     jclass cls = env->FindClass(kExceptionClass);
@@ -96,7 +99,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
-    jintArray titleMeta, jobjectArray titlePixels, jobject audioSnapshot, jint outputFd) {
+    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jintArray titleMeta, jobjectArray titlePixels,
+    jobject audioSnapshot, jint outputFd) {
     ExportParams params;
     params.width = width;
     params.height = height;
@@ -158,6 +162,46 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
         c.fadeInFrames = flat[i + 7];
         c.titleKey = static_cast<uint32_t>(flat[i + 8]);
         params.clips.push_back(c);
+    }
+
+    // Keyframes: `keyClips` holds {origin frame, count} per clip, `keyFrames` {frame, interpolation}
+    // per key and `keyValues` six pose values per key, all keys of all clips in clip order.
+    const jsize keyClipLongs = keyClips == nullptr ? 0 : env->GetArrayLength(keyClips);
+    const jsize keyLongs = keyFrames == nullptr ? 0 : env->GetArrayLength(keyFrames);
+    const jsize keyDoubles = keyValues == nullptr ? 0 : env->GetArrayLength(keyValues);
+    const size_t keyCount = static_cast<size_t>(keyLongs) / kKeyLongs;
+    if (static_cast<size_t>(keyClipLongs) != clipCount * kKeyClipLongs || static_cast<size_t>(keyLongs) % kKeyLongs != 0 ||
+        static_cast<size_t>(keyDoubles) != keyCount * kKeyDoubles) {
+        throwExport(env, Status::InvalidArgument, "clip keyframes do not match the clips");
+        closeAll(params.assetFds, outputFd);
+        return 0;
+    }
+    if (clipCount > 0) {
+        std::vector<jlong> perClip(static_cast<size_t>(keyClipLongs));
+        std::vector<jlong> keyMeta(static_cast<size_t>(keyLongs));
+        std::vector<jdouble> keyPose(static_cast<size_t>(keyDoubles));
+        env->GetLongArrayRegion(keyClips, 0, keyClipLongs, perClip.data());
+        if (keyLongs > 0) env->GetLongArrayRegion(keyFrames, 0, keyLongs, keyMeta.data());
+        if (keyDoubles > 0) env->GetDoubleArrayRegion(keyValues, 0, keyDoubles, keyPose.data());
+        size_t next = 0;
+        for (size_t n = 0; n < clipCount; ++n) {
+            VideoClip& c = params.clips[n];
+            c.keyOriginFrame = perClip[n * kKeyClipLongs];
+            const jlong count = perClip[n * kKeyClipLongs + 1];
+            if (count < 0 || next + static_cast<size_t>(count) > keyCount) {
+                throwExport(env, Status::InvalidArgument, "clip keyframe counts exceed the keyframes given");
+                closeAll(params.assetFds, outputFd);
+                return 0;
+            }
+            for (jlong k = 0; k < count; ++k, ++next) {
+                uv::core::Keyframe key;
+                key.frame = keyMeta[next * kKeyLongs];
+                key.interpolation = static_cast<uv::core::Interpolation>(keyMeta[next * kKeyLongs + 1]);
+                const size_t v = next * kKeyDoubles;
+                key.pose = {keyPose[v], keyPose[v + 1], keyPose[v + 2], keyPose[v + 3], keyPose[v + 4], keyPose[v + 5]};
+                c.keyframes.push_back(key);
+            }
+        }
     }
 
     // Titles: `titleMeta` holds {key, width, height} per title and `titlePixels` one direct
