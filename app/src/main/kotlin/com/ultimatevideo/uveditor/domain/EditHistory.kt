@@ -63,6 +63,21 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = MagneticBase.trim(timeline, clipId, edge, frame, sourceLength)
     }
 
+    /** Moves an overlay video clip onto a new lane above the others (one undo step). */
+    data class MoveToNewLane(val clipId: String, val newStart: FrameIndex, val snap: Snap? = null) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.moveToNewLane(timeline, clipId, newStart, snap)
+    }
+
+    /** Drops a clip on a lane replacing what it covers (base: length unchanged, overlays above cleared). */
+    data class OverwriteMove(val clipId: String, val toTrackId: String, val newStart: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.overwriteMove(timeline, clipId, toTrackId, newStart)
+    }
+
+    /** Reorders a lane among the lanes of its kind: [delta] -1 is up, +1 is down. */
+    data class MoveTrack(val trackId: String, val delta: Int) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.moveTrack(timeline, trackId, delta)
+    }
+
     data class RippleAppend(val clipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.rippleAppend(timeline, clipId)
     }
