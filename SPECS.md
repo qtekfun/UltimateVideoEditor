@@ -232,8 +232,8 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   transform and treats it as premultiplied alpha. The exporter rasterises with the same code and the same
   canvas, which is what makes preview and export identical; a title is therefore drawn at project resolution
   and scaled by the export size, not re-rasterised at the export resolution.
-- **Wire formats.** Timeline snapshot version 2 appends the transitions (for the canvas markers); audio
-  snapshot version 2 has 64-byte clips with `fadeInFrames`/`fadeOutFrames`.
+- **Wire formats.** Timeline snapshot version 2 appends the transitions (for the canvas markers; version 3 adds
+  keyframe markers, see 5.10); audio snapshot version 2 has 64-byte clips with `fadeInFrames`/`fadeOutFrames`.
 
 ### 5.8 Undo/redo
 - `EditHistory` in `domain/`: a bounded stack of immutable timeline snapshots (exact restore), driven by
@@ -247,6 +247,43 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   not heard. Progress, cancel and share through the export ViewModel; a failed or cancelled export deletes
   the partial file. Output is written through SAF (`CreateDocument`).
 - FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec.
+
+### 5.10 Keyframes, canvas formats and upload presets
+- **Keyframes.** A clip (video or title) may carry `keyframes`: poses (position, scale, rotation, opacity) at
+  integer *clip* frames (0 is the clip's first frame, so they travel with the clip when it moves). Before the first
+  keyframe the first pose holds, after the last the last one holds; between two the earlier keyframe's mode
+  decides: `linear`, `ease` (smoothstep) or `hold`. Rotation interpolates in degrees without wrapping, so
+  720° is two full turns. Gain is not animated (the mixer takes one gain per clip).
+  ```json
+  "keyframes": [
+    { "frame": 0,  "transform": { "scale": [1, 1], "rotation": 0, "position": [0, 0], "opacity": 1 }, "interpolation": "ease" },
+    { "frame": 45, "transform": { "scale": [1.4, 1.4], "rotation": 0, "position": [0, -120], "opacity": 1 } }
+  ]
+  ```
+  With keyframes the clip's `transform` is only the pose it returns to when the last keyframe is removed.
+- **One evaluator.** `domain/Keyframes.evaluate` is used by `RenderClip.appearanceAt` (pose with the crossfade
+  folded into the opacity), so the preview and the export share the plan; the exporter evaluates the same
+  formulas natively (`core/keyframe_math.h`) because it renders from a flat clip list. Both are checked against
+  the same vectors (`KeyframesTest`, `export_host_tests.cpp`).
+- **Edits keep animations intact.** Split, trim and overwrite re-base keyframes onto the surviving range
+  (`Keyframes.cropped`): when keyframes outside the range shaped the motion, a keyframe holding the pose is
+  added at the new start or end. Linear and hold segments are exact; an ease that is cut in the middle keeps its
+  mode over the remaining span. Editing an animated clip at the playhead writes a keyframe there (one undo
+  step, via `EditCommand.Batch`); a gain-only edit never adds one.
+- **Canvas formats.** The New project dialog groups presets by shape: 16:9 (YouTube), 9:16 (TikTok, Shorts,
+  Reels), 1:1 and 4:5 (Instagram feed). The editor can switch the canvas later (`ChangeCanvas`): positions of clips
+  and keyframes are scaled by the width and height ratios, the fitted size follows the canvas, and the undo
+  history restarts because earlier steps were made on another canvas.
+- **Safe zones.** An overlay on the preview (off by default) dims the edges that TikTok, Instagram Reels and
+  YouTube Shorts cover with their own interface. The margins are approximate fractions of a 9:16 canvas
+  (`SafeZonePlatform`), not official values.
+- **Upload presets.** The export dialog fills size, rate, codec and bitrate for an upload destination
+  (`ExportPresets`): the largest size not above the preset's, the project's own rate unless faster than the
+  preset wants, the preset's codec, and its bitrate snapped to the nearest choice. A preset made for another
+  shape than the project's shows a hint instead of reshaping the movie.
+- **Wire format.** Timeline snapshot version 3 appends keyframe markers (`clipKey`, clip frame) after the
+  transitions, drawn as small diamonds on the clip header; version 2 snapshots still parse. The export request
+  carries per-clip keyframes in three flat arrays (see `NativeExport.nativeStart`).
 
 ## 6. Timeline operations (specification for tests)
 
