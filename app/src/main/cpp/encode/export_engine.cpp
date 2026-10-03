@@ -33,11 +33,12 @@ constexpr int32_t kColorFormatSurface = 0x7F000789;  // MediaCodecInfo.CodecCapa
 constexpr int32_t kAudioSampleRate = 48000;
 constexpr int32_t kAudioChannels = 2;
 constexpr int32_t kAudioChunkFrames = 1024;
-// The AAC encoder delays its output: decoding the file yields the first input sample this many
-// samples late, and the MP4 muxer writes no edit list to say so. Measured on the reference device
-// (FDK AAC): a tone starting at sample 0 decodes 3072 samples late. The mix is shifted earlier by
-// that much so sound lines up with picture in players that ignore the delay.
-constexpr int64_t kAacDelaySamples = 3072;
+// The AAC encoder delays its output: decoding the file yields each input sample this many samples
+// late, and the MP4 muxer writes no edit list to say so. Measured on the reference device (FDK AAC)
+// with 1 ms clicks every 500 ms: they decode exactly 2048 samples (42.7 ms) late. The mix is shifted
+// earlier by that much so sound lines up with picture in players that ignore the delay; the first
+// 42.7 ms of the mix are therefore not heard.
+constexpr int64_t kAacDelaySamples = 2048;
 constexpr int32_t kDecodeAhead = 4;  // frames the decoder may run ahead of the frame being drawn
 constexpr auto kDecodeStall = std::chrono::seconds(15);
 
