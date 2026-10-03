@@ -78,6 +78,8 @@ public:
     // Blocking; call from any thread but the render thread.
     decode::Status attachSurface(ANativeWindow* window, decode::Error* error);
     void detachSurface();
+    // The surface was resized or reformatted: redraw the current frame at the new size.
+    void surfaceChanged();
 
     // Blocking I/O: call from a background thread. Takes ownership of `fd`.
     decode::Result<decode::AssetInfo> openAsset(uint32_t assetId, int fd, decode::Rational fpsOverride);
@@ -94,6 +96,7 @@ private:
     struct Asset {
         std::shared_ptr<decode::VideoDecoder> decoder;
         ColorMode mode = ColorMode::Sdr709;
+        int turns = 0;  // clockwise quarter turns for display, from the container rotation
     };
 
     PreviewEngine(size_t cacheBudgetBytes, ErrorSink sink);
@@ -103,7 +106,8 @@ private:
 
     // Render-thread-only below.
     void drain(uint32_t assetId);
-    void maybeDraw(bool force);
+    // `presentNs` (CLOCK_MONOTONIC) asks the compositor to show the frame at that time; 0 = asap.
+    void maybeDraw(bool force, int64_t presentNs = 0);
     void setCurrent(uint32_t assetId, int64_t frame);
     void tick(uint64_t generation);
     void report(const decode::Error& error);
@@ -128,6 +132,22 @@ private:
     uint64_t playGeneration_ = 0;
     int64_t playStartFrame_ = 0;
     std::chrono::steady_clock::time_point playStart_;
+
+    // Per-stage timing (render thread only); summarised in the log about once per second of playback.
+    struct StageTimes {
+        int64_t blitNs = 0;
+        int64_t drawNs = 0;
+        int64_t swapNs = 0;
+        int64_t blits = 0;
+        int64_t draws = 0;
+        std::chrono::steady_clock::time_point lastLog;
+    };
+    void logStageTimes();
+    StageTimes times_;
+
+    // Look-behind/ahead the decoders keep filled; frames inside it are evicted last.
+    std::atomic<int32_t> windowBehind_{0};
+    std::atomic<int32_t> windowAhead_{0};
 
     std::atomic<int64_t> framesDrawn_{0};
     std::atomic<int64_t> stalls_{0};

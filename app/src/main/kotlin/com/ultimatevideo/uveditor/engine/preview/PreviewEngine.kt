@@ -17,6 +17,7 @@ internal object NativePreview {
     external fun nativeDestroy(handle: Long)
     external fun nativeAttachSurface(handle: Long, surface: Surface)
     external fun nativeDetachSurface(handle: Long)
+    external fun nativeSurfaceChanged(handle: Long)
     external fun nativeOpenAsset(handle: Long, assetId: Int, fd: Int, fpsNum: Int, fpsDen: Int): LongArray
     external fun nativeCloseAsset(handle: Long, assetId: Int)
     external fun nativeSeek(handle: Long, assetId: Int, frame: Long)
@@ -54,6 +55,9 @@ class PreviewEngine private constructor(
         if (handle != 0L) NativePreview.nativeDetachSurface(handle) // already closed: nothing left to detach
     }
 
+    /** Call when the surface size or format changed so the current frame is redrawn to fit. */
+    fun surfaceChanged() = NativePreview.nativeSurfaceChanged(requireHandle())
+
     /**
      * Opens an H.264/HEVC asset under [assetId]. The descriptor is consumed (detached) even on failure.
      * Pass [fpsNum]/[fpsDen] = 0 to use the container frame rate.
@@ -68,6 +72,7 @@ class PreviewEngine private constructor(
             fpsNum = v[3],
             fpsDen = v[4],
             colorTransfer = v[5].toInt(),
+            rotationDegrees = v[6].toInt(),
         )
     }
 

@@ -60,6 +60,21 @@ Status EglContext::init(Error* error) {
         imageTargetTexture_ == nullptr) {
         return fail(error, Status::EglError, "missing EGLImage/AHardwareBuffer extensions");
     }
+
+    // Optional: without them release fences fall back to glFinish and swaps present immediately.
+    const char* extensions = eglQueryString(display_, EGL_EXTENSIONS);
+    const std::string ext = extensions != nullptr ? extensions : "";
+    if (ext.find("EGL_ANDROID_native_fence_sync") != std::string::npos) {
+        createSync_ = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(eglGetProcAddress("eglCreateSyncKHR"));
+        destroySync_ = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(eglGetProcAddress("eglDestroySyncKHR"));
+        dupNativeFence_ =
+            reinterpret_cast<PFNEGLDUPNATIVEFENCEFDANDROIDPROC>(eglGetProcAddress("eglDupNativeFenceFDANDROID"));
+        if (destroySync_ == nullptr || dupNativeFence_ == nullptr) createSync_ = nullptr;
+    }
+    if (ext.find("EGL_ANDROID_presentation_time") != std::string::npos) {
+        presentationTime_ =
+            reinterpret_cast<PFNEGLPRESENTATIONTIMEANDROIDPROC>(eglGetProcAddress("eglPresentationTimeANDROID"));
+    }
     return makeCurrentOffscreen(error);
 }
 
@@ -128,6 +143,21 @@ EGLImageKHR EglContext::createImage(AHardwareBuffer* buffer) const {
 
 void EglContext::destroyImage(EGLImageKHR image) const {
     if (image != EGL_NO_IMAGE_KHR) destroyImageKhr_(display_, image);
+}
+
+int EglContext::createReleaseFence() const {
+    if (createSync_ == nullptr) return kFenceUnsupported;
+    const EGLint attribs[] = {EGL_SYNC_NATIVE_FENCE_FD_ANDROID, EGL_NO_NATIVE_FENCE_FD_ANDROID, EGL_NONE};
+    EGLSyncKHR sync = createSync_(display_, EGL_SYNC_NATIVE_FENCE_ANDROID, attribs);
+    if (sync == EGL_NO_SYNC_KHR) return kFenceUnsupported;
+    glFlush();  // the native fence only exists once the sync command has been submitted
+    const int fd = dupNativeFence_(display_, sync);
+    destroySync_(display_, sync);
+    return fd == EGL_NO_NATIVE_FENCE_FD_ANDROID ? -1 : fd;
+}
+
+void EglContext::setPresentationTime(int64_t ns) const {
+    if (ns > 0 && presentationTime_ != nullptr && window_ != EGL_NO_SURFACE) presentationTime_(display_, window_, ns);
 }
 
 void EglContext::bindImageToTexture(GLenum target, EGLImageKHR image) const {
