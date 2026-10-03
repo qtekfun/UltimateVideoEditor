@@ -39,6 +39,8 @@ data class RenderClip(
     val keyframeOriginFrame: Long = startFrame,
     /** How the clip's frames map to its source when it is not a plain 1x forward span; null otherwise. */
     val retime: ClipRetime? = null,
+    /** Effects, blend mode and mask of the clip; the compositor applies them in this order. */
+    val fx: ClipFx = ClipFx.NONE,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -121,6 +123,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 keyframes = clip.keyframes,
                 keyframeOriginFrame = clip.timelineStart.value,
                 retime = if (clip.title == null && clip.isRetimed) clip.retime else null,
+                fx = clip.fx,
             )
         }
     }

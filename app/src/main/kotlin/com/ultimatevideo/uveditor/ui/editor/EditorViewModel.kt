@@ -8,10 +8,14 @@ import com.ultimatevideo.uveditor.data.ProjectStore
 import com.ultimatevideo.uveditor.data.TimelineMapper
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
+import com.ultimatevideo.uveditor.domain.AddCaptions
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipFx
 import com.ultimatevideo.uveditor.domain.ClipGain
+import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.EditCommand
+import com.ultimatevideo.uveditor.domain.Effect
 import com.ultimatevideo.uveditor.domain.EditError
 import com.ultimatevideo.uveditor.domain.EditHistory
 import com.ultimatevideo.uveditor.domain.EditResult
@@ -77,6 +81,9 @@ class EditorViewModel(
         val keyFrame: Long? = null,
     )
 
+    /** An effect or mask slider drag in progress: shown live, committed as one undo step. */
+    private class FxSession(val clipId: String, val base: ClipFx, var fx: ClipFx)
+
     /** A title text/style edit in progress: shown live, committed as one undo step. */
     private class TitleSession(val clipId: String, val base: TitleContent, var content: TitleContent)
 
@@ -89,6 +96,7 @@ class EditorViewModel(
     private var pendingDragCommand: EditCommand? = null
     private var appearance: AppearanceSession? = null
     private var titleEdit: TitleSession? = null
+    private var fxEdit: FxSession? = null
     private var saveJob: Job? = null
     private var playJob: Job? = null
 
@@ -103,6 +111,10 @@ class EditorViewModel(
     override fun onIntent(intent: EditorIntent) {
         // Typing in the title field is only provisional: any other action first makes it final.
         if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
+        // Same for an effect slider: it stays provisional until released or until something else happens.
+        if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateMask && intent !is EditorIntent.EndFxEdit) {
+            endFxEdit(commit = true)
+        }
         when (intent) {
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
@@ -121,6 +133,7 @@ class EditorViewModel(
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
             EditorIntent.AddTitle -> addTitle()
+            is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips)
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
             is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
             EditorIntent.AddTransition -> addTransition()
@@ -132,6 +145,14 @@ class EditorViewModel(
             is EditorIntent.TransformGesture -> transformGesture(intent)
             is EditorIntent.EndAppearanceEdit -> endAppearance(intent.commit)
             EditorIntent.ResetAppearance -> resetAppearance()
+            is EditorIntent.AddEffect -> withSelection { execute(EditCommand.AddEffect(it, Effect(idGenerator(), intent.type))) }
+            is EditorIntent.RemoveEffect -> withSelection { execute(EditCommand.RemoveEffect(it, intent.effectId)) }
+            is EditorIntent.MoveEffect -> withSelection { execute(EditCommand.MoveEffect(it, intent.effectId, intent.toIndex)) }
+            is EditorIntent.UpdateEffect -> updateEffect(intent.effectId, intent.values)
+            is EditorIntent.SetBlendMode -> withSelection { execute(EditCommand.SetBlendMode(it, intent.mode)) }
+            is EditorIntent.UpdateMask -> updateMask(intent.mask)
+            is EditorIntent.EndFxEdit -> endFxEdit(intent.commit)
+            EditorIntent.ClearFx -> withSelection { execute(EditCommand.ClearFx(it)) }
             EditorIntent.ToggleKeyframe -> toggleKeyframe()
             is EditorIntent.JumpToKeyframe -> jumpToKeyframe(intent.forward)
             is EditorIntent.SetKeyframeInterpolation -> setKeyframeInterpolation(intent.interpolation)
@@ -195,6 +216,7 @@ class EditorViewModel(
                     sourceFpsNum = state.fps.num,
                     sourceFpsDen = state.fps.den,
                     selected = clip.id == state.selectedClipId,
+                    hasFx = !clip.fx.isNeutral,
                 )
             }
         }
@@ -693,6 +715,56 @@ class EditorViewModel(
 
     // endregion
 
+    // region effects
+
+    private fun beginFx(): FxSession? {
+        fxEdit?.let { return it }
+        if (drag != null) return null
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        if (clip == null || history.timeline.trackOfClip(clip.id)?.type == TrackType.AUDIO) {
+            emit(EditorEffect.ShowMessage("Select a video clip or title first"))
+            return null
+        }
+        return FxSession(clip.id, clip.fx, clip.fx).also { fxEdit = it }
+    }
+
+    private fun updateEffect(effectId: String, values: List<Double>) {
+        val session = beginFx() ?: return
+        val effect = session.fx.effect(effectId) ?: return
+        val changed = effect.copy(values = values)
+        changed.problem()?.let {
+            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            return
+        }
+        session.fx = session.fx.copy(effects = session.fx.effects.map { if (it.id == effectId) changed else it })
+        showFx(session)
+    }
+
+    private fun updateMask(mask: ClipMask?) {
+        val session = beginFx() ?: return
+        mask?.problem()?.let {
+            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            return
+        }
+        session.fx = session.fx.copy(mask = mask)
+        showFx(session)
+    }
+
+    private fun showFx(session: FxSession) {
+        val result = EditCommand.SetFx(session.clipId, session.fx).apply(history.timeline)
+        if (result is EditResult.Success) reduce { copy(dragPreview = result.value) }
+    }
+
+    private fun endFxEdit(commit: Boolean) {
+        val session = fxEdit ?: return
+        fxEdit = null
+        if (commit && session.fx != session.base && execute(EditCommand.SetFx(session.clipId, session.fx))) return
+        reduce { copy(dragPreview = null) }
+    }
+
+    // endregion
+
     // region keyframes
 
     /** Adds a keyframe at the playhead holding the pose shown there, or removes the one that is there. */
@@ -800,6 +872,14 @@ class EditorViewModel(
         )
         if (!execute(EditCommand.Overwrite(trackId, clip))) return
         reduce { copy(selectedClipId = clip.id, selectedTrackId = trackId, inspectorOpen = true) }
+    }
+
+    private fun addCaptionClips(clips: List<Clip>) {
+        if (clips.isEmpty()) return
+        val track = Track(uniqueTrackId(history.timeline.tracks, "track-t"), TrackType.TITLE)
+        // Captions go above everything, like any title, on their own track so they never cut an existing title.
+        if (!execute(AddCaptions(track, 0, clips))) return
+        reduce { copy(selectedTrackId = track.id, selectedClipId = clips.first().id) }
     }
 
     private fun updateTitle(content: TitleContent) {
@@ -998,6 +1078,8 @@ class EditorViewModel(
         is EditError.InvalidKeyframe -> "That keyframe is not possible: ${error.reason}"
         is EditError.KeyframeNotFound -> "There is no keyframe there"
         is EditError.InvalidSpeed -> "That speed is not possible: ${error.reason}"
+        is EditError.InvalidEffect -> "That effect is not possible: ${error.reason}"
+        is EditError.EffectNotFound -> "That effect no longer exists"
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }

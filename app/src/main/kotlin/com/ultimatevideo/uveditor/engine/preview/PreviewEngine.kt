@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.engine.preview
 
 import android.os.ParcelFileDescriptor
 import android.view.Surface
+import com.ultimatevideo.uveditor.engine.fx.FxWire
 
 internal fun interface NativeErrorListener {
     fun onError(code: Int, message: String)
@@ -20,13 +21,21 @@ internal object NativePreview {
     external fun nativeSurfaceChanged(handle: Long)
     external fun nativeOpenAsset(handle: Long, assetId: Int, fd: Int, fpsNum: Int, fpsDen: Int): LongArray
     external fun nativeCloseAsset(handle: Long, assetId: Int)
-    external fun nativeSetScene(handle: Long, canvasWidth: Int, canvasHeight: Int, ids: LongArray, params: FloatArray)
+    external fun nativeSetScene(
+        handle: Long,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        ids: LongArray,
+        params: FloatArray,
+        fx: DoubleArray,
+    )
     external fun nativePlayScene(
         handle: Long,
         canvasWidth: Int,
         canvasHeight: Int,
         ids: LongArray,
         params: FloatArray,
+        fx: DoubleArray,
         fpsNum: Int,
         fpsDen: Int,
     )
@@ -102,7 +111,7 @@ class PreviewEngine private constructor(
         val ids = LongArray(layers.size * 2)
         val params = FloatArray(layers.size * PARAMS_PER_LAYER)
         packLayers(layers, ids, 2, params)
-        NativePreview.nativeSetScene(requireHandle(), canvasWidth, canvasHeight, ids, params)
+        NativePreview.nativeSetScene(requireHandle(), canvasWidth, canvasHeight, ids, params, FxWire.encode(layers.map { it.fx }))
     }
 
     /**
@@ -117,7 +126,7 @@ class PreviewEngine private constructor(
         val ids = LongArray(layers.size * 3)
         val params = FloatArray(layers.size * PARAMS_PER_LAYER)
         packLayers(layers, ids, 3, params)
-        NativePreview.nativePlayScene(requireHandle(), canvasWidth, canvasHeight, ids, params, fpsNum, fpsDen)
+        NativePreview.nativePlayScene(requireHandle(), canvasWidth, canvasHeight, ids, params, FxWire.encode(layers.map { it.fx }), fpsNum, fpsDen)
     }
 
     private fun packLayers(layers: List<PreviewLayer>, ids: LongArray, idStride: Int, params: FloatArray) {

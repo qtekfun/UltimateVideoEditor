@@ -75,6 +75,11 @@ data class ClipDto(
     val reverse: Boolean = false,
     /** Relative speed over the clip; empty means constant speed. */
     val speedRamp: List<SpeedKeyDto> = emptyList(),
+    /** Ordered shader effects; empty for a plain clip. */
+    val effects: List<EffectDto> = emptyList(),
+    /** `normal`, `add`, `multiply`, `screen` or `overlay`. */
+    val blendMode: String = "normal",
+    val mask: MaskDto? = null,
 )
 
 /** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */
@@ -82,6 +87,26 @@ data class ClipDto(
 data class SpeedKeyDto(
     val frame: Long,
     val weightPermille: Int = 1000,
+)
+
+/** One effect: [type] is the lower-case `EffectType` name, [values] follow that type's parameters. */
+@Serializable
+data class EffectDto(
+    val id: String,
+    val type: String,
+    val values: List<Double> = emptyList(),
+)
+
+/** Shape mask in fractions of the layer box; see `domain/ClipMask`. [shape] is `rectangle` or `ellipse`. */
+@Serializable
+data class MaskDto(
+    val shape: String = "rectangle",
+    val centerX: Double = 0.0,
+    val centerY: Double = 0.0,
+    val width: Double = 0.6,
+    val height: Double = 0.6,
+    val feather: Double = 0.02,
+    val invert: Boolean = false,
 )
 
 /**
@@ -106,6 +131,7 @@ data class TitleDto(
     val color: String = "#FFFFFFFF",
     val alignment: String = "center",
     val bold: Boolean = false,
+    val outline: Boolean = false,
 )
 
 /**

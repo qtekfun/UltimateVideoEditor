@@ -78,6 +78,7 @@ struct SceneLayer {
     // -1 when the clip plays backwards: playScene() then steps `frame` down, and the asset's decoder
     // keeps its window of decoded frames behind `frame` instead of ahead (see applyWindowForBudget).
     int32_t direction = 1;
+    core::LayerFx fx = {};  // effects, blend mode and mask; neutral by default
 };
 
 // Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
@@ -147,8 +148,9 @@ private:
         int64_t frame;
         LayerTransform transform;
         uint32_t title = 0;
+        core::LayerFx fx = {};
         bool operator==(const DrawnLayer& o) const {
-            return asset == o.asset && frame == o.frame && title == o.title && transform.posX == o.transform.posX &&
+            return asset == o.asset && frame == o.frame && title == o.title && fx == o.fx && transform.posX == o.transform.posX &&
                    transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
                    transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&
                    transform.opacity == o.transform.opacity;

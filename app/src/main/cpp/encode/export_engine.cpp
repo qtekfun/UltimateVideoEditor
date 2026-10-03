@@ -373,6 +373,7 @@ public:
             if (clip->titleKey != 0) {
                 render::LayerDraw title;
                 title.titleKey = clip->titleKey;
+                title.fx = clip->fx;
                 title.transform = render::LayerTransform{
                     static_cast<float>(pose.posX),   static_cast<float>(pose.posY),        static_cast<float>(pose.scaleX),
                     static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
@@ -388,6 +389,7 @@ public:
             layer.frame = held.back().get();
             layer.mode = static_cast<render::ColorMode>(clip->colorMode);
             layer.turns = asset.turns;
+            layer.fx = clip->fx;
             layer.transform = render::LayerTransform{
                 static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
                 static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};

@@ -78,8 +78,13 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Speed changes (0.1x–8x), ramps, reverse, freeze frame — domain, preview, export table, audio (varispeed, muted
       outside 0.25x–4x) and inspector; JVM and host tests pass; not yet seen on the device (phone busy). Follow-ups:
       pitch-preserving time stretch, frame blending for slow motion
-- [ ] Chainable shader effects, chroma key, masks, blend modes
+- [x] Chainable shader effects, chroma key, masks, blend modes — domain, JSON, undo, JVM and host tests pass and the
+      native engine compiles; the shaders and the inspector are not yet seen on the device (adb offline)
 - [ ] Automatic subtitles (on-device transcription) and animated caption styles
+  - _Status (captions):_ implemented but not yet verified on the device (adb was offline): whisper.cpp v1.9.4 in the engine,
+    model download with checksum, audio -> 16 kHz mono -> word timestamps -> caption title clips on a new track (one undo), four
+    static styles, "Auto captions" sheet in the editor. Still to do: run it on the phone, then animated / word-highlight
+    styles once keyframes land. The box stays open until both are done.
 - [ ] Stickers, animated text templates, beat sync
 - [ ] HDR end-to-end (HLG, HEVC Main10), 3D LUTs
 - [ ] Vulkan renderer evaluation

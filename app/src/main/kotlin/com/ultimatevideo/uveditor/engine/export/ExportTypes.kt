@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.engine.export
 
 import java.nio.ByteBuffer
+import com.ultimatevideo.uveditor.domain.ClipFx
 
 /** Mirrors `uv::core::Status` in the native engine. Keep values in sync. */
 enum class ExportErrorCode(val value: Int) {
@@ -86,6 +87,8 @@ data class VideoClipSpec(
     val sourceFrames: LongArray? = null,
     /** The clip plays backwards: the decoder keeps decoded frames behind the one being drawn. */
     val reverse: Boolean = false,
+    /** Effects, blend mode and mask, applied exactly as in the preview. */
+    val fx: ClipFx = ClipFx.NONE,
 )
 
 /**

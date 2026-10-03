@@ -123,6 +123,7 @@ fun InspectorPanel(
                 readout = "${(transform.opacity * PERCENT).roundToInt()}%",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(opacity = it.toDouble()))) }
+            FxControls(clip.fx, onIntent)
         }
         if (title == null) SpeedControls(state, clip, isVisual, onIntent)
         if (title == null) {
@@ -389,7 +390,7 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
  * [onChange] receives the new slider value.
  */
 @Composable
-private fun InspectorSlider(
+internal fun InspectorSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,

@@ -1,7 +1,9 @@
 package com.ultimatevideo.uveditor.data
 
 import com.ultimatevideo.uveditor.data.model.ClipDto
+import com.ultimatevideo.uveditor.data.model.EffectDto
 import com.ultimatevideo.uveditor.data.model.KeyframeDto
+import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
@@ -13,8 +15,14 @@ import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.Interpolation
+import com.ultimatevideo.uveditor.domain.BlendMode
+import com.ultimatevideo.uveditor.domain.ClipFx
+import com.ultimatevideo.uveditor.domain.ClipMask
+import com.ultimatevideo.uveditor.domain.Effect
+import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.SpeedKey
+import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -82,6 +90,44 @@ object TimelineMapper {
         retimedFrames = dto.timelineFrames,
         reverse = dto.reverse,
         speedRamp = dto.speedRamp.map { SpeedKey(it.frame, it.weightPermille) },
+        fx = toFx(dto),
+    )
+
+    private fun toFx(dto: ClipDto) = ClipFx(
+        effects = dto.effects.map { toEffect(dto.id, it) },
+        blendMode = BlendMode.entries.firstOrNull { it.name.lowercase() == dto.blendMode }
+            ?: throw ProjectError.Corrupt("clip ${dto.id} has unknown blend mode '${dto.blendMode}'"),
+        mask = dto.mask?.let { toMask(dto.id, it) },
+    )
+
+    private fun toEffect(clipId: String, dto: EffectDto) = Effect(
+        id = dto.id,
+        type = EffectType.entries.firstOrNull { it.name.lowercase() == dto.type }
+            ?: throw ProjectError.Corrupt("clip $clipId has unknown effect '${dto.type}'"),
+        values = dto.values,
+    )
+
+    private fun toMask(clipId: String, dto: MaskDto) = ClipMask(
+        shape = MaskShape.entries.firstOrNull { it.name.lowercase() == dto.shape }
+            ?: throw ProjectError.Corrupt("clip $clipId has unknown mask shape '${dto.shape}'"),
+        centerX = dto.centerX,
+        centerY = dto.centerY,
+        width = dto.width,
+        height = dto.height,
+        feather = dto.feather,
+        invert = dto.invert,
+    )
+
+    private fun toEffectDto(effect: Effect) = EffectDto(effect.id, effect.type.name.lowercase(), effect.values)
+
+    private fun toMaskDto(mask: ClipMask) = MaskDto(
+        shape = mask.shape.name.lowercase(),
+        centerX = mask.centerX,
+        centerY = mask.centerY,
+        width = mask.width,
+        height = mask.height,
+        feather = mask.feather,
+        invert = mask.invert,
     )
 
     private fun toKeyframe(clipId: String, dto: KeyframeDto) = Keyframe(
@@ -112,6 +158,7 @@ object TimelineMapper {
             else -> throw ProjectError.Corrupt("clip $clipId has unknown title alignment '${dto.alignment}'")
         },
         bold = dto.bold,
+        outline = dto.outline,
     )
 
     private fun parseColor(clipId: String, value: String): Int {
@@ -126,6 +173,7 @@ object TimelineMapper {
         color = "#%08X".format(title.colorArgb),
         alignment = title.alignment.name.lowercase(),
         bold = title.bold,
+        outline = title.outline,
     )
 
     private fun toTransition(dto: TransitionDto): Transition = Transition(
@@ -182,6 +230,9 @@ object TimelineMapper {
             timelineFrames = clip.retimedFrames,
             reverse = clip.reverse,
             speedRamp = clip.speedRamp.map { SpeedKeyDto(it.frame, it.weightPermille) },
+            effects = clip.fx.effects.map(::toEffectDto),
+            blendMode = clip.fx.blendMode.name.lowercase(),
+            mask = clip.fx.mask?.let(::toMaskDto),
         )
 
     private const val COLOR_HEX_LENGTH = 8
