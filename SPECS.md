@@ -196,9 +196,23 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   and each asset's look-behind/ahead window is sized to its share, so several layers never evict each other.
 
 ### 5.5 Colour
-- Project colour space (MVP: Rec.709 SDR). Per-clip source colour space with optional override.
-- GLSL fragment stage converts source → project space: YUV→RGB matrix selection, transfer function
-  linearisation (HLG OETF⁻¹), gamut matrix Rec.2020→Rec.709, tone-mapping, re-encode. No 3D LUTs.
+- Project colour space: `Rec709-SDR` (default) or `Rec2020-HLG` (HDR), chosen in New project and in the
+  editor's project dialog (`ProjectColorSpace`). A source is SDR, HLG or PQ, from the decoder's transfer.
+- A render target holds an `OutputSpace` (`Sdr709` or `Hlg2020`): the preview surface, or the encoder
+  surface of an export. Each layer's `ColorMode` is derived from (source, target) by `colorModeFor`
+  (`render/color_space.h`): SDR→SDR and HLG→HLG sample as is; HLG/PQ→SDR tone-map (203 nit diffuse white,
+  soft shoulder, Rec.2020→Rec.709); SDR→HLG decodes gamma 2.4, maps primaries to Rec.2020, places SDR white
+  at 203 nit (HLG signal ≈ 0.7512, BT.2408), inverts the HLG OOTF and applies the HLG OETF; PQ→HLG
+  re-encodes display light clipped at 1000 nit. The GLSL in `render/shaders.h` mirrors the CPU reference in
+  `render/color_math.h`, tested on the host (`uv_hdr_host_tests`). No 3D LUTs.
+- In an HLG target layers are blended in HLG signal space (not linear light), effect intermediates are
+  RGBA16F, the blend-mode destination snapshot is RGB10_A2, and titles are SDR graphics placed at reference
+  white. Effects run after the colour conversion, on HLG signal values.
+- Preview: HLG is requested only when the project is HDR and the display reports HLG (`Display.isHdr` on
+  API 33, `Display.Mode.supportedHdrTypes` from 34). The native context then prefers an RGB10_A2 config and
+  tags the window surface BT.2020 HLG (`EGL_EXT_gl_colorspace_bt2020_hlg`, else
+  `ANativeWindow_setBuffersDataSpace`); the window uses `COLOR_MODE_HDR`. If the device refuses, the preview
+  falls back to SDR (HLG sources tone-mapped) and the editor says so. The engine reports what it granted.
 
 ### 5.6 Audio
 - Oboe (AAudio backend) low-latency output; mixer sums audio tracks and the embedded audio of video
@@ -246,7 +260,14 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   integer grid values. The AAC encoder delay (2048 samples) is compensated, so the first 42.7 ms of the mix are
   not heard. Progress, cancel and share through the export ViewModel; a failed or cancelled export deletes
   the partial file. Output is written through SAF (`CreateDocument`).
-- FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec.
+- HDR export: for an HLG project on a device whose encoder lists HEVC Main10 with HLG, the export dialog
+  offers HDR (default on). The job renders into a ten-bit recordable encoder surface tagged BT.2020 HLG and
+  configures HEVC Main10 with `COLOR_STANDARD_BT2020`, `COLOR_TRANSFER_HLG` and limited range. Without
+  support the project exports as SDR (HLG clips tone-mapped) with a notice; a native refusal
+  (`UnsupportedFormat`, e.g. no ten-bit surface) is reported with a hint to export as SDR. The JNI codec
+  argument carries the HDR flag as bit 0x100.
+- FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec. Deferred, see
+  DECISIONS.md.
 
 ### 5.10 Automatic captions
 - Speech recognition runs on the device with whisper.cpp (MIT, git submodule `app/src/main/cpp/third_party/whisper.cpp`,

@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.ui.export
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
 import com.ultimatevideo.uveditor.mvi.UiEffect
@@ -16,6 +17,7 @@ data class ExportInput(
     val fps: FrameRate,
     val timeline: Timeline,
     val assets: List<MediaAssetDto>,
+    val colorSpace: ProjectColorSpace = ProjectColorSpace.REC709_SDR,
 )
 
 sealed interface ExportPhase {
@@ -39,6 +41,12 @@ data class ExportState(
     val preset: ExportPreset? = null,
     /** Shape of the project ("9:16"), compared with a preset's to warn about a mismatch. */
     val projectAspect: String = "",
+    /** The project is HDR (HLG) and the device can encode HEVC Main10 HLG at the chosen size: HDR can be offered. */
+    val hdrAvailable: Boolean = false,
+    /** Export as HDR (HLG, 10-bit HEVC) instead of SDR. Only ever true when [hdrAvailable]. */
+    val hdr: Boolean = false,
+    /** The project is HDR but this device cannot export it as HDR, so it goes out as SDR. */
+    val hdrUnsupportedNotice: Boolean = false,
 ) : UiState {
     val isRunning: Boolean get() = phase is ExportPhase.Running
 }
@@ -50,6 +58,9 @@ sealed interface ExportIntent : UiIntent {
     data class SelectFrameRate(val rate: FrameRate) : ExportIntent
     data class SelectCodec(val codec: ExportCodec) : ExportIntent
     data class SelectBitrate(val mbps: Int) : ExportIntent
+
+    /** HDR (HLG) or SDR output; HDR also switches the codec to HEVC. */
+    data class SelectHdr(val hdr: Boolean) : ExportIntent
 
     /** Fill resolution, rate, codec and bitrate for an upload destination. */
     data class SelectPreset(val preset: ExportPreset) : ExportIntent
