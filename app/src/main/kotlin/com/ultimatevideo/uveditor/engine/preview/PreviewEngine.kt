@@ -21,6 +21,15 @@ internal object NativePreview {
     external fun nativeOpenAsset(handle: Long, assetId: Int, fd: Int, fpsNum: Int, fpsDen: Int): LongArray
     external fun nativeCloseAsset(handle: Long, assetId: Int)
     external fun nativeSetScene(handle: Long, canvasWidth: Int, canvasHeight: Int, ids: LongArray, params: FloatArray)
+    external fun nativePlayScene(
+        handle: Long,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        ids: LongArray,
+        params: FloatArray,
+        fpsNum: Int,
+        fpsDen: Int,
+    )
     external fun nativeUploadTitle(handle: Long, key: Int, width: Int, height: Int, pixels: java.nio.ByteBuffer)
     external fun nativeReleaseTitle(handle: Long, key: Int)
     external fun nativeSeek(handle: Long, assetId: Int, frame: Long)
@@ -92,9 +101,30 @@ class PreviewEngine private constructor(
         require(canvasWidth > 0 && canvasHeight > 0) { "canvas must be positive: ${canvasWidth}x$canvasHeight" }
         val ids = LongArray(layers.size * 2)
         val params = FloatArray(layers.size * PARAMS_PER_LAYER)
+        packLayers(layers, ids, 2, params)
+        NativePreview.nativeSetScene(requireHandle(), canvasWidth, canvasHeight, ids, params)
+    }
+
+    /**
+     * Plays [layers] (as for [setScene]) on a native monotonic clock: every layer advances in step at
+     * [fpsNum]/[fpsDen], the project frame rate, starting from its own [PreviewLayer.frame]. Layers
+     * stop at [PreviewLayer.endFrame]. Call it again to re-anchor, for instance when the audio clock
+     * disagrees with the preview or the composition changes. [setScene] or [pause] stops it.
+     */
+    fun playScene(canvasWidth: Int, canvasHeight: Int, layers: List<PreviewLayer>, fpsNum: Int, fpsDen: Int) {
+        require(canvasWidth > 0 && canvasHeight > 0) { "canvas must be positive: ${canvasWidth}x$canvasHeight" }
+        require(fpsNum > 0 && fpsDen > 0) { "frame rate must be positive: $fpsNum/$fpsDen" }
+        val ids = LongArray(layers.size * 3)
+        val params = FloatArray(layers.size * PARAMS_PER_LAYER)
+        packLayers(layers, ids, 3, params)
+        NativePreview.nativePlayScene(requireHandle(), canvasWidth, canvasHeight, ids, params, fpsNum, fpsDen)
+    }
+
+    private fun packLayers(layers: List<PreviewLayer>, ids: LongArray, idStride: Int, params: FloatArray) {
         layers.forEachIndexed { i, layer ->
-            ids[i * 2] = if (layer.titleKey != 0) -layer.titleKey.toLong() else layer.assetId.toLong()
-            ids[i * 2 + 1] = layer.frame
+            ids[i * idStride] = if (layer.titleKey != 0) -layer.titleKey.toLong() else layer.assetId.toLong()
+            ids[i * idStride + 1] = layer.frame
+            if (idStride > 2) ids[i * idStride + 2] = layer.endFrame ?: Long.MAX_VALUE
             val p = layer.placement
             val base = i * PARAMS_PER_LAYER
             params[base] = p.positionX
@@ -104,7 +134,6 @@ class PreviewEngine private constructor(
             params[base + 4] = p.rotationDegrees
             params[base + 5] = p.opacity
         }
-        NativePreview.nativeSetScene(requireHandle(), canvasWidth, canvasHeight, ids, params)
     }
 
     /**

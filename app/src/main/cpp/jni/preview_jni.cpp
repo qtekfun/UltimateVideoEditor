@@ -152,37 +152,55 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     fromHandle(handle)->engine->closeAsset(static_cast<uint32_t>(assetId));
 }
 
-// `ids` holds {assetId, frame} per layer and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity},
-// both bottom to top. A negative assetId -k is the title uploaded under key k (frame is ignored).
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScene(
-    JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params) {
-    const jsize layerCount = env->GetArrayLength(ids) / 2;
-    if (env->GetArrayLength(params) != layerCount * 6) {
+namespace {
+// `ids` holds `idStride` longs per layer ({assetId, frame} and, for playback, the exclusive limit
+// frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity}, both bottom to top.
+// A negative assetId -k is the title uploaded under key k (frame is ignored).
+// Returns false after throwing if the arrays do not agree.
+bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jsize idStride, std::vector<uv::render::SceneLayer>* out) {
+    const jsize layerCount = env->GetArrayLength(ids) / idStride;
+    if (env->GetArrayLength(ids) != layerCount * idStride || env->GetArrayLength(params) != layerCount * 6) {
         throwPreview(env, Status::InvalidArgument, "scene arrays do not match");
-        return;
+        return false;
     }
-    std::vector<jlong> idValues(static_cast<size_t>(layerCount) * 2);
+    std::vector<jlong> idValues(static_cast<size_t>(layerCount) * static_cast<size_t>(idStride));
     std::vector<jfloat> paramValues(static_cast<size_t>(layerCount) * 6);
     if (layerCount > 0) {
-        env->GetLongArrayRegion(ids, 0, layerCount * 2, idValues.data());
+        env->GetLongArrayRegion(ids, 0, layerCount * idStride, idValues.data());
         env->GetFloatArrayRegion(params, 0, layerCount * 6, paramValues.data());
     }
-    std::vector<uv::render::SceneLayer> layers;
-    layers.reserve(static_cast<size_t>(layerCount));
+    out->reserve(static_cast<size_t>(layerCount));
     for (jsize i = 0; i < layerCount; ++i) {
         uv::render::SceneLayer layer;
-        const jlong id = idValues[static_cast<size_t>(i) * 2];
-        if (id < 0) {
-            layer.title = static_cast<uint32_t>(-id);
+        const jlong* id = &idValues[static_cast<size_t>(i) * static_cast<size_t>(idStride)];
+        if (id[0] < 0) {
+            layer.title = static_cast<uint32_t>(-id[0]);
         } else {
-            layer.asset = static_cast<uint32_t>(id);
+            layer.asset = static_cast<uint32_t>(id[0]);
         }
-        layer.frame = idValues[static_cast<size_t>(i) * 2 + 1];
+        layer.frame = id[1];
+        if (idStride > 2) layer.limitFrame = id[2];
         const jfloat* p = &paramValues[static_cast<size_t>(i) * 6];
         layer.transform = uv::render::LayerTransform{p[0], p[1], p[2], p[3], p[4], p[5]};
-        layers.push_back(layer);
+        out->push_back(layer);
     }
+    return true;
+}
+}  // namespace
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScene(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params) {
+    std::vector<uv::render::SceneLayer> layers;
+    if (!parseScene(env, ids, params, 2, &layers)) return;
     fromHandle(handle)->engine->setScene(canvasW, canvasH, std::move(layers));
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativePlayScene(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params,
+    jint fpsNum, jint fpsDen) {
+    std::vector<uv::render::SceneLayer> layers;
+    if (!parseScene(env, ids, params, 3, &layers)) return;
+    fromHandle(handle)->engine->playScene(canvasW, canvasH, std::move(layers), uv::decode::Rational{fpsNum, fpsDen});
 }
 
 // `pixels` is a direct buffer of width * height * 4 bytes (premultiplied RGBA, top row first); it is copied.
