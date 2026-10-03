@@ -116,6 +116,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.moveEffect(timeline, clipId, effectId, toIndex)
     }
 
+    /** Reads a clip's source as the given colour space; null goes back to what the file says. */
+    data class SetColorOverride(val clipId: String, val space: SourceColorSpace?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setColorOverride(timeline, clipId, space)
+    }
+
     data class SetBlendMode(val clipId: String, val mode: BlendMode) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setBlendMode(timeline, clipId, mode)
     }

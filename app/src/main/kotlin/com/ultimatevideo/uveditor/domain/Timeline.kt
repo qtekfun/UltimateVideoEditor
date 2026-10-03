@@ -210,6 +210,11 @@ data class Clip(
     val fx: ClipFx = ClipFx.NONE,
     /** Set for photos and stickers; see [StillKind]. */
     val still: StillKind? = null,
+    /**
+     * How this clip's source is read when it differs from what the file says (a file without HDR
+     * metadata that really is HLG, or the reverse). Null means the asset's own detected space.
+     */
+    val colorOverride: SourceColorSpace? = null,
 ) {
     /** True for a clip that plays media with a length of its own (not a title, photo or sticker). */
     val hasMedia: Boolean get() = title == null && still == null
