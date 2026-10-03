@@ -38,6 +38,31 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = ClipDeletion.delete(timeline, clipId)
     }
 
+    /** Inserts a clip into the base track at the nearest clip boundary, rippling later clips and overlays. */
+    data class InsertBase(val clip: Clip, val at: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = MagneticBase.insert(timeline, clip, at)
+    }
+
+    /** Base-aware move: magnetic reorder on the base, insert from an overlay onto it, free-form between overlays. */
+    data class MoveClip(
+        val clipId: String,
+        val newStart: FrameIndex,
+        val toTrackId: String? = null,
+        val snap: Snap? = null,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) = MagneticBase.move(timeline, clipId, newStart, toTrackId, snap)
+    }
+
+    /** Base-aware trim: on the base the following clips ripple and overlays follow. */
+    data class TrimClip(
+        val clipId: String,
+        val edge: TrimEdge,
+        val frame: FrameIndex,
+        val sourceLength: Long? = null,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) = MagneticBase.trim(timeline, clipId, edge, frame, sourceLength)
+    }
+
     data class RippleAppend(val clipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.rippleAppend(timeline, clipId)
     }
