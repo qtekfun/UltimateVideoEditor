@@ -117,6 +117,15 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setEffectValues(timeline, clipId, effectId, values)
     }
 
+    data class SetEffectCurves(val clipId: String, val effectId: String, val curves: GradeCurves?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setEffectCurves(timeline, clipId, effectId, curves)
+    }
+
+    /** Values and curves of a colour grade in one undo step (apply a look, paste a grade). */
+    data class SetGrade(val clipId: String, val effectId: String, val values: List<Double>, val curves: GradeCurves?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setGrade(timeline, clipId, effectId, values, curves)
+    }
+
     data class MoveEffect(val clipId: String, val effectId: String, val toIndex: Int) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.moveEffect(timeline, clipId, effectId, toIndex)
     }
