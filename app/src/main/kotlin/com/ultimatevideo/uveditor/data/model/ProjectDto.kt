@@ -36,6 +36,9 @@ data class MediaAssetDto(
     val nativeFpsNum: Int,
     val nativeFpsDen: Int,
     val colorSpace: String,
+    /** Defaults keep projects written before these fields existed valid. */
+    val hasVideo: Boolean = true,
+    val hasAudio: Boolean = true,
 )
 
 @Serializable

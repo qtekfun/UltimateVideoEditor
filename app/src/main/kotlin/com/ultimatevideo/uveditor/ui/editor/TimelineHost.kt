@@ -16,10 +16,14 @@ fun TimelineHost(
     engine: TimelineEngine,
     onTap: (TimelineHit) -> Unit,
     modifier: Modifier = Modifier,
+    editing: TimelineEditing? = null,
 ) {
     val currentOnTap = rememberUpdatedState(onTap)
+    val currentEditing = rememberUpdatedState(editing)
     AndroidView(
         modifier = modifier,
-        factory = { context -> TimelineSurfaceView(context, engine) { currentOnTap.value(it) } },
+        factory = { context ->
+            TimelineSurfaceView(context, engine, { currentOnTap.value(it) }, { currentEditing.value })
+        },
     )
 }

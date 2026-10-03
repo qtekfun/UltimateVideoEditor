@@ -1,0 +1,291 @@
+package com.ultimatevideo.uveditor.ui.editor
+
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.engine.EngineException
+import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
+import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
+import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
+import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileNotFoundException
+
+/** Width from which the media panel is shown beside the editor instead of being left out. */
+private val ExpandedWidth = 840.dp
+
+@Composable
+fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val density = LocalDensity.current.density
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    val engine = remember {
+        val main = Handler(Looper.getMainLooper())
+        TimelineEngine(density) { _, status ->
+            // Called on a native worker thread. A file without audio is not an error worth showing.
+            if (status == EngineStatus.IO_ERROR || status == EngineStatus.CODEC_ERROR) {
+                main.post { viewModel.onIntent(EditorIntent.ReportError("Could not read the audio of a clip ($status)")) }
+            }
+        }
+    }
+    DisposableEffect(engine) { onDispose { engine.close() } }
+
+    val editing = remember(viewModel) {
+        object : TimelineEditing {
+            override fun canDrag(hit: TimelineHit) = viewModel.canDrag(hit)
+            override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragStart(hit))
+            override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex))
+            override fun onDragEnd(commit: Boolean) = viewModel.onIntent(EditorIntent.DragEnd(commit))
+        }
+    }
+
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        viewModel.onIntent(EditorIntent.ImportMedia(uris.map(Uri::toString)))
+    }
+    val launchImport = { importPicker.launch(arrayOf("video/*", "audio/*")) }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                is EditorEffect.ShowMessage -> {
+                    snackbar.currentSnackbarData?.dismiss()
+                    scope.launch { snackbar.showSnackbar(effect.text) }
+                }
+                EditorEffect.Close -> onClose()
+            }
+        }
+    }
+
+    // Publish what the canvas should draw; drags show a provisional timeline until released.
+    LaunchedEffect(state.visibleTimeline, state.selectedClipId, state.fps, state.isLoading) {
+        if (state.isLoading) return@LaunchedEffect
+        try {
+            engine.setSnapshot(viewModel.snapshotOf(state))
+        } catch (e: EngineException) {
+            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+        }
+    }
+    LaunchedEffect(state.playhead) { engine.setPlayhead(state.playhead.value) }
+
+    val requestedWaveforms = remember { mutableSetOf<String>() }
+    LaunchedEffect(state.assets) {
+        for (asset in state.assets) {
+            if (!asset.hasAudio || !requestedWaveforms.add(asset.id)) continue
+            requestWaveform(context, engine, viewModel, projectId, asset)
+        }
+    }
+
+    BackHandler { viewModel.onIntent(EditorIntent.Back) }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onIntent(EditorIntent.Flush) }
+
+    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+        when {
+            state.isLoading -> Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) { CircularProgressIndicator() }
+
+            state.loadError != null -> Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(text = state.loadError.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                TextButton(onClick = onClose) { Text("Back") }
+            }
+
+            else -> BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
+                // Window size classes without a new dependency: the media panel appears on wide windows.
+                if (maxWidth >= ExpandedWidth) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        MediaPanel(
+                            assets = state.assets,
+                            isImporting = state.isImporting,
+                            onImport = launchImport,
+                            onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
+                            modifier = Modifier.width(280.dp).fillMaxHeight(),
+                        )
+                        EditorMain(state, viewModel, engine, editing, launchImport, Modifier.weight(1f))
+                    }
+                } else {
+                    EditorMain(state, viewModel, engine, editing, launchImport, Modifier.fillMaxSize())
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorMain(
+    state: EditorState,
+    viewModel: EditorViewModel,
+    engine: TimelineEngine,
+    editing: TimelineEditing,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val hasSelection = state.selectedClipId != null
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { viewModel.onIntent(EditorIntent.Back) }) { Text("Back") }
+            Text(
+                text = state.projectName,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { viewModel.onIntent(EditorIntent.Undo) }, enabled = state.canUndo) { Text("Undo") }
+            TextButton(onClick = { viewModel.onIntent(EditorIntent.Redo) }, enabled = state.canRedo) { Text("Redo") }
+        }
+
+        // Placeholder until the native preview is wired in a later phase.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(PREVIEW_WEIGHT)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(text = "Preview", style = MaterialTheme.typography.labelLarge)
+            Text(text = formatTimecode(state.playhead.value, state.fps), style = MaterialTheme.typography.headlineMedium)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(onClick = onImport, enabled = !state.isImporting) { Text(if (state.isImporting) "Importing…" else "Import") }
+            FilledTonalButton(onClick = { viewModel.onIntent(EditorIntent.SplitAtPlayhead) }, enabled = hasSelection) { Text("Split") }
+            FilledTonalButton(onClick = { viewModel.onIntent(EditorIntent.RippleDeleteSelected) }, enabled = hasSelection) { Text("Delete") }
+            FilledTonalButton(onClick = { viewModel.onIntent(EditorIntent.RippleAppendSelected) }, enabled = hasSelection) { Text("Close gap") }
+        }
+
+        TimelineHost(
+            engine = engine,
+            onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
+            editing = editing,
+            modifier = Modifier.fillMaxWidth().weight(TIMELINE_WEIGHT),
+        )
+    }
+}
+
+@Composable
+private fun MediaPanel(
+    assets: List<MediaAssetDto>,
+    isImporting: Boolean,
+    onImport: () -> Unit,
+    onAdd: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Media", style = MaterialTheme.typography.titleMedium)
+        Button(onClick = onImport, enabled = !isImporting, modifier = Modifier.fillMaxWidth()) {
+            Text(if (isImporting) "Importing…" else "Import media")
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(assets, key = { it.id }) { asset ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = displayName(asset), maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = formatTimecode(asset.durationFrames, FrameRate(asset.nativeFpsNum, asset.nativeFpsDen)),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    TextButton(onClick = { onAdd(asset.id) }) { Text("Add") }
+                }
+            }
+        }
+    }
+}
+
+private fun displayName(asset: MediaAssetDto): String =
+    Uri.parse(asset.uri).lastPathSegment?.substringAfterLast('/')?.ifBlank { null } ?: asset.id
+
+/**
+ * Opens the asset and hands its descriptor to the native waveform worker. File access happens on
+ * the IO dispatcher; the engine itself must be called from the main thread.
+ */
+private suspend fun requestWaveform(
+    context: android.content.Context,
+    engine: TimelineEngine,
+    viewModel: EditorViewModel,
+    projectId: String,
+    asset: MediaAssetDto,
+) {
+    val prepared = try {
+        withContext(Dispatchers.IO) {
+            val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(asset.uri), "r")
+                ?: throw FileNotFoundException(asset.uri)
+            val cache = WaveformCache(File(context.filesDir, "projects/$projectId")).fileFor(asset.id)
+            descriptor.detachFd() to cache
+        }
+    } catch (e: FileNotFoundException) {
+        viewModel.onIntent(EditorIntent.ReportError("A media file is missing: ${displayName(asset)}"))
+        return
+    } catch (e: SecurityException) {
+        viewModel.onIntent(EditorIntent.ReportError("No permission to read ${displayName(asset)}"))
+        return
+    }
+    try {
+        engine.requestWaveform(viewModel.assetKey(asset.id), prepared.first, prepared.second)
+    } catch (e: EngineException) {
+        viewModel.onIntent(EditorIntent.ReportError(e.message ?: "Waveform extraction failed"))
+    }
+}
+
+private const val PREVIEW_WEIGHT = 0.4f
+private const val TIMELINE_WEIGHT = 0.6f
