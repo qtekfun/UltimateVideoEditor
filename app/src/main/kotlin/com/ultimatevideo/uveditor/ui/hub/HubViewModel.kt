@@ -1,10 +1,15 @@
 package com.ultimatevideo.uveditor.ui.hub
 
 import androidx.lifecycle.viewModelScope
+import com.ultimatevideo.uveditor.data.ClipPeeker
+import com.ultimatevideo.uveditor.data.MatchedClip
+import com.ultimatevideo.uveditor.data.MediaImportException
+import com.ultimatevideo.uveditor.data.NewProjectDefaults
 import com.ultimatevideo.uveditor.data.ProjectError
 import com.ultimatevideo.uveditor.data.ProjectNames
 import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.data.ProjectSummary
+import com.ultimatevideo.uveditor.data.SavedProjectChoices
 import com.ultimatevideo.uveditor.data.SessionStore
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.engine.EngineClient
@@ -20,6 +25,8 @@ class HubViewModel(
     private val projects: ProjectRepository,
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val session: SessionStore? = null,
+    private val defaults: NewProjectDefaults? = null,
+    private val peeker: ClipPeeker? = null,
 ) : MviViewModel<HubState, HubIntent, HubEffect>(HubState()) {
 
     /** Read once, before this process marks anything: what the previous run left open. */
@@ -38,12 +45,38 @@ class HubViewModel(
             HubIntent.LoadEngineInfo -> loadEngineInfo()
             HubIntent.Refresh -> refresh()
 
-            HubIntent.ShowNewProject -> reduce { copy(newProjectDraft = NewProjectDraft(name = suggestedName(projects))) }
+            HubIntent.ShowNewProject -> reduce { copy(newProjectDraft = initialDraft(projects)) }
             is HubIntent.DraftNameChanged -> reduceDraft { copy(name = intent.name) }
-            is HubIntent.DraftResolutionSelected -> reduceDraft { copy(resolution = intent.preset) }
+            is HubIntent.DraftAspectSelected -> reduceDraft {
+                // Switching to a custom size starts from the pixels the selectors gave, so it is an edit and not a blank.
+                if (intent.preset.custom && !aspect.custom) copy(aspect = intent.preset, customWidth = width, customHeight = height)
+                else copy(aspect = intent.preset)
+            }
+            is HubIntent.DraftTierSelected -> reduceDraft {
+                if (intent.preset.custom && !tier.custom) copy(tier = intent.preset, customShortSide = minOf(width, height))
+                else copy(tier = intent.preset)
+            }
+            is HubIntent.DraftCustomWidthChanged -> reduceDraft { copy(customWidth = typedPixels(intent.text)) }
+            is HubIntent.DraftCustomHeightChanged -> reduceDraft { copy(customHeight = typedPixels(intent.text)) }
+            is HubIntent.DraftCustomShortSideChanged -> reduceDraft { copy(customShortSide = typedPixels(intent.text)) }
             is HubIntent.DraftFpsSelected -> reduceDraft { copy(fps = intent.preset) }
             is HubIntent.DraftColorSpaceSelected -> reduceDraft { copy(colorSpace = intent.preset) }
+            is HubIntent.DraftQuickPreset -> reduceDraft {
+                copy(
+                    aspect = intent.preset.aspect,
+                    tier = intent.preset.tier,
+                    fps = intent.preset.fps,
+                    colorSpace = intent.preset.colorSpace,
+                    startMode = if (intent.preset.matchFirstClip) StartMode.MATCH_FIRST_CLIP else StartMode.BLANK,
+                    matchError = null,
+                )
+            }
+            is HubIntent.DraftStartModeSelected -> reduceDraft { copy(startMode = intent.mode, matchError = null) }
+            is HubIntent.MatchFromClip -> matchFromClip(intent.uri)
             HubIntent.ConfirmCreate -> confirmCreate()
+
+            is HubIntent.SearchChanged -> reduce { copy(query = intent.text) }
+            is HubIntent.SortSelected -> reduce { copy(sort = intent.sort) }
 
             is HubIntent.OpenProject -> {
                 resumeHandled = true
@@ -101,6 +134,54 @@ class HubViewModel(
     private fun suggestedName(existing: List<ProjectSummary>): String =
         ProjectNames.unique(DEFAULT_PROJECT_NAME, existing.map { it.name }, ProjectRepository.MAX_NAME_LENGTH) { b, n -> "$b $n" }
 
+    /** The sheet as it opens: the last choices (or the defaults) and a free project name. */
+    private fun initialDraft(existing: List<ProjectSummary>): NewProjectDraft {
+        val saved = defaults?.load()
+        val base = if (saved == null) NewProjectDraft() else draftFrom(saved)
+        return base.copy(name = suggestedName(existing))
+    }
+
+    private fun draftFrom(saved: SavedProjectChoices): NewProjectDraft = NewProjectDraft(
+        aspect = ProjectPresets.aspectById(saved.aspectId) ?: ProjectPresets.defaultAspect,
+        tier = ProjectPresets.tierById(saved.tierId) ?: ProjectPresets.defaultTier,
+        customWidth = saved.customWidth.takeIf { it > 0 } ?: 1920,
+        customHeight = saved.customHeight.takeIf { it > 0 } ?: 1080,
+        customShortSide = saved.customShortSide.takeIf { it > 0 } ?: 1080,
+        fps = ProjectPresets.fpsFor(saved.fpsNum, saved.fpsDen),
+        colorSpace = ProjectPresets.colorSpaces.firstOrNull { it.id == saved.colorSpaceId } ?: ProjectPresets.defaultColorSpace,
+    )
+
+    private fun typedPixels(text: String): Int = text.filter(Char::isDigit).take(MAX_TYPED_DIGITS).toIntOrNull() ?: 0
+
+    /** Reads the picked clip's format and copies it into the draft; a clip that cannot be read is reported in the sheet. */
+    private fun matchFromClip(uri: String) {
+        val reader = peeker
+        if (reader == null) {
+            emit(HubEffect.ShowMessage("Reading a clip's format is not available"))
+            return
+        }
+        reduceDraft { copy(isMatching = true, matchError = null) }
+        viewModelScope.launch {
+            try {
+                val clip = reader.peek(uri)
+                reduceDraft { matched(clip) }
+            } catch (e: MediaImportException) {
+                reduceDraft { copy(isMatching = false, matchError = e.message ?: "Cannot read the selected file") }
+            }
+        }
+    }
+
+    private fun NewProjectDraft.matched(clip: MatchedClip): NewProjectDraft = copy(
+        aspect = ProjectPresets.customAspect,
+        customWidth = ProjectSizing.toEven(clip.width),
+        customHeight = ProjectSizing.toEven(clip.height),
+        fps = if (clip.fpsNum != null && clip.fpsDen != null) ProjectPresets.fpsFor(clip.fpsNum, clip.fpsDen) else fps,
+        colorSpace = clip.colorSpace?.let(ProjectPresets::colorSpaceFor) ?: colorSpace,
+        matchedClip = clip,
+        isMatching = false,
+        matchError = null,
+    )
+
     private fun reduceDraft(change: NewProjectDraft.() -> NewProjectDraft) {
         reduce { copy(newProjectDraft = newProjectDraft?.change()) }
     }
@@ -137,14 +218,29 @@ class HubViewModel(
         if (state.value.newNameTaken) return
         val draft = state.value.newProjectDraft?.takeIf { it.canCreate } ?: return
         val settings = ProjectSettingsDto(
-            width = draft.resolution.width,
-            height = draft.resolution.height,
+            width = draft.width,
+            height = draft.height,
             fpsNum = draft.fps.num,
             fpsDen = draft.fps.den,
             colorSpace = draft.colorSpace.id,
         )
         launchProjectOp {
             projects.create(draft.name, settings)
+            // A format copied from one clip is not a habit: only the selectors' choices are remembered.
+            if (draft.startMode == StartMode.BLANK) {
+                defaults?.save(
+                    SavedProjectChoices(
+                        aspectId = draft.aspect.id,
+                        tierId = draft.tier.id,
+                        customWidth = draft.customWidth,
+                        customHeight = draft.customHeight,
+                        customShortSide = draft.customShortSide,
+                        fpsNum = draft.fps.num,
+                        fpsDen = draft.fps.den,
+                        colorSpaceId = draft.colorSpace.id,
+                    ),
+                )
+            }
             reduce { copy(newProjectDraft = null) }
             refreshNow()
         }
@@ -183,5 +279,6 @@ class HubViewModel(
 
     private companion object {
         const val DEFAULT_PROJECT_NAME = "New project"
+        const val MAX_TYPED_DIGITS = 5
     }
 }
