@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.AlertDialog
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.data.ProjectSummary
+import com.ultimatevideo.uveditor.data.UnreadableProject
 import java.text.DateFormat
 import java.util.Date
 
@@ -110,10 +112,11 @@ internal fun HubContent(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            state.resumeProject?.let { ResumeBanner(it, onIntent) }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading -> Unit
-                    state.projects.isEmpty() -> WelcomeState(state.unreadableCount)
+                    state.projects.isEmpty() -> WelcomeState(state.unreadable, onIntent)
                     else -> ProjectGrid(state, onIntent)
                 }
             }
@@ -150,7 +153,7 @@ internal fun HubContent(
 }
 
 @Composable
-private fun WelcomeState(unreadableCount: Int) {
+private fun WelcomeState(unreadable: List<UnreadableProject>, onIntent: (HubIntent) -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
@@ -163,18 +166,49 @@ private fun WelcomeState(unreadableCount: Int) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
-        if (unreadableCount > 0) UnreadableNote(unreadableCount)
+        if (unreadable.isNotEmpty()) UnreadableProjects(unreadable, onIntent)
     }
 }
 
+/** Offers to reopen the project that was open when the app last stopped without leaving the editor. */
 @Composable
-private fun UnreadableNote(count: Int) {
-    Text(
-        "$count project file(s) could not be read.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.padding(top = 12.dp),
-    )
+private fun ResumeBanner(project: ProjectSummary, onIntent: (HubIntent) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(modifier = Modifier.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "The app closed while \"${project.name}\" was open. Your edits were saved as you made them.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+            )
+            TextButton(onClick = { onIntent(HubIntent.ResumeSession) }) { Text("Reopen") }
+            TextButton(onClick = { onIntent(HubIntent.DismissResume) }) { Text("Dismiss") }
+        }
+    }
+}
+
+/** Project folders that cannot be read: each can be restored from its last good copy when one exists, or removed. */
+@Composable
+private fun UnreadableProjects(unreadable: List<UnreadableProject>, onIntent: (HubIntent) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text(
+            if (unreadable.size == 1) "1 project file could not be read." else "${unreadable.size} project files could not be read.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        for (item in unreadable) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.error.message.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                if (item.recoverable) {
+                    TextButton(onClick = { onIntent(HubIntent.RecoverProject(item.id)) }) { Text("Recover") }
+                }
+                TextButton(onClick = { onIntent(HubIntent.DeleteUnreadable(item.id)) }) { Text("Delete") }
+            }
+        }
+    }
 }
 
 @Composable
@@ -187,8 +221,8 @@ private fun ProjectGrid(state: HubState, onIntent: (HubIntent) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(state.projects, key = { it.id }) { project -> ProjectCard(project, onIntent) }
-        if (state.unreadableCount > 0) {
-            item { UnreadableNote(state.unreadableCount) }
+        if (state.unreadable.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { UnreadableProjects(state.unreadable, onIntent) }
         }
     }
 }

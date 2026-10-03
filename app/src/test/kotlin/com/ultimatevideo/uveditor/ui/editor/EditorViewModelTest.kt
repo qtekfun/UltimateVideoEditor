@@ -858,7 +858,8 @@ class EditorViewModelTest {
 
     @Test
     fun `adding a library asset to an empty base starts it at zero whatever the playhead`() = runTest(dispatcher) {
-        val h = harness(project(withClips = false))
+        // The file must be readable: a library entry whose media is missing cannot be placed.
+        val h = harness(project(withClips = false), FakeImporter(mapOf("content://m/a1" to video5s)))
         h.vm.onIntent(EditorIntent.SetPlayhead(20))
 
         h.vm.onIntent(EditorIntent.AddAsset("a1"))

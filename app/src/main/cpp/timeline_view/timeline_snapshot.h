@@ -26,6 +26,7 @@ struct ClipSnapshot {
     int32_t sourceFpsDen;
     bool selected;
     bool hasFx = false;  // the clip carries effects, a blend mode or a mask (flags bit1)
+    bool missing = false;  // its media file cannot be read; the canvas tints it (flags bit2)
 };
 
 // A transition across the cut at `cutFrame`, shown from `cutFrame - preFrames` to
@@ -99,7 +100,7 @@ struct TimelineSnapshot {
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
 //   tracks: i32 type * trackCount
 //   clips : i64 clipKey, i32 trackIndex, i64 assetKey, i64 start, i64 duration, i64 sourceIn,
-//           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected, bit1=hasFx)   (56 bytes each)
+//           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected, bit1=hasFx, bit2=missing)   (56 bytes each)
 //   trailer: i32 transitionCount, then per transition:
 //           i32 trackIndex, i32 reserved, i64 cutFrame, i64 preFrames, i64 postFrames   (32 bytes each)
 //   keyframes (v3): i32 keyframeCount, then per keyframe: i64 clipKey, i64 frame           (16 bytes each)
