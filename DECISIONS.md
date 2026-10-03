@@ -582,3 +582,38 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Decision:** `.cube` 3D LUTs (any size 2..65, so 17/33/65) are an effect type `LUT` (code 13: library key, intensity). The parser (`CubeParser`) accepts `TITLE`, `LUT_3D_SIZE`, comments and the default 0..1 domain and rejects 1D LUTs, other domains, wrong entry counts and non-finite values with the line number. LUTs live in an app-wide library (`LutStore`, `filesDir/luts/<key>_<size>_<name>.cube`) keyed by a 24-bit hash of the file's bytes (exact as a float in the effect's value list, and importing the same file twice is a no-op). The preview uploads each LUT once per key (parsed off the main thread) and the exporter receives the used LUTs in its request; both draw through the same effect pass: a half-float `GL_TEXTURE_3D` (RGB16F is filterable in ES 3.x, RGB32F is not) sampled trilinearly with the texel-centre mapping `(rgb*(N-1)+0.5)/N`, mixed by intensity. A LUT that is missing (library entry deleted, project from another device) leaves its clip ungraded and the preview says so. The LUT runs on the clip's pixels in the project's working space after the source-to-project conversion (Rec.709 gamma in an SDR project, the HLG signal in an HLG project), and the picker says so.
 **Why:** a creative LUT is expected on display-referred pixels and the effect chain already works there; a per-clip effect reuses ordering, undo, keyframable-parameter plumbing, JSON and preview/export parity. A global hash key avoids copying LUT data into every project.
 **Alternative:** LUTs stored inside the project (portable but bloats `project.json` or needs a project folder format); an adjustment/grade track that applies one LUT to everything below (a natural follow-up using the same shader); colour-space-aware LUTs (e.g. Rec.2020 log to HLG) which need transform metadata the .cube format does not carry.
+
+## Privacy (user rule: no AI, no third-party services, no network)
+
+The user ruled out AI features and any dependence on third-party services ("la privacidad es algo importantisimo"). These
+choices were made autonomously to implement that rule strictly; confirm or change them.
+
+- **Remove on-device speech recognition entirely (whisper.cpp), not just make it opt-in.** Why: it is an AI feature, it needed a
+  model downloaded from a third-party host (Hugging Face) and therefore the INTERNET permission, and it added ~2 minutes to
+  every native build. Alternative: keep it as an opt-in feature with the model sideloaded from a local file (no network). The
+  rule says no AI, so it was dropped; the submodule, native pipeline, JNI, model store, download code and notices are gone.
+- **Replace it with manual and file-based captions.** Typed captions (text, start, length, stepped by frames/seconds) and
+  `.srt` / `.vtt` import (`Subtitles`), both feeding the existing caption styles, including the animated ones, through evenly
+  timed words. Alternative considered: also `.lrc` (word-timed lyrics) and `.ass`; deferred, the parser is isolated and easy
+  to extend.
+- **The manifest declares no permissions at all, and cleartext traffic is disabled.** `OfflineGuaranteeTest` fails the build if a
+  network permission, a networking API (HTTP, sockets, WebView, download manager), an analytics / crash-reporting / ads
+  dependency or a socket header in the engine appears. `allowBackup` was already false and stays so (test-enforced), so
+  nothing is uploaded by Android auto-backup. Alternative: only a manifest check; the source scan is cheap and catches the
+  case where someone adds a library that brings the permission in through manifest merging only at build time (the scan
+  also covers dependencies by name).
+- **`CaptionPlanner` / `Transcript*` types are kept** even though nothing produces word-timed transcripts now: the planner is pure,
+  tested, and a word-timed source (lyrics files) could use it. Alternative: delete as dead code.
+- **Typed captions share one caption track, imported files get one track each.** Why: one-at-a-time typing would otherwise create
+  a track per caption; a file per track keeps languages apart and makes undo of an import one step. Alternative: always one track.
+- **WP-V1 smart cutout (ML segmentation) removed; motion tracking kept (classical Lucas-Kanade).** Chroma/luma key and masks
+  stay the keying tools.
+- **WP-V2 auto reframe by subject detection removed; silence-based auto cut kept and a manual start/end reframe helper added.**
+  Speech-based editing (delete words in a transcript) removed with the transcript.
+- **WP-V3 text to speech, vocal isolation and speaker-aware captions removed; voice effects (classical DSP) kept.** The Android
+  system `TextToSpeech` service is not used: some engines synthesize on a server, and the app cannot tell which. Alternative:
+  offer system TTS only when the engine reports it works offline (`Voice.isNetworkConnectionRequired`); dropped for strictness.
+- **WP-A noise suppression uses spectral gating / Wiener filtering, not RNNoise or any neural denoiser.**
+- **WP-R crash reporting is local logs only; no reporting service.** The privacy note points to `docs/PRIVACY.md`.
+- **WP-V5 content packs: "bring your own" music and sounds, no bundled commercial library, no downloads.**
+- **`docs/PRIVACY.md` states the guarantees and how to verify them**; the README links to it and PRD gains a privacy section.

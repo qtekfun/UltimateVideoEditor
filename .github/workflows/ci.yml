@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pure-logic C++ built with the desktop toolchain: no NDK, no device, no whisper.cpp.
+      # Pure-logic C++ built with the desktop toolchain: no NDK, no device.
       - name: Run scripts/run-native-tests.sh
         run: scripts/run-native-tests.sh
 
@@ -38,10 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      # whisper.cpp is a submodule and the native build stops without it.
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - uses: actions/setup-java@v4
         with:

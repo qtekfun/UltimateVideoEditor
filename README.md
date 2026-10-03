@@ -30,7 +30,7 @@ Implemented (and what has actually been verified; the full per-item notes are in
 | Social format presets, safe zones, upload presets | Implemented; not seen on the device |
 | Ruler markers, beat detection (from the waveform cache), snap to markers, "Cut to beat" | Implemented and unit-tested (detector on synthetic click tracks); not tried on real music or on the device |
 | Animated text templates (lower third, pop title, slide-in headline, subtitle bar) | Implemented and unit-tested; look not yet seen on the device |
-| Auto captions (on-device whisper.cpp, model downloaded on demand) | Implemented; not yet run on a device |
+| Captions: typed or imported from `.srt` / `.vtt`, 8 animated styles, restyle all (no speech recognition, fully offline) | Implemented and unit-tested; not yet seen on the device |
 | HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |
 | Export to MP4 (H.264 / HEVC + AAC), 4K60 HEVC at ~90 fps on the test phone | Verified with `ffprobe` on synthetic clips; cancel/share untested on device |
 
@@ -46,7 +46,7 @@ app/src/main/kotlin/com/ultimatevideo/uveditor/
   data/       Project JSON, repository, media import, domain mapping
   engine/     Kotlin facade over the native engine (the only caller of JNI)
 app/src/main/cpp/
-  core/ decode/ cache/ render/ encode/ audio/ captions/ thumbnail/ timeline_view/ jni/   (C++20, library `uveditor_engine`)
+  core/ decode/ cache/ render/ encode/ audio/ thumbnail/ timeline_view/ jni/   (C++20, library `uveditor_engine`)
 ```
 
 - **MVI.** Each screen has an immutable `State`, a sealed `Intent` and one-shot `Effect`s. The editor keeps the timeline
@@ -64,15 +64,13 @@ Details: [SPECS.md](SPECS.md) (technical), [PRD.md](PRD.md) (product), [CLAUDE.m
 
 - Android device with Android 13 or newer (minSdk 33); developed on a high-end phone (SM8850, Android 16).
 - JDK 21, Android SDK with platform 37, NDK `29.0.14206865` and CMake `3.31.6`. Android Studio is not required.
-- `git` with submodule support. `g++` (C++20) for the host-side native tests.
+- `git`. `g++` (C++20) for the host-side native tests.
 
 ## Setup (command line, Linux)
 
 ```sh
-git clone --recurse-submodules https://github.com/qtekfun/UltimateVideoEditor.git
+git clone https://github.com/qtekfun/UltimateVideoEditor.git
 cd UltimateVideoEditor
-# if you cloned without --recurse-submodules (whisper.cpp is needed by the native build):
-git submodule update --init --depth 1
 
 export JAVA_HOME=/path/to/jdk-21
 export ANDROID_HOME=$HOME/Android/Sdk      # command-line tools installed under $ANDROID_HOME/cmdline-tools/latest
@@ -80,8 +78,7 @@ sdkmanager --licenses
 sdkmanager "platform-tools" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.31.6"
 ```
 
-The first native build compiles ggml/whisper for arm64 and takes a while; on a busy machine use
-`nice -n 15 ./gradlew ... --max-workers=2`.
+On a busy machine use `nice -n 15 ./gradlew ... --max-workers=2`.
 
 ## Build, test, install
 
@@ -107,8 +104,14 @@ CI runs the unit tests, the debug build and the native host tests on every pull 
   Always pass `adb -s <serial>`, and for Gradle use `ANDROID_SERIAL=<serial> ./gradlew ...`; otherwise installs fail.
 - **Never run `connectedDebugAndroidTest` on a device whose app data you care about.** The instrumentation APK shares the
   app's package, and installing and uninstalling it **clears the app's data, including your projects**.
-- The speech model for auto captions is downloaded at runtime (first use) and never bundled in the APK.
+- The app needs no network: it declares no permissions, and `OfflineGuaranteeTest` keeps it that way.
 - The screen must be unlocked to see the UI; check which app is in the foreground before sending `adb shell input`.
+
+## Privacy
+
+ultimateVE works entirely on the device: no network access, no accounts, no analytics, no crash reporting, no AI or
+machine-learning features and no third-party services. See [docs/PRIVACY.md](docs/PRIVACY.md) for what is stored, which
+permissions are used and how to verify it yourself.
 
 ## Using the app
 
@@ -117,8 +120,8 @@ See the [user guide](docs/USER_GUIDE.md) for the screens, every toolbar icon and
 ## Roadmap
 
 [PLAN.md](PLAN.md) lists the phases with their gates and what is still open: verifying the pipeline on real footage and
-the long-run A/V drift, then the remaining CapCut-style tools (spectral beat detection, draggable markers, animated
-caption styles), 3D LUTs and an FFmpeg fallback for unsupported formats.
+the long-run A/V drift, then the work packages in `SPECS.md` section 9 (a simpler new-project flow, a media tray, a resizable
+layout, colour and audio tools, multiselect, and more). Everything stays offline and free of AI features.
 
 ## Contributing
 
