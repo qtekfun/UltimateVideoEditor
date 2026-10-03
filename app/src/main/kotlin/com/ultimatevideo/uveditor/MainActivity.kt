@@ -27,6 +27,8 @@ import com.ultimatevideo.uveditor.data.ProjectDirMediaCaches
 import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.data.trimPersistedUris
 import com.ultimatevideo.uveditor.engine.NativeEngineClient
+import com.ultimatevideo.uveditor.engine.timeline.WaveformBeatSource
+import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.editor.EditorScreen
 import com.ultimatevideo.uveditor.ui.editor.EditorViewModel
 import com.ultimatevideo.uveditor.ui.hub.HubIntent
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
                                     repository,
                                     mediaImporter,
                                     mediaCaches = ProjectDirMediaCaches(File(filesDir, "projects/$projectId")),
+                                    beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                 )
                             }
                         },

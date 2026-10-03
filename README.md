@@ -28,12 +28,13 @@ Implemented (and what has actually been verified; the full per-item notes are in
 | Effects, chroma key, masks, blend modes | Implemented; shaders not yet seen on the device |
 | Photos and built-in stickers as still clips (import images, sticker picker) | Implemented and unit-tested; not yet seen on the device (EXIF orientation, HEIC, sticker art unverified) |
 | Social format presets, safe zones, upload presets | Implemented; not seen on the device |
+| Ruler markers, beat detection (from the waveform cache), snap to markers, "Cut to beat" | Implemented and unit-tested (detector on synthetic click tracks); not tried on real music or on the device |
+| Animated text templates (lower third, pop title, slide-in headline, subtitle bar) | Implemented and unit-tested; look not yet seen on the device |
 | Auto captions (on-device whisper.cpp, model downloaded on demand) | Implemented; not yet run on a device |
 | HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |
 | Export to MP4 (H.264 / HEVC + AAC), 4K60 HEVC at ~90 fps on the test phone | Verified with `ffprobe` on synthetic clips; cancel/share untested on device |
 
-Not done yet: FFmpeg fallback, 3D LUTs, stickers and animated text templates, beat sync, Vulkan renderer, pitch-preserving
-time stretch. The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
+Not done yet: FFmpeg fallback, 3D LUTs, Vulkan renderer, pitch-preserving time stretch. The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
 
 ## Architecture
 
@@ -112,8 +113,8 @@ CI runs the unit tests, the debug build and the native host tests on every pull 
 ## Roadmap
 
 [PLAN.md](PLAN.md) lists the phases with their gates and what is still open: verifying the pipeline on real footage and
-the long-run A/V drift, then the remaining CapCut-style tools (stickers, text templates, beat sync), 3D LUTs and an
-FFmpeg fallback for unsupported formats.
+the long-run A/V drift, then the remaining CapCut-style tools (spectral beat detection, draggable markers, animated
+caption styles), 3D LUTs and an FFmpeg fallback for unsupported formats.
 
 ## Contributing
 

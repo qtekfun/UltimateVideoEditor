@@ -485,15 +485,17 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `a base clip cannot leave the base and the new-lane zone does nothing for it`() = runTest(dispatcher) {
+    fun `a base clip dragged above the lanes is lifted onto a new lane`() = runTest(dispatcher) {
         val h = harness(overlayProject())
         h.select("c1")
         h.vm.onIntent(EditorIntent.DragStart(h.hitOn("c1", frame = 0, track = 1)))
 
         h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
-        assertNull(h.state.dropHint?.takeIf { it.kind == DropKind.NEW_LANE })
+        assertEquals(DropKind.NEW_LANE, h.state.dropHint?.kind)
         h.vm.onIntent(EditorIntent.DragEnd(commit = true))
-        assertEquals(3, h.state.timeline.tracks.size)
+        assertEquals(4, h.state.timeline.tracks.size)
+        assertNull(h.state.timeline.tracks.single { it.id == "v1" }.clips.firstOrNull { it.id == "c1" })
+        assertEquals(1, h.state.timeline.tracks.count { track -> track.clips.any { it.id == "c1" } })
     }
 
     @Test

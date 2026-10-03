@@ -61,6 +61,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     if (magic != kSnapshotMagic || version < kSnapshotMinVersion || version > kSnapshotVersion) return Status::BadSnapshot;
     const bool hasKeyframes = version >= 3;
     const bool hasRetimes = version >= 4;
+    const bool hasMarkers = version >= 5;
     if (fpsNum <= 0 || fpsDen <= 0 || trackCount < 0 || clipCount < 0) return Status::BadSnapshot;
     // Reject sizes that cannot fit in the buffer before allocating. The transition count follows
     // the clips, so here only the part up to it must fit.
@@ -131,7 +132,9 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     if (hasRetimes) {
         int32_t retimeCount = 0;
         if (!r.read(&retimeCount) || retimeCount < 0) return Status::BadSnapshot;
-        if (r.remaining() != static_cast<size_t>(retimeCount) * kSnapshotRetimeBytes) return Status::BadSnapshot;
+        const size_t retimeBytes = static_cast<size_t>(retimeCount) * kSnapshotRetimeBytes;
+        // Version 5 has the marker count after the retimes; at least the retimes and it must fit.
+        if (hasMarkers ? r.remaining() < retimeBytes + 4 : r.remaining() != retimeBytes) return Status::BadSnapshot;
         snap.retimes.reserve(static_cast<size_t>(retimeCount));
         for (int32_t i = 0; i < retimeCount; ++i) {
             RetimeSnapshot t{};
@@ -144,6 +147,20 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         }
         std::sort(snap.retimes.begin(), snap.retimes.end(),
                   [](const RetimeSnapshot& a, const RetimeSnapshot& b) { return a.clipKey < b.clipKey; });
+    }
+    if (hasMarkers) {
+        int32_t markerCount = 0;
+        if (!r.read(&markerCount) || markerCount < 0) return Status::BadSnapshot;
+        if (r.remaining() != static_cast<size_t>(markerCount) * kSnapshotMarkerBytes) return Status::BadSnapshot;
+        snap.markers.reserve(static_cast<size_t>(markerCount));
+        for (int32_t i = 0; i < markerCount; ++i) {
+            MarkerSnapshot m{};
+            int32_t reserved = 0;
+            if (!r.read(&m.frame) || !r.read(&m.flags) || !r.read(&reserved) || m.frame < 0) return Status::BadSnapshot;
+            snap.markers.push_back(m);
+        }
+        std::sort(snap.markers.begin(), snap.markers.end(),
+                  [](const MarkerSnapshot& a, const MarkerSnapshot& b) { return a.frame < b.frame; });
     }
     if (!r.atEnd()) return Status::BadSnapshot;
     *out = std::move(snap);

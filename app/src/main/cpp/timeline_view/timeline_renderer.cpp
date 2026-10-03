@@ -53,6 +53,9 @@ constexpr Color kDropOverwriteEdge{1.0f, 0.42f, 0.2f, 0.95f};
 constexpr Color kDropNewLane{0.3f, 0.9f, 0.5f, 0.3f};
 constexpr Color kDropNewLaneEdge{0.3f, 0.9f, 0.5f, 0.95f};
 constexpr Color kDropCancel{0.9f, 0.2f, 0.2f, 0.24f};
+constexpr Color kMarker{1.0f, 0.45f, 0.8f, 1.0f};
+constexpr Color kMarkerLine{1.0f, 0.45f, 0.8f, 0.35f};
+constexpr Color kBeat{0.4f, 0.95f, 0.8f, 0.9f};
 
 constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
 constexpr size_t kUploadsPerFrame = 6;                     // keeps a frame cheap while tiles stream in
@@ -1035,6 +1038,16 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         }
     }
 
+    // A faint line through the lanes at each user marker, so cuts can be lined up against it.
+    g.setClip(0, layout.rulerHeight, W, H);
+    for (const auto& m : snap->markers) {
+        if (m.beat()) continue;
+        const float x = static_cast<float>(vp.frameToX(m.frame));
+        if (x < -2.0f) continue;
+        if (x > W + 2.0f) break;
+        g.rect(x, layout.rulerHeight, x + std::max(1.0f, density), H, kMarkerLine);
+    }
+
     // Ruler on top so clips scroll underneath it.
     g.setClip(0, 0, W, H);
     g.rect(0, 0, W, layout.rulerHeight, kRuler);
@@ -1072,6 +1085,26 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 std::snprintf(label, sizeof(label), "%lld", static_cast<long long>(f));
             }
             g.drawNumber(label, x + 3.0f * density, layout.rulerHeight * 0.12f, scale, kTick);
+        }
+    }
+
+    // Markers on the ruler: user markers are tall with a flag, detected beats are short ticks. Beats
+    // closer than a few pixels are skipped so a fast song zoomed out stays readable.
+    {
+        const float w = std::max(1.0f, std::round(1.5f * density));
+        float lastBeatX = -1.0e9f;
+        for (const auto& m : snap->markers) {
+            const float x = static_cast<float>(vp.frameToX(m.frame));
+            if (x < -w) continue;
+            if (x > W + w) break;
+            if (m.beat()) {
+                if (x - lastBeatX < 3.0f * density) continue;
+                lastBeatX = x;
+                g.rect(x, layout.rulerHeight * 0.62f, x + w * 0.67f, layout.rulerHeight, kBeat);
+            } else {
+                g.rect(x, layout.rulerHeight * 0.30f, x + w, layout.rulerHeight, kMarker);
+                g.rect(x, layout.rulerHeight * 0.30f, x + 6.0f * density, layout.rulerHeight * 0.30f + 5.0f * density, kMarker);
+            }
         }
     }
 

@@ -119,8 +119,10 @@ class DropPlanTest {
     }
 
     @Test
-    fun `above the lanes does nothing special for base or audio clips`() {
-        assertEquals(DropKind.REORDER, decide("a", 40, DropTarget.AboveLanes).kind)
+    fun `above the lanes lifts a base clip to a new lane and does nothing special for audio`() {
+        val lifted = decide("a", 40, DropTarget.AboveLanes)
+        assertEquals(DropKind.NEW_LANE, lifted.kind)
+        assertEquals(EditCommand.LiftFromBase("a", null, f(40)), lifted.command)
         assertEquals(DropKind.MOVE, decide("m", 0, DropTarget.AboveLanes).kind)
     }
 
@@ -133,10 +135,14 @@ class DropPlanTest {
     }
 
     @Test
-    fun `a base clip only reorders within the base whatever the target`() {
+    fun `a base clip reorders on the base and is lifted when dropped on an overlay lane`() {
         assertEquals(DropKind.REORDER, decide("b", 10, DropTarget.Lane("v1")).kind)
-        assertEquals(DropKind.REORDER, decide("b", 10, DropTarget.Lane("v2")).kind)
-        assertEquals(EditCommand.MoveClip("b", f(10), null, null), decide("b", 10, DropTarget.Lane("v2")).command)
+        val overOverlay = decide("b", 10, DropTarget.Lane("v2"))
+        assertEquals(DropKind.OVERWRITE, overOverlay.kind)
+        assertEquals(EditCommand.LiftFromBase("b", "v2", f(10)), overOverlay.command)
+        val inFreeSpace = decide("b", 200, DropTarget.Lane("v2"))
+        assertEquals(DropKind.MOVE, inFreeSpace.kind)
+        assertEquals(EditCommand.LiftFromBase("b", "v2", f(200)), inFreeSpace.command)
     }
 
     @Test

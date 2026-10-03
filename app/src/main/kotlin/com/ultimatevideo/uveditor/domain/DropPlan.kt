@@ -49,7 +49,7 @@ data class DropDecision(val kind: DropKind, val command: EditCommand?, val hint:
  * On the base, if the clip's START edge is within [INSERT_RADIUS_FRAMES] of a junction (a cut between
  * two clips, or the lane's start / end) the action is an INSERT there (a ripple); otherwise, over the
  * body of a clip, it is an OVERWRITE of the frames the clip covers. The base has no free space: past
- * its end the clip is appended, and a base clip dragged within the base only reorders.
+ * its end the clip is appended, a base clip dragged within the base only reorders, and dragged onto an overlay lane (or above the lanes) it is lifted off the base, which closes its gap.
  *
  * On every other lane (overlay, audio, title) there is no insert: landing on existing clips is always
  * an OVERWRITE and free space is a plain MOVE. Inserting on those lanes is deferred.
@@ -70,18 +70,18 @@ object DropPlan {
         val start = maxOf(requestedStart, FrameIndex.ZERO)
         val base = ClipDeletion.baseTrack(timeline)
         val fromBase = base != null && source.id == base.id
-        val canMakeLane = !fromBase && source.type == TrackType.VIDEO
+        val canMakeLane = source.type == TrackType.VIDEO
 
         return when {
             target == DropTarget.Outside -> DropDecision(DropKind.CANCEL, null, DropHint(DropKind.CANCEL, null, 0, 0))
             target == DropTarget.AboveLanes && canMakeLane -> DropDecision(
                 DropKind.NEW_LANE,
-                EditCommand.MoveToNewLane(clipId, start, snap),
+                if (fromBase) EditCommand.LiftFromBase(clipId, null, start) else EditCommand.MoveToNewLane(clipId, start, snap),
                 DropHint(DropKind.NEW_LANE, null, start.value, start.value + length),
             )
             else -> {
                 val wanted = (target as? DropTarget.Lane)?.trackId?.let { timeline.track(it) }
-                val lane = wanted?.takeIf { it.type == source.type && (!fromBase || it.id == base.id) } ?: source
+                val lane = wanted?.takeIf { it.type == source.type } ?: source
                 onLane(timeline, clipId, source, lane, base, start, length, snap)
             }
         }
@@ -98,6 +98,16 @@ object DropPlan {
         snap: Snap?,
     ): DropDecision {
         val onBase = base != null && lane.id == base.id
+        if (base != null && source.id == base.id && lane.id != base.id) {
+            // Lifting a base clip onto an overlay: the base closes, the clip replaces what it covers up there.
+            val covers = lane.clips.any { it.timelineStart < start + length && it.timelineEnd > start }
+            val kind = if (covers) DropKind.OVERWRITE else DropKind.MOVE
+            return DropDecision(
+                kind,
+                EditCommand.LiftFromBase(clipId, lane.id, start),
+                DropHint(kind, lane.id, start.value, start.value + length),
+            )
+        }
         if (onBase && source.id == base.id) {
             return DropDecision(
                 DropKind.REORDER,
