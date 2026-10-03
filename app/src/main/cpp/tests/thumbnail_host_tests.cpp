@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "thumbnail/rgba_tile.h"
 #include "thumbnail/slot_lru.h"
 #include "thumbnail/thumb_store.h"
 #include "thumbnail/tile_math.h"
@@ -611,6 +612,55 @@ static void testYuv() {
     CHECK(!yuvToTile(tiny, 0, tile.data()));
 }
 
+// ---------------------------------------------------------------------------------------------
+// Photo -> tile
+// ---------------------------------------------------------------------------------------------
+static void testRgbaTile() {
+    std::vector<uint16_t> tile(kTilePixels);
+    // A wide photo: left half red, right half blue, with a green band top and bottom that the 16:9 crop must drop.
+    const int w = 400, h = 300;  // 4:3, taller than 16:9
+    std::vector<uint8_t> img(static_cast<size_t>(w) * h * 4, 255);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint8_t* p = &img[(static_cast<size_t>(y) * w + x) * 4];
+            const bool band = y < 30 || y >= h - 30;
+            p[0] = band ? 0 : (x < w / 2 ? 255 : 0);
+            p[1] = band ? 255 : 0;
+            p[2] = band ? 0 : (x < w / 2 ? 0 : 255);
+            p[3] = 255;
+        }
+    }
+    CHECK(rgbaToTile(img.data(), w, h, static_cast<size_t>(w) * 4, tile.data()));
+    CHECK(nearColour(at(tile, 5, 0), 255, 0, 0));    // top-left is red, the green band was cropped away
+    CHECK(nearColour(at(tile, 5, 71), 255, 0, 0));
+    CHECK(nearColour(at(tile, 122, 36), 0, 0, 255));
+    CHECK(nearColour(at(tile, 63, 36), 255, 0, 0));  // the split sits at the middle column
+    CHECK(nearColour(at(tile, 64, 36), 0, 0, 255));
+
+    // A row stride wider than the picture is honoured; a tiny 1x1 image fills the tile.
+    std::vector<uint8_t> padded(static_cast<size_t>(3) * 64 * 4, 0);
+    for (int y = 0; y < 3; ++y) {
+        for (int x = 0; x < 2; ++x) {
+            uint8_t* p = &padded[(static_cast<size_t>(y) * 64 + x) * 4];
+            p[0] = 0;
+            p[1] = 255;
+            p[2] = 0;
+            p[3] = 255;
+        }
+    }
+    CHECK(rgbaToTile(padded.data(), 2, 3, 64 * 4, tile.data()));
+    CHECK(nearColour(at(tile, 64, 36), 0, 255, 0));
+    const uint8_t one[4] = {255, 255, 255, 255};
+    CHECK(rgbaToTile(one, 1, 1, 4, tile.data()));
+    CHECK(nearColour(at(tile, 100, 20), 255, 255, 255));
+
+    // Unusable input is rejected without touching memory.
+    CHECK(!rgbaToTile(nullptr, 4, 4, 16, tile.data()));
+    CHECK(!rgbaToTile(one, 0, 1, 4, tile.data()));
+    CHECK(!rgbaToTile(one, 1, 1, 3, tile.data()));
+    CHECK(!rgbaToTile(one, 1, 1, 4, nullptr));
+}
+
 int main() {
     testGrid();
     testPlanCells();
@@ -620,6 +670,7 @@ int main() {
     testSlotLru();
     testStore();
     testYuv();
+    testRgbaTile();
     if (g_failures == 0) {
         std::printf("thumbnail host tests passed\n");
         return 0;
