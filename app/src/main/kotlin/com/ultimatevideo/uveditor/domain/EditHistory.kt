@@ -33,6 +33,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.rippleDelete(timeline, clipId)
     }
 
+    /** Deletes a clip: the base track closes the gap and other tracks follow, overlays leave a gap. */
+    data class DeleteClip(val clipId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = ClipDeletion.delete(timeline, clipId)
+    }
+
     data class RippleAppend(val clipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.rippleAppend(timeline, clipId)
     }

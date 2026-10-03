@@ -406,7 +406,7 @@ private fun EditorMain(
             ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.SplitAtPlayhead)
             }
-            ToolButton(EditorIcons.Delete, "Delete and close gap", enabled = hasSelection) {
+            ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.RippleDeleteSelected)
             }
             ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
