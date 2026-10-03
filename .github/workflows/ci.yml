@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A newer push to the same ref makes the older run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  native-host-tests:
+    name: Native host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pure-logic C++ built with the desktop toolchain: no NDK, no device, no whisper.cpp.
+      - name: Run scripts/run-native-tests.sh
+        run: scripts/run-native-tests.sh
+
+      - name: Build and run the CMake host tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build
+          cmake -S app/src/main/cpp/tests -B build/uv-host -G Ninja
+          cmake --build build/uv-host
+          ctest --test-dir build/uv-host --output-on-failure
+
+  android:
+    name: Unit tests and debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # whisper.cpp is a submodule and the native build stops without it.
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The runner image ships an Android SDK ($ANDROID_HOME) with sdkmanager; add what this project needs.
+      - name: Install SDK platform, NDK and CMake
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.31.6"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests and debug build
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain --max-workers=4
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ultimatevideo-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unit test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
