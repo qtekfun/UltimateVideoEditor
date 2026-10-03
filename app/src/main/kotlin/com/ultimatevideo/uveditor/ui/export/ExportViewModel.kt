@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.ui.export
 
 import androidx.lifecycle.viewModelScope
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.engine.export.ExportCodec
 import com.ultimatevideo.uveditor.engine.export.ExportErrorCode
 import com.ultimatevideo.uveditor.engine.export.ExportException
 import com.ultimatevideo.uveditor.engine.export.ExportHandle
@@ -10,6 +11,7 @@ import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
 import com.ultimatevideo.uveditor.engine.export.ExportSettings
 import com.ultimatevideo.uveditor.engine.export.ExportTitle
+import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
 import com.ultimatevideo.uveditor.engine.title.TitleRasterException
 import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
 import com.ultimatevideo.uveditor.mvi.MviViewModel
@@ -31,6 +33,7 @@ class ExportViewModel(
     private val titleRasterizer: TitleRasterizer = TitleRasterizer { _, _, _ ->
         throw TitleRasterException("This build cannot draw titles")
     },
+    private val hdrSupport: HdrExportSupport = HdrExportSupport.NONE,
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
 
     private var input: ExportInput? = null
@@ -44,7 +47,8 @@ class ExportViewModel(
             ExportIntent.Dismiss -> dismiss()
             is ExportIntent.SelectResolution -> editSettings { copy(resolution = intent.option) }
             is ExportIntent.SelectFrameRate -> editSettings { copy(frameRate = intent.rate) }
-            is ExportIntent.SelectCodec -> editSettings { copy(codec = intent.codec) }
+            is ExportIntent.SelectCodec -> editSettings { copy(codec = intent.codec, hdr = hdr && intent.codec == ExportCodec.HEVC) }
+            is ExportIntent.SelectHdr -> selectHdr(intent.hdr)
             is ExportIntent.SelectBitrate ->
                 if (!state.value.isRunning) reduce { copy(bitrateMbps = intent.mbps, preset = null, phase = ExportPhase.Configuring) }
             is ExportIntent.SelectPreset -> selectPreset(intent.preset)
@@ -60,11 +64,18 @@ class ExportViewModel(
         input = newInput
         val resolutions = resolutionOptions(newInput.projectWidth, newInput.projectHeight)
         val rates = frameRateOptions(newInput.fps)
-        val codec = state.value.codec
         val resolution = resolutions.first()
+        // An HDR project exports as HDR (HEVC Main10 HLG) when the device can; otherwise as SDR, HLG clips tone-mapped.
+        val projectHdr = newInput.colorSpace.isHdr
+        val hdrAvailable = projectHdr && hdrSupport.supportsHlgExport(resolution.width, resolution.height, rates.first().num, rates.first().den)
+        val codec = if (hdrAvailable) ExportCodec.HEVC else state.value.codec
         reduce {
             copy(
                 visible = true,
+                codec = codec,
+                hdrAvailable = hdrAvailable,
+                hdr = hdrAvailable,
+                hdrUnsupportedNotice = projectHdr && !hdrAvailable,
                 projectName = newInput.projectName,
                 resolutions = resolutions,
                 resolution = resolution,
@@ -88,6 +99,7 @@ class ExportViewModel(
                 resolution = choice.resolution,
                 frameRate = choice.frameRate,
                 codec = choice.codec,
+                hdr = false, // upload presets are SDR recommendations
                 bitrateMbps = choice.bitrateMbps,
                 preset = preset,
                 phase = ExportPhase.Configuring,
@@ -103,9 +115,14 @@ class ExportViewModel(
     private fun editSettings(change: ExportState.() -> ExportState) {
         if (state.value.isRunning) return
         reduce {
-            val next = change().copy(preset = null)
-            val resolution = next.resolution
-            val rate = next.frameRate
+            val changed = change().copy(preset = null)
+            val resolution = changed.resolution
+            val rate = changed.frameRate
+            // HDR depends on the size and rate: re-ask the encoder whenever they change.
+            val projectHdr = input?.colorSpace?.isHdr == true
+            val available = projectHdr && resolution != null && rate != null &&
+                hdrSupport.supportsHlgExport(resolution.width, resolution.height, rate.num, rate.den)
+            val next = changed.copy(hdrAvailable = available, hdr = changed.hdr && available, hdrUnsupportedNotice = projectHdr && !available)
             if (resolution == null || rate == null) {
                 next.copy(phase = ExportPhase.Configuring)
             } else {
@@ -115,6 +132,11 @@ class ExportViewModel(
                 )
             }
         }
+    }
+
+    private fun selectHdr(enabled: Boolean) {
+        if (state.value.isRunning || (enabled && !state.value.hdrAvailable)) return
+        editSettings { copy(hdr = enabled, codec = if (enabled) ExportCodec.HEVC else codec) }
     }
 
     private fun chooseLocation() {
@@ -134,6 +156,10 @@ class ExportViewModel(
         val resolution = current.resolution ?: return
         val rate = current.frameRate ?: return
         if (current.isRunning) return
+        if (current.hdr && !hdrSupport.supportsHlgExport(resolution.width, resolution.height, rate.num, rate.den)) {
+            reduce { copy(phase = ExportPhase.Failed("This device cannot export HDR at ${resolution.label}. Choose SDR or a lower resolution.")) }
+            return
+        }
         reduce { copy(phase = ExportPhase.Running(0)) }
         outputUri = uri
         viewModelScope.launch {
@@ -189,6 +215,7 @@ class ExportViewModel(
             fpsDen = rate.den,
             codec = current.codec,
             videoBitrate = current.bitrateMbps * BITS_PER_MEGABIT,
+            hdr = current.hdr,
         )
         val request = ExportRequest(
             settings = settings,
@@ -236,7 +263,9 @@ class ExportViewModel(
 
     private fun describe(error: ExportException?): String = when (error?.code) {
         null -> "The export failed"
-        ExportErrorCode.UNSUPPORTED_FORMAT -> "This device cannot encode with these settings: ${error.message}"
+        ExportErrorCode.UNSUPPORTED_FORMAT ->
+            "This device cannot encode with these settings: ${error.message}" +
+                if (state.value.hdr) " Export as SDR instead." else ""
         ExportErrorCode.IO_ERROR -> "A file error stopped the export: ${error.message}"
         else -> "The export failed: ${error.message}"
     }

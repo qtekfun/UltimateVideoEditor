@@ -143,6 +143,25 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
                 )
             }
         }
+        if (state.hdrAvailable) {
+            Section("Dynamic range") {
+                FilterChip(
+                    selected = state.hdr,
+                    onClick = { onIntent(ExportIntent.SelectHdr(true)) },
+                    label = { Text("HDR (HLG, 10-bit HEVC)") },
+                )
+                FilterChip(
+                    selected = !state.hdr,
+                    onClick = { onIntent(ExportIntent.SelectHdr(false)) },
+                    label = { Text("SDR") },
+                )
+            }
+        } else if (state.hdrUnsupportedNotice) {
+            Text(
+                "This device cannot encode HDR at this size, so the movie is exported as SDR; HLG clips are tone-mapped.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Section("Codec") {
             for (codec in ExportCodec.entries) {
                 FilterChip(

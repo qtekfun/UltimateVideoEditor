@@ -127,19 +127,28 @@ public:
     void seek(uint32_t assetId, int64_t frame);
     void play(uint32_t assetId, int64_t startFrame);
     void pause();
+    // Overrides what an asset's source is taken to be (SDR / HLG / PQ); its layer mode follows the target.
     void setColorMode(uint32_t assetId, ColorMode mode);
+    // Chooses the colour space the preview surface is rendered in. Hlg2020 needs a ten-bit surface
+    // tagged BT.2020 HLG and only takes effect when the device grants it; the result is what is
+    // actually in use (Sdr709 when HLG was refused). Safe to call before the surface exists: the
+    // request is remembered and applied when it is attached, so query again after attachSurface().
+    OutputSpace setOutputSpace(OutputSpace requested);
+    // What the surface is rendered in right now (Sdr709 until a surface is attached and HLG granted).
+    OutputSpace outputSpace() const { return static_cast<OutputSpace>(effectiveSpace_.load()); }
     void setCacheBudget(size_t bytes);
     PreviewStats stats() const;
 
 private:
     struct Asset {
         std::shared_ptr<decode::VideoDecoder> decoder;
-        ColorMode mode = ColorMode::Sdr709;
+        ColorMode mode = ColorMode::Sdr709;  // derived from `transfer` and the output space
         int turns = 0;  // clockwise quarter turns for display, from the container rotation
         // Look-behind/ahead its decoder keeps filled; frames inside it are evicted last.
         int32_t windowBehind = 0;
         int32_t windowAhead = 0;
         bool reverse = false;  // the scene plays this asset backwards: the window above is mirrored
+        SourceTransfer transfer = SourceTransfer::Sdr;
     };
 
     // What the last draw showed, to skip redundant draws.
@@ -160,6 +169,7 @@ private:
     PreviewEngine(size_t cacheBudgetBytes, ErrorSink sink);
 
     std::shared_ptr<decode::VideoDecoder> decoderFor(uint32_t assetId);
+    void applyOutputSpace();
     void applyWindowForBudget();
 
     // Render-thread-only below.
@@ -181,6 +191,8 @@ private:
     // Render-thread state.
     std::unique_ptr<EglContext> egl_;
     std::unique_ptr<GlPipeline> pipeline_;
+    OutputSpace requestedSpace_ = OutputSpace::Sdr709;     // what the caller asked for
+    std::atomic<int> effectiveSpace_{static_cast<int>(OutputSpace::Sdr709)};  // what the surface really is
     // Buffers evicted from the cache are recycled: allocating a 4K buffer per frame is too slow.
     std::vector<std::shared_ptr<decode::GpuFrame>> pool_;
     std::vector<SceneLayer> scene_;  // bottom to top

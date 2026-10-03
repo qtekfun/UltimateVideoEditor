@@ -26,6 +26,7 @@ import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.Snap
 import com.ultimatevideo.uveditor.domain.SpeedRamps
+import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TimelineOps
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -122,7 +123,7 @@ class EditorViewModel(
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
-            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.RippleDelete(it)) }
+            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.DeleteClip(it)) }
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
             EditorIntent.TogglePlay -> togglePlay()
             is EditorIntent.AddTrack -> addTrack(intent.type)
@@ -165,6 +166,7 @@ class EditorViewModel(
             EditorIntent.ShowCanvasDialog -> reduce { copy(canvasDialogOpen = true) }
             EditorIntent.DismissCanvasDialog -> reduce { copy(canvasDialogOpen = false) }
             is EditorIntent.ChangeCanvas -> changeCanvas(intent.width, intent.height)
+            is EditorIntent.ChangeColorSpace -> changeColorSpace(intent.space)
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
             EditorIntent.Flush -> flush(thenClose = false)
@@ -256,6 +258,7 @@ class EditorViewModel(
                         fps = FrameRate(project.settings.fpsNum, project.settings.fpsDen),
                         canvasWidth = project.settings.width,
                         canvasHeight = project.settings.height,
+                        colorSpace = ProjectColorSpace.fromId(project.settings.colorSpace),
                         timeline = timeline,
                         selectedTrackId = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
                         assets = project.mediaLibrary,
@@ -845,6 +848,13 @@ class EditorViewModel(
         baseProject = baseProject?.let { it.copy(settings = it.settings.copy(width = width, height = height)) }
         reduce { copy(canvasWidth = width, canvasHeight = height) }
         syncFromHistory()
+        scheduleSave()
+    }
+
+    private fun changeColorSpace(space: ProjectColorSpace) {
+        if (space == state.value.colorSpace) return
+        baseProject = baseProject?.let { it.copy(settings = it.settings.copy(colorSpace = space.id)) }
+        reduce { copy(colorSpace = space, canvasDialogOpen = false) }
         scheduleSave()
     }
 

@@ -45,6 +45,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.ui.preview.wantedOutputSpace
+import com.ultimatevideo.uveditor.ui.preview.DisplayHdr
+import com.ultimatevideo.uveditor.engine.preview.OutputSpace
+import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.DropdownMenuItem
@@ -83,6 +87,7 @@ import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
+import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
 import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -113,6 +118,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     ContentResolverExportIO(context.applicationContext),
                     NativeExportRunner(),
                     titleRasterizer = AndroidTitleRasterizer(),
+                    hdrSupport = MediaCodecHdrExportSupport(),
                 )
             }
         },
@@ -150,7 +156,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         // The dialog works from what the editor holds right now; the autosave is not involved.
         exportViewModel.onIntent(
             ExportIntent.Open(
-                ExportInput(state.projectName, state.canvasWidth, state.canvasHeight, state.fps, state.timeline, state.assets),
+                ExportInput(state.projectName, state.canvasWidth, state.canvasHeight, state.fps, state.timeline, state.assets, state.colorSpace),
             ),
         )
     }
@@ -358,7 +364,23 @@ private fun EditorMain(
         Box(modifier = Modifier.fillMaxWidth().weight(PREVIEW_WEIGHT), contentAlignment = Alignment.Center) {
             val previewEngine = preview.engine
             if (previewEngine != null) {
-                PreviewSurface(previewEngine, Modifier.fillMaxSize())
+                // HLG project: render the preview as HDR when the screen shows it, else tone-mapped SDR.
+                val hdrContext = LocalContext.current
+                val displayHlg = remember { DisplayHdr.supportsHlg(hdrContext) }
+                val wanted = wantedOutputSpace(state.colorSpace.isHdr, displayHlg)
+                var granted by remember { mutableStateOf(OutputSpace.SDR_709) }
+                DisposableEffect(granted) {
+                    DisplayHdr.setWindowHdr(hdrContext, granted == OutputSpace.HLG_2020)
+                    onDispose { DisplayHdr.setWindowHdr(hdrContext, false) }
+                }
+                PreviewSurface(previewEngine, Modifier.fillMaxSize(), wanted = wanted, onOutputSpace = { granted = it })
+                if (state.colorSpace.isHdr) {
+                    Text(
+                        if (granted == OutputSpace.HLG_2020) "HDR HLG" else "HDR project, SDR preview",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                    )
+                }
                 state.safeZone?.let { SafeZoneOverlay(it, state.canvasWidth, state.canvasHeight) }
                 // Drag, pinch and twist edit the selected clip while it is under the playhead.
                 PreviewGestureLayer(
@@ -406,7 +428,7 @@ private fun EditorMain(
             ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.SplitAtPlayhead)
             }
-            ToolButton(EditorIcons.Delete, "Delete and close gap", enabled = hasSelection) {
+            ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.RippleDeleteSelected)
             }
             ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
@@ -430,7 +452,7 @@ private fun EditorMain(
             }
             SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
         }
-        if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, viewModel::onIntent)
+        if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
 
         // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
         // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
@@ -498,16 +520,33 @@ private fun SafeZoneMenu(current: SafeZonePlatform?, onSelect: (SafeZonePlatform
 /** Pick another canvas shape or size from the same presets as New project. The current one is marked. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun CanvasDialog(width: Int, height: Int, onIntent: (EditorIntent) -> Unit) {
+private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace, onIntent: (EditorIntent) -> Unit) {
     AlertDialog(
         onDismissRequest = { onIntent(EditorIntent.DismissCanvasDialog) },
-        title = { Text("Canvas ${width}×$height (${aspectLabelOf(width, height)})") },
+        title = { Text("Project ${width}×$height (${aspectLabelOf(width, height)})") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Clips keep their relative position. Changing the canvas clears the undo history.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text("Colour space", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (space in ProjectColorSpace.entries) {
+                        FilterChip(
+                            selected = space == colorSpace,
+                            onClick = { onIntent(EditorIntent.ChangeColorSpace(space)) },
+                            label = { Text(space.label) },
+                        )
+                    }
+                }
+                if (colorSpace.isHdr) {
+                    Text(
+                        "HDR projects are composited in HLG. SDR clips and titles sit at reference white; " +
+                            "the preview is tone-mapped to SDR on screens without HDR.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 for (group in ProjectPresets.resolutionGroups) {
                     Text(group.title, style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

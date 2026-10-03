@@ -1,11 +1,20 @@
 #include "render/gl_context.h"
 
+#include <android/data_space.h>
+
 #include <string>
 
 namespace uv::render {
 
 using decode::Error;
 using decode::Status;
+
+#ifndef EGL_GL_COLORSPACE_KHR
+#define EGL_GL_COLORSPACE_KHR 0x309D
+#endif
+#ifndef EGL_GL_COLORSPACE_BT2020_HLG_EXT
+#define EGL_GL_COLORSPACE_BT2020_HLG_EXT 0x3540
+#endif
 
 namespace {
 
@@ -26,22 +35,24 @@ EglContext::~EglContext() {
     }
 }
 
-Status EglContext::init(Error* error, bool recordable) {
+Status EglContext::init(Error* error, bool recordable, bool tenBit) {
     display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display_ == EGL_NO_DISPLAY) return fail(error, Status::EglError, "eglGetDisplay");
     if (!eglInitialize(display_, nullptr, nullptr)) return fail(error, Status::EglError, "eglInitialize");
 
-    const EGLint configAttribs[] = {
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-        EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-        recordable ? EGL_RECORDABLE_ANDROID : EGL_NONE, recordable ? 1 : EGL_NONE,
-        EGL_NONE,
+    auto chooseConfig = [&](int rgbBits, int alphaBits) {
+        const EGLint configAttribs[] = {
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+            EGL_RED_SIZE, rgbBits, EGL_GREEN_SIZE, rgbBits, EGL_BLUE_SIZE, rgbBits, EGL_ALPHA_SIZE, alphaBits,
+            recordable ? EGL_RECORDABLE_ANDROID : EGL_NONE, recordable ? 1 : EGL_NONE,
+            EGL_NONE,
+        };
+        EGLint numConfigs = 0;
+        return eglChooseConfig(display_, configAttribs, &config_, 1, &numConfigs) && numConfigs >= 1;
     };
-    EGLint numConfigs = 0;
-    if (!eglChooseConfig(display_, configAttribs, &config_, 1, &numConfigs) || numConfigs < 1) {
-        return fail(error, Status::EglError, "eglChooseConfig");
-    }
+    tenBit_ = tenBit && chooseConfig(10, 2);
+    if (!tenBit_ && !chooseConfig(8, 8)) return fail(error, Status::EglError, "eglChooseConfig");
 
     const EGLint contextAttribs[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 2, EGL_NONE};
     context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, contextAttribs);
@@ -72,6 +83,8 @@ Status EglContext::init(Error* error, bool recordable) {
             reinterpret_cast<PFNEGLDUPNATIVEFENCEFDANDROIDPROC>(eglGetProcAddress("eglDupNativeFenceFDANDROID"));
         if (destroySync_ == nullptr || dupNativeFence_ == nullptr) createSync_ = nullptr;
     }
+    hlgColorspaceExt_ = ext.find("EGL_KHR_gl_colorspace") != std::string::npos &&
+                        ext.find("EGL_EXT_gl_colorspace_bt2020_hlg") != std::string::npos;
     if (ext.find("EGL_ANDROID_presentation_time") != std::string::npos) {
         presentationTime_ =
             reinterpret_cast<PFNEGLPRESENTATIONTIMEANDROIDPROC>(eglGetProcAddress("eglPresentationTimeANDROID"));
@@ -79,15 +92,37 @@ Status EglContext::init(Error* error, bool recordable) {
     return makeCurrentOffscreen(error);
 }
 
-Status EglContext::attachWindow(ANativeWindow* window, Error* error) {
+Status EglContext::attachWindow(ANativeWindow* window, Error* error, bool hlg) {
     detachWindow();
     ANativeWindow_acquire(window);
     nativeWindow_ = window;
-    window_ = eglCreateWindowSurface(display_, config_, window, nullptr);
-    if (window_ == EGL_NO_SURFACE) {
+    if (Status s = reattachWindow(error, hlg); s != Status::Ok) {
         ANativeWindow_release(nativeWindow_);
         nativeWindow_ = nullptr;
-        return fail(error, Status::EglError, "eglCreateWindowSurface");
+        return s;
+    }
+    return Status::Ok;
+}
+
+Status EglContext::reattachWindow(Error* error, bool hlg) {
+    if (nativeWindow_ == nullptr) return fail(error, Status::EglError, "no window to reattach");
+    if (window_ != EGL_NO_SURFACE) {
+        eglMakeCurrent(display_, pbuffer_, pbuffer_, context_);
+        eglDestroySurface(display_, window_);
+        window_ = EGL_NO_SURFACE;
+    }
+    hdrSurface_ = false;
+    if (hlg && tenBit_ && hlgColorspaceExt_) {
+        const EGLint attribs[] = {EGL_GL_COLORSPACE_KHR, EGL_GL_COLORSPACE_BT2020_HLG_EXT, EGL_NONE};
+        window_ = eglCreateWindowSurface(display_, config_, nativeWindow_, attribs);
+        hdrSurface_ = window_ != EGL_NO_SURFACE;
+    }
+    if (window_ == EGL_NO_SURFACE) window_ = eglCreateWindowSurface(display_, config_, nativeWindow_, nullptr);
+    if (window_ == EGL_NO_SURFACE) return fail(error, Status::EglError, "eglCreateWindowSurface");
+    if (hlg && tenBit_ && !hdrSurface_) {
+        // No colour-space extension: tag the buffers' data space directly. Whether the compositor
+        // honours it can only be seen on a device with an HDR display.
+        hdrSurface_ = ANativeWindow_setBuffersDataSpace(nativeWindow_, ADATASPACE_BT2020_HLG) == 0;
     }
     return Status::Ok;
 }
@@ -98,6 +133,7 @@ void EglContext::detachWindow() {
         eglDestroySurface(display_, window_);
         window_ = EGL_NO_SURFACE;
     }
+    hdrSurface_ = false;
     if (nativeWindow_ != nullptr) {
         ANativeWindow_release(nativeWindow_);
         nativeWindow_ = nullptr;

@@ -16,6 +16,7 @@ using uv::decode::Error;
 using uv::decode::Rational;
 using uv::decode::Status;
 using uv::render::ColorMode;
+using uv::render::OutputSpace;
 using uv::render::PreviewEngine;
 
 constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/preview/PreviewException";
@@ -262,6 +263,17 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetColorMode(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint assetId, jint mode) {
     fromHandle(handle)->engine->setColorMode(static_cast<uint32_t>(assetId), static_cast<ColorMode>(mode));
+}
+
+JNIEXPORT jint JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetOutputSpace(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint space) {
+    const OutputSpace requested = space == 1 ? OutputSpace::Hlg2020 : OutputSpace::Sdr709;
+    return static_cast<jint>(fromHandle(handle)->engine->setOutputSpace(requested));
+}
+
+JNIEXPORT jint JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeGetOutputSpace(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    return static_cast<jint>(fromHandle(handle)->engine->outputSpace());
 }
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetCacheBudget(

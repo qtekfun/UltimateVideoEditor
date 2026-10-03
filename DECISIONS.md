@@ -227,3 +227,55 @@ outline plus corner handles on the preview, once assets expose their display siz
 smoothness; "spill" pulls colours just outside the keyed zone towards their luma. **Why:** it needs no per-key
 dominant-channel logic and behaves for green, blue and arbitrary key colours. **Alternative:** channel-based
 despill (`g = min(g, (r + b) / 2)` for green), which looks cleaner on green screens but only fits green or blue.
+
+## 2026-10-03 · HDR projects blend in HLG signal space; intermediates are half float
+**Chosen:** an HLG target is composited in HLG-encoded values with ordinary alpha blending, effect intermediates
+are RGBA16F and the blend-mode snapshot is RGB10_A2 (it must stay fixed point to be copied from the 10-bit
+surface). **Why:** it keeps `drawScene` one shared path for preview and export and needs no scene-wide float
+framebuffer; HLG is designed to be used (and cross-faded) in signal space. **Alternative:** render the whole
+scene into an RGBA16F linear-light framebuffer and convert to HLG at the end; physically exact for blends and
+fades, but every layer and the final pass change, and a half-float scene buffer costs bandwidth at 4K.
+
+## 2026-10-03 · The engine derives each layer's colour mode from (source, target); Kotlin only says what a clip is
+**Chosen:** `ColorMode` values 0/1/4 mean SDR/HLG/PQ source for the export JNI and `colorModeFor` picks the
+conversion for the target the engine renders in (preview: what the surface granted; export: the job's
+setting). **Why:** the preview's target changes at run time (the device may refuse HLG) and a Kotlin-side
+choice would go stale. **Alternative:** Kotlin computes the final mode per clip and re-sends it whenever the
+output space changes.
+
+## 2026-10-03 · SDR white sits at 203 nit (HLG ≈ 0.75) in an HLG project, gamma 2.4 decode
+**Chosen:** SDR sources are decoded display-referred with gamma 2.4 (BT.1886) and placed at the BT.2408
+reference white. **Why:** it matches how SDR video is shown on an SDR display and keeps graphics from glaring
+next to HLG footage. **Alternative:** the BT.709 inverse OETF (scene-referred), or 100 nit white; both look
+darker or brighter than the usual conversions.
+
+## 2026-10-03 · PQ sources are supported with a simple path, no dynamic tone mapping
+**Chosen:** PQ → HLG clips display light at 1000 nit; PQ → SDR reuses the HLG tone-map shoulder from the
+203-nit-relative stage. **Why:** `Rec2020-PQ` already exists as a probed colour space and a fixed curve is
+predictable. **Alternative:** HDR10 metadata-driven or content-adaptive tone mapping; not worth the code
+without footage to tune on.
+
+## 2026-10-03 · HLG preview is requested only for an HDR project on an HDR display; otherwise SDR with a label
+**Chosen:** `wantedOutputSpace(projectIsHdr, displaySupportsHlg)`; the native engine can still refuse and
+reports what it granted; the editor shows "HDR HLG" or "HDR project, SDR preview". **Why:** tagging an HLG
+surface on an SDR display only makes the system tone-map unpredictably. **Alternative:** always render HLG and
+let SurfaceFlinger tone-map.
+
+## 2026-10-03 · The preview context prefers a ten-bit config for every project
+**Chosen:** the preview's EGL config is RGB10_A2 when available (RGBA8 otherwise); HLG or SDR is then only a
+property of the window surface's colour tag. **Why:** the EGL context cannot be recreated cheaply when the
+project switches colour space (it owns the frame cache textures). **Alternative:** recreate the engine when the
+space changes, or use `EGL_KHR_no_config_context`. An RGB10_A2 SDR surface should look identical; verify on
+the device.
+
+## 2026-10-03 · HDR export is HEVC Main10 only and falls back to SDR rather than failing
+**Chosen:** HDR needs HEVC; the dialog offers it when `findEncoderForFormat` finds a Main10 HLG encoder, the
+native job still refuses (`UnsupportedFormat`) without a ten-bit encoder surface or the colour tag.
+**Why:** an HDR project must still be exportable on any device. **Alternative:** HDR10 (PQ) or Dolby Vision
+profiles, or H.264 with 8-bit HLG; neither is widely playable.
+
+## 2026-10-03 · FFmpeg fallback is deferred
+**Chosen:** not started. **Why:** a static FFmpeg for arm64 under the NDK is a large build (codec selection,
+GPL linking, ~10+ MB per ABI, long CI) and nothing in the editor needs it yet: every format the app opens goes
+through MediaCodec. **Alternative:** vendor a prebuilt LGPL FFmpeg and use it only for unsupported containers
+once a concrete format gap shows up.
