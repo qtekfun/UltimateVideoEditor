@@ -39,6 +39,12 @@ data class MediaAssetDto(
     /** Defaults keep projects written before these fields existed valid. */
     val hasVideo: Boolean = true,
     val hasAudio: Boolean = true,
+    /**
+     * A still picture (photo). It has no frames of its own, so [durationFrames] is only the default
+     * length a clip of it gets, [hasVideo] and [hasAudio] are false, and it is drawn from [uri] by
+     * the picture path rather than decoded as video.
+     */
+    val isImage: Boolean = false,
 )
 
 @Serializable
@@ -80,6 +86,8 @@ data class ClipDto(
     /** `normal`, `add`, `multiply`, `screen` or `overlay`. */
     val blendMode: String = "normal",
     val mask: MaskDto? = null,
+    /** `photo` or `sticker` for a still clip (then [assetId] is the picture or the built-in sticker id); absent otherwise. */
+    val still: String? = null,
 )
 
 /** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */

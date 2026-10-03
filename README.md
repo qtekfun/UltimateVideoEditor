@@ -26,6 +26,7 @@ Implemented (and what has actually been verified; the full per-item notes are in
 | Titles and crossfade transitions | Implemented; not seen on the device |
 | Speed changes, ramps, reverse, freeze frame | Implemented; export checked frame by frame on the device, preview/UI not seen |
 | Effects, chroma key, masks, blend modes | Implemented; shaders not yet seen on the device |
+| Photos and built-in stickers as still clips (import images, sticker picker) | Implemented and unit-tested; not yet seen on the device (EXIF orientation, HEIC, sticker art unverified) |
 | Social format presets, safe zones, upload presets | Implemented; not seen on the device |
 | Auto captions (on-device whisper.cpp, model downloaded on demand) | Implemented; not yet run on a device |
 | HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |

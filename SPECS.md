@@ -417,6 +417,28 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 - **Lane ops** (`domain/LaneOps`): `moveToNewLane`, `overwriteMove`, `moveTrack` (up/down among lanes of the same kind;
   the base never moves), each one undo step.
 
+### 5.15 Still clips: photos and stickers
+
+A still clip shows one picture for as long as it lasts. `Clip.still` is `PHOTO` or `STICKER`; the clip lives on a **video** track
+(the base or an overlay), has no `title`, and has no media length of its own. Like a title its source range is only its length
+(`sourceIn = 0`, `sourceOut = duration`; `Clip.cropped` normalises it), so it can be trimmed or stretched on either edge without a
+limit, is never retimed (`hasMedia` is false: speed, reverse, ramp and freeze are refused) and needs no handle for a transition.
+All timeline operations, the magnetic base and drops treat it as an ordinary clip.
+
+- **Photo:** `assetId` is an image in the media library (`MediaAssetDto.isImage`, `hasVideo = hasAudio = false`; its `durationFrames`
+  is only the default length, 5 s). Imported through the same SAF picker (`image/*`), probed by decoding the header only.
+- **Sticker:** `assetId` is a built-in id (`shape:heart`, `emoji:🔥`, ...; ids are persisted, never renamed). No library entry.
+  Shapes are drawn procedurally (`engine/still/StickerArt`, original artwork) and emoji with the system font: no bundled files.
+- **JSON:** `ClipDto.still` is `"photo"` or `"sticker"`, absent otherwise; older projects load unchanged.
+- **Render path:** there is no decoder. `engine/still/StillRasterizer` turns a still into the same premultiplied RGBA picture a title
+  becomes (drawn 1:1, centred, then transformed), so the compositor, effects, blend modes, keyframes, HDR reference-white handling and
+  the exporter (`drawScene`) need no change. A photo is decoded once with `ImageDecoder` (EXIF orientation applied, sRGB, reduced by
+  a power-of-two sample size) and fitted *inside the canvas* (contain); a sticker is a square of 35 % of the canvas' shorter side.
+  The preview decodes off the main thread and shows the layer when the texture is uploaded; `StillKeyCache` evicts by an estimated
+  byte budget (192 MB, keys start at 1,000,000 so they never collide with title keys). The export plan rasterises each distinct still
+  once and shares one key space with titles.
+- **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

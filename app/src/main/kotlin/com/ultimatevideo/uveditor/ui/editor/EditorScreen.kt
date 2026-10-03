@@ -80,6 +80,7 @@ import com.ultimatevideo.uveditor.domain.DropKind
 import com.ultimatevideo.uveditor.engine.timeline.DropIndicator
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
+import com.ultimatevideo.uveditor.engine.still.AndroidStillRasterizer
 import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
@@ -121,6 +122,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     ContentResolverExportIO(context.applicationContext),
                     NativeExportRunner(),
                     titleRasterizer = AndroidTitleRasterizer(),
+                    stillRasterizer = AndroidStillRasterizer(context.applicationContext),
                     hdrSupport = MediaCodecHdrExportSupport(),
                 )
             }
@@ -235,7 +237,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         viewModel.onIntent(EditorIntent.ImportMedia(uris.map(Uri::toString)))
     }
-    val launchImport = { importPicker.launch(arrayOf("video/*", "audio/*")) }
+    val launchImport = { importPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }
 
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
@@ -364,6 +366,16 @@ private fun EditorMain(
     modifier: Modifier = Modifier,
 ) {
     val hasSelection = state.selectedClipId != null
+    var stickersOpen by remember { mutableStateOf(false) }
+    if (stickersOpen) {
+        StickerSheet(
+            onPick = {
+                viewModel.onIntent(EditorIntent.AddSticker(it))
+                stickersOpen = false
+            },
+            onDismiss = { stickersOpen = false },
+        )
+    }
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -457,6 +469,7 @@ private fun EditorMain(
             }
             ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
             ToolButton(EditorIcons.Captions, "Auto captions for the selected clip", onClick = onCaptions)
+            ToolButton(EditorIcons.Sticker, "Add a sticker at the playhead") { stickersOpen = true }
             ToolButton(
                 EditorIcons.Transition,
                 "Add a crossfade between the selected clip and the next",
