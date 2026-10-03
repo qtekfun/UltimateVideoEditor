@@ -1213,7 +1213,7 @@ class EditorViewModel(
         is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
         is EditError.TransitionNotFound -> "The transition no longer exists"
         EditError.NoBaseTrack -> "Add a video track first"
-        is EditError.BaseClipCannotLeave -> "The base track is the guide: reorder its clips there, or cut and paste to an overlay"
+        is EditError.BaseClipCannotLeave -> "Only a base clip can be lifted off the base"
         is EditError.BaseTrackCannotMove -> "The base track stays at the bottom of the video lanes"
         is EditError.TrackCannotMove -> "That lane cannot move further: ${error.reason}"
         is EditError.NotATitle -> "That clip is not a title"
