@@ -45,6 +45,30 @@ class PreviewScenesTest {
     }
 
     @Test
+    fun `playback stops each video layer at its clip's out point`() {
+        val tl = timeline(
+            track("v2", clip("top", 50, 100, srcIn = 10, asset = "a2")),
+            track("v1", clip("bottom", 0, 200, asset = "a1")),
+        )
+
+        val layers = requests(tl, 60, asset("a1"), asset("a2"))
+
+        // Exclusive source frames: srcIn + duration.
+        assertEquals(listOf(200L, 110L), layers.map { it.endFrame })
+    }
+
+    @Test
+    fun `a transition lets the outgoing clip run on to the end of its overlap`() {
+        val base = timeline(track("v1", clip("A", 0, 100, asset = "a1"), clip("B", 100, 100, srcIn = 50, asset = "a2")))
+        val tl = TimelineOps.addTransition(base, Transition("t", "A", "B", 10)).getOrFail()
+
+        val layers = requests(tl, 100, asset("a1"), asset("a2"))
+
+        assertEquals(105L, layers[0].endFrame)  // 100 frames of A plus the 5 after the cut
+        assertEquals(50L - 5 + 100 + 5 + 0, layers[1].endFrame)
+    }
+
+    @Test
     fun `a gap on every track has no layers`() {
         val tl = timeline(track("v1", clip("c", 100, 50, asset = "a1")))
 
