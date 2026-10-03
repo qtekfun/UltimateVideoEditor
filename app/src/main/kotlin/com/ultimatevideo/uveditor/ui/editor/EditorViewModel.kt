@@ -9,7 +9,22 @@ import com.ultimatevideo.uveditor.data.TimelineMapper
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.domain.AddCaptions
+import com.ultimatevideo.uveditor.domain.AddMarker
+import com.ultimatevideo.uveditor.domain.AddTextTemplate
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.CutToBeat
+import com.ultimatevideo.uveditor.domain.Marker
+import com.ultimatevideo.uveditor.domain.MarkerKind
+import com.ultimatevideo.uveditor.domain.MarkerOps
+import com.ultimatevideo.uveditor.domain.RemoveMarker
+import com.ultimatevideo.uveditor.domain.SetBeatMarkers
+import com.ultimatevideo.uveditor.domain.TemplateLayerKind
+import com.ultimatevideo.uveditor.domain.TextTemplates
+import com.ultimatevideo.uveditor.domain.beat.BeatMapping
+import com.ultimatevideo.uveditor.engine.timeline.BeatResult
+import com.ultimatevideo.uveditor.engine.timeline.BeatSource
+import com.ultimatevideo.uveditor.engine.timeline.NoBeatSource
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotMarker
 import com.ultimatevideo.uveditor.domain.DropHint
 import com.ultimatevideo.uveditor.domain.DropKind
 import com.ultimatevideo.uveditor.domain.DropPlan
@@ -72,6 +87,7 @@ class EditorViewModel(
     private val idGenerator: () -> String = { UUID.randomUUID().toString().take(ID_LENGTH) },
     private val saveDebounceMillis: Long = DEFAULT_SAVE_DEBOUNCE_MILLIS,
     private val nanoClock: () -> Long = System::nanoTime,
+    private val beatSource: BeatSource = NoBeatSource,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
@@ -145,6 +161,12 @@ class EditorViewModel(
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
             EditorIntent.AddTitle -> addTitle()
+            EditorIntent.ToggleMarkerAtPlayhead -> toggleMarkerAtPlayhead()
+            EditorIntent.ClearBeatMarkers -> clearBeatMarkers()
+            EditorIntent.ToggleMarkerSnap -> reduce { copy(snapToMarkers = !snapToMarkers) }
+            EditorIntent.AnalyzeBeats -> analyzeBeats()
+            EditorIntent.CutToBeatFromSelected -> cutToBeatFromSelected()
+            is EditorIntent.ApplyTextTemplate -> applyTextTemplate(intent.templateId, intent.text)
             is EditorIntent.AddSticker -> addSticker(intent.stickerId)
             is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips)
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
@@ -252,7 +274,8 @@ class EditorViewModel(
                 SnapshotRetime(clipKeys.keyFor(it.id), it.sourceSpan, reverse = it.reverse, freeze = it.isFreeze)
             }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes)
+        val markers = timeline.markers.map { SnapshotMarker(it.frame.value, beat = it.kind == MarkerKind.BEAT) }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers)
     }
 
     // region loading and saving
@@ -639,7 +662,7 @@ class EditorViewModel(
      * release applies, so the indicator and the result always agree.
      */
     private fun moveDrag(session: DragSession, base: Timeline, start: FrameIndex, target: DropTarget, playhead: FrameIndex) {
-        val decision = DropPlan.decide(base, session.clipId, start, target, Snap(playhead, SNAP_THRESHOLD_FRAMES)) ?: return
+        val decision = DropPlan.decide(base, session.clipId, start, target, snapWith(base, playhead)) ?: return
         val command = decision.command
         if (command == null) {
             // Cancel: the clip shows where it started and a release changes nothing.
@@ -675,6 +698,7 @@ class EditorViewModel(
         val targets = buildList {
             add(0L)
             add(playhead.value)
+            if (state.value.snapToMarkers) timeline.markers.forEach { add(it.frame.value) }
             for (track in timeline.tracks) {
                 for (other in track.clips) {
                     if (other.id == movingClipId) continue
@@ -686,6 +710,115 @@ class EditorViewModel(
         val nearest = targets.minByOrNull { abs(it - frame) }
         return FrameIndex(if (nearest != null && abs(nearest - frame) <= SNAP_THRESHOLD_FRAMES) nearest else frame.coerceAtLeast(0))
     }
+
+    /** Snapping for a drag: clip edges and the playhead, plus the ruler markers while marker snapping is on. */
+    private fun snapWith(timeline: Timeline, playhead: FrameIndex): Snap =
+        Snap(playhead, SNAP_THRESHOLD_FRAMES, if (state.value.snapToMarkers) timeline.markers.map { it.frame } else emptyList())
+
+    // region markers, beats and text templates
+
+    private fun toggleMarkerAtPlayhead() {
+        val playhead = state.value.playhead
+        val existing = MarkerOps.nearest(history.timeline.markers, playhead, MARKER_TOGGLE_RADIUS_FRAMES)
+        if (existing != null) {
+            execute(RemoveMarker(existing.id))
+        } else {
+            execute(AddMarker(Marker("marker-${idGenerator()}", playhead, MarkerKind.MANUAL)))
+        }
+    }
+
+    private fun clearBeatMarkers() {
+        if (history.timeline.markers.none { it.kind == MarkerKind.BEAT }) {
+            emit(EditorEffect.ShowMessage("There are no beat markers to clear"))
+            return
+        }
+        execute(SetBeatMarkers(emptyList()))
+    }
+
+    private fun analyzeBeats() {
+        if (state.value.isAnalyzingBeats) return
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
+        if (clip == null || !clip.hasMedia || asset == null || !asset.hasAudio || clip.isFreeze) {
+            emit(EditorEffect.ShowMessage("Select a clip with audio to find its beats"))
+            return
+        }
+        val fps = state.value.fps
+        // Look a few seconds beyond the clip so a short clip still shows the song's repeating pulse.
+        val startMicros = (fps.framesToMicros(clip.sourceIn.value) - BEAT_WINDOW_PADDING_MICROS).coerceAtLeast(0)
+        val endMicros = fps.framesToMicros(clip.sourceOut.value) + BEAT_WINDOW_PADDING_MICROS
+        reduce { copy(isAnalyzingBeats = true) }
+        viewModelScope.launch {
+            try {
+                when (val result = beatSource.analyze(asset.id, startMicros, endMicros)) {
+                    BeatResult.NoWaveform -> emit(EditorEffect.ShowMessage("The waveform is still being prepared. Try again in a moment."))
+                    BeatResult.NoBeat -> emit(EditorEffect.ShowMessage("No clear beat found in this audio"))
+                    is BeatResult.Found -> placeBeats(clip.id, result)
+                }
+            } finally {
+                reduce { copy(isAnalyzingBeats = false) }
+            }
+        }
+    }
+
+    private fun placeBeats(clipId: String, found: BeatResult.Found) {
+        // The clip may have been edited or removed while the analysis ran: work from where it is now.
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
+        val run = idGenerator()
+        val absolute = found.grid.beatsMicros.map { it + found.windowStartMicros }
+        val markers = BeatMapping.markersFor(clip, absolute, state.value.fps) { "beat-$run-$it" }
+        if (markers.isEmpty()) {
+            emit(EditorEffect.ShowMessage("No beats fall inside this clip"))
+            return
+        }
+        if (execute(SetBeatMarkers(markers, from = clip.timelineStart, until = clip.timelineEnd))) {
+            emit(EditorEffect.ShowMessage("Marked ${markers.size} beats at about ${found.grid.bpm.toInt()} BPM"))
+        }
+    }
+
+    private fun cutToBeatFromSelected() {
+        val timeline = history.timeline
+        val base = ClipDeletion.baseTrack(timeline)
+        val selected = state.value.selectedClipId?.let { id -> base?.clip(id) }
+        if (base == null || selected == null) {
+            emit(EditorEffect.ShowMessage("Select a clip on the base track first"))
+            return
+        }
+        val ids = base.clips.filter { it.timelineStart >= selected.timelineStart }.map { it.id }
+        val lengths = base.clips.associate { it.id to assetLengthFrames(it.assetId) }
+        execute(CutToBeat(ids, timeline.markers.map { it.frame.value }, lengths))
+    }
+
+    private fun applyTextTemplate(templateId: String, text: String) {
+        val template = TextTemplates.find(templateId)
+        if (template == null) {
+            emit(EditorEffect.ShowMessage("That text template is not available"))
+            return
+        }
+        val fps = state.value.fps
+        val frames = fps.microsToFrames((template.defaultSeconds * MICROS_PER_SECOND).toLong()).coerceAtLeast(2)
+        val token = idGenerator()
+        val ids = List(TextTemplates.idCount(template)) { "tpl-$token-$it" }
+        val command = AddTextTemplate(
+            templateId = template.id,
+            text = text.ifBlank { template.defaultText },
+            start = state.value.playhead,
+            durationFrames = frames,
+            canvasWidth = state.value.canvasWidth,
+            canvasHeight = state.value.canvasHeight,
+            fps = fps,
+            ids = ids,
+        )
+        if (!execute(command)) return
+        // Select the text, which is what the user will want to change; templates without text select their first layer.
+        val textIndex = template.layers.indexOfFirst { it.kind == TemplateLayerKind.TEXT }.takeIf { it >= 0 } ?: 0
+        val clipId = ids[textIndex]
+        val trackId = history.timeline.trackOfClip(clipId)?.id
+        reduce { copy(selectedClipId = clipId, selectedTrackId = trackId, inspectorOpen = true) }
+    }
+
+    // endregion
 
     // endregion
 
@@ -1221,6 +1354,10 @@ class EditorViewModel(
         is EditError.InvalidSpeed -> "That speed is not possible: ${error.reason}"
         is EditError.InvalidEffect -> "That effect is not possible: ${error.reason}"
         is EditError.EffectNotFound -> "That effect no longer exists"
+        is EditError.InvalidMarker -> "That marker is not possible: ${error.reason}"
+        is EditError.MarkerNotFound -> "The marker no longer exists"
+        is EditError.InvalidTemplate -> "That text template cannot be placed: ${error.reason}"
+        is EditError.CutToBeatUnavailable -> "Cut to beat is not possible: ${error.reason}"
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
@@ -1238,5 +1375,8 @@ class EditorViewModel(
         const val FREEZE_DEFAULT_MICROS = 2_000_000L
         const val PLAY_TICK_MILLIS = 16L
         const val NANOS_PER_MICRO = 1_000L
+        const val MICROS_PER_SECOND = 1_000_000.0
+        const val MARKER_TOGGLE_RADIUS_FRAMES = 2L
+        const val BEAT_WINDOW_PADDING_MICROS = 8_000_000L
     }
 }

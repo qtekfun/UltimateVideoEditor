@@ -112,6 +112,12 @@ internal object EditorIcons {
     /** A frame inside a frame: the safe-zone overlay. */
     val SafeZone = icon("SafeZone", "M3,3h18v18H3zM6,6v12h12V6z", evenOdd = true)
 
+    /** A flag: markers and beats on the ruler. */
+    val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
+
+    /** Large and small letters: the text templates. */
+    val TextTemplate = icon("TextTemplate", "M2.5,4v3h5v12h3V7h5V4h-13zM21.5,9h-9v3h3v7h3v-7h3V9z")
+
     /** A tall frame: change the canvas format. */
     val CanvasFormat = icon("CanvasFormat", "M7,2h10v20H7zM9,4v16h6V4z", evenOdd = true)
 
