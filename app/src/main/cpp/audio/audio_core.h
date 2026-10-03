@@ -30,7 +30,8 @@
 namespace uv::audio {
 
 struct AudioFault {
-    enum class Kind : int32_t { Underrun = 1, Decode = 2, Device = 3 };
+    // OfflineStall: an offline render gave up waiting for a clip's audio (clipKey says which).
+    enum class Kind : int32_t { Underrun = 1, Decode = 2, Device = 3, OfflineStall = 4 };
     Kind kind = Kind::Underrun;
     int64_t clipKey = -1;                  // -1 when not tied to a clip
     core::Status status = core::Status::Ok;

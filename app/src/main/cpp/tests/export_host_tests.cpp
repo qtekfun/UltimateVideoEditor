@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <map>
 #include <vector>
 
 #include "encode/export_math.h"
@@ -310,7 +311,29 @@ void poseCountsFromTheClipOriginNotTheTransitionStart() {
 
 }  // namespace
 
+// A late frame is waited for, never replaced by the one before it (that showed a picture twice and shifted
+// the rest of the clip by a frame); a stand-in is only for frames the stream really lacks.
+void lateFramesAreWaitedForAndMissingOnesSubstituted() {
+    std::map<int64_t, int> cached{{10, 0}, {12, 0}, {13, 0}};
+    // 11 is not decoded yet but 12 and 13 are: wait, do not show 10.
+    CHECK_EQ(static_cast<int>(pickSourceFrame(cached, 11, false).kind), static_cast<int>(FramePick::Kind::Wait));
+    CHECK_EQ(static_cast<int>(pickSourceFrame(cached, 12, false).kind), static_cast<int>(FramePick::Kind::Exact));
+    CHECK_EQ(pickSourceFrame(cached, 12, false).frame, 12);
+    // The stream never produces 11: the nearest earlier frame stands in.
+    const FramePick sub = pickSourceFrame(cached, 11, true);
+    CHECK_EQ(static_cast<int>(sub.kind), static_cast<int>(FramePick::Kind::Substitute));
+    CHECK_EQ(sub.frame, 10);
+    // Past the end of the stream: the last frame.
+    CHECK_EQ(pickSourceFrame(cached, 20, true).frame, 13);
+    // Nothing earlier than the missing frame: the nearest later one; an empty cache keeps waiting.
+    CHECK_EQ(pickSourceFrame(cached, 5, true).frame, 10);
+    CHECK_EQ(static_cast<int>(pickSourceFrame(std::map<int64_t, int>{}, 5, true).kind), static_cast<int>(FramePick::Kind::Wait));
+    // An exact frame wins even when the stream is flagged as lacking it.
+    CHECK_EQ(static_cast<int>(pickSourceFrame(cached, 13, true).kind), static_cast<int>(FramePick::Kind::Exact));
+}
+
 int main() {
+    lateFramesAreWaitedForAndMissingOnesSubstituted();
     keyframesMatchTheKotlinVectors();
     poseCountsFromTheClipOriginNotTheTransitionStart();
     ptsIsExactForNtscRates();

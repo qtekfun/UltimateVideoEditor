@@ -4,9 +4,10 @@
   scripts/check-retime-export.py gen retime_src.mp4      make the synthetic source (300 frames at 30 fps,
                                                           each frame's number as 9 binary squares along the
                                                           top, plus a 440 Hz tone)
-  scripts/check-retime-export.py check <dir>             dir holds retime_out.mp4, retime_expected.txt and
-                                                          retime_segments.txt pulled from the app's external
-                                                          files directory (see RetimeExportInstrumentedTest)
+  scripts/check-retime-export.py check <dir> [prefix]    dir holds <prefix>_out.mp4, <prefix>_expected.txt and
+                                                          <prefix>_segments.txt (prefix defaults to retime; the
+                                                          plain-clip test uses plain) pulled from the app's
+                                                          external files directory (see RetimeExportInstrumentedTest)
 
 The check reads the frame number back from every exported frame and compares it with the expected source
 frame, and measures the pitch of every steady clip by counting zero crossings of the decoded audio.
@@ -72,19 +73,20 @@ def rms(samples):
     return (sum(s * s for s in samples) / max(len(samples), 1)) ** 0.5
 
 
-def check(directory):
-    out = f"{directory}/retime_out.mp4"
-    expected = [int(x) for x in open(f"{directory}/retime_expected.txt").read().split()]
+def check(directory, prefix="retime"):
+    out = f"{directory}/{prefix}_out.mp4"
+    expected = [int(x) for x in open(f"{directory}/{prefix}_expected.txt").read().split()]
     shown = frame_numbers(out)
     print(f"frames: exported {len(shown)}, expected {len(expected)}")
     bad = [(i, e, s) for i, (e, s) in enumerate(zip(expected, shown)) if e != s]
+    early = [b for b in bad if b[1] - b[2] == 1]  # showed the frame before the expected one
     off_by_one = [b for b in bad if abs(b[1] - b[2]) <= 1]
-    print(f"frame mismatches: {len(bad)} ({len(off_by_one)} off by one); first: {bad[:8]}")
+    print(f"frame mismatches: {len(bad)} ({len(off_by_one)} off by one, {len(early)} one frame early); first: {bad[:8]}")
     ok = len(shown) == len(expected) and not [b for b in bad if abs(b[1] - b[2]) > 1]
 
     samples = pcm(out)
     print(f"audio: {len(samples) / 48000:.2f} s")
-    for line in open(f"{directory}/retime_segments.txt").read().splitlines():
+    for line in open(f"{directory}/{prefix}_segments.txt").read().splitlines():
         name, first, last, want = line.split()
         first, last, want = int(first), int(last), float(want)
         a, b = int(first / 30 * 48000), int(last / 30 * 48000)
@@ -111,8 +113,8 @@ def check(directory):
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "gen":
         gen(sys.argv[2])
-    elif len(sys.argv) == 3 and sys.argv[1] == "check":
-        sys.exit(check(sys.argv[2]))
+    elif len(sys.argv) in (3, 4) and sys.argv[1] == "check":
+        sys.exit(check(sys.argv[2], *sys.argv[3:]))
     else:
         print(__doc__)
         sys.exit(2)
