@@ -82,7 +82,7 @@ class HubViewModelTest {
 
         vm.onIntent(HubIntent.ShowNewProject)
         vm.onIntent(HubIntent.DraftNameChanged("Trip"))
-        vm.onIntent(HubIntent.DraftResolutionSelected(ProjectPresets.resolutions[3]))
+        vm.onIntent(HubIntent.DraftTierSelected(ProjectPresets.tiers[3]))
         vm.onIntent(HubIntent.DraftFpsSelected(ProjectPresets.fps[6]))
         vm.onIntent(HubIntent.DraftColorSpaceSelected(ProjectPresets.colorSpaces[1]))
 

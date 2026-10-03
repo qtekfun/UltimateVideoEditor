@@ -47,6 +47,35 @@ class ProjectPresetsTest {
 
     @Test
     fun `the default stays 1080p`() {
-        assertEquals(1920 to 1080, ProjectPresets.defaultResolution.width to ProjectPresets.defaultResolution.height)
+        assertEquals(1920 to 1080, ProjectSizing.sizeFor(ProjectPresets.defaultAspect, ProjectPresets.defaultTier.shortSide))
+    }
+
+    @Test
+    fun `short names read like the labels people use`() {
+        assertEquals("1080p", resolutionShortName(1920, 1080))
+        assertEquals("1080p", resolutionShortName(1080, 1920))
+        assertEquals("720p", resolutionShortName(1280, 720))
+        assertEquals("1440p", resolutionShortName(2560, 1440))
+        assertEquals("4K", resolutionShortName(3840, 2160))
+        assertEquals("1080p", resolutionShortName(1080, 1350))
+        assertEquals("1000 × 1000", resolutionShortName(1000, 1000))
+    }
+
+    @Test
+    fun `a listed frame rate is reused and an unlisted one is kept`() {
+        assertEquals("29.97", ProjectPresets.fpsFor(30000, 1001).label)
+        assertEquals("30", ProjectPresets.fpsFor(60, 2).label)
+        assertEquals(48 to 1, ProjectPresets.fpsFor(48, 1).let { it.num to it.den })
+        assertEquals("48", ProjectPresets.fpsFor(48, 1).label)
+    }
+
+    @Test
+    fun `quick presets point at listed choices`() {
+        for (preset in ProjectPresets.quick) {
+            assertTrue(preset.aspect in ProjectPresets.aspects)
+            assertTrue(preset.tier in ProjectPresets.tiers)
+            assertTrue(preset.fps in ProjectPresets.fps)
+        }
+        assertEquals(1, ProjectPresets.quick.count { it.matchFirstClip })
     }
 }
