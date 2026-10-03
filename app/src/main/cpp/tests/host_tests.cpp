@@ -52,7 +52,7 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         w.put<int64_t>(c.sourceInFrame);
         w.put<int32_t>(c.sourceFpsNum);
         w.put<int32_t>(c.sourceFpsDen);
-        w.put<int32_t>(c.selected ? 1 : 0);
+        w.put<int32_t>((c.selected ? 1 : 0) | (c.hasFx ? 2 : 0));
     }
     w.put<int32_t>(static_cast<int32_t>(transitions.size()));
     for (const auto& t : transitions) {
@@ -85,6 +85,20 @@ static void testSnapshotRoundTrip() {
     CHECK(s.clips[1].clipKey == 8 && s.clips[1].startFrame == 50);
     CHECK(s.fpsNum == 30000 && s.fpsDen == 1001);
     CHECK(s.endFrame() == 100);
+}
+
+static void testSnapshotFxFlag() {
+    auto styled = clip(1, 0, 0, 10);
+    styled.hasFx = true;
+    auto both = clip(2, 0, 10, 10);
+    both.hasFx = true;
+    both.selected = true;
+    auto buf = makeSnapshot(1, {styled, both, clip(3, 0, 20, 10)});
+    timeline::TimelineSnapshot s;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].hasFx && !s.clips[0].selected);
+    CHECK(s.clips[1].hasFx && s.clips[1].selected);
+    CHECK(!s.clips[2].hasFx && !s.clips[2].selected);
 }
 
 static void testSnapshotTransitions() {
@@ -359,6 +373,7 @@ static void testPeaksFile() {
 
 int main() {
     testSnapshotRoundTrip();
+    testSnapshotFxFlag();
     testSnapshotTransitions();
     testSnapshotKeyframes();
     testSnapshotRejectsBadInput();

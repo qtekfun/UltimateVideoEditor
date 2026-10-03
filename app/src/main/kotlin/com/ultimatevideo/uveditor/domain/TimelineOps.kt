@@ -104,6 +104,9 @@ object TimelineOps {
     fun setMask(timeline: Timeline, clipId: String, mask: ClipMask?): EditResult<Timeline> =
         updateFx(timeline, clipId) { it.copy(mask = mask) }
 
+    /** Replaces the whole look at once (an inspector session commits this as one step). */
+    fun setFx(timeline: Timeline, clipId: String, fx: ClipFx): EditResult<Timeline> = updateFx(timeline, clipId) { fx }
+
     /** Back to a plain clip: no effects, normal blend, no mask. */
     fun clearFx(timeline: Timeline, clipId: String): EditResult<Timeline> =
         updateFx(timeline, clipId) { ClipFx.NONE }

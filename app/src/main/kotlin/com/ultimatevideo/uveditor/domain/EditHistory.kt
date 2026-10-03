@@ -74,6 +74,10 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setMask(timeline, clipId, mask)
     }
 
+    data class SetFx(val clipId: String, val fx: ClipFx) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setFx(timeline, clipId, fx)
+    }
+
     data class ClearFx(val clipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.clearFx(timeline, clipId)
     }

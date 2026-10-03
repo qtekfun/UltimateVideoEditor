@@ -144,3 +144,36 @@ costs no seek). **Why:** the scene API takes a static pose per call. **Alternati
 `Keyframes.evaluate` (floating-point contraction off so results match the JVM); both are tested with the same
 vectors. **Why:** same pattern as the crossfade curve. **Alternative:** sample poses per output frame in Kotlin
 and ship them as arrays (no duplicate maths, but large arrays and a per-frame Kotlin pass).
+
+## 2026-10-03 · Effects are one generic type with a parameter table, and their values are not keyframable
+**Chosen:** `Effect(id, type, values)` with `EffectType` carrying each parameter's name, range and default; one
+uber fragment shader switches on the type; the wire format is a flat `double` blob per layer. **Why:** adding an
+effect is a table row plus a shader branch and a CPU-reference case, instead of a sealed class, a DTO, a JNI
+shape and a UI row each. Keyframes are tied to the pose (`ClipTransform`), so keying effect values would need a
+second keyframe track and its own editing UI; static values cover the common looks. **Alternative:** a sealed
+class per effect (typed, but several copies per effect) and a general keyframed-property system.
+
+## 2026-10-03 · Every blend mode but normal reads a snapshot of the target instead of framebuffer fetch
+**Chosen:** copy the letterboxed target into a texture (`glCopyTexSubImage2D`) before drawing a blended layer
+and do the maths in the shader, with plain alpha blending for normal. **Why:** works on the window surface and on
+the export FBO without extensions, and overlay cannot be expressed with fixed-function blending anyway.
+**Alternative:** `GL_EXT_shader_framebuffer_fetch` (no copy, but not guaranteed on the default framebuffer) or
+rendering the whole scene through an FBO. The copy costs one viewport-sized blit per blended layer.
+
+## 2026-10-03 · Effects run at the size the layer covers on the canvas, premultiplied RGBA8
+**Chosen:** intermediates are the layer's fitted size (up to 4x when scaled up, capped at 4096 px), RGBA8
+premultiplied; blur sigma is a fraction of that height. **Why:** preview and export see the same pixels
+regardless of their output resolution, and memory is only spent on layers that have effects. **Alternative:**
+RGBA16F intermediates (no banding after several effects, twice the memory) or running at source resolution.
+
+## 2026-10-03 · The mask has sliders and a clip badge, but no drag handles on the preview
+**Chosen:** mask centre, size, feather, shape and invert are inspector sliders; clips with any look get a small
+badge on the timeline. **Why:** a handle overlay needs the layer's on-screen box, which depends on the video's
+display size that the editor state does not carry, and preview drags already move the clip. **Alternative:** an
+outline plus corner handles on the preview, once assets expose their display size to the UI.
+
+## 2026-10-03 · Chroma key works in the chroma plane with a spill pull to grey, not a despill matrix
+**Chosen:** distance between the pixel's and the key's (Cb, Cr) decides the alpha with similarity and
+smoothness; "spill" pulls colours just outside the keyed zone towards their luma. **Why:** it needs no per-key
+dominant-channel logic and behaves for green, blue and arbitrary key colours. **Alternative:** channel-based
+despill (`g = min(g, (r + b) / 2)` for green), which looks cleaner on green screens but only fits green or blue.

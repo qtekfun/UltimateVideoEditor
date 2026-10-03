@@ -307,6 +307,39 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   transitions, drawn as small diamonds on the clip header; version 2 snapshots still parse. The export request
   carries per-clip keyframes in three flat arrays (see `NativeExport.nativeStart`).
 
+### 5.12 Effects, masks and blend modes
+
+- **Model.** A video or title clip carries `fx` (`ClipFx`): an ordered list of effects (at most 8), a blend mode
+  and an optional mask. Audio clips cannot have any (the timeline invariants and `TimelineOps` refuse). Effect
+  values are static for the whole clip; keyframes only animate the pose and opacity (a future step can key the
+  values the same way).
+- **Effects** (`EffectType`, order and values are the wire format): brightness, contrast, saturation, exposure,
+  temperature, tint, gaussian blur, sharpen, vignette, grayscale, sepia, chroma key (key colour, similarity,
+  smoothness, spill). Colour effects run on display-referred straight RGB (after the HLG to SDR conversion).
+  Blur radius is a fraction of 2 % of the layer height, so it looks the same at any resolution.
+- **Mask** (`ClipMask`): rectangle or ellipse, in fractions of the layer's own box (so it follows the clip's
+  transform), with centre, size, feather (soft edge, half-width) and invert.
+- **Blend modes:** normal, add, multiply, screen, overlay.
+- **JSON** (per clip, all optional so older projects load): `"effects": [{"id", "type", "values": [...]}]`,
+  `"blendMode": "normal"`, `"mask": {"shape", "centerX", "centerY", "width", "height", "feather", "invert"}`.
+- **Rendering** (`GlPipeline::drawScene`). A layer with effects is first drawn at the size it covers on the
+  canvas (more when scaled up, at most 4096 px) into an RGBA8 intermediate, premultiplied, then one fullscreen
+  pass per effect ping-pongs between two intermediates (blur is two passes, one per axis, 33 taps with a spacing
+  that covers three sigma). Intermediates exist only while a layer uses effects. The result is composited with
+  the layer's transform like any other. The mask is a coverage factor evaluated in the composite pass. Blend
+  modes other than normal read a snapshot of the target below the layer (`glCopyTexSubImage2D` of the
+  letterboxed viewport) and mix in the shader, which works on any target (window surface or export FBO).
+  `render/effect_math.h` is the CPU reference of every formula (change shader and reference together); the host
+  tests pin them.
+- **One description for preview and export.** `RenderClip.fx` carries the look through the render plan;
+  `FxWire` (`engine/fx`) encodes one blob per layer into a flat `double` array that both `nativeSetScene` /
+  `nativePlayScene` and `nativeStart` receive and `core/layer_fx.h` parses. An empty array means no layer has
+  anything. The export reuses `drawScene`, so a frame exports as it previews.
+- **Editor.** The inspector lists effects (add, up, down, remove, sliders; chroma key picks its colour from
+  swatches), a blend mode row and mask controls. Sliders are shown live and make one undo step on release;
+  everything else is one step. A small badge on the clip header marks clips that have a look (timeline snapshot
+  clip flags bit 1).
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
