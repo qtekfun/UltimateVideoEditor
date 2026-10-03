@@ -39,7 +39,7 @@ object ClipDeletion {
      * overlapping an edge are trimmed, a clip spanning the whole range is cut in two, and
      * everything after the range moves left by its length.
      */
-    private fun removeRange(timeline: Timeline, trackId: String, start: FrameIndex, end: FrameIndex): EditResult<Timeline> {
+    internal fun removeRange(timeline: Timeline, trackId: String, start: FrameIndex, end: FrameIndex): EditResult<Timeline> {
         var current = timeline
         val length = end - start
         for (original in checkNotNull(timeline.track(trackId)).clips) {
