@@ -1,5 +1,8 @@
 package com.ultimatevideo.uveditor.domain
 
+/** The largest LUT library key, so that it is exact as a float on the native side. */
+const val MAX_LUT_KEY = 16_777_215.0
+
 /** One tunable value of an [EffectType]. [min]/[max] bound the slider and validation. */
 data class EffectParam(val name: String, val min: Double, val max: Double, val default: Double)
 
@@ -51,9 +54,6 @@ enum class EffectType(val code: Int, val label: String, val params: List<EffectP
     val defaults: List<Double> get() = params.map { it.default }
 
     companion object {
-        /** The largest LUT key, so that it is exact as a float on the native side. */
-        const val MAX_LUT_KEY = 16_777_215.0
-
         fun fromCode(code: Int): EffectType? = entries.firstOrNull { it.code == code }
     }
 }

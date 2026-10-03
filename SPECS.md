@@ -249,6 +249,10 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 - Waveform worker decodes PCM from clips in the background, computes min/max peak pyramids at several
   zoom levels, and caches them on disk (`waveforms/<assetId>.peaks`). Timeline renderer reads the cache.
 
+### 5.6b 3D LUT effect
+
+`EffectType.LUT` (wire code 13, values `[libraryKey, intensity]`). `.cube` files (3D, sizes 2..65, default domain) are imported into `LutStore`; the preview uploads a used LUT once (`PreviewEngine.uploadLut`) and the exporter receives it in `ExportRequest.luts`. The effect pass samples an RGB16F `GL_TEXTURE_3D` trilinearly (`render/gl_pipeline.cpp`, `kEffectFragment` type 13; CPU reference `applyLut` in `render/effect_math.h`) on the layer's working-space pixels. A missing LUT is skipped.
+
 ### 5.7 Titles and transitions
 - **One render plan.** `domain/RenderPlan.kt` turns the timeline into `RenderClip`s: every clip with its
   transitions folded in (extended range, `crossfadeInFrames` for the incoming clip's fade, `crossfadeOutFrames`

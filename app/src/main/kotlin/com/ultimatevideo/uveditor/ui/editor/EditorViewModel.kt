@@ -42,6 +42,7 @@ import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.EditCommand
 import com.ultimatevideo.uveditor.domain.Effect
+import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.EditError
 import com.ultimatevideo.uveditor.domain.EditHistory
 import com.ultimatevideo.uveditor.domain.EditResult

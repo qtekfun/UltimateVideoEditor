@@ -50,6 +50,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.ui.preview.wantedOutputSpace
 import com.ultimatevideo.uveditor.ui.preview.DisplayHdr
@@ -148,6 +149,17 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         },
     )
     ExportHost(exportViewModel)
+    if (state.lutPickerOpen) {
+        LutPickerDialog(
+            state = lutState,
+            onPick = { viewModel.onIntent(EditorIntent.AddLut(it)) },
+            onImport = { uri -> lutLibrary.import(uri) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
+            onDismiss = {
+                lutLibrary.clearError()
+                viewModel.onIntent(EditorIntent.CloseLutPicker)
+            },
+        )
+    }
 
     val captionsViewModel: CaptionsViewModel = viewModel(
         key = "captions-$projectId",
@@ -354,6 +366,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         audio.releaseDevice()
     }
 
+    CompositionLocalProvider(LocalLutNames provides lutState.names) {
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         when {
             state.isLoading -> Column(
@@ -391,6 +404,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 }
             }
         }
+    }
     }
 }
 
@@ -547,17 +561,6 @@ private fun EditorMain(
             SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
         }
         if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
-        if (state.lutPickerOpen) {
-            LutPickerDialog(
-                state = lutState,
-                onPick = { viewModel.onIntent(EditorIntent.AddLut(it)) },
-                onImport = { uri -> lutLibrary.import(uri) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
-                onDismiss = {
-                    lutLibrary.clearError()
-                    viewModel.onIntent(EditorIntent.CloseLutPicker)
-                },
-            )
-        }
 
         // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
         // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
