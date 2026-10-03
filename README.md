@@ -110,6 +110,10 @@ CI runs the unit tests, the debug build and the native host tests on every pull 
 - The speech model for auto captions is downloaded at runtime (first use) and never bundled in the APK.
 - The screen must be unlocked to see the UI; check which app is in the foreground before sending `adb shell input`.
 
+## Using the app
+
+See the [user guide](docs/USER_GUIDE.md) for the screens, every toolbar icon and the main gestures.
+
 ## Roadmap
 
 [PLAN.md](PLAN.md) lists the phases with their gates and what is still open: verifying the pipeline on real footage and
