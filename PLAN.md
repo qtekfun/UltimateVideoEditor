@@ -127,3 +127,30 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Move lanes up/down (toolbar)
 - [ ] Verified on the OPPO (the device was unreachable when this was written)
 - [ ] Insert on overlay/audio lanes (deferred)
+
+## Phase 8 — Closing the gaps with LumaFusion (queued work packages)
+Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; the research behind them is in
+`docs/lumafusion-comparison.md`. Run at most two packages at a time, in the waves listed in SPECS 9.0.
+
+### Wave 1
+- [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect (lift/gamma/gain wheels, curves, contrast, saturation); looks (needs the in-flight 3D LUT and per-clip colour PRs merged first)
+- [ ] WP-S Multiselect and bulk edits: selection model, marquee, group move/delete/duplicate, copy/paste (clips and attributes), apply transition to many, head and tail dissolves
+
+### Wave 2
+- [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness normalise, track volume/mute/solo, auto-ducking, meters
+- [ ] WP-T Multilayer titles and fonts: text + shape + image layers, custom fonts, shareable presets, title editor
+
+### Wave 3
+- [ ] WP-K Generalised keyframes: parameter tracks for effects, grade and audio, Bezier handles, keyframe lane (after WP-C and WP-A)
+- [ ] WP-X Stabiliser: analysis, path smoothing, crop levels, cached per asset
+
+### Wave 4
+- [ ] WP-I Interchange and media library: project bundle, EDL, FCPXML subset, tags, search, find in timeline/library
+- [ ] WP-P Proxy media: background proxies, preview-only use, budget and eviction
+
+### Wave 5
+- [ ] WP-M Multicam: audio sync, up to 6 angles, live switching, flatten (after WP-A, WP-S, WP-P)
+- [ ] WP-R Release preparation: signing, release CI, R8, privacy note, store checklist, onboarding tips
+
+### Standing requirement for every package
+- [ ] Verified on the OPPO CPH2841 (list what was and was not seen in the PR body)
