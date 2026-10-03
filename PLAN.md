@@ -14,11 +14,11 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** `./gradlew :app:assembleDebug` and `:app:testDebugUnitTest` pass; app launches on device and shows the JNI version string.
 
 ## Phase 1 — Project hub
-- [ ] Hub UI (project list, empty/welcome state)
-- [ ] New Project dialog (resolution, FPS rational, colour space)
-- [ ] `project.json` model + serialization (kotlinx.serialization), atomic writes, forward-compatible
-- [ ] CRUD: create, clone, delete, rename; import/export via SAF
-- [ ] Unit tests: serialization round-trips, repository operations
+- [x] Hub UI (project list, empty/welcome state)
+- [x] New Project dialog (resolution, FPS rational, colour space)
+- [x] `project.json` model + serialization (kotlinx.serialization), atomic writes, forward-compatible
+- [x] CRUD: create, clone, delete, rename; import/export via SAF
+- [x] Unit tests: serialization round-trips, repository operations
 - **Gate:** projects survive app restarts; JSON validates against the SPECS schema.
 
 ## Phase 2 — Domain timeline and operations (pure Kotlin, TDD)
