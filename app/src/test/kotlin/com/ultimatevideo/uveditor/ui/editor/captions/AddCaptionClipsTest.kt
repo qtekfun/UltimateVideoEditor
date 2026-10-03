@@ -150,4 +150,39 @@ class AddCaptionClipsTest {
         assertFalse(vm.state.value.canUndo)
         assertTrue(effects.any { it is EditorEffect.ShowMessage })
     }
+
+    @Test
+    fun `typed captions go on the existing caption track, imported ones get a track of their own`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.onIntent(EditorIntent.AddCaptionClips(captionClips()))
+        val captionTrackId = vm.state.value.timeline.tracks.first().id
+        val more = listOf(CaptionCue(FrameIndex(120), FrameIndex(150), "Another one."))
+        val typed = CaptionStyle.BOLD.clipsFor(more, 1920) { "typed" }
+
+        vm.onIntent(EditorIntent.AddCaptionClips(typed, intoExistingTrack = true))
+        val tracks = vm.state.value.timeline.tracks
+        assertEquals(1, tracks.count { it.type == TrackType.TITLE })
+        assertEquals(3, tracks.first { it.id == captionTrackId }.clips.size)
+        assertTrue(vm.state.value.timeline.invariantViolations().isEmpty())
+
+        vm.onIntent(EditorIntent.Undo)
+        assertEquals(2, vm.state.value.timeline.tracks.first { it.id == captionTrackId }.clips.size)
+
+        vm.onIntent(EditorIntent.AddCaptionClips(typed, intoExistingTrack = false))
+        assertEquals(2, vm.state.value.timeline.tracks.count { it.type == TrackType.TITLE })
+    }
+
+    @Test
+    fun `a typed caption starts a caption track when there is none, and ordinary titles are not used`() = runTest(dispatcher) {
+        val vm = viewModel()
+        vm.onIntent(EditorIntent.AddTitle)
+        val typed = CaptionStyle.BOLD.clipsFor(cues.take(1), 1920) { "typed" }
+
+        vm.onIntent(EditorIntent.AddCaptionClips(typed, intoExistingTrack = true))
+
+        val titleTracks = vm.state.value.timeline.tracks.filter { it.type == TrackType.TITLE }
+        assertEquals(2, titleTracks.size)
+        assertEquals(1, titleTracks.count { track -> track.clips.any { it.id.startsWith("caption-") } })
+        assertTrue(vm.state.value.timeline.invariantViolations().isEmpty())
+    }
 }

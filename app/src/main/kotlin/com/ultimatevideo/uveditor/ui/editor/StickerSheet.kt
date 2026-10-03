@@ -6,18 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,25 +28,18 @@ import com.ultimatevideo.uveditor.engine.still.StickerIds
 import com.ultimatevideo.uveditor.engine.still.StickerInfo
 
 /**
- * Picks one of the built-in stickers. Each tile is drawn with the same [StickerArt] the compositor
- * uses, so what is listed is what lands on the timeline. The picked sticker goes to an overlay lane
- * at the playhead (see `EditorViewModel`).
+ * Lists the built-in stickers. Each tile is drawn with the same [StickerArt] the compositor uses, so what
+ * is listed is what lands on the timeline. The picked sticker goes to an overlay lane at the playhead
+ * (see `EditorViewModel`). Shown as the Stickers tab of the media tray.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun StickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+internal fun StickerChooser(onPick: (String) -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Stickers", style = MaterialTheme.typography.titleMedium)
-            StickerGroup("Shapes", StickerIds.shapes, onPick)
-            StickerGroup("Emoji", StickerIds.emoji, onPick)
-        }
+        StickerGroup("Shapes", StickerIds.shapes, onPick)
+        StickerGroup("Emoji", StickerIds.emoji, onPick)
     }
 }
 

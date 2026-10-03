@@ -86,14 +86,10 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       Follow-ups: pitch-preserving time stretch, frame blending for slow motion
 - [x] Chainable shader effects, chroma key, masks, blend modes — domain, JSON, undo, JVM and host tests pass and the
       native engine compiles; the shaders and the inspector are not yet seen on the device (adb offline)
-- [ ] Automatic subtitles (on-device transcription) and animated caption styles
-  - _Status (captions):_ implemented but not yet verified on the device (adb was offline): whisper.cpp v1.9.4 in the engine,
-    model download with checksum, audio -> 16 kHz mono -> word timestamps -> caption title clips on a new track (one undo), four
-    static styles, "Auto captions" sheet in the editor. Still to do: run it on the phone.
-  - _Status (animated captions):_ implemented and unit-tested, not yet seen on the device (adb was offline): captions keep
-    per-word timing; karaoke highlight, word-by-word pop-in, typewriter and bounce entrance styles; per-frame look evaluated
-    in Kotlin so preview and export draw the same pictures; style picker with colour options and "restyle all captions"
-    (one undo step). The box stays open until the transcription and the animated looks have been run on the phone.
+- [x] Captions: typed or imported from `.srt` / `.vtt`, eight animated styles, restyle all (one undo step). Fully offline:
+      the earlier on-device speech recognition (whisper.cpp, model download, INTERNET permission) was removed for the privacy
+      rule. Subtitle parsing, frame conversion, the sheet's view model and caption placement are covered by JVM tests; the
+      sheet and the animated looks have not been seen on the device yet.
 - [x] Photos and stickers: import images, still clips on video tracks (default 5 s, free to stretch), a built-in sticker set
       (8 drawn shapes + 8 emoji) and an 'Add sticker' picker; same compositor path and effects/keyframes as titles, in
       preview and export. Domain, JSON, preview scene and export plan are covered by JVM tests; nothing of this has been
@@ -134,8 +130,9 @@ Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; t
 waves of SPECS 9.20.
 
 ### Wave 0 — usability first
-- [ ] WP-U1 New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
-- [ ] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+- [x] WP-U1 (JVM-tested; not yet seen on the device) New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
+- [x] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+      _Status:_ implemented and unit-tested (domain `DropPlan.decideNew`, tray model, ViewModel drag/drop/import/reorder, drag payload helpers); **not seen on the OPPO** (not reachable by adb when this was built): the tray layout, the platform drag from tray to the native canvas, edge auto-scroll while dragging, drops from other apps and the drag shadow still need a manual check.
 
 ### Wave 1
 - [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
@@ -154,12 +151,12 @@ waves of SPECS 9.20.
 - [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search
 
 ### Wave 5 — CapCut-style creator tools
-- [ ] WP-V1 Smart cutout and motion tracking
+- [ ] WP-V1 Motion tracking (classical tracker)
 - [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker
 
 ### Wave 6
-- [ ] WP-V2 Auto reframe and auto cut
-- [ ] WP-V3 Text to speech, voice effects, vocal isolation
+- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper
+- [ ] WP-V3 Voice effects (classical DSP)
 
 ### Wave 7
 - [ ] WP-P Proxy media
@@ -169,5 +166,6 @@ waves of SPECS 9.20.
 - [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
 - [ ] WP-R Release preparation
 
-### Standing requirement for every package
+### Standing requirements for every package
+- [ ] Privacy rule: no AI/ML, no network, no third-party service, no analytics (`docs/PRIVACY.md`; `OfflineGuaranteeTest` enforces the technical part)
 - [ ] Verified on the OPPO CPH2841 (list what was and was not seen in the PR body)
