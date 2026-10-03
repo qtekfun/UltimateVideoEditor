@@ -52,6 +52,7 @@ android {
 
     buildFeatures {
         compose = true
+        prefab = true
     }
 }
 
@@ -73,6 +74,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.oboe)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

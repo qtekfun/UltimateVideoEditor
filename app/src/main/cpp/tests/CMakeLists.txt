@@ -1,5 +1,5 @@
 # Host (desktop) build of the pure-logic engine code. Not part of the Gradle/NDK build.
-#   cmake -S app/src/main/cpp/tests -B /tmp/uv-host && cmake --build /tmp/uv-host && /tmp/uv-host/uv_host_tests
+#   cmake -S app/src/main/cpp/tests -B /tmp/uv-host && cmake --build /tmp/uv-host && ctest --test-dir /tmp/uv-host
 cmake_minimum_required(VERSION 3.22)
 project(uveditor_host_tests LANGUAGES CXX)
 
@@ -18,5 +18,21 @@ add_executable(uv_host_tests
 target_include_directories(uv_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# Audio playback core (mixer, clock, resampler, worker) driven by a fake decoder.
+add_executable(uv_audio_host_tests
+    audio_host_tests.cpp
+    ${ENGINE_DIR}/core/error.cpp
+    ${ENGINE_DIR}/audio/audio_core.cpp
+    ${ENGINE_DIR}/audio/audio_mixer.cpp
+    ${ENGINE_DIR}/audio/audio_snapshot.cpp
+    ${ENGINE_DIR}/audio/clip_buffer.cpp
+    ${ENGINE_DIR}/audio/resampler.cpp
+)
+target_include_directories(uv_audio_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
+find_package(Threads REQUIRED)
+target_link_libraries(uv_audio_host_tests PRIVATE Threads::Threads)
+
 enable_testing()
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
+add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
