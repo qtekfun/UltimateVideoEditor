@@ -1482,6 +1482,7 @@ class EditorViewModel(
         EditError.SourceOutOfRange -> "That is beyond the end of the source media"
         is EditError.InvalidTrim -> "That trim is not possible: ${error.reason}"
         is EditError.InvalidAppearance -> "That value is not allowed: ${error.reason}"
+        is EditError.InvalidAudio -> "That audio setting is not allowed: ${error.reason}"
         is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
         is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
         is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"

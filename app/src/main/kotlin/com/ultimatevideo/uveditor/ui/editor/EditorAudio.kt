@@ -3,9 +3,13 @@ package com.ultimatevideo.uveditor.ui.editor
 import android.content.Context
 import android.net.Uri
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.AudioRole
+import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.isTrackAudible
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.audio.AudioClipSpec
@@ -13,7 +17,13 @@ import com.ultimatevideo.uveditor.engine.audio.AudioException
 import com.ultimatevideo.uveditor.engine.audio.AudioFault
 import com.ultimatevideo.uveditor.engine.audio.AudioPlaybackEngine
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
+import com.ultimatevideo.uveditor.engine.audio.AudioTrackSpec
+import com.ultimatevideo.uveditor.engine.audio.CompressorSpec
+import com.ultimatevideo.uveditor.engine.audio.DuckingSpec
+import com.ultimatevideo.uveditor.engine.audio.EqBandSpec
+import com.ultimatevideo.uveditor.engine.audio.EqSpec
 import com.ultimatevideo.uveditor.engine.audio.RetimeKnot
+import com.ultimatevideo.uveditor.engine.audio.TrackRole
 import com.ultimatevideo.uveditor.domain.RenderClip
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,11 +45,21 @@ internal fun audioSnapshotOf(
     assetKey: (String) -> Long,
 ): AudioSnapshot {
     val withAudio = assets.filter { it.hasAudio }.associateBy { it.id }
+    // One mixer track per timeline track that can carry sound (video clips bring their embedded audio).
+    val mixerTracks = timeline.tracks.filter { it.type != TrackType.TITLE }
+    val indexOfTrack = mixerTracks.withIndex().associate { (i, t) -> t.id to i }
     val specs = timeline.renderClips().mapNotNull { clip ->
         if (clip.kind == RenderKind.TITLE) return@mapNotNull null
         val asset = withAudio[clip.assetId] ?: return@mapNotNull null
+        val trackIndex = indexOfTrack[clip.trackId] ?: return@mapNotNull null
         val knots = retimeKnotsOf(clip)
         if (clip.retime != null && knots.isEmpty()) return@mapNotNull null // too fast, too slow or frozen: silent
+        val tools = clip.audio
+        // The clip's own fade handles are measured from the clip's own start and end. Where a transition
+        // already ramps that edge (the render window starts earlier or ends later) the crossfade is the fade.
+        val fadeIn = if (clip.crossfadeInFrames > 0) 0L else tools.fadeInFrames
+        val fadeOut = if (clip.crossfadeOutFrames > 0) 0L else tools.fadeOutFrames
+        val denoise = tools.denoise
         AudioClipSpec(
             clipKey = clipKey(clip.clipId),
             assetKey = assetKey(asset.id),
@@ -49,14 +69,55 @@ internal fun audioSnapshotOf(
             // A clip's source range is in project frames, so the source rate is the project's.
             sourceFpsNum = fps.num,
             sourceFpsDen = fps.den,
-            gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
+            // Volume and the stored loudness-normalise gain share one stage.
+            gainDb = (clip.gainDb + tools.normalizeDb).toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
             fadeInFrames = clip.crossfadeInFrames,
             fadeOutFrames = clip.crossfadeOutFrames,
             retimeKnots = knots,
+            trackIndex = trackIndex,
+            pan = tools.pan.toFloat(),
+            userFadeInFrames = fadeIn.coerceIn(0, clip.durationFrames),
+            userFadeOutFrames = fadeOut.coerceIn(0, clip.durationFrames),
+            eq = eqSpecOf(tools.eq),
+            denoiseStrength = denoise?.strength?.toFloat() ?: 0f,
+            noiseProfile = denoise?.profile ?: emptyList(),
         )
     }
-    return AudioSnapshot(fps.num, fps.den, specs)
+    val tracks = mixerTracks.map { track ->
+        val a = track.audio
+        AudioTrackSpec(
+            trackKey = stableTrackKey(track.id),
+            gainDb = a.volumeDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
+            muted = !timeline.isTrackAudible(track),
+            role = when (a.role) {
+                AudioRole.NORMAL -> TrackRole.NORMAL
+                AudioRole.VOICE -> TrackRole.VOICE
+                AudioRole.MUSIC -> TrackRole.MUSIC
+            },
+            compressor = a.compressor?.let {
+                CompressorSpec(it.thresholdDb.toFloat(), it.ratio.toFloat(), it.attackMs.toFloat(), it.releaseMs.toFloat(), it.makeupDb.toFloat())
+            },
+        )
+    }.ifEmpty { listOf(AudioTrackSpec(trackKey = 0)) }
+    val ducking = timeline.ducking?.takeIf { it.amountDb > 0.0 }?.let {
+        DuckingSpec(it.amountDb.toFloat(), it.thresholdDb.toFloat(), it.attackMs.toFloat(), it.releaseMs.toFloat())
+    }
+    return AudioSnapshot(fps.num, fps.den, specs, tracks, ducking)
 }
+
+/** A key for a track id that is stable across snapshots, so the mixer keeps its envelopes running through edits. */
+internal fun stableTrackKey(trackId: String): Long = trackId.hashCode().toLong()
+
+internal fun eqSpecOf(eq: ClipEq): EqSpec =
+    if (eq.isFlat) {
+        EqSpec.FLAT
+    } else {
+        EqSpec(
+            highPassHz = eq.highPassHz.toFloat(),
+            lowPassHz = eq.lowPassHz.toFloat(),
+            bands = eq.bands.map { EqBandSpec(it.freqHz.toFloat(), it.gainDb.toFloat(), it.q.toFloat()) },
+        )
+    }
 
 /** Slowest and fastest source speed (frames per timeline frame) that is still played; beyond it a clip is muted. */
 internal const val MIN_AUDIBLE_SPEED = 0.25

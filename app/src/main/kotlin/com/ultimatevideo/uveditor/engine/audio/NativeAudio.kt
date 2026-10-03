@@ -23,4 +23,8 @@ internal object NativeAudio {
     external fun nativeStats(handle: Long): LongArray?
     external fun nativePollFaults(handle: Long): LongArray?
     external fun nativeRenderOffline(handle: Long, out: FloatArray, frames: Int): Long
+    external fun nativeTakePeaks(handle: Long): FloatArray?
+    external fun nativeMeasureLoudness(handle: Long, assetKey: Long, startMicros: Long, endMicros: Long): DoubleArray?
+    external fun nativeMeasureNoiseProfile(handle: Long, assetKey: Long, startMicros: Long, endMicros: Long): FloatArray?
+    external fun nativeCancelAnalysis(handle: Long)
 }

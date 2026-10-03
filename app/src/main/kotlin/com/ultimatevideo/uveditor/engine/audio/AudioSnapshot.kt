@@ -9,6 +9,106 @@ import java.nio.ByteOrder
  */
 data class RetimeKnot(val frame: Long, val sourceFrame: Double)
 
+/** One EQ band: a low shelf, three peaking bands and a high shelf, in that order. [gainDb] 0 leaves it off. */
+data class EqBandSpec(val freqHz: Float, val gainDb: Float = 0f, val q: Float = 1f) {
+    init {
+        require(freqHz.isFinite() && freqHz in MIN_FILTER_HZ..MAX_FILTER_HZ) { "EQ frequency $freqHz Hz is out of range" }
+        require(gainDb.isFinite() && gainDb in MIN_EQ_GAIN_DB..MAX_EQ_GAIN_DB) { "EQ gain $gainDb dB is out of range" }
+        require(q.isFinite() && q in MIN_Q..MAX_Q) { "EQ Q $q is out of range" }
+    }
+
+    companion object {
+        const val MIN_FILTER_HZ = 20f
+        const val MAX_FILTER_HZ = 20000f
+        const val MIN_EQ_GAIN_DB = -18f
+        const val MAX_EQ_GAIN_DB = 18f
+        const val MIN_Q = 0.1f
+        const val MAX_Q = 18f
+    }
+}
+
+/** The clip's EQ: optional high-pass and low-pass (0 = off) and the five bands. */
+data class EqSpec(
+    val highPassHz: Float = 0f,
+    val lowPassHz: Float = 0f,
+    val bands: List<EqBandSpec> = DEFAULT_BANDS,
+) {
+    init {
+        require(bands.size == BAND_COUNT) { "an EQ has $BAND_COUNT bands, got ${bands.size}" }
+        require(highPassHz == 0f || (highPassHz.isFinite() && highPassHz in EqBandSpec.MIN_FILTER_HZ..EqBandSpec.MAX_FILTER_HZ)) {
+            "high-pass $highPassHz Hz is out of range"
+        }
+        require(lowPassHz == 0f || (lowPassHz.isFinite() && lowPassHz in EqBandSpec.MIN_FILTER_HZ..EqBandSpec.MAX_FILTER_HZ)) {
+            "low-pass $lowPassHz Hz is out of range"
+        }
+    }
+
+    companion object {
+        const val BAND_COUNT = 5
+        val DEFAULT_BANDS = listOf(
+            EqBandSpec(100f, 0f, 0.7071f),
+            EqBandSpec(400f),
+            EqBandSpec(1500f),
+            EqBandSpec(5000f),
+            EqBandSpec(10000f, 0f, 0.7071f),
+        )
+        val FLAT = EqSpec()
+    }
+}
+
+/** Role of a track for ducking: the voice drives the gain reduction applied to the music. */
+enum class TrackRole(val value: Int) { NORMAL(0), VOICE(1), MUSIC(2) }
+
+/** Bus compressor of a track (a feed-forward peak compressor with linked channels). */
+data class CompressorSpec(
+    val thresholdDb: Float = -18f,
+    val ratio: Float = 3f,
+    val attackMs: Float = 10f,
+    val releaseMs: Float = 120f,
+    val makeupDb: Float = 0f,
+) {
+    init {
+        require(thresholdDb.isFinite() && thresholdDb in -80f..0f) { "compressor threshold $thresholdDb dB is out of range" }
+        require(ratio.isFinite() && ratio in 1f..20f) { "compressor ratio $ratio is out of range" }
+        require(attackMs.isFinite() && attackMs in 0.1f..500f) { "compressor attack $attackMs ms is out of range" }
+        require(releaseMs.isFinite() && releaseMs in 1f..5000f) { "compressor release $releaseMs ms is out of range" }
+        require(makeupDb.isFinite() && makeupDb in 0f..24f) { "compressor make-up $makeupDb dB is out of range" }
+    }
+}
+
+/**
+ * One track as the mixer sees it. [gainDb] and [muted] already include solo handling (the editor
+ * mutes every other track while one is soloed); the mixer ramps them so toggling never clicks.
+ */
+data class AudioTrackSpec(
+    val trackKey: Long,
+    val gainDb: Float = 0f,
+    val muted: Boolean = false,
+    val role: TrackRole = TrackRole.NORMAL,
+    val compressor: CompressorSpec? = null,
+) {
+    init {
+        require(gainDb.isFinite() && gainDb in AudioClipSpec.MIN_GAIN_DB..AudioClipSpec.MAX_GAIN_DB) {
+            "track $trackKey gain $gainDb dB is out of range"
+        }
+    }
+}
+
+/** Sidechain ducking: while a voice track is audible the music tracks drop by [amountDb]. */
+data class DuckingSpec(
+    val amountDb: Float,
+    val thresholdDb: Float = -35f,
+    val attackMs: Float = 20f,
+    val releaseMs: Float = 400f,
+) {
+    init {
+        require(amountDb.isFinite() && amountDb in 0f..48f) { "ducking amount $amountDb dB is out of range" }
+        require(thresholdDb.isFinite() && thresholdDb in -80f..0f) { "ducking threshold $thresholdDb dB is out of range" }
+        require(attackMs.isFinite() && attackMs in 1f..5000f) { "ducking attack $attackMs ms is out of range" }
+        require(releaseMs.isFinite() && releaseMs in 1f..5000f) { "ducking release $releaseMs ms is out of range" }
+    }
+}
+
 /**
  * One audio clip as the engine needs it. Times are integer frames: [startFrame] and
  * [durationFrames] in project frames, [sourceInFrame] in the asset's native frames at
@@ -34,8 +134,27 @@ data class AudioClipSpec(
      * mixer interpolates linearly between knots, so the pitch follows the speed.
      */
     val retimeKnots: List<RetimeKnot> = emptyList(),
+    /** Index of this clip's track in [AudioSnapshot.tracks]. */
+    val trackIndex: Int = 0,
+    /** Balance, -1 (left) to 1 (right); 0 leaves the signal untouched. */
+    val pan: Float = 0f,
+    /** The clip's own fade handles, equal power, in project frames (0 = none). */
+    val userFadeInFrames: Long = 0,
+    val userFadeOutFrames: Long = 0,
+    val eq: EqSpec = EqSpec.FLAT,
+    /** Noise suppression strength 0..1 (0 = off); [noiseProfile] must then hold [NOISE_PROFILE_BINS] magnitudes. */
+    val denoiseStrength: Float = 0f,
+    val noiseProfile: List<Float> = emptyList(),
 ) {
     init {
+        require(trackIndex >= 0) { "clip $clipKey has a negative track index" }
+        require(pan.isFinite() && pan in -1f..1f) { "clip $clipKey pan $pan is out of range" }
+        require(userFadeInFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-in handle $userFadeInFrames" }
+        require(userFadeOutFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-out handle $userFadeOutFrames" }
+        require(denoiseStrength.isFinite() && denoiseStrength in 0f..1f) { "clip $clipKey noise suppression $denoiseStrength is out of range" }
+        require((denoiseStrength > 0f) == noiseProfile.isNotEmpty()) { "clip $clipKey needs a noise profile exactly when noise suppression is on" }
+        require(noiseProfile.isEmpty() || noiseProfile.size == NOISE_PROFILE_BINS) { "clip $clipKey noise profile has ${noiseProfile.size} bins" }
+        require(noiseProfile.all { it.isFinite() && it >= 0f }) { "clip $clipKey noise profile has an invalid magnitude" }
         require(startFrame in 0..MAX_FRAME) { "clip $clipKey has an invalid start $startFrame" }
         require(durationFrames in 1..MAX_FRAME) { "clip $clipKey has an invalid duration $durationFrames" }
         require(sourceInFrame in 0..MAX_FRAME) { "clip $clipKey has an invalid source in-point $sourceInFrame" }
@@ -60,6 +179,8 @@ data class AudioClipSpec(
         const val MIN_GAIN_DB = -96f
         const val MAX_GAIN_DB = 24f
         const val MAX_KNOTS = 4096
+        /** STFT bins of a noise profile; see `kDenoiseBins` in spectral_denoise.h. */
+        const val NOISE_PROFILE_BINS = 513
     }
 }
 
@@ -71,21 +192,51 @@ data class AudioSnapshot(
     val fpsNum: Int,
     val fpsDen: Int,
     val clips: List<AudioClipSpec>,
+    /** The tracks the clips refer to by [AudioClipSpec.trackIndex]; one default track when none is given. */
+    val tracks: List<AudioTrackSpec> = listOf(AudioTrackSpec(trackKey = 0)),
+    /** Ducking of the music tracks by the voice tracks; null or an amount of 0 is off. */
+    val ducking: DuckingSpec? = null,
+    /** Master limiter at -1 dBFS; on unless a test wants the raw sum. */
+    val limiterOn: Boolean = true,
 ) {
     init {
         require(fpsNum > 0 && fpsDen > 0) { "fps must be positive: $fpsNum/$fpsDen" }
         require(clips.map { it.clipKey }.toSet().size == clips.size) { "clip keys must be unique" }
+        require(tracks.isNotEmpty() && tracks.size <= MAX_TRACKS) { "an audio snapshot needs 1..$MAX_TRACKS tracks, got ${tracks.size}" }
+        require(clips.all { it.trackIndex < tracks.size }) { "a clip refers to a track that does not exist" }
     }
 
     /** Encodes into a direct little-endian buffer (layout documented in audio_snapshot.h). */
     fun encode(): ByteBuffer {
         val knotCount = clips.sumOf { it.retimeKnots.size }
-        val buffer = ByteBuffer.allocateDirect(HEADER_BYTES + clips.size * CLIP_BYTES + knotCount * KNOT_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+        val profileFloats = clips.sumOf { it.noiseProfile.size }
+        val size = HEADER_BYTES + tracks.size * TRACK_BYTES + DUCKING_BYTES + clips.size * CLIP_BYTES +
+            knotCount * KNOT_BYTES + profileFloats * Float.SIZE_BYTES
+        val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
         buffer.putInt(fpsNum)
         buffer.putInt(fpsDen)
         buffer.putInt(clips.size)
+        buffer.putInt(tracks.size)
+        buffer.putInt(if (limiterOn) 0 else 1)
+        for (track in tracks) {
+            val comp = track.compressor
+            buffer.putLong(track.trackKey)
+            buffer.putFloat(track.gainDb)
+            buffer.putInt((if (track.muted) 1 else 0) or (if (comp != null) 2 else 0))
+            buffer.putInt(track.role.value)
+            buffer.putFloat(comp?.thresholdDb ?: -18f)
+            buffer.putFloat(comp?.ratio ?: 3f)
+            buffer.putFloat(comp?.attackMs ?: 10f)
+            buffer.putFloat(comp?.releaseMs ?: 120f)
+            buffer.putFloat(comp?.makeupDb ?: 0f)
+        }
+        val duck = ducking ?: DuckingSpec(amountDb = 0f)
+        buffer.putFloat(duck.amountDb)
+        buffer.putFloat(duck.thresholdDb)
+        buffer.putFloat(duck.attackMs)
+        buffer.putFloat(duck.releaseMs)
         for (clip in clips) {
             buffer.putLong(clip.clipKey)
             buffer.putLong(clip.assetKey)
@@ -98,13 +249,31 @@ data class AudioSnapshot(
             buffer.putInt(clip.fadeInFrames.toInt())
             buffer.putInt(clip.fadeOutFrames.toInt())
             buffer.putInt(clip.retimeKnots.size)
+            // The audio block.
+            buffer.putInt(clip.trackIndex)
+            buffer.putFloat(clip.pan)
+            buffer.putInt(clip.userFadeInFrames.toInt())
+            buffer.putInt(clip.userFadeOutFrames.toInt())
+            buffer.putFloat(clip.eq.highPassHz)
+            buffer.putFloat(clip.eq.lowPassHz)
+            for (band in clip.eq.bands) {
+                buffer.putFloat(band.freqHz)
+                buffer.putFloat(band.gainDb)
+                buffer.putFloat(band.q)
+            }
+            buffer.putFloat(clip.denoiseStrength)
+            buffer.putInt(clip.noiseProfile.size)
+            buffer.putInt(0) // reserved
         }
-        // The knots of all clips follow, in clip order.
+        // The knots of all clips follow, in clip order, then the noise profiles.
         for (clip in clips) {
             for (knot in clip.retimeKnots) {
                 buffer.putLong(knot.frame)
                 buffer.putDouble(knot.sourceFrame)
             }
+        }
+        for (clip in clips) {
+            for (magnitude in clip.noiseProfile) buffer.putFloat(magnitude)
         }
         buffer.flip()
         return buffer
@@ -112,9 +281,12 @@ data class AudioSnapshot(
 
     companion object {
         const val MAGIC = 0x53415655 // "UVAS"
-        const val VERSION = 3
-        const val HEADER_BYTES = 20
-        const val CLIP_BYTES = 64
+        const val VERSION = 4
+        const val HEADER_BYTES = 28
+        const val TRACK_BYTES = 40
+        const val DUCKING_BYTES = 16
+        const val CLIP_BYTES = 160
         const val KNOT_BYTES = 16
+        const val MAX_TRACKS = 256
     }
 }
