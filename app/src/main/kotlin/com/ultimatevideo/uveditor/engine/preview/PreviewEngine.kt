@@ -19,6 +19,10 @@ internal object NativePreview {
     external fun nativeAttachSurface(handle: Long, surface: Surface)
     external fun nativeDetachSurface(handle: Long)
     external fun nativeSurfaceChanged(handle: Long)
+    external fun nativeAttachScopeSurface(handle: Long, surface: Surface)
+    external fun nativeDetachScopeSurface(handle: Long)
+    external fun nativeScopeSurfaceChanged(handle: Long)
+    external fun nativeSetScopeMode(handle: Long, mode: Int)
     external fun nativeOpenAsset(handle: Long, assetId: Int, fd: Int, fpsNum: Int, fpsDen: Int): LongArray
     external fun nativeCloseAsset(handle: Long, assetId: Int)
     external fun nativeSetScene(
@@ -82,6 +86,22 @@ class PreviewEngine private constructor(
 
     /** Call when the surface size or format changed so the current frame is redrawn to fit. */
     fun surfaceChanged() = NativePreview.nativeSurfaceChanged(requireHandle())
+
+    /**
+     * Draws the video scopes of what the preview shows on [surface], on the GPU and at most 30 times a
+     * second, until [detachScopeSurface]. Blocks briefly while the render thread takes the surface.
+     */
+    fun attachScopeSurface(surface: Surface) = NativePreview.nativeAttachScopeSurface(requireHandle(), surface)
+
+    /** Blocks until the render thread has released the scope surface, so it is safe to destroy it afterwards. */
+    @Synchronized
+    fun detachScopeSurface() {
+        if (handle != 0L) NativePreview.nativeDetachScopeSurface(handle)
+    }
+
+    fun scopeSurfaceChanged() = NativePreview.nativeScopeSurfaceChanged(requireHandle())
+
+    fun setScopeMode(mode: ScopeMode) = NativePreview.nativeSetScopeMode(requireHandle(), mode.code)
 
     /**
      * Opens an H.264/HEVC asset under [assetId]. The descriptor is consumed (detached) even on failure.

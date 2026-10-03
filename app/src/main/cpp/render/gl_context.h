@@ -35,6 +35,16 @@ public:
     void detachWindow();
     bool hasWindow() const { return window_ != EGL_NO_SURFACE; }
 
+    // A second window surface on the same context, for the video scopes panel. It has no colour tag and
+    // its own size; the window is retained until detachScopeWindow().
+    decode::Status attachScopeWindow(ANativeWindow* window, decode::Error* error);
+    void detachScopeWindow();
+    bool hasScopeWindow() const { return scopeSurface_ != EGL_NO_SURFACE; }
+    decode::Status makeCurrentScope(decode::Error* error);
+    decode::Status swapScope(decode::Error* error);
+    int scopeWidth() const;
+    int scopeHeight() const;
+
     decode::Status makeCurrentWindow(decode::Error* error);
     decode::Status makeCurrentOffscreen(decode::Error* error);
     decode::Status swap(decode::Error* error);
@@ -66,6 +76,8 @@ private:
     EGLSurface pbuffer_ = EGL_NO_SURFACE;
     EGLSurface window_ = EGL_NO_SURFACE;
     ANativeWindow* nativeWindow_ = nullptr;
+    EGLSurface scopeSurface_ = EGL_NO_SURFACE;
+    ANativeWindow* scopeWindow_ = nullptr;
     bool tenBit_ = false;
     bool hdrSurface_ = false;
     bool hlgColorspaceExt_ = false;
