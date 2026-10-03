@@ -17,6 +17,16 @@ data class ProjectDto(
     val mediaLibrary: List<MediaAssetDto> = emptyList(),
     val tracks: List<TrackDto> = emptyList(),
     val transitions: List<TransitionDto> = emptyList(),
+    /** Ruler markers; absent in projects written before markers existed. */
+    val markers: List<MarkerDto> = emptyList(),
+)
+
+/** A ruler marker at [frame] project frames; [kind] is `manual` or `beat` (see `domain/Marker`). */
+@Serializable
+data class MarkerDto(
+    val id: String,
+    val frame: Long,
+    val kind: String = "manual",
 )
 
 @Serializable

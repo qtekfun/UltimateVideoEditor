@@ -471,6 +471,41 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
   once and shares one key space with titles.
 - **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
 
+### 5.16 Markers, beat detection and text templates
+
+**Markers.** `Timeline.markers` is a list of `Marker(id, frame, kind)` with `kind` `MANUAL` (placed at the playhead) or `BEAT` (found
+by beat detection), sorted by frame with unique frames and ids (`MarkerOps`, checked by `invariantViolations`). They sit at absolute
+project frames and do **not** move when clips are edited around them. `AddMarker`, `RemoveMarker` and `SetBeatMarkers` are undoable;
+`SetBeatMarkers(beats, from, until)` replaces only the beats inside that frame range, so analysing a second clip keeps the first
+clip's beats, and manual markers are never touched. JSON: `ProjectDto.markers` (`{id, frame, kind}`), absent in older projects.
+**Snapping:** `Snap.extraTargets` carries marker frames (when the editor's "Snap to markers" is on) into move, trim and drop decisions.
+**Canvas:** timeline snapshot version 5 appends `i32 markerCount` and per marker `i64 frame, i32 flags (bit0 = beat), i32 reserved`
+(16 bytes each); version 4 still parses. The ruler draws a tall flagged tick for a manual marker (plus a faint line through the
+lanes) and a short tick for a beat (beats closer than 3 dp are skipped when zoomed out).
+
+**Beat detection** (`domain.beat.BeatDetector`, Kotlin, no new native code). Input is a loudness envelope built from the finest level of
+the waveform peak cache (`PeaksFile.readWindow` reads only the asked window of `waveforms/<assetId>.peaks`), so no audio is decoded
+twice and nothing runs unless the waveform has been extracted (otherwise the editor says "the waveform is still being prepared").
+The envelope is resampled to 100 Hz, its log-compressed positive rise over a 200 ms mean is the onset curve, its autocorrelation over
+60-180 BPM with a log-normal prior around 120 BPM picks the period (a confidence below 1.8 means "no clear beat"), the best phase of that
+period is chosen and each beat is pulled to the strongest onset within 15 % of the period (the period is then followed from where the
+beat really was). It reads amplitude only, so it suits music with a clear pulse; it may report a fast pulse at half tempo (beats still
+land on real beats). The editor analyses the clip's source range plus 8 s each side (a short clip still shows the pulse); `BeatMapping`
+then places the beats through the clip's own trim, speed, ramp and reverse (nearest clip frame, using `ClipRetime.sourceFrameAt`), and
+skips titles, photos, stickers and freeze frames.
+
+**Cut to beat** (`CutToBeat`, one undo step). For the selected base clip and every later base clip, in order: take the clip's current end
+as the aim, choose the nearest marker after its start (a tie goes to the earlier one) among the markers it can reach (a clip with media can
+only grow as far as its media; titles and stills freely), and trim its end there with `MagneticBase.trim`, so later base clips ripple and
+overlays follow. A clip with no reachable marker is left alone. The first clip keeps its start; every cut between the clips lands on a marker.
+
+**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). A template is data: layers of kind `TEXT` (a title clip) or `BAR`
+(a solid sticker clip, `shape:bar-dark` / `shape:bar-accent`, stretched to a canvas fraction using the sticker side of `StillFit`), each with
+a resting pose in canvas fractions and `TemplateKey`s (seconds from the start or the end, offsets as canvas fractions, scale, opacity,
+interpolation) that become ordinary keyframes in clip frames, so preview and export are identical for free. Text goes on a title lane and bars
+on an overlay lane (never the base); a lane is reused only when it is free over the template's range, otherwise a new one is added, so
+nothing is overwritten. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

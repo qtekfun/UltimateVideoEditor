@@ -36,6 +36,9 @@ data class SnapshotKeyframe(val clipKey: Long, val frame: Long)
  */
 data class SnapshotRetime(val clipKey: Long, val sourceSpanFrames: Long, val reverse: Boolean = false, val freeze: Boolean = false)
 
+/** A ruler marker at timeline [frame]; [beat] marks one found by beat detection rather than placed by hand. */
+data class SnapshotMarker(val frame: Long, val beat: Boolean = false)
+
 /**
  * Immutable view of the timeline sent to the native canvas. Deliberately independent of the
  * editing model so the engine boundary stays a plain data contract (see SPECS.md 5.2).
@@ -49,8 +52,10 @@ data class TimelineSnapshot(
     val transitions: List<SnapshotTransition> = emptyList(),
     val keyframes: List<SnapshotKeyframe> = emptyList(),
     val retimes: List<SnapshotRetime> = emptyList(),
+    val markers: List<SnapshotMarker> = emptyList(),
 ) {
     init {
+        for (marker in markers) require(marker.frame >= 0) { "a marker is before frame 0" }
         val clipKeys = clips.mapTo(HashSet()) { it.clipKey }
         for (retime in retimes) {
             require(retime.clipKey in clipKeys) { "a retime references missing clip ${retime.clipKey}" }
@@ -80,7 +85,7 @@ data class TimelineSnapshot(
     fun encode(): ByteBuffer {
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + clips.size * CLIP_BYTES +
             TRAILER_BYTES + transitions.size * TRANSITION_BYTES + KEYFRAME_TRAILER_BYTES + keyframes.size * KEYFRAME_BYTES +
-            RETIME_TRAILER_BYTES + retimes.size * RETIME_BYTES
+            RETIME_TRAILER_BYTES + retimes.size * RETIME_BYTES + MARKER_TRAILER_BYTES + markers.size * MARKER_BYTES
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -120,13 +125,19 @@ data class TimelineSnapshot(
             buffer.putInt((if (retime.reverse) 1 else 0) or (if (retime.freeze) 2 else 0))
             buffer.putInt(0)
         }
+        buffer.putInt(markers.size)
+        for (marker in markers) {
+            buffer.putLong(marker.frame)
+            buffer.putInt(if (marker.beat) 1 else 0)
+            buffer.putInt(0)
+        }
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53545655 // "UVTS"
-        const val VERSION = 4
+        const val VERSION = 5
         const val HEADER_BYTES = 24
         const val TRACK_BYTES = 4
         const val CLIP_BYTES = 56
@@ -142,5 +153,9 @@ data class TimelineSnapshot(
         /** The retime count that follows the keyframes (version 4). */
         const val RETIME_TRAILER_BYTES = 4
         const val RETIME_BYTES = 24
+
+        /** The marker count that follows the retimes (version 5). */
+        const val MARKER_TRAILER_BYTES = 4
+        const val MARKER_BYTES = 16
     }
 }
