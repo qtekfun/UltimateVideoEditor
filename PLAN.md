@@ -56,10 +56,15 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** titles and transitions render in preview and match export.
 
 ## Phase 6 — Export
-- [ ] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
-- [ ] Audio offline mix and AAC encode
-- [ ] Export UI: resolution/fps/bitrate, progress, cancel, share
+- [x] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
+- [x] Audio offline mix and AAC encode
+- [x] Export UI: resolution/fps/bitrate, progress, cancel, share
 - [ ] Optional: static FFmpeg fallback behind a feature flag
+- _Status:_ exports the full timeline (top video track wins, gaps are black, HLG sources tone-mapped to SDR Rec.709) at the project
+  or a lower frame rate, H.264 or HEVC + AAC in MP4, saved through SAF. On the reference device a 4K60 HEVC export runs at ~90 fps
+  (1.5x real time) and a 1080p30 H.264 one at ~100 fps. Verified with ffprobe: exact frame counts and PTS grid, audio clicks land on
+  their timestamps. The AAC encoder delay (2048 samples) is compensated, so the first 42.7 ms of the mix are not heard. Cancel and
+  Share are covered by unit tests only (not exercised on the device); colour fidelity was checked with synthetic charts, not real footage.
 - **Gate:** exported file plays correctly with matching A/V sync and colours.
 
 ## Phase 7 — CapCut-style features (post-MVP, in this order, revisit priority later)
