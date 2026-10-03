@@ -45,6 +45,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setGain(timeline, clipId, gainDb)
     }
 
+    /** Transform and gain in one undo step. */
+    data class SetAppearance(val clipId: String, val transform: ClipTransform, val gainDb: Double) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setAppearance(timeline, clipId, transform, gainDb)
+    }
+
     data class Trim(
         val clipId: String,
         val edge: TrimEdge,

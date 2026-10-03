@@ -39,6 +39,13 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(gainDb = gainDb) }
     }
 
+    /** Sets transform and gain together, so one edit changes both or neither. */
+    fun setAppearance(timeline: Timeline, clipId: String, transform: ClipTransform, gainDb: Double): EditResult<Timeline> {
+        transform.problem()?.let { return failure(EditError.InvalidAppearance(it)) }
+        ClipGain.problem(gainDb)?.let { return failure(EditError.InvalidAppearance(it)) }
+        return updateClip(timeline, clipId) { it.copy(transform = transform, gainDb = gainDb) }
+    }
+
     private fun updateClip(timeline: Timeline, clipId: String, change: (Clip) -> Clip): EditResult<Timeline> {
         val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))

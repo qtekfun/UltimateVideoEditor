@@ -65,6 +65,13 @@ internal object EditorIcons {
     /** Two arrows meeting in the middle: closes the gap before the selected clip. */
     val CloseGap = icon("CloseGap", "M2,11h6V8l4,4 -4,4v-3H2zM22,11h-6V8l-4,4 4,4v-3h6z")
 
+    /** Three sliders: the appearance inspector (transform and gain of the selected clip). */
+    val Tune = icon(
+        "Tune",
+        "M3,17v2h6v-2H3zM3,5v2h4V5H3zM9,21v-2h12v-2H9v-2H7v6h2zM7,9v2H3v2h4v2h2V9H7zM21,13v-2H11v2h10z" +
+            "M15,9h2V7h4V5h-4V3h-2v6z",
+    )
+
     private fun icon(name: String, pathData: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
             .addPath(PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.Black))

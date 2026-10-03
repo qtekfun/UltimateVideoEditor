@@ -29,7 +29,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -115,21 +118,24 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         )
     }
 
-    // Show the frame under the playhead; while playing this runs on every tick.
-    LaunchedEffect(state.playhead, state.timeline, state.assets, state.fps, state.isLoading) {
+    // Show the composite under the playhead (every video track, bottom first); while playing this runs
+    // on every tick. It follows the visible timeline, so a transform being dragged shows live.
+    LaunchedEffect(state.playhead, state.visibleTimeline, state.assets, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
-        val target = previewTargetAt(state.timeline, state.playhead) ?: return@LaunchedEffect
-        val asset = state.assets.firstOrNull { it.id == target.clip.assetId } ?: return@LaunchedEffect
-        if (!asset.hasVideo) return@LaunchedEffect
-        preview.show(
+        val layers = previewLayersAt(state.visibleTimeline, state.playhead).mapNotNull { target ->
+            val asset = state.assets.firstOrNull { it.id == target.clip.assetId } ?: return@mapNotNull null
+            if (!asset.hasVideo) return@mapNotNull null
             PreviewRequest(
                 assetKey = viewModel.assetKey(asset.id).toInt(),
                 uri = asset.uri,
                 sourceFrame = target.sourceFrame,
                 fpsNum = state.fps.num,
                 fpsDen = state.fps.den,
-            ),
-        )
+                transform = target.clip.transform,
+            )
+        }
+        // In a gap the preview keeps its last frame.
+        if (layers.isNotEmpty()) preview.show(PreviewScene(state.canvasWidth, state.canvasHeight, layers))
     }
 
     val editing = remember(viewModel) {
@@ -259,6 +265,17 @@ private fun EditorMain(
             val previewEngine = preview.engine
             if (previewEngine != null) {
                 PreviewSurface(previewEngine, Modifier.fillMaxSize())
+                // Drag, pinch and twist edit the selected clip while it is under the playhead.
+                PreviewGestureLayer(
+                    enabled = state.selectedClipVisible,
+                    canvasWidth = state.canvasWidth,
+                    canvasHeight = state.canvasHeight,
+                    onStep = { panX, panY, zoom, rotation ->
+                        viewModel.onIntent(EditorIntent.TransformGesture(panX, panY, zoom, rotation))
+                    },
+                    onEnd = { viewModel.onIntent(EditorIntent.EndAppearanceEdit(commit = true)) },
+                    modifier = Modifier.fillMaxSize(),
+                )
             } else {
                 Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
             }
@@ -299,17 +316,33 @@ private fun EditorMain(
             ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.RippleAppendSelected)
             }
+            ToolButton(EditorIcons.Tune, "Adjust clip: position, scale, rotation, opacity, volume", enabled = hasSelection || state.inspectorOpen) {
+                viewModel.onIntent(EditorIntent.ToggleInspector)
+            }
             TrackControls(state.selectedTrackLabel, onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) }) {
                 viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
             }
         }
 
-        TimelineHost(
-            engine = engine,
-            onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
-            editing = editing,
-            modifier = Modifier.fillMaxWidth().weight(TIMELINE_WEIGHT),
-        )
+        // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
+        // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
+        Box(modifier = Modifier.fillMaxWidth().weight(TIMELINE_WEIGHT)) {
+            TimelineHost(
+                engine = engine,
+                onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
+                editing = editing,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (state.inspectorOpen) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    // Swallow touches so they never reach the timeline underneath.
+                    modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } },
+                ) {
+                    InspectorPanel(state = state, onIntent = viewModel::onIntent)
+                }
+            }
+        }
     }
 }
 
