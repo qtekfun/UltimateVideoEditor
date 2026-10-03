@@ -43,7 +43,7 @@ inline constexpr const char* kCompositeFragment = R"(#version 320 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uTex;
-uniform int uMode;   // 0 = SDR Rec.709 pass-through, 1 = HLG Rec.2020 -> SDR Rec.709
+uniform int uMode;   // render/color_space.h ColorMode: 0 SDR, 1 HLG->SDR, 2 SDR->HLG, 3 HLG, 4 PQ->SDR, 5 PQ->HLG
 uniform int uTurns;  // clockwise quarter turns applied for display (layout_math.h rotateUv)
 uniform float uOpacity;  // layer opacity, applied through alpha blending
 uniform int uPremul;     // 1 = premultiplied RGBA title texture (alpha comes from the texture)
@@ -102,6 +102,57 @@ vec3 hlg2020ToSdr709(vec3 hlg) {
     return bt709Oetf(clamp(lin, 0.0, 1.0));
 }
 
+vec3 hlgOetf(vec3 e) {
+    e = clamp(e, 0.0, 1.0);
+    vec3 lo = sqrt(3.0 * e);
+    vec3 hi = A * log(max(12.0 * e - B, 1e-6)) + C;
+    return mix(hi, lo, lessThanEqual(e, vec3(1.0 / 12.0)));
+}
+
+// Display light (1.0 = 1000 nit, clipped) -> nonlinear HLG signal.
+vec3 displayToHlgSignal(vec3 display) {
+    display = clamp(display, 0.0, 1.0);
+    float yd = dot(display, vec3(0.2627, 0.6780, 0.0593));
+    float gain = yd > 0.0 ? pow(yd, (1.0 - SYSTEM_GAMMA) / SYSTEM_GAMMA) : 0.0;
+    return hlgOetf(display * gain);
+}
+
+vec3 sdr709ToHlg2020(vec3 sdr) {
+    vec3 lin = pow(clamp(sdr, 0.0, 1.0), vec3(2.4));
+    vec3 d = vec3(
+        dot(lin, vec3(0.6274, 0.3293, 0.0433)),
+        dot(lin, vec3(0.0691, 0.9195, 0.0114)),
+        dot(lin, vec3(0.0164, 0.0880, 0.8956)));
+    return displayToHlgSignal(d * (DIFFUSE_WHITE / PEAK));
+}
+
+// ST 2084 signal -> display light where 1.0 = 203 nit.
+vec3 pqToDisplay203(vec3 e) {
+    const float M1 = 2610.0 / 16384.0;
+    const float M2 = 2523.0 / 4096.0 * 128.0;
+    const float C1 = 3424.0 / 4096.0;
+    const float C2 = 2413.0 / 4096.0 * 32.0;
+    const float C3 = 2392.0 / 4096.0 * 32.0;
+    vec3 p = pow(clamp(e, 0.0, 1.0), vec3(1.0 / M2));
+    vec3 n = max(p - C1, vec3(0.0)) / (C2 - C3 * p);
+    return pow(n, vec3(1.0 / M1)) * (10000.0 / DIFFUSE_WHITE);
+}
+
+vec3 pq2020ToSdr709(vec3 pq) {
+    vec3 display = pqToDisplay203(pq);
+    float l = dot(display, vec3(0.2627, 0.6780, 0.0593));
+    if (l > 0.0) display *= toneMapLuma(l) / l;
+    vec3 lin = vec3(
+        dot(display, vec3(1.6605, -0.5876, -0.0728)),
+        dot(display, vec3(-0.1246, 1.1329, -0.0083)),
+        dot(display, vec3(-0.0182, -0.1006, 1.1187)));
+    return bt709Oetf(clamp(lin, 0.0, 1.0));
+}
+
+vec3 pq2020ToHlg2020(vec3 pq) {
+    return displayToHlgSignal(pqToDisplay203(pq) * (DIFFUSE_WHITE / PEAK));
+}
+
 vec2 rotateUv(vec2 o) {
     if (uTurns == 1) return vec2(o.y, 1.0 - o.x);
     if (uTurns == 2) return vec2(1.0 - o.x, 1.0 - o.y);
@@ -144,6 +195,9 @@ void main() {
         rgb = alpha > 0.0 ? rgb / alpha : vec3(0.0);
     }
     if (uMode == 1) rgb = hlg2020ToSdr709(rgb);
+    else if (uMode == 2) rgb = sdr709ToHlg2020(rgb);
+    else if (uMode == 4) rgb = pq2020ToSdr709(rgb);
+    else if (uMode == 5) rgb = pq2020ToHlg2020(rgb);
     if (uOutPremul == 1) {
         outColor = vec4(rgb * alpha, alpha);
         return;

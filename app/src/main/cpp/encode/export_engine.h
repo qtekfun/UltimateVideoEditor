@@ -36,6 +36,10 @@ struct ExportParams {
     int32_t canvasWidth = 0;   // project resolution: clip positions are measured in this canvas
     int32_t canvasHeight = 0;
     VideoCodec codec = VideoCodec::H264;
+    // HLG output: composite in the Rec.2020 HLG space, tag the stream BT.2020 / HLG and encode HEVC
+    // Main10. Needs a ten-bit encoder surface; the job fails with UnsupportedFormat when the device
+    // cannot provide one (the app checks codec support first and offers an SDR export instead).
+    bool hdr = false;
     int32_t videoBitrate = 0;
     int32_t audioBitrate = 192000;
     int64_t totalFrames = 0;

@@ -126,7 +126,7 @@ class NativeExportRunner : ExportRunner {
         val handle = try {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
-                request.canvasWidth, request.canvasHeight, s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
+                request.canvasWidth, request.canvasHeight, s.codec.value or (if (s.hdr) HDR_FLAG else 0), s.videoBitrate, s.audioBitrate, request.totalFrames,
                 keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
                 sourceClips, sourceTable, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
             )
@@ -154,6 +154,8 @@ class NativeExportRunner : ExportRunner {
     }
 
     private companion object {
+        /** Added to the codec value for an HLG export; see `export_jni.cpp`. */
+        const val HDR_FLAG = 0x100
         const val CLIP_LONGS = 9
         const val CLIP_DOUBLES = 6
         const val KEY_CLIP_LONGS = 2

@@ -7,16 +7,11 @@
 #include "core/layer_fx.h"
 #include "decode/gpu_frame.h"
 #include "decode/status.h"
+#include "render/color_space.h"
 #include "render/gl_context.h"
 #include "render/layout_math.h"
 
 namespace uv::render {
-
-// Mirrors com.ultimatevideo.uveditor.engine.preview.ColorMode.
-enum class ColorMode : int {
-    Sdr709 = 0,
-    Hlg2020ToSdr709 = 1,
-};
 
 // One layer of a composited frame. `frame` must stay alive for the duration of the draw call.
 // A title layer has no frame: `titleKey` names a texture from uploadTitle().
@@ -38,6 +33,12 @@ public:
     GlPipeline& operator=(const GlPipeline&) = delete;
 
     decode::Status init(decode::Error* error);
+
+    // The colour space of the target that drawScene renders into. Sdr709 (default) keeps RGBA8
+    // intermediates; Hlg2020 uses a half-float effect chain and places title graphics at reference
+    // white. Layer modes must come from colorModeFor(source, space). Render thread only.
+    void setOutputSpace(OutputSpace space);
+    OutputSpace outputSpace() const { return outputSpace_; }
 
     // Copies a decoder output buffer (any YUV/RGB format) into `dst`. Does not wait for the GPU:
     // `*releaseFenceFd` receives a native fence fd (or -1 when nothing is pending) that the caller
@@ -89,6 +90,7 @@ private:
         unsigned texture = 0;
         int width = 0;
         int height = 0;
+        bool hdr = false;  // true: half-float storage (HLG target); false: fixed point
     };
     decode::Status ensureFxTarget(FxTarget& target, int width, int height, decode::Error* error);
     // Runs `layer`'s effects over its source texture; `*result` is the texture holding the outcome
@@ -100,7 +102,10 @@ private:
                     float dirY, float sigma, float step);
     void snapshotDestination(const Viewport& vp);
 
+    ColorMode titleMode() const { return outputSpace_ == OutputSpace::Hlg2020 ? ColorMode::Sdr709ToHlg2020 : ColorMode::Sdr709; }
+
     EglContext& egl_;
+    OutputSpace outputSpace_ = OutputSpace::Sdr709;
     unsigned blitProgram_ = 0;
     unsigned compositeProgram_ = 0;
     unsigned vao_ = 0;

@@ -30,6 +30,10 @@ using core::Status;
 using Clock = std::chrono::steady_clock;
 
 constexpr int32_t kColorFormatSurface = 0x7F000789;  // MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+constexpr int32_t kHevcProfileMain10 = 2;            // MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10
+constexpr int32_t kColorStandardBt2020 = 6;          // MediaFormat.COLOR_STANDARD_BT2020
+constexpr int32_t kColorRangeLimited = 2;            // MediaFormat.COLOR_RANGE_LIMITED
+constexpr int32_t kColorTransferHlg = 7;             // MediaFormat.COLOR_TRANSFER_HLG
 constexpr int32_t kAudioSampleRate = 48000;
 constexpr int32_t kAudioChannels = 2;
 constexpr int32_t kAudioChunkFrames = 1024;
@@ -328,14 +332,22 @@ class Renderer {
 public:
     Renderer(const ExportParams& params, ANativeWindow* window) : params_(params) {
         decode::Error e{decode::Status::Ok, ""};
-        if (egl_.init(&e, true) != decode::Status::Ok) failDecode(e, "EGL setup failed");
+        if (egl_.init(&e, true, params.hdr) != decode::Status::Ok) failDecode(e, "EGL setup failed");
+        if (params.hdr && !egl_.tenBit()) {
+            fail(Status::UnsupportedFormat, "this device offers no ten-bit encoder surface, so HDR cannot be exported");
+        }
         if (!egl_.supportsPresentationTime()) {
             fail(Status::GlError, "this device lacks EGL_ANDROID_presentation_time, needed for exact timestamps");
         }
-        if (egl_.attachWindow(window, &e) != decode::Status::Ok) failDecode(e, "cannot attach the encoder surface");
+        if (egl_.attachWindow(window, &e, params.hdr) != decode::Status::Ok) failDecode(e, "cannot attach the encoder surface");
+        if (params.hdr && !egl_.hdrSurface()) {
+            fail(Status::UnsupportedFormat, "the encoder surface cannot be tagged BT.2020 HLG on this device");
+        }
         if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
         pipeline_ = std::make_unique<render::GlPipeline>(egl_);
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
+        space_ = params.hdr ? render::OutputSpace::Hlg2020 : render::OutputSpace::Sdr709;
+        pipeline_->setOutputSpace(space_);
         for (const TitleImage& title : params.titles) {
             if (pipeline_->uploadTitle(title.key, title.width, title.height, title.rgba.data(), &e) != decode::Status::Ok) {
                 failDecode(e, "a title could not be prepared for the export");
@@ -387,7 +399,8 @@ public:
             held.push_back(fetch(asset, source));
             render::LayerDraw layer;
             layer.frame = held.back().get();
-            layer.mode = static_cast<render::ColorMode>(clip->colorMode);
+            // The clip carries what its source is (render::ColorMode value of any target); the target is the export's.
+            layer.mode = render::colorModeFor(render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)), space_);
             layer.turns = asset.turns;
             layer.fx = clip->fx;
             layer.transform = render::LayerTransform{
@@ -585,6 +598,7 @@ private:
     const ExportParams& params_;
     render::EglContext egl_;
     std::unique_ptr<render::GlPipeline> pipeline_;
+    render::OutputSpace space_ = render::OutputSpace::Sdr709;
     std::map<int64_t, int> fds_;
     std::map<std::pair<int64_t, int32_t>, std::unique_ptr<AssetState>> assets_;
     std::vector<std::shared_ptr<decode::GpuFrame>> pool_;
@@ -606,9 +620,17 @@ void setVideoFormat(AMediaFormat* format, const ExportParams& p) {
                           static_cast<int32_t>(std::lround(static_cast<double>(p.fps.num) / p.fps.den)));
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BITRATE_MODE, 1);  // VBR
+    if (p.hdr) {
+        // HEVC Main10, BT.2020 primaries, HLG transfer, limited range: what the compositor outputs in an HLG project.
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_PROFILE, kHevcProfileMain10);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_STANDARD, kColorStandardBt2020);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_RANGE, kColorRangeLimited);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_TRANSFER, kColorTransferHlg);
+        return;
+    }
     // Tag the stream as BT.709 limited-range SDR, which is what the compositor outputs.
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_STANDARD, 1);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_RANGE, 2);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_RANGE, kColorRangeLimited);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_TRANSFER, 3);
 }
 
@@ -664,6 +686,9 @@ void ExportJob::execute() {
     if (params_.canvasWidth <= 0 || params_.canvasHeight <= 0) {  // no project size given: use the output's
         params_.canvasWidth = params_.width;
         params_.canvasHeight = params_.height;
+    }
+    if (params_.hdr && params_.codec != VideoCodec::Hevc) {
+        fail(Status::InvalidArgument, "HDR export needs HEVC (Main10); H.264 cannot carry HLG here");
     }
     const bool hasAudio = !params_.audioSnapshot.empty();
     const auto begin = Clock::now();

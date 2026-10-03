@@ -110,7 +110,9 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     params.projectFps = {projectFpsNum, projectFpsDen};
     params.canvasWidth = canvasWidth;
     params.canvasHeight = canvasHeight;
-    params.codec = codec == 1 ? uv::encode::VideoCodec::Hevc : uv::encode::VideoCodec::H264;
+    // `codec` is 0 (H.264) or 1 (HEVC), plus 0x100 for an HLG (HEVC Main10) export.
+    params.codec = (codec & 0xFF) == 1 ? uv::encode::VideoCodec::Hevc : uv::encode::VideoCodec::H264;
+    params.hdr = (codec & 0x100) != 0;
     params.videoBitrate = videoBitrate;
     params.audioBitrate = audioBitrate;
     params.totalFrames = totalFrames;

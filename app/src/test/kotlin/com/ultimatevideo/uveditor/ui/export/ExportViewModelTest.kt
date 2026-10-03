@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.ui.export
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.clip
 import com.ultimatevideo.uveditor.domain.timeline
 import com.ultimatevideo.uveditor.domain.track
@@ -12,6 +13,7 @@ import com.ultimatevideo.uveditor.engine.export.ExportHandle
 import com.ultimatevideo.uveditor.engine.export.ExportListener
 import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
+import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -312,4 +314,123 @@ class ExportViewModelTest {
 
         assertEquals(ExportPhase.Configuring, vm.state.value.phase)
     }
+
+    // region HDR
+
+    private fun hdrViewModel(supported: Boolean = true) =
+        ExportViewModel(io, runner, dispatcher, hdrSupport = HdrExportSupport { _, _, _, _ -> supported })
+
+    private fun hdrInput() = input().copy(colorSpace = ProjectColorSpace.REC2020_HLG)
+
+    @Test
+    fun `an HDR project on a capable device defaults to HDR HEVC`() {
+        val vm = hdrViewModel()
+
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+
+        val state = vm.state.value
+        assertTrue(state.hdrAvailable)
+        assertTrue(state.hdr)
+        assertEquals(ExportCodec.HEVC, state.codec)
+        assertFalse(state.hdrUnsupportedNotice)
+    }
+
+    @Test
+    fun `an HDR project on a device without Main10 HLG exports as SDR with a notice`() {
+        val vm = hdrViewModel(supported = false)
+
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+
+        val state = vm.state.value
+        assertFalse(state.hdrAvailable)
+        assertFalse(state.hdr)
+        assertTrue(state.hdrUnsupportedNotice)
+    }
+
+    @Test
+    fun `an SDR project never offers HDR`() {
+        val vm = hdrViewModel()
+
+        vm.onIntent(ExportIntent.Open(input()))
+
+        assertFalse(vm.state.value.hdrAvailable)
+        assertFalse(vm.state.value.hdr)
+        assertFalse(vm.state.value.hdrUnsupportedNotice)
+    }
+
+    @Test
+    fun `starting an HDR export tells the engine`() {
+        val vm = hdrViewModel()
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+
+        vm.onIntent(ExportIntent.LocationChosen("content://out/movie.mp4"))
+
+        val settings = runner.request!!.settings
+        assertTrue(settings.hdr)
+        assertEquals(ExportCodec.HEVC, settings.codec)
+    }
+
+    @Test
+    fun `choosing H264 or SDR turns HDR off`() {
+        val vm = hdrViewModel()
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+
+        vm.onIntent(ExportIntent.SelectCodec(ExportCodec.H264))
+        assertFalse(vm.state.value.hdr)
+
+        vm.onIntent(ExportIntent.SelectHdr(true))
+        assertTrue(vm.state.value.hdr)
+        assertEquals(ExportCodec.HEVC, vm.state.value.codec)
+
+        vm.onIntent(ExportIntent.SelectHdr(false))
+        assertFalse(vm.state.value.hdr)
+    }
+
+    @Test
+    fun `HDR cannot be switched on when it is not available`() {
+        val vm = hdrViewModel(supported = false)
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+
+        vm.onIntent(ExportIntent.SelectHdr(true))
+
+        assertFalse(vm.state.value.hdr)
+    }
+
+    @Test
+    fun `an upload preset exports SDR`() {
+        val vm = hdrViewModel()
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+
+        vm.onIntent(ExportIntent.SelectPreset(ExportPresets.all.first()))
+
+        assertFalse(vm.state.value.hdr)
+    }
+
+    @Test
+    fun `a device that stops supporting the chosen size fails clearly instead of starting`() {
+        var supported = true
+        val vm = ExportViewModel(io, runner, dispatcher, hdrSupport = HdrExportSupport { _, _, _, _ -> supported })
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+        supported = false
+
+        vm.onIntent(ExportIntent.LocationChosen("content://out/movie.mp4"))
+
+        assertNull(runner.request)
+        assertTrue((vm.state.value.phase as ExportPhase.Failed).message.contains("HDR"))
+    }
+
+    @Test
+    fun `a native refusal of HDR suggests exporting as SDR`() {
+        val vm = hdrViewModel()
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+        vm.onIntent(ExportIntent.LocationChosen("content://out/movie.mp4"))
+
+        runner.listener!!.onFinished(ExportException(ExportErrorCode.UNSUPPORTED_FORMAT, "no ten-bit surface"))
+
+        val message = (vm.state.value.phase as ExportPhase.Failed).message
+        assertTrue(message.contains("no ten-bit surface"))
+        assertTrue(message.contains("SDR"))
+    }
+
+    // endregion
 }
