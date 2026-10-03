@@ -18,7 +18,8 @@ using uv::encode::ExportParams;
 using uv::encode::VideoClip;
 
 constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/export/ExportException";
-constexpr size_t kClipLongs = 6;  // start, duration, sourceIn, assetKey, layer, colorMode
+constexpr size_t kClipLongs = 6;     // start, duration, sourceIn, assetKey, layer, colorMode
+constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
 
 void throwExport(JNIEnv* env, Status code, const std::string& message) {
     jclass cls = env->FindClass(kExceptionClass);
@@ -92,13 +93,16 @@ extern "C" {
 // Takes ownership of every descriptor passed in, whether or not it succeeds.
 JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExport_nativeStart(
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
-    jint projectFpsDen, jint codec, jint videoBitrate, jint audioBitrate, jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips,
+    jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
+    jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
     jobject audioSnapshot, jint outputFd) {
     ExportParams params;
     params.width = width;
     params.height = height;
     params.fps = {fpsNum, fpsDen};
     params.projectFps = {projectFpsNum, projectFpsDen};
+    params.canvasWidth = canvasWidth;
+    params.canvasHeight = canvasHeight;
     params.codec = codec == 1 ? uv::encode::VideoCodec::Hevc : uv::encode::VideoCodec::H264;
     params.videoBitrate = videoBitrate;
     params.audioBitrate = audioBitrate;
@@ -123,9 +127,19 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
         closeAll(params.assetFds, outputFd);
         return 0;
     }
+    const size_t clipCount = static_cast<size_t>(clipLongs) / kClipLongs;
+    if (static_cast<size_t>(env->GetArrayLength(transforms)) != clipCount * kClipDoubles) {
+        throwExport(env, Status::InvalidArgument, "clip transforms do not match the clips");
+        closeAll(params.assetFds, outputFd);
+        return 0;
+    }
     std::vector<jlong> flat(static_cast<size_t>(clipLongs));
     env->GetLongArrayRegion(clips, 0, clipLongs, flat.data());
-    for (size_t i = 0; i + kClipLongs <= flat.size(); i += kClipLongs) {
+    std::vector<jdouble> xf(clipCount * kClipDoubles);
+    env->GetDoubleArrayRegion(transforms, 0, static_cast<jsize>(xf.size()), xf.data());
+    for (size_t n = 0; n < clipCount; ++n) {
+        const size_t i = n * kClipLongs;
+        const size_t t = n * kClipDoubles;
         VideoClip c;
         c.startFrame = flat[i];
         c.durationFrames = flat[i + 1];
@@ -133,6 +147,12 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
         c.assetKey = flat[i + 3];
         c.layer = static_cast<int32_t>(flat[i + 4]);
         c.colorMode = static_cast<int32_t>(flat[i + 5]);
+        c.posX = xf[t];
+        c.posY = xf[t + 1];
+        c.scaleX = xf[t + 2];
+        c.scaleY = xf[t + 3];
+        c.rotationDeg = xf[t + 4];
+        c.opacity = xf[t + 5];
         params.clips.push_back(c);
     }
 

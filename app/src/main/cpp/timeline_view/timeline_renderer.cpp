@@ -9,7 +9,13 @@
 #include <cmath>
 #include <cstdio>
 #include <iterator>
+#include <map>
+#include <set>
 #include <vector>
+
+#include "thumbnail/thumb_atlas.h"
+#include "thumbnail/thumbnail_service.h"
+#include "thumbnail/tile_math.h"
 
 #define LOG_TAG "uv_timeline"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -30,6 +36,11 @@ constexpr Color kRuler{0.14f, 0.15f, 0.18f, 1.0f};
 constexpr Color kTick{0.55f, 0.58f, 0.65f, 1.0f};
 constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
 constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
+constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
+
+constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
+constexpr size_t kUploadsPerFrame = 6;                     // keeps a frame cheap while tiles stream in
+constexpr float kWaveStripFraction = 0.38f;                // share of the clip body used by the waveform over thumbnails
 
 Color clipColor(TrackType t) {
     switch (t) {
@@ -67,6 +78,26 @@ out vec4 outColor;
 void main() { outColor = vColor; }
 )";
 
+constexpr const char* kTexVertexShader = R"(#version 300 es
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec2 aUV;
+uniform vec2 uSize;
+out vec2 vUV;
+void main() {
+    gl_Position = vec4(aPos.x / uSize.x * 2.0 - 1.0, 1.0 - aPos.y / uSize.y * 2.0, 0.0, 1.0);
+    vUV = aUV;
+}
+)";
+
+// Thumbnails are dimmed slightly so the clip header and the waveform on top stay legible.
+constexpr const char* kTexFragmentShader = R"(#version 300 es
+precision mediump float;
+uniform sampler2D uTex;
+in vec2 vUV;
+out vec4 outColor;
+void main() { outColor = vec4(texture(uTex, vUV).rgb * 0.88, 1.0); }
+)";
+
 GLuint compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, nullptr);
@@ -101,6 +132,7 @@ struct TimelineRenderer::State {
     // True until the user zooms by hand. While true the zoom follows the whole timeline: it is
     // refitted on resize and whenever fitToContent() is called.
     bool autoFit = true;
+    std::weak_ptr<thumb::ThumbnailService> thumbs;
 
     ANativeWindow* requestedWindow = nullptr;
     bool windowRequestPending = false;
@@ -220,6 +252,42 @@ public:
         }
     }
 
+    thumb::ThumbAtlas& atlas() { return atlas_; }
+
+    // Queues a textured quad from the thumbnail atlas, clipped like rect().
+    void texQuad(float x0, float y0, float x1, float y1, const float uv[4]) {
+        const float w = x1 - x0, h = y1 - y0;
+        if (w <= 0.0f || h <= 0.0f) return;
+        const float cx0 = std::max(x0, clip_[0]), cy0 = std::max(y0, clip_[1]);
+        const float cx1 = std::min(x1, clip_[2]), cy1 = std::min(y1, clip_[3]);
+        if (cx1 <= cx0 || cy1 <= cy0) return;
+        const float du = uv[2] - uv[0], dv = uv[3] - uv[1];
+        const float u0 = uv[0] + (cx0 - x0) / w * du, u1 = uv[0] + (cx1 - x0) / w * du;
+        const float v0 = uv[1] + (cy0 - y0) / h * dv, v1 = uv[1] + (cy1 - y0) / h * dv;
+        const float quad[6][4] = {{cx0, cy0, u0, v0}, {cx1, cy0, u1, v0}, {cx0, cy1, u0, v1},
+                                  {cx1, cy0, u1, v0}, {cx1, cy1, u1, v1}, {cx0, cy1, u0, v1}};
+        for (const auto& p : quad) tverts_.insert(tverts_.end(), {p[0], p[1], p[2], p[3]});
+    }
+
+    // Draws the queued tiles. Coloured geometry queued earlier is flushed first so it stays underneath.
+    void flushTiles() {
+        if (tverts_.empty()) return;
+        flush();
+        if (texProgram_ != 0 && atlas_.ready()) {
+            glUseProgram(texProgram_);
+            glUniform2f(texSizeLoc_, width_, height_);
+            glUniform1i(texSamplerLoc_, 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, atlas_.texture());
+            glBindVertexArray(texVao_);
+            glBindBuffer(GL_ARRAY_BUFFER, texVbo_);
+            glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(tverts_.size() * sizeof(float)), tverts_.data(),
+                         GL_STREAM_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(tverts_.size() / 4));
+        }
+        tverts_.clear();
+    }
+
     void flush() {
         if (verts_.empty()) return;
         glUseProgram(program_);
@@ -286,10 +354,49 @@ private:
                               reinterpret_cast<const void*>(2 * sizeof(float)));
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        return glGetError() == GL_NO_ERROR;
+        const bool coloured = glGetError() == GL_NO_ERROR;
+        initThumbnailResources();  // optional: a failure only disables thumbnails
+        return coloured;
+    }
+
+    void initThumbnailResources() {
+        const GLuint vs = compile(GL_VERTEX_SHADER, kTexVertexShader);
+        const GLuint fs = compile(GL_FRAGMENT_SHADER, kTexFragmentShader);
+        if (vs == 0 || fs == 0) return;
+        texProgram_ = glCreateProgram();
+        glAttachShader(texProgram_, vs);
+        glAttachShader(texProgram_, fs);
+        glLinkProgram(texProgram_);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        GLint linked = 0;
+        glGetProgramiv(texProgram_, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            LOGE("thumbnail program link failed; thumbnails disabled");
+            glDeleteProgram(texProgram_);
+            texProgram_ = 0;
+            return;
+        }
+        texSizeLoc_ = glGetUniformLocation(texProgram_, "uSize");
+        texSamplerLoc_ = glGetUniformLocation(texProgram_, "uTex");
+        glGenVertexArrays(1, &texVao_);
+        glGenBuffers(1, &texVbo_);
+        glBindVertexArray(texVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, texVbo_);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), nullptr);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                              reinterpret_cast<const void*>(2 * sizeof(float)));
+        if (!atlas_.init(kAtlasBudgetBytes)) LOGE("thumbnail atlas unavailable; thumbnails disabled");
     }
 
     void releaseResources() {
+        atlas_.release();
+        if (texVbo_ != 0) glDeleteBuffers(1, &texVbo_);
+        if (texVao_ != 0) glDeleteVertexArrays(1, &texVao_);
+        if (texProgram_ != 0) glDeleteProgram(texProgram_);
+        texVbo_ = texVao_ = texProgram_ = 0;
         if (vbo_ != 0) glDeleteBuffers(1, &vbo_);
         if (vao_ != 0) glDeleteVertexArrays(1, &vao_);
         if (program_ != 0) glDeleteProgram(program_);
@@ -303,9 +410,13 @@ private:
     EGLSurface surface_ = EGL_NO_SURFACE;
     GLuint program_ = 0, vao_ = 0, vbo_ = 0;
     GLint sizeLoc_ = -1;
+    GLuint texProgram_ = 0, texVao_ = 0, texVbo_ = 0;
+    GLint texSizeLoc_ = -1, texSamplerLoc_ = -1;
+    thumb::ThumbAtlas atlas_;
     float width_ = 0, height_ = 0;
     float clip_[4] = {0, 0, 0, 0};
     std::vector<float> verts_;
+    std::vector<float> tverts_;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -395,6 +506,15 @@ void TimelineRenderer::setSnapshot(std::shared_ptr<const TimelineSnapshot> snaps
         std::lock_guard<std::mutex> lock(mutex_);
         state_->snapshot = std::move(snapshot);
         state_->clampViewport();
+        state_->dirty = true;
+    }
+    wake();
+}
+
+void TimelineRenderer::setThumbnails(std::weak_ptr<thumb::ThumbnailService> service) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->thumbs = std::move(service);
         state_->dirty = true;
     }
     wake();
@@ -556,6 +676,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     int width, height;
     int64_t playhead;
     bool keepAnimating = false;
+    std::weak_ptr<thumb::ThumbnailService> thumbWeak;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         State& s = *state_;
@@ -582,10 +703,27 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         width = s.width;
         height = s.height;
         playhead = s.playhead;
+        thumbWeak = s.thumbs;
     }
     if (width <= 0 || height <= 0) return;
 
     Gl& g = *ctx.gl;
+    const std::shared_ptr<thumb::ThumbnailService> thumbs = thumbWeak.lock();
+    thumb::ThumbAtlas& atlas = g.atlas();
+    bool moreTilesReady = false;
+    if (thumbs && atlas.ready()) {
+        // Finished tiles go into the atlas here, on the GL thread, a few per frame.
+        atlas.beginFrame();
+        std::vector<thumb::ThumbnailService::ReadyTile> ready;
+        moreTilesReady = thumbs->takeReady(&ready, kUploadsPerFrame) > 0;
+        for (const auto& tile : ready) atlas.upload(tile.key, tile.pixels.data());
+    }
+    struct Wanted {
+        int level = 0;
+        std::set<int64_t> indices;
+    };
+    std::map<int64_t, Wanted> wanted;
+    std::vector<thumb::CellPlan> cells;
     const float density = layout.rulerHeight / 28.0f;
     g.beginFrame(width, height);
     const float W = static_cast<float>(width), H = static_cast<float>(height);
@@ -616,14 +754,46 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         g.rect(fx0, top, fx1, bottom, base);
         g.rect(fx0, top, fx1, top + header, scaled(base, 0.7f));
 
+        // Thumbnail filmstrip across the body. Cells are drawn from whatever tile is already in the
+        // atlas (the exact one, else a finer/coarser one); missing exact tiles are requested.
+        const float bodyTop = top + header;
+        bool hasThumbs = false;
+        if (type == TrackType::Video && c.assetKey >= 0 && thumbs && atlas.ready() && thumbs->isActive(c.assetKey)) {
+            hasThumbs = true;
+            const float bodyH = bottom - bodyTop;
+            const thumb::ClipCellParams params{c.assetKey, x0, x1, 0.0, static_cast<double>(W),
+                                               static_cast<double>(bodyH) * thumb::kTileAspect, vp.pxPerFrame,
+                                               snap->fpsNum, snap->fpsDen, c.sourceInFrame, c.sourceFpsNum, c.sourceFpsDen};
+            thumb::planClipCells(params, &cells);
+            Wanted& want = wanted[c.assetKey];
+            g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, bodyTop), std::min(W, fx1), bottom);
+            for (const thumb::CellPlan& cell : cells) {
+                thumb::TileKey got;
+                float uv[4];
+                const bool resolved = thumb::resolveTile(
+                    cell.key, [&atlas](const thumb::TileKey& k) { return atlas.contains(k); }, &got);
+                if (resolved && atlas.find(got, uv)) {
+                    g.texQuad(static_cast<float>(cell.x0), bodyTop, static_cast<float>(cell.x1), bottom, uv);
+                }
+                if (!resolved || !(got == cell.key)) {
+                    want.level = cell.key.level;
+                    want.indices.insert(cell.key.index);
+                }
+            }
+            g.flushTiles();
+            g.setClip(0, layout.rulerHeight, W, H);
+        }
+
         // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling.
         if (c.assetKey >= 0 && lookup_) {
             if (auto peaks = lookup_(c.assetKey)) {
-                // The whole body below the header: there are no thumbnails yet to share it with.
-                const float wTop = top + header;
+                // Without thumbnails the waveform gets the whole body below the header; with them it
+                // sits in a strip along the bottom, over a scrim so it reads against the pictures.
+                const float wTop = hasThumbs ? bottom - kWaveStripFraction * (bottom - bodyTop) : top + header;
                 const float mid = (wTop + bottom) * 0.5f;
                 const float half = (bottom - wTop) * 0.5f - 1.0f;
                 g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
+                if (hasThumbs) g.rect(fx0, wTop, fx1, bottom, kWaveScrim);
                 const double ppf = vp.pxPerFrame;
                 const int64_t firstCol = static_cast<int64_t>(std::floor((std::max(0.0f, fx0) + vp.scrollX) / colW));
                 const int64_t lastCol = static_cast<int64_t>(std::floor((std::min(W, fx1) + vp.scrollX) / colW));
@@ -657,6 +827,13 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             g.rect(fx0, bottom - b, fx1, bottom, kSelection);
             g.rect(fx0, top, fx0 + b, bottom, kSelection);
             g.rect(fx1 - b, top, fx1, bottom, kSelection);
+        }
+    }
+
+    // Tell the service what is missing now; an empty set also drops requests the user scrolled past.
+    if (thumbs) {
+        for (const auto& [assetKey, want] : wanted) {
+            thumbs->want(assetKey, want.level, std::vector<int64_t>(want.indices.begin(), want.indices.end()));
         }
     }
 
@@ -715,7 +892,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         std::lock_guard<std::mutex> lock(mutex_);
         dirtyAgain = state_->dirty || state_->flingVelocity != 0.0f;
     }
-    if (keepAnimating || dirtyAgain) {
+    if (keepAnimating || dirtyAgain || moreTilesReady) {
         ctx.framePosted = true;
         AChoreographer_postFrameCallback64(ctx.choreographer, &TimelineRenderer::onFrame, this);
     }

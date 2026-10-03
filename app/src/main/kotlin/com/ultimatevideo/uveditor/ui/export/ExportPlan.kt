@@ -26,7 +26,7 @@ private const val SDR = 0
 
 /**
  * Plans an export of [timeline]. Returns null when it is empty. The first video track is the topmost
- * layer, matching the preview. Source ranges are in project frames, as everywhere in the editor.
+ * layer, matching the preview; clip transforms and opacity are carried over. Source ranges are in project frames, as everywhere in the editor.
  */
 internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fps: FrameRate): ExportPlan? {
     val assetsById = assets.associateBy { it.id }
@@ -48,6 +48,12 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
                 layer = layer,
                 // The export is SDR Rec.709: HLG sources are tone-mapped down to it.
                 colorMode = if (asset.colorSpace.contains("HLG", ignoreCase = true)) HLG_TO_SDR else SDR,
+                positionX = clip.transform.positionX,
+                positionY = clip.transform.positionY,
+                scaleX = clip.transform.scaleX,
+                scaleY = clip.transform.scaleY,
+                rotationDegrees = clip.transform.rotationDegrees,
+                opacity = clip.transform.opacity,
             )
         }
     }

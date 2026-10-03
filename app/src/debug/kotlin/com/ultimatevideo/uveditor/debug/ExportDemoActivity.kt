@@ -25,7 +25,7 @@ import java.util.concurrent.CountDownLatch
  *     --es codec hevc --ei w 1280 --ei h 720 --ei fps 30 --es layout split
  *
  * Layouts: `single` exports the first `frames` frames; `split` exports 60 frames, a 30 frame gap and
- * 60 more frames from further into the file. The outcome is written to `<out>.result.txt`.
+ * 60 more frames from further into the file; `layers` stacks a transformed clip over a full-frame one. The outcome is written to `<out>.result.txt`.
  */
 class ExportDemoActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,7 +41,16 @@ class ExportDemoActivity : Activity() {
         val layout = intent.getStringExtra("layout") ?: "single"
         val bitrate = intent.getIntExtra("bitrate", 12) * 1_000_000
 
-        val clips = if (layout == "split") {
+        val clips = if (layout == "layers") {
+            // A full-frame base (layer 1) with a smaller, rotated, half-transparent copy of a later part on top (layer 0).
+            listOf(
+                VideoClipSpec(0, 90, 0, 0, 1, 0),
+                VideoClipSpec(
+                    30, 60, 120, 0, 0, 0,
+                    positionX = width * 0.25, positionY = -height * 0.2, scaleX = 0.5, scaleY = 0.5, rotationDegrees = 20.0, opacity = 0.7,
+                ),
+            )
+        } else if (layout == "split") {
             listOf(
                 VideoClipSpec(0, 60, 0, 0, 0, 0),
                 VideoClipSpec(90, 60, 100, 0, 0, intent.getIntExtra("color", 0)),
@@ -73,6 +82,8 @@ class ExportDemoActivity : Activity() {
                     settings = ExportSettings(width, height, fps, 1, codec, bitrate),
                     projectFpsNum = fps,
                     projectFpsDen = 1,
+                    canvasWidth = intent.getIntExtra("cw", width),
+                    canvasHeight = intent.getIntExtra("ch", height),
                     totalFrames = total,
                     assetFds = mapOf(0L to input),
                     videoClips = clips,

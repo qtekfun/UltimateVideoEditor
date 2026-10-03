@@ -11,6 +11,7 @@ import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
@@ -128,6 +129,26 @@ class EditorViewModelTest {
         assertEquals("Test", h.state.projectName)
         assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
         assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `media saved as having audio is re-probed on load and fixed and saved`() = runTest(dispatcher) {
+        val silent = ProbedMedia(10_000_000, 30, 1, "Rec709-SDR", hasVideo = true, hasAudio = false)
+        val h = harness(importer = FakeImporter(mapOf("content://m/a1" to silent)))
+
+        assertFalse(h.state.assets.single().hasAudio)
+        assertTrue(h.state.assets.single().hasVideo)
+        advanceTimeBy(600)
+        assertFalse(h.store.saved.single().mediaLibrary.single().hasAudio)
+    }
+
+    @Test
+    fun `media that cannot be re-probed keeps its flags and nothing is rewritten`() = runTest(dispatcher) {
+        val h = harness() // the fake importer does not know the asset's uri
+
+        assertTrue(h.state.assets.single().hasAudio)
+        advanceTimeBy(600)
+        assertTrue(h.store.saved.isEmpty())
     }
 
     @Test
@@ -747,4 +768,166 @@ class EditorViewModelTest {
         assertEquals(first.clips[0].assetKey, first.clips[1].assetKey)
         assertEquals(30, first.fpsNum)
     }
+
+    // region appearance
+
+    private fun EditorViewModel.gesture(panX: Double = 0.0, panY: Double = 0.0, zoom: Double = 1.0, rotation: Double = 0.0) =
+        onIntent(EditorIntent.TransformGesture(panX, panY, zoom, rotation))
+
+    @Test
+    fun `canvas size and clip gain come from the project`() = runTest(dispatcher) {
+        val h = harness()
+
+        assertEquals(1920 to 1080, h.state.canvasWidth to h.state.canvasHeight)
+        assertEquals(-6.0, h.clips("v1")[0].gainDb, 0.0)
+        assertTrue(h.clips("v1")[0].transform.isIdentity)
+    }
+
+    @Test
+    fun `a gesture is shown live, committed as one undo step on release and undone in one step`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(10))
+
+        h.vm.gesture(panX = 30.0, panY = -10.0)
+        h.vm.gesture(zoom = 2.0, rotation = 20.0)
+
+        val live = h.state.visibleTimeline.track("v1")!!.clip("c1")!!.transform
+        assertEquals(ClipTransform(30.0, -10.0, 2.0, 2.0, 20.0), live)
+        assertTrue("history is untouched until release", h.clips("v1")[0].transform.isIdentity && !h.state.canUndo)
+
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+
+        assertEquals(live, h.clips("v1")[0].transform)
+        assertNull(h.state.dragPreview)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertTrue(h.clips("v1")[0].transform.isIdentity)
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `cancelling a gesture leaves the clip untouched`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+
+        h.vm.gesture(panX = 50.0)
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = false))
+
+        assertTrue(h.clips("v1")[0].transform.isIdentity)
+        assertNull(h.state.dragPreview)
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `a gesture does nothing without a selected clip under the playhead`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.gesture(panX = 50.0)
+        assertNull(h.state.dragPreview)
+
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(150)) // inside c2, not the selected c1
+        h.vm.gesture(panX = 50.0)
+        assertNull(h.state.dragPreview)
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `a gesture that changes nothing does not add an undo step`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+
+        h.vm.gesture()
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `gain and transform edited from the inspector are one undo step and are saved`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c2")
+
+        h.vm.onIntent(EditorIntent.BeginAppearanceEdit)
+        h.vm.onIntent(EditorIntent.UpdateGain(-12.0))
+        h.vm.onIntent(EditorIntent.UpdateTransform(ClipTransform(scaleX = 0.5, scaleY = 0.5, opacity = 0.4)))
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+        advanceTimeBy(600)
+
+        val clip = h.clips("v1")[1]
+        assertEquals(-12.0, clip.gainDb, 0.0)
+        assertEquals(0.4, clip.transform.opacity, 0.0)
+        val saved = h.store.saved.last().tracks.first { it.id == "v1" }.clips.first { it.id == "c2" }
+        assertEquals(-12.0, saved.gainDb, 0.0)
+        assertEquals(listOf(0.5, 0.5), saved.transform.scale)
+        assertEquals(0.4, saved.transform.opacity, 0.0)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(0.0, h.clips("v1")[1].gainDb, 0.0)
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `values that cannot be used are refused with a message`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+
+        h.vm.onIntent(EditorIntent.UpdateTransform(ClipTransform(scaleX = 0.0)))
+        h.vm.onIntent(EditorIntent.UpdateGain(500.0))
+
+        assertEquals(2, h.effects.filterIsInstance<EditorEffect.ShowMessage>().size)
+        assertNull(h.state.dragPreview)
+    }
+
+    @Test
+    fun `editing the look needs a selected clip`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.onIntent(EditorIntent.BeginAppearanceEdit)
+
+        assertEquals("Select a clip first", (h.effects.single() as EditorEffect.ShowMessage).text)
+    }
+
+    @Test
+    fun `reset restores identity and unity gain in one undo step`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.UpdateTransform(ClipTransform(positionX = 99.0)))
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+
+        h.vm.onIntent(EditorIntent.ResetAppearance)
+
+        assertTrue(h.clips("v1")[0].transform.isIdentity)
+        assertEquals(0.0, h.clips("v1")[0].gainDb, 0.0)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(99.0, h.clips("v1")[0].transform.positionX, 0.0)
+    }
+
+    @Test
+    fun `closing the inspector commits an edit in progress`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.ToggleInspector)
+        assertTrue(h.state.inspectorOpen)
+
+        h.vm.onIntent(EditorIntent.UpdateGain(3.0))
+        h.vm.onIntent(EditorIntent.ToggleInspector)
+
+        assertFalse(h.state.inspectorOpen)
+        assertEquals(3.0, h.clips("v1")[0].gainDb, 0.0)
+    }
+
+    @Test
+    fun `an edit in progress is dropped when the timeline changes under it`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(10))
+        h.vm.gesture(panX = 10.0)
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+
+        assertTrue(h.clips("v1").all { it.transform.isIdentity })
+    }
+
+    // endregion
 }

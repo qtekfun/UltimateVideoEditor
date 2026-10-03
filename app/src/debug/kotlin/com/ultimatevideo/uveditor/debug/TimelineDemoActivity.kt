@@ -24,6 +24,7 @@ import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
+import com.ultimatevideo.uveditor.engine.timeline.ThumbnailCache
 import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.editor.TimelineHost
@@ -32,7 +33,7 @@ import java.io.File
 
 /**
  * Debug harness: a synthetic multitrack timeline on the native canvas. If a media file with audio
- * is pushed to `Android/data/<pkg>/files/demo_media.mp4`, its waveform is extracted and drawn.
+ * is pushed to `Android/data/<pkg>/files/demo_media.mp4`, its waveform and thumbnails are generated and drawn.
  */
 class TimelineDemoActivity : ComponentActivity() {
     private lateinit var engine: TimelineEngine
@@ -43,11 +44,17 @@ class TimelineDemoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        engine = TimelineEngine(resources.displayMetrics.density) { assetKey, result ->
+        engine = TimelineEngine(
+            resources.displayMetrics.density,
+            onThumbnailError = { assetKey, result -> status = "thumbnails asset=$assetKey -> $result" },
+        ) { assetKey, result ->
             status = "waveform asset=$assetKey -> $result"
         }
         pushSnapshot()
         requestDemoWaveform()
+        // `--ef zoom <factor>` zooms in at start (adb cannot pinch), e.g. to exercise finer thumbnail levels.
+        val zoom = intent.getFloatExtra("zoom", 1f)
+        if (zoom != 1f) engine.zoomBy(zoom, 0f)
 
         setContent {
             UVEditorTheme {
@@ -102,7 +109,9 @@ class TimelineDemoActivity : ComponentActivity() {
         // The engine owns the descriptor, so detach it from the ParcelFileDescriptor.
         val fd = ParcelFileDescriptor.open(media, ParcelFileDescriptor.MODE_READ_ONLY).detachFd()
         engine.requestWaveform(DEMO_ASSET_KEY, fd, cacheFile)
-        status = "Extracting waveform…"
+        val thumbFd = ParcelFileDescriptor.open(media, ParcelFileDescriptor.MODE_READ_ONLY).detachFd()
+        engine.requestThumbnails(DEMO_ASSET_KEY, thumbFd, ThumbnailCache(filesDir).dirFor(DEMO_ASSET_ID))
+        status = "Extracting waveform and thumbnails…"
     }
 
     private fun buildDemoSnapshot(selected: Long): TimelineSnapshot {

@@ -24,8 +24,15 @@ struct VideoClip {
     int64_t durationFrames = 0;
     int64_t sourceInFrame = 0;
     int64_t assetKey = 0;
-    int32_t layer = 0;      // 0 is the topmost track; a lower number hides a higher one
+    int32_t layer = 0;      // 0 is the topmost track; a lower number is drawn over a higher one
     int32_t colorMode = 0;  // mirrors render::ColorMode
+    // Mirrors ClipTransform: canvas pixels (+x right, +y down), clockwise degrees, opacity 0..1.
+    double posX = 0.0;
+    double posY = 0.0;
+    double scaleX = 1.0;
+    double scaleY = 1.0;
+    double rotationDeg = 0.0;
+    double opacity = 1.0;
 };
 
 // Frame index -> nanoseconds, rounded half up. Monotonic and exact for any realistic length.
@@ -63,6 +70,17 @@ inline const VideoClip* clipAt(const std::vector<VideoClip>& clips, int64_t fram
         if (best == nullptr || clip.layer < best->layer) best = &clip;
     }
     return best;
+}
+
+// Every clip covering `frame`, bottom layer first (the highest layer number), so drawing them in
+// order leaves the topmost track on top. Empty in a gap.
+inline std::vector<const VideoClip*> layersAt(const std::vector<VideoClip>& clips, int64_t frame) {
+    std::vector<const VideoClip*> out;
+    for (const VideoClip& clip : clips) {
+        if (frame >= clip.startFrame && frame < clip.startFrame + clip.durationFrames) out.push_back(&clip);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const VideoClip* a, const VideoClip* b) { return a->layer > b->layer; });
+    return out;
 }
 
 // Output frame (at the export rate) -> the project frame shown at that instant: the last project

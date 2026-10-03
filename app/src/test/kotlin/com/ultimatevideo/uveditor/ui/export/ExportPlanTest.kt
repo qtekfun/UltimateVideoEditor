@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.ui.export
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.domain.clip
@@ -59,6 +60,44 @@ class ExportPlanTest {
         val keyOf = plan.assetKeys
         assertEquals(1, plan.videoClips.single { it.assetKey == keyOf.getValue("hlg") }.colorMode)
         assertEquals(0, plan.videoClips.single { it.assetKey == keyOf.getValue("sdr") }.colorMode)
+    }
+
+    @Test
+    fun `clip transform and opacity are carried over`() {
+        val moved = clip("c", 0, 100, asset = "a").copy(
+            transform = ClipTransform(positionX = 120.0, positionY = -40.0, scaleX = 0.5, scaleY = 0.75, rotationDegrees = 15.0, opacity = 0.6),
+        )
+        val tl = timeline(track("v1", moved))
+
+        val spec = buildExportPlan(tl, listOf(asset("a")), fps)!!.videoClips.single()
+
+        assertEquals(120.0, spec.positionX, 0.0)
+        assertEquals(-40.0, spec.positionY, 0.0)
+        assertEquals(0.5, spec.scaleX, 0.0)
+        assertEquals(0.75, spec.scaleY, 0.0)
+        assertEquals(15.0, spec.rotationDegrees, 0.0)
+        assertEquals(0.6, spec.opacity, 0.0)
+    }
+
+    @Test
+    fun `a clip with the identity transform is drawn untransformed`() {
+        val tl = timeline(track("v1", clip("c", 0, 100, asset = "a")))
+
+        val spec = buildExportPlan(tl, listOf(asset("a")), fps)!!.videoClips.single()
+
+        assertEquals(0.0, spec.positionX, 0.0)
+        assertEquals(1.0, spec.scaleX, 0.0)
+        assertEquals(1.0, spec.opacity, 0.0)
+    }
+
+    @Test
+    fun `clip gain reaches the audio snapshot`() {
+        val loud = clip("c", 0, 100, asset = "a").copy(gainDb = -6.0)
+        val tl = timeline(track("v1", loud))
+
+        val audio = buildExportPlan(tl, listOf(asset("a")), fps)!!.audio!!
+
+        assertEquals(-6.0f, audio.clips.single().gainDb, 0.0f)
     }
 
     @Test

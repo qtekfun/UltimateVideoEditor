@@ -34,7 +34,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Scroll and pinch-zoom at 60/120 fps; gesture forwarding; hit-testing (scroll, fling and tap seen working on device; frame rate not measured; pinch-zoom only host-tested)
 - [x] Media import (SAF picker, persisted URI permission), media library panel (probe verified on device and picker opens; the picker-to-timeline path was not seen end to end)
 - [x] Background waveform extraction and on-disk peak cache
-- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; play/seek transport and playhead drag verified on device; clip drag/trim, split and delete implemented and unit-tested but not yet verified on device; thumbnails pending)
+- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; play/seek transport and playhead drag verified on device; clip drag/trim, split and delete implemented and unit-tested but not yet verified on device; thumbnail filmstrip drawn from a disk-cached, atlas-LRU tile pipeline and verified on device with a synthetic clip)
 - **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank. (Waveforms are now normalised per media and use the whole clip body; zoom fits the whole project until the user zooms by hand. Both are host-tested only: not yet seen on the device.)
 
 ## Phase 4 — Decode, preview and audio playback
@@ -43,9 +43,9 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] LRU frame cache with look-ahead; scrubbing
 - [x] Oboe audio playback + mixer (per-clip gain in the mixer); audio device as master clock (`AudioPlaybackEngine.positionFrame()`)
 - [ ] A/V sync: drive the preview from the audio clock (the clock is exposed; wiring it to the video pipeline is not done)
-- [ ] Per-clip transform (position/scale/rotation) with on-preview gestures; gain control UI
+- [x] Per-clip transform (position/scale/rotation/opacity) with on-preview gestures; gain control UI — inspector sliders and one-finger drag verified on the reference device; pinch and twist are unit-tested maths only (adb cannot inject multi-touch)
 - [x] Colour shaders: HLG/Rec.2020 → SDR Rec.709; per-clip override
-- [ ] Multi-layer compositing (video tracks above one another) — tracks can be added/removed in the editor; the preview still shows only the topmost clip, no blending of layers yet
+- [x] Multi-layer compositing (video tracks above one another): one decoder per layer within the device's hardware-decoder limit (top layers win), per-layer transform and opacity, source-over blending in track order; `GlPipeline::drawScene` is reusable offscreen for export. Not yet measured: playback performance with several 4K layers.
 - _Status (4a, after preview-perf):_ synthetic 4K60 HEVC (480 frames) and 1080p30 H.264 (300 frames) play on the reference device with every frame decoded once and shown (0 seeks, 0 dropped decodes in steady state); render thread spends ~0.2 ms blit + ~0.15 ms draw + ~0.5 ms swap per frame. The 4K60 criterion is met on synthetic clips only (not real footage). The A/V drift criterion cannot be measured until audio lands, so the gate stays open.
 - _Status (audio):_ on the reference device the Oboe stream (AAudio, shared mode, 192-frame burst, 384-frame buffer) holds the master clock to within 0.4 ms over 55 s with zero underruns; estimated output latency ~30 ms. Linear resampling, no downmix beyond the first two channels, no fades at clip edges yet.
 - **Gate:** 4K60 single-layer playback without drops; no measurable A/V drift on a long timeline.
@@ -60,7 +60,8 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Audio offline mix and AAC encode
 - [x] Export UI: resolution/fps/bitrate, progress, cancel, share
 - [ ] Optional: static FFmpeg fallback behind a feature flag
-- _Status:_ exports the full timeline (top video track wins, gaps are black, HLG sources tone-mapped to SDR Rec.709) at the project
+- _Status:_ exports the full timeline (all video layers composited with their transform and opacity through the preview's
+  `drawScene`, clip gain in the audio mix, gaps black, HLG sources tone-mapped to SDR Rec.709) at the project
   or a lower frame rate, H.264 or HEVC + AAC in MP4, saved through SAF. On the reference device a 4K60 HEVC export runs at ~90 fps
   (1.5x real time) and a 1080p30 H.264 one at ~100 fps. Verified with ffprobe: exact frame counts and PTS grid, audio clicks land on
   their timestamps. The AAC encoder delay (2048 samples) is compensated, so the first 42.7 ms of the mix are not heard. Cancel and

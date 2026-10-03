@@ -39,6 +39,7 @@ internal fun audioSnapshotOf(
                 // A clip's source range is in project frames, so the source rate is the project's.
                 sourceFpsNum = fps.num,
                 sourceFpsDen = fps.den,
+                gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
             )
         }
     }
@@ -127,8 +128,11 @@ class EditorAudio(
     }
 
     private fun apply(engine: AudioPlaybackEngine, snapshot: AudioSnapshot) {
+        // A clip whose media is not registered yet would fail to decode ("never registered") and
+        // raise a fault. Send only playable clips; registration re-applies the latest snapshot.
+        val playable = snapshot.copy(clips = snapshot.clips.filter { it.assetKey in registered })
         try {
-            engine.setSnapshot(snapshot)
+            engine.setSnapshot(playable)
         } catch (e: AudioException) {
             onError("The audio could not be updated: ${e.message}")
         }

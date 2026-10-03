@@ -9,6 +9,7 @@
 
 #include "audio/waveform_service.h"
 #include "core/error.h"
+#include "jni/timeline_handle.h"
 #include "timeline_view/timeline_renderer.h"
 #include "timeline_view/timeline_snapshot.h"
 
@@ -18,15 +19,6 @@
 namespace {
 
 using uv::core::Status;
-
-struct TimelineHandle {
-    JavaVM* vm = nullptr;
-    jobject listener = nullptr;  // global ref
-    jmethodID onWaveformReady = nullptr;
-    std::atomic<bool> closing{false};
-    std::shared_ptr<uv::audio::WaveformService> waveforms;
-    std::unique_ptr<uv::timeline::TimelineRenderer> renderer;
-};
 
 TimelineHandle* from(jlong h) { return reinterpret_cast<TimelineHandle*>(h); }
 jint code(Status s) { return static_cast<jint>(s); }
@@ -87,6 +79,7 @@ JNIEXPORT void JNICALL JNI_FN(nativeDestroy)(JNIEnv* env, jobject /*thiz*/, jlon
     TimelineHandle* h = from(handle);
     if (h == nullptr) return;
     h->closing.store(true);
+    destroyThumbnails(env, h);  // thumbnail callbacks poke the renderer, so stop them first
     h->waveforms.reset();  // joins the worker (the renderer only holds a weak reference)
     h->renderer.reset();   // worker callbacks can no longer fire, so the renderer is safe to drop
     env->DeleteGlobalRef(h->listener);

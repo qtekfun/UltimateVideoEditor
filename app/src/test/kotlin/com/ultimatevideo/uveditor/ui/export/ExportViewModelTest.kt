@@ -164,6 +164,7 @@ class ExportViewModelTest {
         assertEquals(ExportCodec.HEVC, request.settings.codec)
         assertEquals(20_000_000, request.settings.videoBitrate)
         assertEquals(30 to 1, request.projectFpsNum to request.projectFpsDen)
+        assertEquals(1920 to 1080, request.canvasWidth to request.canvasHeight)
         assertEquals(90L, request.totalFrames)
         assertEquals(1, request.videoClips.size)
         assertNotNull(request.audioSnapshot)

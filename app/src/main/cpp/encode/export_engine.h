@@ -25,6 +25,8 @@ struct ExportParams {
     int32_t height = 0;
     Fps fps;         // output frame rate
     Fps projectFps;  // rate that VideoClip frames are expressed in
+    int32_t canvasWidth = 0;   // project resolution: clip positions are measured in this canvas
+    int32_t canvasHeight = 0;
     VideoCodec codec = VideoCodec::H264;
     int32_t videoBitrate = 0;
     int32_t audioBitrate = 192000;
