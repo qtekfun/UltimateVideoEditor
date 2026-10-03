@@ -40,6 +40,10 @@ public:
     void setPlayhead(int64_t frame);
     void scrollBy(float dx, float dy);
     void zoomBy(float factor, float focusX);
+    // Zooms to show the whole timeline and resumes following it on resize.
+    void fitToContent();
+    // False once the user has zoomed by hand, until the next fitToContent().
+    bool isAutoFit() const;
     void fling(float velocityX);
     void invalidate();
     HitResult hitTest(float x, float y) const;

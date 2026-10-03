@@ -64,6 +64,12 @@ class TimelineEngine(
     fun scrollBy(dx: Float, dy: Float) = NativeTimeline.nativeScrollBy(live(), dx, dy)
     fun zoomBy(factor: Float, focusX: Float) = NativeTimeline.nativeZoomBy(live(), factor, focusX)
     fun fling(velocityX: Float) = NativeTimeline.nativeFling(live(), velocityX)
+
+    /** Zooms to show the whole timeline and follows it on resize until the user zooms by hand. */
+    fun fitToContent() = NativeTimeline.nativeFitToContent(live())
+
+    /** False once the user has zoomed by hand, until the next [fitToContent]. */
+    fun isAutoFit(): Boolean = NativeTimeline.nativeIsAutoFit(live())
     fun setPlayhead(frame: Long) = NativeTimeline.nativeSetPlayhead(live(), frame)
 
     fun hitTest(x: Float, y: Float): TimelineHit {

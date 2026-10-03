@@ -1,6 +1,7 @@
 #include "audio/waveform_peaks.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -108,6 +109,23 @@ void queryPeaks(const PeakPyramid& p, int64_t startFrame, int64_t endFrame, int 
         outMinMax[i * 2] = mn;
         outMinMax[i * 2 + 1] = mx;
     }
+}
+
+float referenceLevel(const PeakPyramid& p) {
+    float peak = 0.0f;
+    if (!p.levels.empty()) {
+        // The coarsest level has few entries and still contains the global extremes.
+        for (const int16_t v : p.levels.back().data) {
+            peak = std::max(peak, std::fabs(static_cast<float>(v)) / 32768.0f);
+        }
+    }
+    return std::max(peak, kMinReferenceLevel);
+}
+
+float displayAmplitude(float amplitude, float reference) {
+    const float x = std::min(1.0f, std::fabs(amplitude) / std::max(reference, kMinReferenceLevel));
+    const float shaped = std::sqrt(x);
+    return amplitude < 0.0f ? -shaped : shaped;
 }
 
 core::Status savePeaks(const std::string& path, const PeakPyramid& p) {
