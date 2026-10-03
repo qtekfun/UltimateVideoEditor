@@ -73,6 +73,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.overwriteMove(timeline, clipId, toTrackId, newStart)
     }
 
+    /** Drops a clip into a cut of a non-base lane, shifting that lane's later clips right. */
+    data class InsertOnLane(val clipId: String, val toTrackId: String, val at: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.insertOnLane(timeline, clipId, toTrackId, at)
+    }
+
     /** Lifts a base clip onto an overlay lane ([toTrackId]) or a new lane (null); the base closes the gap. */
     data class LiftFromBase(val clipId: String, val toTrackId: String?, val newStart: FrameIndex) : EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.liftFromBase(timeline, clipId, toTrackId, newStart)
@@ -172,7 +177,8 @@ sealed interface EditCommand {
     }
 
     data class SetSpeed(val clipId: String, val num: Long, val den: Long, val ripple: Boolean = false) : EditCommand {
-        override fun apply(timeline: Timeline) = TimelineOps.setSpeed(timeline, clipId, num, den, ripple)
+        override fun apply(timeline: Timeline) =
+            if (ripple) MagneticBase.setSpeed(timeline, clipId, num, den) else TimelineOps.setSpeed(timeline, clipId, num, den, ripple = false)
     }
 
     data class SetReverse(val clipId: String, val reverse: Boolean) : EditCommand {

@@ -199,4 +199,46 @@ class LaneOpsTest {
     }
 
     // endregion
+
+    // region inserting into a non-base lane
+
+    private fun laneScene() = timeline(
+        track("v2", clip("p", 0, 60), clip("q", 60, 40), clip("r", 150, 30)),
+        track("v1", clip("a", 0, 200)),
+        track("a1", clip("m", 0, 100), type = TrackType.AUDIO),
+    )
+
+    @Test
+    fun `inserting into a cut shifts only that lane's later clips right`() {
+        val t = timeline(track("v3", clip("x", 300, 30)), *laneScene().tracks.toTypedArray())
+        val result = LaneOps.insertOnLane(t, "x", "v2", f(60)).getOrFail()
+        assertLayout(result, "v2", at("p", 0, 60), at("x", 60, 90), at("q", 90, 130), at("r", 180, 210))
+        assertEquals(t.track("v1"), result.track("v1"))
+        assertEquals(t.track("a1"), result.track("a1"))
+        assertEquals(emptyList<Clip>(), result.track("v3")!!.clips)
+    }
+
+    @Test
+    fun `inserting within the same lane moves the clip to the cut and closes nothing`() {
+        val result = LaneOps.insertOnLane(laneScene(), "r", "v2", f(60)).getOrFail()
+        assertLayout(result, "v2", at("p", 0, 60), at("r", 60, 90), at("q", 90, 130))
+    }
+
+    @Test
+    fun `inserting inside a clip, on the base or into a lane of another type is refused`() {
+        val t = timeline(track("v3", clip("x", 300, 30)), *laneScene().tracks.toTypedArray())
+        assertTrue(LaneOps.insertOnLane(t, "x", "v2", f(30)).errorOrFail() is EditError.Overlap)
+        assertTrue(LaneOps.insertOnLane(t, "x", "v1", f(10)).errorOrFail() is EditError.InvalidClip)
+        assertTrue(LaneOps.insertOnLane(t, "x", "a1", f(10)).errorOrFail() is EditError.TrackTypeMismatch)
+    }
+
+    @Test
+    fun `an insert on a lane undoes exactly and keeps the invariants`() {
+        val t = timeline(track("v3", clip("x", 300, 30)), *laneScene().tracks.toTypedArray())
+        val done = EditHistory(t).execute(EditCommand.InsertOnLane("x", "v2", f(60))).getOrFail()
+        assertEquals(emptyList<String>(), done.timeline.invariantViolations())
+        assertEquals(t, done.undo().timeline)
+    }
+
+    // endregion
 }
