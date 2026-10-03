@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.UVEditor" parent="android:Theme.Material.NoActionBar" />
+</resources>
