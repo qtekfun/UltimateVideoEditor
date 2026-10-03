@@ -49,7 +49,7 @@ data class DropDecision(val kind: DropKind, val command: EditCommand?, val hint:
  * On the base, if the clip's START edge is within [INSERT_RADIUS_FRAMES] of a junction (a cut between
  * two clips, or the lane's start / end) the action is an INSERT there (a ripple); otherwise, over the
  * body of a clip, it is an OVERWRITE of the frames the clip covers. The base has no free space: past
- * its end the clip is appended, a base clip dragged within the base only reorders, and dragged onto an overlay lane (or above the lanes) it is lifted off the base, which closes its gap.
+ * its end the clip is appended, a base clip dragged within the base only reorders, and dragged onto an overlay lane (or above the lanes) it is lifted off the base: the base closes its gap and the overlays stay put.
  *
  * On every other lane (overlay, audio, title) there is no insert: landing on existing clips is always
  * an OVERWRITE and free space is a plain MOVE. Inserting on those lanes is deferred.
@@ -99,7 +99,7 @@ object DropPlan {
     ): DropDecision {
         val onBase = base != null && lane.id == base.id
         if (base != null && source.id == base.id && lane.id != base.id) {
-            // Lifting a base clip onto an overlay: the base closes, the clip replaces what it covers up there.
+            // Lifting a base clip onto an overlay: the base closes, overlays stay, the clip replaces what it covers up there.
             val covers = lane.clips.any { it.timelineStart < start + length && it.timelineEnd > start }
             val kind = if (covers) DropKind.OVERWRITE else DropKind.MOVE
             return DropDecision(
