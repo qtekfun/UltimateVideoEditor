@@ -46,7 +46,11 @@ Audio on device: `AudioPlaybackInstrumentedTest` (offline tone/gain/resample/see
 latency run logged under tag `UVAudioTest`). Its assets are ffmpeg-generated tones in `src/androidTest/assets`. The app and test
 APKs share one package on the device, so do not run two agents' installs/instrumentation against it at the same time.
 A debug-only harness for the native timeline: `adb -s <serial> shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity`
-(push a file with audio to `/sdcard/Android/data/com.ultimatevideo.uveditor/files/demo_media.mp4` to see waveforms).
+(push a file with audio to `/sdcard/Android/data/com.ultimatevideo.uveditor/files/demo_media.mp4` to see waveforms and, for a
+video file, the thumbnail filmstrip). `--ef zoom <factor>` zooms in at start (adb cannot pinch). In debug builds
+`adb shell setprop debug.uveditor.atlas_bytes <n>` shrinks the thumbnail atlas to exercise slot eviction (logged under tag `uv_thumb`).
+`uv_thumbnail_host_tests` covers thumbnail tile math, the atlas slot LRU, the on-disk tile store and YUV conversion; without CMake:
+`g++ -std=c++20 -Iapp/src/main/cpp app/src/main/cpp/tests/thumbnail_host_tests.cpp app/src/main/cpp/core/error.cpp app/src/main/cpp/thumbnail/thumb_store.cpp -o /tmp/thumb_tests && /tmp/thumb_tests`.
 
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests

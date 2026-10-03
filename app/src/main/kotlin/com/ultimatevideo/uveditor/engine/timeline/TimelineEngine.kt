@@ -20,17 +20,24 @@ enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_T
 data class TimelineHit(val kind: HitKind, val trackIndex: Int, val clipKey: Long, val frame: Long)
 
 /**
- * Owns the native timeline canvas and waveform service. Call all methods from the main thread;
+ * Owns the native timeline canvas, waveform service and thumbnail service. Call all methods from the main thread;
  * [onWaveform] is invoked on a native worker thread and must hop to the main thread itself.
  */
 class TimelineEngine(
     density: Float,
+    private val onThumbnailError: (assetKey: Long, status: EngineStatus) -> Unit = { _, _ -> },
     private val onWaveform: (assetKey: Long, status: EngineStatus) -> Unit,
 ) : AutoCloseable {
 
     private val listener = object : WaveformListener {
         override fun onWaveformReady(assetKey: Long, statusCode: Int) {
             onWaveform(assetKey, EngineStatus.fromCode(statusCode))
+        }
+    }
+
+    private val thumbnailListener = object : ThumbnailListener {
+        override fun onThumbnailError(assetKey: Long, statusCode: Int) {
+            onThumbnailError(assetKey, EngineStatus.fromCode(statusCode))
         }
     }
 
@@ -42,6 +49,11 @@ class TimelineEngine(
 
     init {
         if (handle == 0L) throw EngineException("Could not create the native timeline")
+        val attached = NativeThumbnails.nativeAttach(handle, thumbnailListener)
+        if (attached != EngineStatus.OK.code) {
+            close()
+            throw EngineException("Could not start the thumbnail service: ${EngineStatus.fromCode(attached)}")
+        }
     }
 
     fun surfaceCreated(surface: Surface) = throwIfFailed(NativeTimeline.nativeSurfaceCreated(live(), surface), "surfaceCreated")
@@ -84,6 +96,15 @@ class TimelineEngine(
      */
     fun requestWaveform(assetKey: Long, fd: Int, cacheFile: File) {
         throwIfFailed(NativeTimeline.nativeRequestWaveform(live(), assetKey, fd, cacheFile.absolutePath), "requestWaveform")
+    }
+
+    /**
+     * Starts background thumbnail generation for a video asset (tiles are cached under [cacheDir]).
+     * Takes ownership of [fd], which must be a detached descriptor. Tiles appear on the timeline as
+     * they are decoded; a failure is reported through `onThumbnailError`.
+     */
+    fun requestThumbnails(assetKey: Long, fd: Int, cacheDir: File) {
+        throwIfFailed(NativeThumbnails.nativeRegisterAsset(live(), assetKey, fd, cacheDir.absolutePath), "requestThumbnails")
     }
 
     override fun close() {
