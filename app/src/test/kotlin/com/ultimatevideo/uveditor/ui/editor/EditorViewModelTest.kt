@@ -131,6 +131,26 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `media saved as having audio is re-probed on load and fixed and saved`() = runTest(dispatcher) {
+        val silent = ProbedMedia(10_000_000, 30, 1, "Rec709-SDR", hasVideo = true, hasAudio = false)
+        val h = harness(importer = FakeImporter(mapOf("content://m/a1" to silent)))
+
+        assertFalse(h.state.assets.single().hasAudio)
+        assertTrue(h.state.assets.single().hasVideo)
+        advanceTimeBy(600)
+        assertFalse(h.store.saved.single().mediaLibrary.single().hasAudio)
+    }
+
+    @Test
+    fun `media that cannot be re-probed keeps its flags and nothing is rewritten`() = runTest(dispatcher) {
+        val h = harness() // the fake importer does not know the asset's uri
+
+        assertTrue(h.state.assets.single().hasAudio)
+        advanceTimeBy(600)
+        assertTrue(h.store.saved.isEmpty())
+    }
+
+    @Test
     fun `missing tracks are created on load`() = runTest(dispatcher) {
         val empty = project(withClips = false).copy(tracks = emptyList())
         val h = harness(empty)

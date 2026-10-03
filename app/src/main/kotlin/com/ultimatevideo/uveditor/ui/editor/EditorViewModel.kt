@@ -156,10 +156,42 @@ class EditorViewModel(
                         assets = project.mediaLibrary,
                     )
                 }
+                refreshAssetTracks(project.mediaLibrary)
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false, loadError = e.message) }
             }
         }
+    }
+
+    /**
+     * Projects saved before `hasVideo`/`hasAudio` existed read as "has both", so a file without an
+     * audio track would be sent to the mixer and fail. Re-probing fixes the flags once and the
+     * project is saved with them. A file that cannot be probed keeps its flags: its absence is
+     * reported by the waveform, audio and preview paths when they open it.
+     */
+    private suspend fun refreshAssetTracks(loaded: List<MediaAssetDto>) {
+        val probed = HashMap<String, Pair<Boolean, Boolean>>()
+        for (asset in loaded) {
+            try {
+                val media = importer.import(asset.uri)
+                probed[asset.id] = media.hasVideo to media.hasAudio
+            } catch (e: MediaImportException) {
+                continue
+            }
+        }
+        val stale = probed.filter { (id, flags) ->
+            state.value.assets.firstOrNull { it.id == id }?.let { it.hasVideo to it.hasAudio != flags } == true
+        }
+        if (stale.isEmpty()) return
+        // Apply to the current list: media may have been imported while probing.
+        reduce {
+            copy(
+                assets = assets.map { asset ->
+                    stale[asset.id]?.let { (video, audio) -> asset.copy(hasVideo = video, hasAudio = audio) } ?: asset
+                },
+            )
+        }
+        scheduleSave()
     }
 
     private fun scheduleSave() {
