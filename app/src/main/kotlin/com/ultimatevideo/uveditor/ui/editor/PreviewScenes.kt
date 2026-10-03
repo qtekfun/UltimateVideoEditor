@@ -54,6 +54,8 @@ internal fun previewRequestsAt(
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,
+                        // Playback holds the clip's last frame instead of running into trimmed-away media.
+                        endFrame = clip.sourceInFrame + clip.durationFrames,
                     )
                 }
             }

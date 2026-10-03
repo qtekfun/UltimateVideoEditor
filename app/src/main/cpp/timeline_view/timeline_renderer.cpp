@@ -532,6 +532,17 @@ void TimelineRenderer::setPlayhead(int64_t frame) {
     wake();
 }
 
+void TimelineRenderer::ensureVisible(int64_t frame) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!state_->vp.ensureVisible(std::max<int64_t>(0, frame))) return;
+        state_->flingVelocity = 0.0f;
+        state_->clampViewport();
+        state_->dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::scrollBy(float dx, float dy) {
     {
         std::lock_guard<std::mutex> lock(mutex_);

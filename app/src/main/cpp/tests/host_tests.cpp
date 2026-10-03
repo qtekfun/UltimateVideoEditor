@@ -265,6 +265,20 @@ static void testPeaks() {
     CHECK(col[0] == 0 && col[1] == 0);
 }
 
+static void testViewportEnsureVisible() {
+    timeline::Viewport vp;
+    vp.viewWidth = 1000.0;
+    vp.pxPerFrame = 10.0;
+    vp.scrollX = 0.0;
+    CHECK(!vp.ensureVisible(50));  // x = 500: inside the band, no scroll
+    CHECK(vp.scrollX == 0.0);
+    CHECK(vp.ensureVisible(95));  // x = 950: past 90%, pages so the frame sits 10% from the left
+    CHECK(vp.scrollX == 95 * 10.0 - 100.0);
+    CHECK(!vp.ensureVisible(95));
+    CHECK(vp.ensureVisible(3));  // before the left edge: pages back, never below zero
+    CHECK(vp.scrollX == 0.0);
+}
+
 static void testViewportFit() {
     timeline::Viewport vp;
     vp.viewWidth = 1000.0;
@@ -352,6 +366,7 @@ int main() {
     testHitTest();
     testPeaks();
     testViewportFit();
+    testViewportEnsureVisible();
     testWaveformDisplay();
     testPeaksFile();
     if (g_failures == 0) std::puts("host tests: all passed");

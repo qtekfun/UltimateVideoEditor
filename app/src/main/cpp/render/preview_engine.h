@@ -70,6 +70,11 @@ struct SceneLayer {
     int64_t frame = 0;
     LayerTransform transform;
     uint32_t title = 0;  // != 0: a rasterised title (see uploadTitle); `asset` and `frame` are unused
+    // playScene() only: `frame` is where playback starts, `baseFrame` is kept as the anchor and the
+    // layer never advances past `limitFrame` (exclusive; the clip's out point), so a trimmed clip
+    // holds its last frame instead of showing media the editor cut away.
+    int64_t baseFrame = 0;
+    int64_t limitFrame = INT64_MAX;
 };
 
 // Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
@@ -78,6 +83,8 @@ struct SceneLayer {
 // Two ways to drive it:
 //  - setScene(): the editor path. A project canvas plus layers bottom-to-top, each with its own
 //    transform and opacity. It is redrawn once every layer's frame is cached.
+//  - playScene(): the same, but the native clock advances every layer in step (project frames), so
+//    the editor only has to re-anchor it when the composition changes or the audio clock disagrees.
 //  - seek()/play(): single asset, shown full-surface with no transform (debug harness).
 class PreviewEngine {
 public:
@@ -109,6 +116,9 @@ public:
     // applied, so upload first and then reference `key` from setScene(). `key` must not be 0.
     void uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba);
     void releaseTitle(uint32_t key);
+    // Like setScene(), then plays: every layer advances at `fps` (project frames per second) from
+    // now on the monotonic clock, each from its own start frame. Calling it again re-anchors.
+    void playScene(int canvasW, int canvasH, std::vector<SceneLayer> layers, decode::Rational fps);
 
     void seek(uint32_t assetId, int64_t frame);
     void play(uint32_t assetId, int64_t startFrame);
@@ -153,6 +163,7 @@ private:
     // Installs `layers` as the scene and points each decoder at its frame. Returns false if none remain.
     bool applyScene(int canvasW, int canvasH, std::vector<SceneLayer> layers);
     void tick(uint64_t generation);
+    void tickScene(uint64_t generation);
     void report(const decode::Error& error);
 
     ErrorSink sink_;
@@ -174,6 +185,8 @@ private:
     int drawnCanvasW_ = 0;
     int drawnCanvasH_ = 0;
     bool playing_ = false;
+    bool sceneMode_ = false;  // playing a multi-layer scene (playScene) rather than one asset
+    decode::Rational sceneFps_{1, 1};
     uint64_t playGeneration_ = 0;
     int64_t playStartFrame_ = 0;
     std::chrono::steady_clock::time_point playStart_;

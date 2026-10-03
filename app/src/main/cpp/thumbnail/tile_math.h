@@ -103,7 +103,9 @@ inline int levelForClip(const ClipCellParams& p) {
 }
 
 // Cells that intersect the visible range, anchored to the clip's left edge so tiles stay put while
-// the timeline scrolls. Each cell asks for the tile nearest to the source time at its left edge.
+// the timeline scrolls. Each cell asks for the tile nearest to the source time at its centre (clamped
+// to the clip's own range), which represents the cell best and keeps the first cell of a trimmed clip
+// from showing media before the in point.
 inline void planClipCells(const ClipCellParams& p, std::vector<CellPlan>* out) {
     out->clear();
     if (p.cellWidth < 1.0 || p.pxPerFrame <= 0.0 || p.projectFpsNum <= 0) return;
@@ -112,12 +114,15 @@ inline void planClipCells(const ClipCellParams& p, std::vector<CellPlan>* out) {
     if (right <= left) return;
 
     const int level = levelForClip(p);
+    const int64_t clipFrames = static_cast<int64_t>(std::floor((p.clipRightX - p.clipLeftX) / p.pxPerFrame));
     const int64_t first = static_cast<int64_t>(std::floor((left - p.clipLeftX) / p.cellWidth));
     const int64_t last = static_cast<int64_t>(std::floor((right - p.clipLeftX) / p.cellWidth));
     for (int64_t k = first; k <= last; ++k) {
         const double x0 = p.clipLeftX + static_cast<double>(k) * p.cellWidth;
         if (x0 >= p.clipRightX) break;
-        const int64_t localFrames = static_cast<int64_t>(std::floor(static_cast<double>(k) * p.cellWidth / p.pxPerFrame));
+        const double centre = (static_cast<double>(k) + 0.5) * p.cellWidth;
+        const int64_t localFrames =
+            std::clamp<int64_t>(static_cast<int64_t>(std::floor(centre / p.pxPerFrame)), 0, std::max<int64_t>(clipFrames - 1, 0));
         const int64_t timeUs = sourceTimeUs(p.sourceInFrame + localFrames, p.sourceFpsNum, p.sourceFpsDen);
         out->push_back({x0, x0 + p.cellWidth, {p.assetKey, level, tileIndexForTimeUs(timeUs, level)}});
     }

@@ -58,12 +58,14 @@ data class LayerPlacement(
 /**
  * One layer of the preview scene: [frame] of an open asset, in the frame rate the asset was opened
  * with, or - when [titleKey] is not 0 - a title uploaded with `PreviewEngine.uploadTitle` (then
- * [assetId] and [frame] are unused).
+ * [assetId] and [frame] are unused). [endFrame] only matters to playback: the layer holds its last
+ * frame instead of advancing to it (exclusive, the clip's out point). Null means the end of the asset.
  */
 data class PreviewLayer(
     val assetId: Int,
     val frame: Long,
     val placement: LayerPlacement = LayerPlacement.IDENTITY,
+    val endFrame: Long? = null,
     val titleKey: Int = 0,
 )
 
