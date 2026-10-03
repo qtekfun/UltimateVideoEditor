@@ -6,6 +6,7 @@
 #include <media/NdkMediaExtractor.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -13,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <string>
 #include <thread>
 
 #include "decode/frame_rate.h"
@@ -26,6 +28,7 @@ struct AssetInfo {
     int64_t durationFrames = 0;
     Rational fps{30, 1};
     int32_t colorTransfer = 0;  // MediaFormat.COLOR_TRANSFER_*, 0 if unknown
+    int32_t rotationDegrees = 0;  // clockwise rotation to apply for display (0/90/180/270)
 };
 
 // Decodes one video track with a hardware AMediaCodec into an AImageReader (GPU-usage buffers).
@@ -53,9 +56,10 @@ public:
     void setTarget(int64_t frame);
     void setWindow(int32_t lookBehind, int32_t lookAhead);
 
-    // Render thread. Calls `fn` for every image waiting in the reader; `fn` must be done reading
-    // the buffer when it returns (it is released right after).
-    void drainImages(const std::function<void(int64_t frame, AHardwareBuffer* buffer)>& fn);
+    // Render thread. Calls `fn` for every image waiting in the reader. `fn` returns a native fence
+    // fd (or -1) that signals when the GPU is done reading the buffer; the image is released with it,
+    // so the codec will not overwrite the buffer before then. Ownership of the fd passes to the reader.
+    void drainImages(const std::function<int(int64_t frame, AHardwareBuffer* buffer)>& fn);
     // Render thread: the frame reached the cache (or was discarded), stop counting it as in flight.
     void markResolved(int64_t frame);
 
@@ -112,6 +116,19 @@ private:
     std::map<int64_t, int64_t> pending_;  // frame -> steady-clock ms when released for render
 
     std::atomic<int64_t> framesDecoded_{0};
+
+    // Decode-thread diagnostics, summarised in the log about once per second of activity.
+    struct Diag {
+        int64_t rendered = 0;       // outputs released to the reader
+        int64_t dropped = 0;        // outputs released without rendering (outside the window or cached)
+        int64_t seeks = 0;
+        int64_t backpressure = 0;   // steps that waited for the render thread
+        int64_t dequeueNs = 0;      // time blocked waiting for codec output
+        int64_t dequeueEmpty = 0;   // dequeue calls that timed out
+        std::chrono::steady_clock::time_point last;
+    };
+    void logDiag();
+    Diag diag_;
 };
 
 }  // namespace uv::decode

@@ -45,6 +45,8 @@ data class AssetInfo(
     val fpsDen: Long,
     /** `MediaFormat.COLOR_TRANSFER_*` from the container, 0 when unknown. */
     val colorTransfer: Int,
+    /** Clockwise rotation (0/90/180/270) the container asks players to apply. */
+    val rotationDegrees: Int = 0,
 ) {
     val isHlg: Boolean get() = colorTransfer == COLOR_TRANSFER_HLG
 

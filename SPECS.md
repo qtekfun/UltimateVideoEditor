@@ -114,6 +114,12 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   (`AImageReader` with GPU-usage flags); GL imports via `EGLImage`/`GL_OES_EGL_image_external`.
 - Frame cache in native memory: LRU ring keyed by (asset, source frame), strict byte budget
   (default 1 GB on reference-class devices, configurable), look-ahead ±30–60 frames around the playhead.
+  Eviction is LRU **outside the playback window** first: frames ahead of the playhead are older in
+  recency than frames already played, so plain LRU evicts what is about to be shown and forces the
+  decoder to seek and re-decode (measured: ~8 seeks/s and ~80% wasted decodes at 4K60).
+- Per-frame GL work avoids stalls: EGLImages/textures are created once per `AHardwareBuffer` and
+  cached; decoder buffers are returned with a native release fence (`AImage_deleteAsync`) instead of
+  `glFinish`; frames are presented with `eglPresentationTimeANDROID` for even pacing.
 - Decoders run on worker threads; never on the UI or render thread. Decoder pool respects the
   device's concurrent hardware-decoder limit.
 

@@ -109,6 +109,8 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     const bool hasDuration = AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &durationUs) && durationUs > 0;
     int32_t transfer = 0;
     if (AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_COLOR_TRANSFER, &transfer)) d->info_.colorTransfer = transfer;
+    int32_t rotation = 0;
+    if (AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_ROTATION, &rotation)) d->info_.rotationDegrees = rotation;
 
     AMediaExtractor_selectTrack(d->extractor_, trackIndex);
 
@@ -163,9 +165,9 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     st = AMediaCodec_start(d->codec_);
     if (st != AMEDIA_OK) return Error{Status::CodecError, "AMediaCodec_start failed (" + std::to_string(st) + ")"};
 
-    UV_LOGI("opened %s %dx%d %lld/%lld fps, %lld frames, transfer=%d", mimeCopy.c_str(), width, height,
+    UV_LOGI("opened %s %dx%d %lld/%lld fps, %lld frames, transfer=%d rotation=%d", mimeCopy.c_str(), width, height,
             static_cast<long long>(d->info_.fps.num), static_cast<long long>(d->info_.fps.den),
-            static_cast<long long>(d->info_.durationFrames), d->info_.colorTransfer);
+            static_cast<long long>(d->info_.durationFrames), d->info_.colorTransfer, d->info_.rotationDegrees);
 
     d->thread_ = std::thread([raw = d.get()] { raw->threadMain(); });
     return d;
@@ -218,7 +220,7 @@ void VideoDecoder::setWindow(int32_t lookBehind, int32_t lookAhead) {
 
 int64_t VideoDecoder::ptsToFrame(int64_t ptsUs) const { return ptsUsToFrame(ptsUs - startPtsUs_, info_.fps); }
 
-void VideoDecoder::drainImages(const std::function<void(int64_t, AHardwareBuffer*)>& fn) {
+void VideoDecoder::drainImages(const std::function<int(int64_t, AHardwareBuffer*)>& fn) {
     std::lock_guard<std::mutex> lock(readerMu_);
     if (reader_ == nullptr) return;
     for (;;) {
@@ -226,13 +228,14 @@ void VideoDecoder::drainImages(const std::function<void(int64_t, AHardwareBuffer
         if (AImageReader_acquireNextImage(reader_, &image) != AMEDIA_OK || image == nullptr) break;
         int64_t timestampNs = 0;
         AHardwareBuffer* buffer = nullptr;
+        int releaseFence = -1;
         if (AImage_getTimestamp(image, &timestampNs) == AMEDIA_OK &&
             AImage_getHardwareBuffer(image, &buffer) == AMEDIA_OK && buffer != nullptr) {
-            fn(ptsToFrame(timestampNs / 1000), buffer);
+            releaseFence = fn(ptsToFrame(timestampNs / 1000), buffer);
         } else {
             reportError(Status::CodecError, "decoded image has no hardware buffer or timestamp");
         }
-        AImage_delete(image);
+        AImage_deleteAsync(image, releaseFence);
     }
 }
 
@@ -290,7 +293,20 @@ bool VideoDecoder::findMissing(int64_t target, int64_t* missing) {
     return false;
 }
 
+void VideoDecoder::logDiag() {
+    const auto now = std::chrono::steady_clock::now();
+    if (diag_.last.time_since_epoch().count() == 0) diag_.last = now;
+    if (now - diag_.last < std::chrono::seconds(1)) return;
+    UV_LOGI("decode/s: rendered %lld dropped %lld seeks %lld backpressure %lld dequeue wait %.1f ms (%lld empty)",
+            static_cast<long long>(diag_.rendered), static_cast<long long>(diag_.dropped),
+            static_cast<long long>(diag_.seeks), static_cast<long long>(diag_.backpressure),
+            static_cast<double>(diag_.dequeueNs) / 1e6, static_cast<long long>(diag_.dequeueEmpty));
+    diag_ = Diag{};
+    diag_.last = now;
+}
+
 void VideoDecoder::seekTo(int64_t frame) {
+    ++diag_.seeks;
     inputEos_ = false;
     const int64_t ptsUs = startPtsUs_ + frameToPtsUs(frame, info_.fps);
     if (AMediaExtractor_seekTo(extractor_, ptsUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC) != AMEDIA_OK) {
@@ -333,13 +349,19 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
     }
 
     if (inFlightCount() >= kMaxInFlight) {  // backpressure: let the render thread catch up
+        ++diag_.backpressure;
         std::unique_lock<std::mutex> lock(pendingMu_);
         pendingCv_.wait_for(lock, std::chrono::milliseconds(2));
         return;
     }
 
     AMediaCodecBufferInfo info{};
+    const auto dequeueStart = std::chrono::steady_clock::now();
     const ssize_t out = AMediaCodec_dequeueOutputBuffer(codec_, &info, 5000);
+    diag_.dequeueNs +=
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - dequeueStart).count();
+    if (out == AMEDIACODEC_INFO_TRY_AGAIN_LATER) ++diag_.dequeueEmpty;
+    logDiag();
     if (out == AMEDIACODEC_INFO_TRY_AGAIN_LATER || out == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED ||
         out == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) {
         return;
@@ -365,7 +387,12 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
             pending_[frame] = nowMs();
         }
     }
-    if (render) framesDecoded_.fetch_add(1);
+    if (render) {
+        framesDecoded_.fetch_add(1);
+        ++diag_.rendered;
+    } else if (info.size > 0) {
+        ++diag_.dropped;
+    }
     AMediaCodec_releaseOutputBuffer(codec_, static_cast<size_t>(out), render);
 
     if ((info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0) {
@@ -386,6 +413,8 @@ bool VideoDecoder::step(int64_t target) {
     const bool needSeek = !decoderPrimed_ ||
                           (!awaitingFirstOutput_ && (decodePos_ > missing || missing - decodePos_ > kMaxForwardSkipFrames));
     if (needSeek) {
+        UV_LOGI("seek: missing=%lld decodePos=%lld target=%lld primed=%d awaiting=%d", static_cast<long long>(missing),
+                static_cast<long long>(decodePos_), static_cast<long long>(target), decoderPrimed_, awaitingFirstOutput_);
         seekTo(missing);
         if (failed_) return true;
     }
