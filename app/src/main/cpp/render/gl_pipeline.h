@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/layer_fx.h"
 #include "decode/gpu_frame.h"
 #include "decode/status.h"
 #include "render/gl_context.h"
@@ -25,6 +26,7 @@ struct LayerDraw {
     int turns = 0;  // clockwise quarter turns for display, from the container rotation
     LayerTransform transform;
     uint32_t titleKey = 0;  // != 0: draw this title texture instead of `frame`
+    core::LayerFx fx = {};       // effects, blend mode and mask; neutral by default
 };
 
 // GLES programs used by the preview. Render thread only, with the EGL context current.
@@ -82,6 +84,22 @@ private:
 
     decode::Status buildProgram(const char* vertex, const char* fragment, unsigned* program, decode::Error* error);
 
+    // An RGBA8 intermediate for effect chains, stored with row 0 = image bottom.
+    struct FxTarget {
+        unsigned texture = 0;
+        int width = 0;
+        int height = 0;
+    };
+    decode::Status ensureFxTarget(FxTarget& target, int width, int height, decode::Error* error);
+    // Runs `layer`'s effects over its source texture; `*result` is the texture holding the outcome
+    // (premultiplied RGBA, row 0 = image bottom). Leaves the framebuffer, viewport and program for the
+    // caller to restore.
+    decode::Status runEffectChain(const LayerDraw& layer, unsigned sourceTexture, int layerWidth, int layerHeight,
+                                  unsigned* result, decode::Error* error);
+    void effectPass(unsigned sourceTexture, const FxTarget& destination, const core::EffectOp& op, float dirX,
+                    float dirY, float sigma, float step);
+    void snapshotDestination(const Viewport& vp);
+
     EglContext& egl_;
     unsigned blitProgram_ = 0;
     unsigned compositeProgram_ = 0;
@@ -92,6 +110,23 @@ private:
     int compositeXformLoc_ = -1;
     int compositeOpacityLoc_ = -1;
     int compositePremulLoc_ = -1;
+    int compositeSrcGlLoc_ = -1;
+    int compositeOutPremulLoc_ = -1;
+    int compositeMaskShapeLoc_ = -1;
+    int compositeMaskLoc_ = -1;
+    int compositeMaskSoftLoc_ = -1;
+    int compositeBlendLoc_ = -1;
+    int compositeDstRectLoc_ = -1;
+    unsigned effectProgram_ = 0;
+    int effectTypeLoc_ = -1;
+    int effectParamsLoc_ = -1;
+    int effectTexelLoc_ = -1;
+    int effectDirLoc_ = -1;
+    int effectSigmaLoc_ = -1;
+    int effectStepLoc_ = -1;
+    unsigned fxFbo_ = 0;
+    FxTarget fxTargets_[2];
+    FxTarget dstSnapshot_;  // copy of the target under a blended layer
     struct TitleTexture {
         unsigned texture = 0;
         int width = 0;

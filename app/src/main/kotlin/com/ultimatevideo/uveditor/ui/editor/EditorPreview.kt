@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
+import com.ultimatevideo.uveditor.domain.ClipFx
 
 /**
  * One layer of what the preview should show. Frames are in [fpsNum]/[fpsDen] units: the project
@@ -39,6 +40,8 @@ data class PreviewRequest(
     /** Exclusive source frame where the clip ends; playback holds its last frame there. */
     val endFrame: Long? = null,
     val title: TitleContent? = null,
+    /** Effects, blend mode and mask of the layer. */
+    val fx: ClipFx = ClipFx.NONE,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -203,9 +206,9 @@ class EditorPreview(
     private data class Ready(val request: PreviewRequest, val titleKey: Int) {
         fun toLayer(withEnd: Boolean): PreviewLayer =
             if (titleKey != 0) {
-                PreviewLayer(0, 0, request.transform.toPlacement(), titleKey = titleKey)
+                PreviewLayer(0, 0, request.transform.toPlacement(), titleKey = titleKey, fx = request.fx)
             } else {
-                PreviewLayer(request.assetKey, request.sourceFrame, request.transform.toPlacement(), if (withEnd) request.endFrame else null)
+                PreviewLayer(request.assetKey, request.sourceFrame, request.transform.toPlacement(), if (withEnd) request.endFrame else null, fx = request.fx)
             }
     }
 

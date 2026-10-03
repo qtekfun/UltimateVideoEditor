@@ -509,9 +509,10 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                 LayerDraw draw;
                 draw.titleKey = layer.title;
                 draw.transform = layer.transform;
+                draw.fx = layer.fx;
                 frames.push_back(nullptr);  // keeps `frames` and `layers` index-aligned for the canvas size below
                 layers.push_back(draw);
-                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title});
+                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title, layer.fx});
                 continue;
             }
             auto asset = assets_.find(layer.asset);
@@ -522,8 +523,10 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                 return;
             }
             frames.push_back(frame);
-            layers.push_back(LayerDraw{frame.get(), asset->second.mode, asset->second.turns, layer.transform});
-            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform});
+            LayerDraw draw{frame.get(), asset->second.mode, asset->second.turns, layer.transform};
+            draw.fx = layer.fx;
+            layers.push_back(std::move(draw));
+            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx});
         }
     }
     if (layers.empty()) return;

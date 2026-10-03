@@ -76,7 +76,8 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Keyframes: position, scale, rotation, opacity (linear / ease / hold), inspector diamond, timeline markers,
       same pose in preview and export — JVM and host tests pass; not yet seen on the device
 - [ ] Speed changes, ramps, reverse, freeze frame
-- [ ] Chainable shader effects, chroma key, masks, blend modes
+- [x] Chainable shader effects, chroma key, masks, blend modes — domain, JSON, undo, JVM and host tests pass and the
+      native engine compiles; the shaders and the inspector are not yet seen on the device (adb offline)
 - [ ] Automatic subtitles (on-device transcription) and animated caption styles
   - _Status (captions):_ implemented but not yet verified on the device (adb was offline): whisper.cpp v1.9.4 in the engine,
     model download with checksum, audio -> 16 kHz mono -> word timestamps -> caption title clips on a new track (one undo), four
