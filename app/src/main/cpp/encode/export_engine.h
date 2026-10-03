@@ -20,6 +20,14 @@ namespace uv::encode {
 
 enum class VideoCodec : int32_t { H264 = 0, Hevc = 1 };
 
+// A rasterised title: premultiplied RGBA8, `width` x `height` canvas pixels, top row first.
+struct TitleImage {
+    uint32_t key = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+    std::vector<uint8_t> rgba;
+};
+
 struct ExportParams {
     int32_t width = 0;
     int32_t height = 0;
@@ -32,6 +40,7 @@ struct ExportParams {
     int32_t audioBitrate = 192000;
     int64_t totalFrames = 0;
     std::vector<VideoClip> clips;
+    std::vector<TitleImage> titles;  // referenced by VideoClip::titleKey
     // (assetKey, fd): the job owns the descriptors and closes them.
     std::vector<std::pair<int64_t, int>> assetFds;
     // Audio snapshot (audio/audio_snapshot.h layout); empty means the movie has no audio track.

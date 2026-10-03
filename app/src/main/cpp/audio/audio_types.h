@@ -53,6 +53,10 @@ struct PreparedClip {
     int64_t startSample = 0;  // timeline samples at the output rate
     int64_t endSample = 0;
     float gain = 1.0f;        // linear
+    // Equal-power crossfade lengths in samples (0 = none): the clip fades in over its first
+    // fadeInSamples and out over its last fadeOutSamples (core/crossfade_math.h).
+    int64_t fadeInSamples = 0;
+    int64_t fadeOutSamples = 0;
     std::shared_ptr<ClipSource> source;
 };
 

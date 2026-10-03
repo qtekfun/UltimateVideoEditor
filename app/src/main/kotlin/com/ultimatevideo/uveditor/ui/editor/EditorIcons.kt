@@ -67,6 +67,12 @@ internal object EditorIcons {
     /** Two arrows meeting in the middle: closes the gap before the selected clip. */
     val CloseGap = icon("CloseGap", "M2,11h6V8l4,4 -4,4v-3H2zM22,11h-6V8l-4,4 4,4v-3h6z")
 
+    /** A capital T: add a title. */
+    val Title = icon("Title", "M5,4v3h5.5v12h3V7H19V4z")
+
+    /** Two opposed arrows: a transition across the cut between two clips. */
+    val Transition = icon("Transition", "M6.99,11L3,15l3.99,4v-3H14v-2H6.99v-3zM21,9l-3.99,-4v3H10v2h7.01v3L21,9z")
+
     /** Three sliders: the appearance inspector (transform and gain of the selected clip). */
     val Tune = icon(
         "Tune",

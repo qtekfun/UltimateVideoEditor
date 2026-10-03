@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/crossfade_math.h"
+
 namespace uv::encode {
 
 using i128 = __int128;
@@ -33,6 +35,14 @@ struct VideoClip {
     double scaleY = 1.0;
     double rotationDeg = 0.0;
     double opacity = 1.0;
+    // A transition's incoming clip fades in over its first fadeInFrames (0 = none): opacity is
+    // scaled by core::crossfadeProgress. Mirrors domain/RenderPlan.kt (RenderClip.opacityAt).
+    int64_t fadeInFrames = 0;
+    // Decoder slot within a layer: clips of one media that show together (the two sides of a
+    // transition) must not share a decoder, so the incoming one is in lane 1.
+    int32_t lane = 0;
+    // != 0: a rasterised title (ExportParams::titles) instead of video media; assetKey is unused.
+    uint32_t titleKey = 0;
 };
 
 // Frame index -> nanoseconds, rounded half up. Monotonic and exact for any realistic length.
@@ -73,14 +83,23 @@ inline const VideoClip* clipAt(const std::vector<VideoClip>& clips, int64_t fram
 }
 
 // Every clip covering `frame`, bottom layer first (the highest layer number), so drawing them in
-// order leaves the topmost track on top. Empty in a gap.
+// order leaves the topmost track on top. Within one layer the later-starting clip is drawn last,
+// which puts the incoming clip of a transition over the outgoing one. Empty in a gap.
 inline std::vector<const VideoClip*> layersAt(const std::vector<VideoClip>& clips, int64_t frame) {
     std::vector<const VideoClip*> out;
     for (const VideoClip& clip : clips) {
         if (frame >= clip.startFrame && frame < clip.startFrame + clip.durationFrames) out.push_back(&clip);
     }
-    std::stable_sort(out.begin(), out.end(), [](const VideoClip* a, const VideoClip* b) { return a->layer > b->layer; });
+    std::stable_sort(out.begin(), out.end(), [](const VideoClip* a, const VideoClip* b) {
+        if (a->layer != b->layer) return a->layer > b->layer;
+        return a->startFrame < b->startFrame;
+    });
     return out;
+}
+
+// Opacity of `clip` at project frame `frame`: its own opacity times the crossfade ramp.
+inline double opacityAt(const VideoClip& clip, int64_t frame) {
+    return clip.opacity * core::crossfadeProgress(frame - clip.startFrame, clip.fadeInFrames);
 }
 
 // Output frame (at the export rate) -> the project frame shown at that instant: the last project

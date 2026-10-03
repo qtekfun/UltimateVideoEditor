@@ -69,6 +69,7 @@ struct SceneLayer {
     uint32_t asset = 0;
     int64_t frame = 0;
     LayerTransform transform;
+    uint32_t title = 0;  // != 0: a rasterised title (see uploadTitle); `asset` and `frame` are unused
 };
 
 // Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
@@ -103,6 +104,12 @@ public:
     // reported and dropped. Stops native playback. Cheap enough to call on every playhead tick.
     void setScene(int canvasW, int canvasH, std::vector<SceneLayer> layers);
 
+    // Titles are rasterised by the caller (premultiplied RGBA8, canvas pixels, top row first). The
+    // pixels are copied; the texture is created on the render thread before the next scene is
+    // applied, so upload first and then reference `key` from setScene(). `key` must not be 0.
+    void uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba);
+    void releaseTitle(uint32_t key);
+
     void seek(uint32_t assetId, int64_t frame);
     void play(uint32_t assetId, int64_t startFrame);
     void pause();
@@ -125,8 +132,9 @@ private:
         uint32_t asset;
         int64_t frame;
         LayerTransform transform;
+        uint32_t title = 0;
         bool operator==(const DrawnLayer& o) const {
-            return asset == o.asset && frame == o.frame && transform.posX == o.transform.posX &&
+            return asset == o.asset && frame == o.frame && title == o.title && transform.posX == o.transform.posX &&
                    transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
                    transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&
                    transform.opacity == o.transform.opacity;

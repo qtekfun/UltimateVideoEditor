@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.audio.AudioClipSpec
 import com.ultimatevideo.uveditor.engine.audio.AudioException
@@ -18,7 +20,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
 
-/** The audible clips of [timeline]: audio-track clips and the embedded audio of video clips. */
+/**
+ * The audible clips of [timeline]: audio-track clips and the embedded audio of video clips, with
+ * each transition folded in as an overlap and an equal-power fade (see [renderClips]).
+ */
 internal fun audioSnapshotOf(
     timeline: Timeline,
     assets: List<MediaAssetDto>,
@@ -27,21 +32,22 @@ internal fun audioSnapshotOf(
     assetKey: (String) -> Long,
 ): AudioSnapshot {
     val withAudio = assets.filter { it.hasAudio }.associateBy { it.id }
-    val specs = timeline.tracks.flatMap { track ->
-        track.clips.mapNotNull { clip ->
-            val asset = withAudio[clip.assetId] ?: return@mapNotNull null
-            AudioClipSpec(
-                clipKey = clipKey(clip.id),
-                assetKey = assetKey(asset.id),
-                startFrame = clip.timelineStart.value,
-                durationFrames = clip.durationFrames,
-                sourceInFrame = clip.sourceIn.value,
-                // A clip's source range is in project frames, so the source rate is the project's.
-                sourceFpsNum = fps.num,
-                sourceFpsDen = fps.den,
-                gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
-            )
-        }
+    val specs = timeline.renderClips().mapNotNull { clip ->
+        if (clip.kind == RenderKind.TITLE) return@mapNotNull null
+        val asset = withAudio[clip.assetId] ?: return@mapNotNull null
+        AudioClipSpec(
+            clipKey = clipKey(clip.clipId),
+            assetKey = assetKey(asset.id),
+            startFrame = clip.startFrame,
+            durationFrames = clip.durationFrames,
+            sourceInFrame = clip.sourceInFrame,
+            // A clip's source range is in project frames, so the source rate is the project's.
+            sourceFpsNum = fps.num,
+            sourceFpsDen = fps.den,
+            gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
+            fadeInFrames = clip.crossfadeInFrames,
+            fadeOutFrames = clip.crossfadeOutFrames,
+        )
     }
     return AudioSnapshot(fps.num, fps.den, specs)
 }
