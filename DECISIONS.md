@@ -583,6 +583,41 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Why:** a creative LUT is expected on display-referred pixels and the effect chain already works there; a per-clip effect reuses ordering, undo, keyframable-parameter plumbing, JSON and preview/export parity. A global hash key avoids copying LUT data into every project.
 **Alternative:** LUTs stored inside the project (portable but bloats `project.json` or needs a project folder format); an adjustment/grade track that applies one LUT to everything below (a natural follow-up using the same shader); colour-space-aware LUTs (e.g. Rec.2020 log to HLG) which need transform metadata the .cube format does not carry.
 
+## Privacy (user rule: no AI, no third-party services, no network)
+
+The user ruled out AI features and any dependence on third-party services ("la privacidad es algo importantisimo"). These
+choices were made autonomously to implement that rule strictly; confirm or change them.
+
+- **Remove on-device speech recognition entirely (whisper.cpp), not just make it opt-in.** Why: it is an AI feature, it needed a
+  model downloaded from a third-party host (Hugging Face) and therefore the INTERNET permission, and it added ~2 minutes to
+  every native build. Alternative: keep it as an opt-in feature with the model sideloaded from a local file (no network). The
+  rule says no AI, so it was dropped; the submodule, native pipeline, JNI, model store, download code and notices are gone.
+- **Replace it with manual and file-based captions.** Typed captions (text, start, length, stepped by frames/seconds) and
+  `.srt` / `.vtt` import (`Subtitles`), both feeding the existing caption styles, including the animated ones, through evenly
+  timed words. Alternative considered: also `.lrc` (word-timed lyrics) and `.ass`; deferred, the parser is isolated and easy
+  to extend.
+- **The manifest declares no permissions at all, and cleartext traffic is disabled.** `OfflineGuaranteeTest` fails the build if a
+  network permission, a networking API (HTTP, sockets, WebView, download manager), an analytics / crash-reporting / ads
+  dependency or a socket header in the engine appears. `allowBackup` was already false and stays so (test-enforced), so
+  nothing is uploaded by Android auto-backup. Alternative: only a manifest check; the source scan is cheap and catches the
+  case where someone adds a library that brings the permission in through manifest merging only at build time (the scan
+  also covers dependencies by name).
+- **`CaptionPlanner` / `Transcript*` types are kept** even though nothing produces word-timed transcripts now: the planner is pure,
+  tested, and a word-timed source (lyrics files) could use it. Alternative: delete as dead code.
+- **Typed captions share one caption track, imported files get one track each.** Why: one-at-a-time typing would otherwise create
+  a track per caption; a file per track keeps languages apart and makes undo of an import one step. Alternative: always one track.
+- **WP-V1 smart cutout (ML segmentation) removed; motion tracking kept (classical Lucas-Kanade).** Chroma/luma key and masks
+  stay the keying tools.
+- **WP-V2 auto reframe by subject detection removed; silence-based auto cut kept and a manual start/end reframe helper added.**
+  Speech-based editing (delete words in a transcript) removed with the transcript.
+- **WP-V3 text to speech, vocal isolation and speaker-aware captions removed; voice effects (classical DSP) kept.** The Android
+  system `TextToSpeech` service is not used: some engines synthesize on a server, and the app cannot tell which. Alternative:
+  offer system TTS only when the engine reports it works offline (`Voice.isNetworkConnectionRequired`); dropped for strictness.
+- **WP-A noise suppression uses spectral gating / Wiener filtering, not RNNoise or any neural denoiser.**
+- **WP-R crash reporting is local logs only; no reporting service.** The privacy note points to `docs/PRIVACY.md`.
+- **WP-V5 content packs: "bring your own" music and sounds, no bundled commercial library, no downloads.**
+- **`docs/PRIVACY.md` states the guarantees and how to verify them**; the README links to it and PRD gains a privacy section.
+
 ## New-project sheet: selectors, quick presets and "match first clip" (WP-U1)
 
 **Decision:** the sheet has four dropdowns (aspect ratio, resolution as the short side, frame rate, colour space) plus a quick-start chip row; the pixel size is computed (short side x shape, both sides rounded to even) and written under the selector, with Custom size / Custom short side as typed fields validated to even values 128..8192. "Match first clip" reads a picked clip with a new `ClipPeeker` (no persistable permission, no import), copies size (as a Custom size), frame rate (a listed rate or a one-off) and colour space (PQ maps to the HLG project space); a photo only gives its size. The last selector choices are saved in a small SharedPreferences store; a format taken from a clip is not saved. The sheet is a bottom sheet below 600 dp and a dialog above.
@@ -594,3 +629,5 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Decision:** cards show a 320 px first frame of the earliest video/photo clip (via `MediaMetadataRetriever` or a bounded bitmap decode), cached as JPEG in the app cache keyed by a hash of source and time (older files of that project are removed), the project length (end of the last clip, from `project.json` in the summary) and a short format line. Search and sort (Recent / Name) appear only above six projects. Import moved to the top-bar overflow menu.
 **Why:** a card should identify the project at a glance; the cache directory may be cleared by the system and is regenerated, so there is nothing to migrate or clean up, and nothing leaves the device.
 **Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).
+
+**Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.
