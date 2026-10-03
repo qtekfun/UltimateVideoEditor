@@ -50,6 +50,38 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setAppearance(timeline, clipId, transform, gainDb)
     }
 
+    data class AddEffect(val clipId: String, val effect: Effect) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.addEffect(timeline, clipId, effect)
+    }
+
+    data class RemoveEffect(val clipId: String, val effectId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.removeEffect(timeline, clipId, effectId)
+    }
+
+    data class SetEffectValues(val clipId: String, val effectId: String, val values: List<Double>) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setEffectValues(timeline, clipId, effectId, values)
+    }
+
+    data class MoveEffect(val clipId: String, val effectId: String, val toIndex: Int) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.moveEffect(timeline, clipId, effectId, toIndex)
+    }
+
+    data class SetBlendMode(val clipId: String, val mode: BlendMode) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setBlendMode(timeline, clipId, mode)
+    }
+
+    data class SetMask(val clipId: String, val mask: ClipMask?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setMask(timeline, clipId, mask)
+    }
+
+    data class SetFx(val clipId: String, val fx: ClipFx) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setFx(timeline, clipId, fx)
+    }
+
+    data class ClearFx(val clipId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.clearFx(timeline, clipId)
+    }
+
     data class ClearKeyframes(val clipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.clearKeyframes(timeline, clipId)
     }

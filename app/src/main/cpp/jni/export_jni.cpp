@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "core/layer_fx.h"
 #include "decode/log.h"
 #include "encode/export_engine.h"
 
@@ -99,7 +100,7 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
-    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jintArray titleMeta, jobjectArray titlePixels,
+    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jintArray titleMeta, jobjectArray titlePixels,
     jobject audioSnapshot, jint outputFd) {
     ExportParams params;
     params.width = width;
@@ -202,6 +203,22 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
                 c.keyframes.push_back(key);
             }
         }
+    }
+
+    // Effects, blend mode and masks: one blob per clip in clip order (core/layer_fx.h); null = all plain.
+    {
+        std::vector<jdouble> raw;
+        if (fx != nullptr) {
+            raw.resize(static_cast<size_t>(env->GetArrayLength(fx)));
+            if (!raw.empty()) env->GetDoubleArrayRegion(fx, 0, static_cast<jsize>(raw.size()), raw.data());
+        }
+        std::vector<uv::core::LayerFx> parsed;
+        if (!uv::core::parseSceneFx(raw.data(), raw.size(), clipCount, &parsed)) {
+            throwExport(env, Status::InvalidArgument, "clip effects do not match the clips");
+            closeAll(params.assetFds, outputFd);
+            return 0;
+        }
+        for (size_t n = 0; n < clipCount; ++n) params.clips[n].fx = std::move(parsed[n]);
     }
 
     // Titles: `titleMeta` holds {key, width, height} per title and `titlePixels` one direct

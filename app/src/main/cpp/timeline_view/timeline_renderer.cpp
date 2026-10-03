@@ -38,6 +38,7 @@ constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
 constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
 constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
+constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
 constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
 constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
 
@@ -846,6 +847,18 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 g.rect(x - s * 0.34f, cy - s, x + s * 0.34f, cy + s, kKeyframe);
                 g.rect(x - s * 0.67f, cy - s * 0.67f, x + s * 0.67f, cy + s * 0.67f, kKeyframe);
                 g.rect(x - s, cy - s * 0.34f, x + s, cy + s * 0.34f, kKeyframe);
+            }
+        }
+
+        // Effects marker: a small badge at the right end of the header strip, "fx" drawn as two bars.
+        if (c.hasFx) {
+            const float cy = top + header * 0.5f;
+            const float s = std::min(3.0f * density, header * 0.45f);
+            const float right = fx1 - s * 1.5f;
+            if (right - s * 4.0f > fx0) {
+                g.rect(right - s * 3.0f, cy - s, right - s * 2.0f, cy + s, kFxBadge);
+                g.rect(right - s * 1.5f, cy - s, right - s * 0.5f, cy + s, kFxBadge);
+                g.rect(right - s * 3.0f, cy - s * 0.2f, right - s * 0.5f, cy + s * 0.2f, kFxBadge);
             }
         }
 

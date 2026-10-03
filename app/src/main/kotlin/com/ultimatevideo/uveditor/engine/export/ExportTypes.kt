@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.engine.export
 
 import java.nio.ByteBuffer
+import com.ultimatevideo.uveditor.domain.ClipFx
 
 /** Mirrors `uv::core::Status` in the native engine. Keep values in sync. */
 enum class ExportErrorCode(val value: Int) {
@@ -78,6 +79,8 @@ data class VideoClipSpec(
     val keyframes: List<ExportKeyframe> = emptyList(),
     /** Project frame that [ExportKeyframe.frame] counts from: the clip's own first frame. */
     val keyframeOriginFrame: Long = 0,
+    /** Effects, blend mode and mask, applied exactly as in the preview. */
+    val fx: ClipFx = ClipFx.NONE,
 )
 
 /**

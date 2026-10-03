@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "render/effect_math.h"
 #include "render/layout_math.h"
 #include "render/shaders.h"
 
@@ -44,6 +45,12 @@ GlPipeline::~GlPipeline() {
     for (auto& entry : titleTextures_) glDeleteTextures(1, &entry.second.texture);
     if (blitProgram_ != 0) glDeleteProgram(blitProgram_);
     if (compositeProgram_ != 0) glDeleteProgram(compositeProgram_);
+    if (effectProgram_ != 0) glDeleteProgram(effectProgram_);
+    for (FxTarget& target : fxTargets_) {
+        if (target.texture != 0) glDeleteTextures(1, &target.texture);
+    }
+    if (dstSnapshot_.texture != 0) glDeleteTextures(1, &dstSnapshot_.texture);
+    if (fxFbo_ != 0) glDeleteFramebuffers(1, &fxFbo_);
     if (vao_ != 0) glDeleteVertexArrays(1, &vao_);
     if (fbo_ != 0) glDeleteFramebuffers(1, &fbo_);
 }
@@ -84,6 +91,9 @@ Status GlPipeline::init(Error* error) {
         s != Status::Ok) {
         return s;
     }
+    if (Status s = buildProgram(kFullscreenVertex, kEffectFragment, &effectProgram_, error); s != Status::Ok) {
+        return s;
+    }
     // Sampler bindings never change, so set them once.
     glUseProgram(blitProgram_);
     glUniform1i(glGetUniformLocation(blitProgram_, "uTex"), 0);
@@ -94,8 +104,25 @@ Status GlPipeline::init(Error* error) {
     compositeXformLoc_ = glGetUniformLocation(compositeProgram_, "uXform");
     compositeOpacityLoc_ = glGetUniformLocation(compositeProgram_, "uOpacity");
     compositePremulLoc_ = glGetUniformLocation(compositeProgram_, "uPremul");
+    compositeSrcGlLoc_ = glGetUniformLocation(compositeProgram_, "uSrcGl");
+    compositeOutPremulLoc_ = glGetUniformLocation(compositeProgram_, "uOutPremul");
+    compositeMaskShapeLoc_ = glGetUniformLocation(compositeProgram_, "uMaskShape");
+    compositeMaskLoc_ = glGetUniformLocation(compositeProgram_, "uMask");
+    compositeMaskSoftLoc_ = glGetUniformLocation(compositeProgram_, "uMaskSoft");
+    compositeBlendLoc_ = glGetUniformLocation(compositeProgram_, "uBlend");
+    compositeDstRectLoc_ = glGetUniformLocation(compositeProgram_, "uDstRect");
+    glUniform1i(glGetUniformLocation(compositeProgram_, "uDst"), 1);  // the blend snapshot lives on unit 1
+    glUseProgram(effectProgram_);
+    glUniform1i(glGetUniformLocation(effectProgram_, "uTex"), 0);
+    effectTypeLoc_ = glGetUniformLocation(effectProgram_, "uType");
+    effectParamsLoc_ = glGetUniformLocation(effectProgram_, "uP");
+    effectTexelLoc_ = glGetUniformLocation(effectProgram_, "uTexel");
+    effectDirLoc_ = glGetUniformLocation(effectProgram_, "uDir");
+    effectSigmaLoc_ = glGetUniformLocation(effectProgram_, "uSigma");
+    effectStepLoc_ = glGetUniformLocation(effectProgram_, "uStep");
     glGenVertexArrays(1, &vao_);
     glGenFramebuffers(1, &fbo_);
+    glGenFramebuffers(1, &fxFbo_);
     return Status::Ok;
 }
 
@@ -258,6 +285,125 @@ Status GlPipeline::draw(const GpuFrame& frame, ColorMode mode, int turns, int su
     return drawScene(layers, displayW, displayH, surfaceWidth, surfaceHeight, error);
 }
 
+Status GlPipeline::ensureFxTarget(FxTarget& target, int width, int height, Error* error) {
+    if (target.texture != 0 && target.width == width && target.height == height) return Status::Ok;
+    if (target.texture == 0) glGenTextures(1, &target.texture);
+    glBindTexture(GL_TEXTURE_2D, target.texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, &target.texture);
+        target = FxTarget{};
+        return glFail(error, "effect texture allocation failed");
+    }
+    target.width = width;
+    target.height = height;
+    return Status::Ok;
+}
+
+void GlPipeline::effectPass(unsigned sourceTexture, const FxTarget& destination, const core::EffectOp& op,
+                            float dirX, float dirY, float sigma, float step) {
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, destination.texture, 0);
+    glViewport(0, 0, destination.width, destination.height);
+    glUseProgram(effectProgram_);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, sourceTexture);
+    glUniform1i(effectTypeLoc_, static_cast<int>(op.type));
+    glUniform1fv(effectParamsLoc_, core::kMaxEffectValues, op.v);
+    glUniform2f(effectTexelLoc_, 1.0f / static_cast<float>(destination.width), 1.0f / static_cast<float>(destination.height));
+    glUniform2f(effectDirLoc_, dirX, dirY);
+    glUniform1f(effectSigmaLoc_, sigma);
+    glUniform1f(effectStepLoc_, step);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture, int layerWidth, int layerHeight,
+                                  unsigned* result, Error* error) {
+    // The layer is rendered at the size it covers on the canvas (more when it is scaled up), so effects
+    // see what the viewer sees and blur radii are the same in preview and export.
+    GLint maxSize = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
+    const double boost = std::min(4.0, std::max({1.0, static_cast<double>(layer.transform.scaleX),
+                                                 static_cast<double>(layer.transform.scaleY)}));
+    double w = layerWidth * boost;
+    double h = layerHeight * boost;
+    const double limit = static_cast<double>(std::min<GLint>(maxSize > 0 ? maxSize : 4096, 4096));
+    const double over = std::max(w, h) / limit;
+    if (over > 1.0) {
+        w /= over;
+        h /= over;
+    }
+    const int width = std::max(8, static_cast<int>(std::lround(w)));
+    const int height = std::max(8, static_cast<int>(std::lround(h)));
+    for (FxTarget& target : fxTargets_) {
+        if (Status s = ensureFxTarget(target, width, height, error); s != Status::Ok) return s;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fxFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fxTargets_[0].texture, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        return glFail(error, "effect framebuffer incomplete");
+    }
+    glDisable(GL_BLEND);
+    glBindVertexArray(vao_);
+
+    // Pass 0: the source layer (colour mode, rotation, title alpha) into the first intermediate.
+    glViewport(0, 0, width, height);
+    glUseProgram(compositeProgram_);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, sourceTexture);
+    const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, identity);
+    glUniform1f(compositeOpacityLoc_, 1.0f);
+    glUniform1i(compositeModeLoc_, layer.titleKey != 0 ? 0 : static_cast<int>(layer.mode));
+    glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
+    glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
+    glUniform1i(compositeSrcGlLoc_, 0);
+    glUniform1i(compositeOutPremulLoc_, 1);
+    glUniform1i(compositeMaskShapeLoc_, 0);
+    glUniform1i(compositeBlendLoc_, 0);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    int current = 0;
+    for (const core::EffectOp& op : layer.fx.effects) {
+        const int other = 1 - current;
+        if (op.type == core::EffectType::Blur) {
+            const float sigma = blurSigmaPx(op.v[0], static_cast<float>(height));
+            if (sigma < kMinBlurSigmaPx) continue;
+            const float step = blurStepTexels(sigma);
+            effectPass(fxTargets_[current].texture, fxTargets_[other], op, 1.0f, 0.0f, sigma, step);
+            effectPass(fxTargets_[other].texture, fxTargets_[current], op, 0.0f, 1.0f, sigma, step);
+            continue;
+        }
+        effectPass(fxTargets_[current].texture, fxTargets_[other], op, 0.0f, 0.0f, 1.0f, 1.0f);
+        current = other;
+    }
+    *result = fxTargets_[current].texture;
+    return Status::Ok;
+}
+
+void GlPipeline::snapshotDestination(const Viewport& vp) {
+    glActiveTexture(GL_TEXTURE1);
+    if (dstSnapshot_.texture == 0 || dstSnapshot_.width != vp.w || dstSnapshot_.height != vp.h) {
+        if (dstSnapshot_.texture == 0) glGenTextures(1, &dstSnapshot_.texture);
+        glBindTexture(GL_TEXTURE_2D, dstSnapshot_.texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, vp.w, vp.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        dstSnapshot_.width = vp.w;
+        dstSnapshot_.height = vp.h;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, dstSnapshot_.texture);
+    }
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vp.x, vp.y, vp.w, vp.h);
+    glActiveTexture(GL_TEXTURE0);
+}
+
 Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWidth, int canvasHeight,
                              int surfaceWidth, int surfaceHeight, Error* error) {
     // Resolve every texture first: a failure must not leave a half-drawn frame on the surface.
@@ -283,6 +429,8 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
         textures.push_back(texture);
     }
 
+    GLint targetFramebuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &targetFramebuffer);
     glViewport(0, 0, surfaceWidth, surfaceHeight);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -296,25 +444,71 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     for (size_t i = 0; i < layers.size(); ++i) {
         const LayerDraw& layer = layers[i];
+        const bool titleLayer = layer.titleKey != 0;
         QuadMap map;
-        if (layer.titleKey != 0) {
+        int layerW = 0;
+        int layerH = 0;
+        if (titleLayer) {
             const TitleTexture& title = titleTextures_.at(layer.titleKey);
             map = titleQuadMap(canvasWidth, canvasHeight, title.width, title.height, layer.transform);
+            layerW = title.width;
+            layerH = title.height;
         } else {
             int displayW = 0;
             int displayH = 0;
             displaySize(static_cast<int>(layer.frame->width()), static_cast<int>(layer.frame->height()), layer.turns,
                         &displayW, &displayH);
             map = layerQuadMap(canvasWidth, canvasHeight, displayW, displayH, layer.transform);
+            // Effects run at the size the layer covers on the canvas (contain fit).
+            const double fit = std::min(static_cast<double>(canvasWidth) / displayW, static_cast<double>(canvasHeight) / displayH);
+            layerW = std::max(1, static_cast<int>(std::lround(displayW * fit)));
+            layerH = std::max(1, static_cast<int>(std::lround(displayH * fit)));
         }
+
+        unsigned texture = textures[i];
+        bool fromIntermediate = false;
+        if (!layer.fx.effects.empty()) {
+            unsigned result = 0;
+            const Status chain = runEffectChain(layer, texture, layerW, layerH, &result, error);
+            // Whatever happened, hand back the target and the state this loop relies on.
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+            glViewport(vp.x, vp.y, vp.w, vp.h);
+            glUseProgram(compositeProgram_);
+            glBindVertexArray(vao_);
+            glActiveTexture(GL_TEXTURE0);
+            if (chain != Status::Ok) {
+                glDisable(GL_BLEND);
+                return chain;
+            }
+            texture = result;
+            fromIntermediate = true;
+        }
+
+        if (layer.fx.blend != core::BlendMode::Normal) {
+            snapshotDestination(vp);
+            glDisable(GL_BLEND);
+            glUniform4f(compositeDstRectLoc_, static_cast<float>(vp.x), static_cast<float>(vp.y), static_cast<float>(vp.w),
+                        static_cast<float>(vp.h));
+        } else {
+            glEnable(GL_BLEND);
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        }
+        const bool premultiplied = titleLayer || fromIntermediate;
         float matrix[9];
         quadMapToMat3(map, matrix);
-        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        glBindTexture(GL_TEXTURE_2D, texture);
         glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, matrix);
         glUniform1f(compositeOpacityLoc_, clampOpacity(layer.transform.opacity));
-        glUniform1i(compositeModeLoc_, layer.titleKey != 0 ? 0 : static_cast<int>(layer.mode));
-        glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
-        glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
+        glUniform1i(compositeModeLoc_, premultiplied ? 0 : static_cast<int>(layer.mode));
+        glUniform1i(compositeTurnsLoc_, premultiplied ? 0 : layer.turns);
+        glUniform1i(compositePremulLoc_, premultiplied ? 1 : 0);
+        glUniform1i(compositeSrcGlLoc_, fromIntermediate ? 1 : 0);
+        glUniform1i(compositeOutPremulLoc_, 0);
+        glUniform1i(compositeBlendLoc_, static_cast<int>(layer.fx.blend));
+        const core::MaskParams& mask = layer.fx.mask;
+        glUniform1i(compositeMaskShapeLoc_, mask.shape);
+        glUniform4f(compositeMaskLoc_, mask.cx, mask.cy, mask.w, mask.h);
+        glUniform2f(compositeMaskSoftLoc_, mask.feather, mask.invert ? 1.0f : 0.0f);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
     glDisable(GL_BLEND);
