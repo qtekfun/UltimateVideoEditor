@@ -106,6 +106,25 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
         modifier = Modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Section("Upload to") {
+            for (preset in ExportPresets.all) {
+                FilterChip(
+                    selected = preset == state.preset,
+                    onClick = { onIntent(ExportIntent.SelectPreset(preset)) },
+                    label = { Text(preset.label) },
+                )
+            }
+        }
+        state.preset?.let { preset ->
+            if (state.projectAspect.isNotEmpty() && preset.aspect != state.projectAspect) {
+                Text(
+                    "${preset.label} is made for ${preset.aspect}; this project is ${state.projectAspect}. " +
+                        "Change the canvas in the editor to match.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
         Section("Resolution") {
             for (option in state.resolutions) {
                 FilterChip(

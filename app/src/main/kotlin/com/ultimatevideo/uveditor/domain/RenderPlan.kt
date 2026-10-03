@@ -33,13 +33,23 @@ data class RenderClip(
     val crossfadeInFrames: Long,
     /** Length of the fade-out of the outgoing clip's audio (0 when there is none). */
     val crossfadeOutFrames: Long,
+    /** Animated pose of the clip; empty when [transform] is fixed. Frames are relative to [keyframeOriginFrame]. */
+    val keyframes: List<Keyframe> = emptyList(),
+    /** Project frame of the clip's own first frame (a transition can start [startFrame] earlier). */
+    val keyframeOriginFrame: Long = startFrame,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
     fun covers(frame: Long): Boolean = frame >= startFrame && frame < endFrame
 
-    /** Layer opacity at [frame]: the clip's own opacity times the crossfade ramp. */
-    fun opacityAt(frame: Long): Double = transform.opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)
+    /** The clip's pose at [frame], keyframes included, before any crossfade. */
+    fun transformAt(frame: Long): ClipTransform = Keyframes.evaluate(keyframes, frame - keyframeOriginFrame, transform)
+
+    /** Layer opacity at [frame]: the clip's own (animated) opacity times the crossfade ramp. */
+    fun opacityAt(frame: Long): Double = transformAt(frame).opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)
+
+    /** What the compositor draws at [frame]: the pose with the crossfade folded into the opacity. */
+    fun appearanceAt(frame: Long): ClipTransform = transformAt(frame).let { it.copy(opacity = it.opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)) }
 
     /** Source frame shown at [frame] (unclamped; renderers clamp to the media). */
     fun sourceFrameAt(frame: Long): Long = sourceInFrame + (frame - startFrame)
@@ -98,6 +108,8 @@ fun Timeline.renderClips(): List<RenderClip> {
                 gainDb = clip.gainDb,
                 crossfadeInFrames = incoming?.durationFrames ?: 0L,
                 crossfadeOutFrames = outgoing?.durationFrames ?: 0L,
+                keyframes = clip.keyframes,
+                keyframeOriginFrame = clip.timelineStart.value,
             )
         }
     }

@@ -13,6 +13,7 @@ import com.ultimatevideo.uveditor.engine.export.ExportTitle
 import com.ultimatevideo.uveditor.engine.title.TitleRasterException
 import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.ui.hub.aspectLabelOf
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,7 +45,9 @@ class ExportViewModel(
             is ExportIntent.SelectResolution -> editSettings { copy(resolution = intent.option) }
             is ExportIntent.SelectFrameRate -> editSettings { copy(frameRate = intent.rate) }
             is ExportIntent.SelectCodec -> editSettings { copy(codec = intent.codec) }
-            is ExportIntent.SelectBitrate -> if (!state.value.isRunning) reduce { copy(bitrateMbps = intent.mbps, phase = ExportPhase.Configuring) }
+            is ExportIntent.SelectBitrate ->
+                if (!state.value.isRunning) reduce { copy(bitrateMbps = intent.mbps, preset = null, phase = ExportPhase.Configuring) }
+            is ExportIntent.SelectPreset -> selectPreset(intent.preset)
             ExportIntent.ChooseLocation -> chooseLocation()
             is ExportIntent.LocationChosen -> intent.uri?.let(::start)
             ExportIntent.Cancel -> synchronized(lock) { handle?.cancel() }
@@ -69,6 +72,25 @@ class ExportViewModel(
                 frameRate = rates.first(),
                 bitrateMbps = suggestedBitrateMbps(resolution.width, resolution.height, rates.first(), codec),
                 phase = ExportPhase.Configuring,
+                preset = null,
+                projectAspect = aspectLabelOf(newInput.projectWidth, newInput.projectHeight),
+            )
+        }
+    }
+
+    /** Fills the settings for an upload destination; changing any of them by hand afterwards drops the preset. */
+    private fun selectPreset(preset: ExportPreset) {
+        val current = state.value
+        if (current.isRunning || current.resolutions.isEmpty() || current.frameRates.isEmpty()) return
+        val choice = resolvePreset(preset, current.resolutions, current.frameRates)
+        reduce {
+            copy(
+                resolution = choice.resolution,
+                frameRate = choice.frameRate,
+                codec = choice.codec,
+                bitrateMbps = choice.bitrateMbps,
+                preset = preset,
+                phase = ExportPhase.Configuring,
             )
         }
     }
@@ -81,7 +103,7 @@ class ExportViewModel(
     private fun editSettings(change: ExportState.() -> ExportState) {
         if (state.value.isRunning) return
         reduce {
-            val next = change()
+            val next = change().copy(preset = null)
             val resolution = next.resolution
             val rate = next.frameRate
             if (resolution == null || rate == null) {

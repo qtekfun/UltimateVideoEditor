@@ -92,3 +92,55 @@ clip per word with a highlight colour (works today, but hundreds of clips and aw
 `AddCaptions` edit, for the selected clip's whole source range (not a time range). **Why:** a new track cannot clash with
 existing titles, and one Undo removes the lot. **Alternative:** reuse the first title track and overwrite (cuts existing
 titles), or let the user pick a range on the timeline (there is no range selection yet).
+
+## 2026-10-03 · Keyframes are in clip frames and cover video clips and titles; gain is not animated
+**Chosen:** a keyframe's time counts from the clip's own first frame, and both video clips and titles can be
+animated (position, scale, rotation, opacity); audio gain stays one value per clip. **Why:** clip-relative time
+means moving a clip never touches its keyframes, and the audio mixer takes a single gain per clip (animating it
+would be a native mixer change on top of the audio work that just landed). **Alternative:** project-frame
+keyframes (every move would have to shift them) or a gain envelope (volume ramps) added to the mixer later.
+
+## 2026-10-03 · Editing an animated clip writes a keyframe at the playhead (auto-key)
+**Chosen:** once a clip has keyframes, a slider or preview gesture at the playhead adds or replaces a keyframe
+there (one undo step); with the playhead outside the clip the edit is refused with a hint. The diamond toggles
+a keyframe by hand; removing the last one freezes that pose as the fixed transform; "Clear" keeps the pose at
+the playhead. **Why:** it is how CapCut and LumaFusion behave, and nothing ever jumps. **Alternative:** a
+separate record mode (more taps), or editing the fixed transform while keyframes override it (confusing).
+
+## 2026-10-03 · Cropping keeps linear and hold animations exact; a cut ease only approximates
+**Chosen:** split, trim and overwrite re-base keyframes onto the surviving range and add a keyframe holding the
+pose at a new start or end when keyframes outside it shaped the motion. A smoothstep segment cut in the middle
+keeps its mode over the remaining span, so its shape changes slightly. **Why:** exact eases would need
+per-keyframe tangents or a stored curve parameter, which is a bigger model for a small visual difference.
+**Alternative:** store a curve offset per keyframe, or turn a cut ease into a linear segment.
+
+## 2026-10-03 · Changing the canvas rescales positions and clears the undo history
+**Chosen:** positions of clips and keyframes are multiplied by the width and height ratios; scale is kept (the
+clip's "contain" fit follows the new canvas); the undo stack restarts. **Why:** earlier undo steps were made on
+another canvas and would put clips in the wrong place. **Alternative:** make the canvas change an undoable
+command (needs canvas size in the timeline model) or keep pixel positions untouched (clips drift off-centre).
+
+## 2026-10-03 · Safe-zone margins are approximate, not official
+**Chosen:** TikTok 7/23/6/12 %, Reels 13/18/6/12 %, Shorts 7/25/6/13 % (top/bottom/left/right) of a 9:16 canvas.
+**Why:** the platforms publish no exact values and change their interface; these are the commonly cited
+creator figures, good enough to keep text clear of captions and buttons. **Alternative:** a single generic
+"vertical" zone, or user-editable margins.
+
+## 2026-10-03 · Upload presets fill the settings but never reshape the movie
+**Chosen:** YouTube 1080p/4K/Shorts, TikTok, Instagram Reels and feed pick size, rate, codec and bitrate
+(H.264 12/8 Mbps, HEVC 35 Mbps for 4K); a preset made for another shape than the project's only shows a hint.
+Sizes never upscale past the project and rates keep the project's own unless faster than the preset's cap.
+**Why:** changing the shape at export would crop or letterbox silently. **Alternative:** auto-switch the canvas
+when a preset is chosen, or hide presets of another shape.
+
+## 2026-10-03 · Animated clips make the preview re-anchor every tick during playback
+**Chosen:** the pose is part of the composition key in `EditorPreview.follow`, so while an animated clip plays
+the native clock is re-anchored each tick (same trade-off as a crossfade; decoders keep going sequentially so it
+costs no seek). **Why:** the scene API takes a static pose per call. **Alternative:** pass keyframes to
+`playScene` and animate natively (fewer JNI calls, a third copy of the interpolation).
+
+## 2026-10-03 · Keyframes are evaluated twice (Kotlin and C++) with shared test vectors
+**Chosen:** the exporter renders from a flat clip list on a native thread, so `core/keyframe_math.h` mirrors
+`Keyframes.evaluate` (floating-point contraction off so results match the JVM); both are tested with the same
+vectors. **Why:** same pattern as the crossfade curve. **Alternative:** sample poses per output frame in Kotlin
+and ship them as arrays (no duplicate maths, but large arrays and a per-frame Kotlin pass).

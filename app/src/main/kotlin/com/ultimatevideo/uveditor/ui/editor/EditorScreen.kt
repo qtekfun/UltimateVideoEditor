@@ -25,8 +25,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import com.ultimatevideo.uveditor.ui.hub.ProjectPresets
+import com.ultimatevideo.uveditor.ui.hub.aspectLabelOf
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -353,6 +359,7 @@ private fun EditorMain(
             val previewEngine = preview.engine
             if (previewEngine != null) {
                 PreviewSurface(previewEngine, Modifier.fillMaxSize())
+                state.safeZone?.let { SafeZoneOverlay(it, state.canvasWidth, state.canvasHeight) }
                 // Drag, pinch and twist edit the selected clip while it is under the playhead.
                 PreviewGestureLayer(
                     enabled = state.selectedClipVisible,
@@ -418,7 +425,12 @@ private fun EditorMain(
             TrackControls(state.selectedTrackLabel, onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) }) {
                 viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
             }
+            ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
+                viewModel.onIntent(EditorIntent.ShowCanvasDialog)
+            }
+            SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
         }
+        if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, viewModel::onIntent)
 
         // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
         // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
@@ -462,6 +474,56 @@ private fun TrackControls(
         text = selectedLabel ?: "",
         style = MaterialTheme.typography.labelLarge,
         modifier = Modifier.padding(start = 4.dp).width(28.dp),
+    )
+}
+
+/** Choose whose safe zones to outline over the preview, or none. */
+@Composable
+private fun SafeZoneMenu(current: SafeZonePlatform?, onSelect: (SafeZonePlatform?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ToolButton(EditorIcons.SafeZone, "Safe zones for TikTok, Reels and Shorts: ${current?.label ?: "off"}") { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("No safe zones") }, onClick = { open = false; onSelect(null) })
+            for (platform in SafeZonePlatform.entries) {
+                DropdownMenuItem(
+                    text = { Text(if (platform == current) "${platform.label} ✓" else platform.label) },
+                    onClick = { open = false; onSelect(platform) },
+                )
+            }
+        }
+    }
+}
+
+/** Pick another canvas shape or size from the same presets as New project. The current one is marked. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun CanvasDialog(width: Int, height: Int, onIntent: (EditorIntent) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onIntent(EditorIntent.DismissCanvasDialog) },
+        title = { Text("Canvas ${width}×$height (${aspectLabelOf(width, height)})") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Clips keep their relative position. Changing the canvas clears the undo history.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                for (group in ProjectPresets.resolutionGroups) {
+                    Text(group.title, style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (preset in group.presets) {
+                            FilterChip(
+                                selected = preset.width == width && preset.height == height,
+                                onClick = { onIntent(EditorIntent.ChangeCanvas(preset.width, preset.height)) },
+                                label = { Text(preset.label) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { onIntent(EditorIntent.DismissCanvasDialog) }) { Text("Cancel") } },
     )
 }
 
