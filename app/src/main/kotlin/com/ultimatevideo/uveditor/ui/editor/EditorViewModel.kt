@@ -15,6 +15,8 @@ import com.ultimatevideo.uveditor.data.TimelineMapper
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.domain.AddCaptions
+import com.ultimatevideo.uveditor.domain.AddCaptionsToTrack
+import com.ultimatevideo.uveditor.domain.captions.CAPTION_ID_PREFIX
 import com.ultimatevideo.uveditor.domain.AddMarker
 import com.ultimatevideo.uveditor.domain.AddTextTemplate
 import com.ultimatevideo.uveditor.domain.Clip
@@ -191,7 +193,7 @@ class EditorViewModel(
             EditorIntent.CutToBeatFromSelected -> cutToBeatFromSelected()
             is EditorIntent.ApplyTextTemplate -> applyTextTemplate(intent.templateId, intent.text)
             is EditorIntent.AddSticker -> addSticker(intent.stickerId)
-            is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips)
+            is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips, intent.intoExistingTrack)
             is EditorIntent.RestyleCaptions -> execute(com.ultimatevideo.uveditor.domain.RestyleCaptions(intent.style, intent.canvasHeight))
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
             is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
@@ -1262,8 +1264,17 @@ class EditorViewModel(
         reduce { copy(selectedClipId = clip.id, selectedTrackId = trackId, inspectorOpen = true) }
     }
 
-    private fun addCaptionClips(clips: List<Clip>) {
+    private fun addCaptionClips(clips: List<Clip>, intoExistingTrack: Boolean) {
         if (clips.isEmpty()) return
+        // Typed captions share one caption track; an imported file gets a track of its own (one per language).
+        val existing = history.timeline.tracks.firstOrNull { track ->
+            track.type == TrackType.TITLE && track.clips.isNotEmpty() && track.clips.all { it.id.startsWith(CAPTION_ID_PREFIX) }
+        }
+        if (intoExistingTrack && existing != null) {
+            if (!execute(AddCaptionsToTrack(existing.id, clips))) return
+            reduce { copy(selectedTrackId = existing.id, selectedClipId = clips.first().id) }
+            return
+        }
         val track = Track(uniqueTrackId(history.timeline.tracks, "track-t"), TrackType.TITLE)
         // Captions go above everything, like any title, on their own track so they never cut an existing title.
         if (!execute(AddCaptions(track, 0, clips))) return

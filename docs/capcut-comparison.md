@@ -14,7 +14,8 @@ publicly described features and marks what ultimateVE already has. Last reviewed
   direct sharing to social networks.
 
 ### AI tools
-- **Auto captions** (speech recognition), including speaker-aware captions and many languages.
+- **Auto captions** (speech recognition), including speaker-aware captions and many languages (cloud or on-device models; not
+  something ultimateVE will do).
 - **Text to speech** with many voices and languages; voice effects; vocal isolation; voice cloning (Pro).
 - **Background removal / smart cutout** and **motion tracking**; camera tracking.
 - **Auto reframe** between aspect ratios.
@@ -43,13 +44,16 @@ publicly described features and marks what ultimateVE already has. Last reviewed
 | Chroma key, effects, masks | Yes | Smart cutout (WP-V1) |
 | Stabilise | No | WP-X |
 | Colour grading, LUTs | Basic adjustments; LUTs and per-clip colour in progress | WP-C |
-| Auto captions + animated styles | Yes (whisper, 8 styles) | Speaker-aware captions, more languages (WP-V3) |
-| Text to speech | No | WP-V3 (Android TTS and optional neural voices) |
-| Voice effects, vocal isolation, audio denoise | No | WP-A (denoise), WP-V3 (isolation, effects) |
-| Background removal / smart cutout | No | WP-V1 (on-device segmentation) |
-| Motion tracking | No | WP-V1 (track a point or a region, attach text/stickers) |
-| Auto reframe | Presets and canvas change, no subject following | WP-V2 |
-| Auto cut (silence removal, highlights), video to shorts | No | WP-V2 |
+| Auto captions (speech recognition) | No, by design (needs a model) | Out of scope for privacy; captions are typed or imported from `.srt` / `.vtt` |
+| Animated caption styles | Yes (8 styles, karaoke, typewriter, bounce) | Done |
+| Text to speech | No | Out of scope for privacy (engines may use the network) |
+| Voice effects, audio denoise | No | WP-A (classical DSP denoise), WP-V3 (voice effects) |
+| Vocal isolation | No | Out of scope for privacy (needs a model) |
+| Background removal / smart cutout | No | Out of scope for privacy (needs a model); chroma/luma key and masks remain |
+| Motion tracking | No | WP-V1 (classical tracker: a point or a region, attach text/stickers) |
+| Auto reframe | Presets and canvas change, no subject following | Manual reframe helper with start/end framing (WP-V2); subject detection is out of scope for privacy |
+| Auto cut (silence removal) | No | WP-V2 (classical audio analysis) |
+| Highlights, video to shorts | No | Out of scope (needs a model) |
 | Noise reduction and flicker removal on video | No | WP-V4 |
 | Templates with placeholders | Text templates only | Project templates (WP-V5) |
 | Filters, transitions and effects packs | A basic set; crossfade only | Transition pack (WP-V5) |
@@ -65,12 +69,14 @@ publicly described features and marks what ultimateVE already has. Last reviewed
 
 1. **Make the app easier to use first** (WP-U1 to WP-U3): the creation flow, a media tray with drag and drop,
    and a layout the user can resize. CapCut wins on first-minute experience.
-2. Then the creator features that need models on the device: **cutout and tracking**, **auto reframe and
-   auto cut**, **text to speech**, **optical-flow slow motion**.
+2. Then the creator features that work with classical algorithms: **motion tracking**, **silence-based auto cut and a
+   manual reframe helper**, **voice effects**, **optical-flow slow motion**.
 3. Keep the pro features of the LumaFusion roadmap (colour, audio, titles) in parallel.
 
-Everything that needs a server (generative video, avatars, voice cloning, cloud sync) stays out of scope:
-the project is offline-first and open source.
+**Privacy rule:** the project is offline-first and open source, and the user has ruled out AI features and
+third-party services. Everything that needs a server (generative video, avatars, voice cloning, cloud sync) and
+everything that needs a machine-learning model (speech recognition, text to speech, smart cutout, subject-aware
+reframe, vocal isolation) stays out of scope, even when the model would run on the device.
 
 ## Sources
 
