@@ -1,8 +1,11 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.ClipTransform
+import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
@@ -202,6 +205,20 @@ sealed interface EditorIntent : UiIntent {
     data class JumpToKeyframe(val forward: Boolean) : EditorIntent
     data class SetKeyframeInterpolation(val interpolation: Interpolation) : EditorIntent
     data object ClearKeyframes : EditorIntent
+
+    /**
+     * Effects, blend mode and mask of the selected clip. Add, remove, reorder, blend and clear are one
+     * undo step each. [UpdateEffect] and [UpdateMask] are sliders: shown live, committed as one step
+     * by [EndFxEdit] (or by the next intent of any other kind).
+     */
+    data class AddEffect(val type: EffectType) : EditorIntent
+    data class RemoveEffect(val effectId: String) : EditorIntent
+    data class MoveEffect(val effectId: String, val toIndex: Int) : EditorIntent
+    data class UpdateEffect(val effectId: String, val values: List<Double>) : EditorIntent
+    data class SetBlendMode(val mode: BlendMode) : EditorIntent
+    data class UpdateMask(val mask: ClipMask?) : EditorIntent
+    data class EndFxEdit(val commit: Boolean) : EditorIntent
+    data object ClearFx : EditorIntent
 
     /** Outline the safe zones of an app over the preview; null turns the overlay off. */
     data class SetSafeZone(val platform: SafeZonePlatform?) : EditorIntent
