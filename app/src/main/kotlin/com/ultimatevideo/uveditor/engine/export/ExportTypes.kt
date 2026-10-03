@@ -40,8 +40,11 @@ data class ExportSettings(
     val codec: ExportCodec,
     val videoBitrate: Int,
     val audioBitrate: Int = DEFAULT_AUDIO_BITRATE,
+    /** HDR (HLG, BT.2020) HEVC Main10 output; false is SDR Rec.709. Requires [ExportCodec.HEVC]. */
+    val hdr: Boolean = false,
 ) {
     init {
+        require(!hdr || codec == ExportCodec.HEVC) { "HDR export needs HEVC" }
         require(width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0) { "size must be positive and even: ${width}x$height" }
         require(fpsNum > 0 && fpsDen > 0) { "fps must be positive: $fpsNum/$fpsDen" }
         require(videoBitrate > 0 && audioBitrate > 0) { "bitrates must be positive" }

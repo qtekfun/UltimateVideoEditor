@@ -19,11 +19,19 @@ public:
     EglContext(const EglContext&) = delete;
     EglContext& operator=(const EglContext&) = delete;
 
-    // `recordable` asks for a config usable with MediaCodec input surfaces (export).
-    decode::Status init(decode::Error* error, bool recordable = false);
+    // `recordable` asks for a config usable with MediaCodec input surfaces (export). `tenBit` asks for
+    // an RGB10_A2 colour buffer (needed for HLG output); when none exists the context falls back to
+    // RGBA8 and tenBit() reports false.
+    decode::Status init(decode::Error* error, bool recordable = false, bool tenBit = false);
+    bool tenBit() const { return tenBit_; }
 
-    // The window is retained (acquired) until detachWindow().
-    decode::Status attachWindow(ANativeWindow* window, decode::Error* error);
+    // The window is retained (acquired) until detachWindow(). `hlg` asks for the surface to be tagged
+    // BT.2020 HLG (EGL_EXT_gl_colorspace_bt2020_hlg, else the window's data space); hdrSurface()
+    // tells whether the tag took effect. HLG needs a ten-bit context, see init().
+    decode::Status attachWindow(ANativeWindow* window, decode::Error* error, bool hlg = false);
+    // Recreates the surface of the attached window, e.g. to switch its colour tag.
+    decode::Status reattachWindow(decode::Error* error, bool hlg);
+    bool hdrSurface() const { return hdrSurface_; }
     void detachWindow();
     bool hasWindow() const { return window_ != EGL_NO_SURFACE; }
 
@@ -58,6 +66,9 @@ private:
     EGLSurface pbuffer_ = EGL_NO_SURFACE;
     EGLSurface window_ = EGL_NO_SURFACE;
     ANativeWindow* nativeWindow_ = nullptr;
+    bool tenBit_ = false;
+    bool hdrSurface_ = false;
+    bool hlgColorspaceExt_ = false;
 
     PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC getNativeClientBuffer_ = nullptr;
     PFNEGLCREATEIMAGEKHRPROC createImageKhr_ = nullptr;

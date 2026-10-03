@@ -285,11 +285,21 @@ Status GlPipeline::draw(const GpuFrame& frame, ColorMode mode, int turns, int su
     return drawScene(layers, displayW, displayH, surfaceWidth, surfaceHeight, error);
 }
 
+void GlPipeline::setOutputSpace(OutputSpace space) {
+    outputSpace_ = space;  // intermediates are re-specified lazily when their format no longer matches
+}
+
 Status GlPipeline::ensureFxTarget(FxTarget& target, int width, int height, Error* error) {
-    if (target.texture != 0 && target.width == width && target.height == height) return Status::Ok;
+    const bool hdr = outputSpace_ == OutputSpace::Hlg2020;
+    if (target.texture != 0 && target.width == width && target.height == height && target.hdr == hdr) return Status::Ok;
     if (target.texture == 0) glGenTextures(1, &target.texture);
     glBindTexture(GL_TEXTURE_2D, target.texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    // HDR keeps the effect chain in half floats so HLG highlights survive intermediate passes.
+    if (hdr) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_HALF_FLOAT, nullptr);
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -301,6 +311,7 @@ Status GlPipeline::ensureFxTarget(FxTarget& target, int width, int height, Error
     }
     target.width = width;
     target.height = height;
+    target.hdr = hdr;
     return Status::Ok;
 }
 
@@ -358,7 +369,7 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
     const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, identity);
     glUniform1f(compositeOpacityLoc_, 1.0f);
-    glUniform1i(compositeModeLoc_, layer.titleKey != 0 ? 0 : static_cast<int>(layer.mode));
+    glUniform1i(compositeModeLoc_, static_cast<int>(layer.titleKey != 0 ? titleMode() : layer.mode));
     glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
     glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
     glUniform1i(compositeSrcGlLoc_, 0);
@@ -387,16 +398,24 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
 
 void GlPipeline::snapshotDestination(const Viewport& vp) {
     glActiveTexture(GL_TEXTURE1);
-    if (dstSnapshot_.texture == 0 || dstSnapshot_.width != vp.w || dstSnapshot_.height != vp.h) {
+    const bool hdr = outputSpace_ == OutputSpace::Hlg2020;
+    if (dstSnapshot_.texture == 0 || dstSnapshot_.width != vp.w || dstSnapshot_.height != vp.h || dstSnapshot_.hdr != hdr) {
         if (dstSnapshot_.texture == 0) glGenTextures(1, &dstSnapshot_.texture);
         glBindTexture(GL_TEXTURE_2D, dstSnapshot_.texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, vp.w, vp.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        // glCopyTexSubImage2D needs a fixed-point texture for a fixed-point target: an HLG target is
+        // a 10-bit window/encoder surface, so the snapshot is RGB10_A2 rather than half float.
+        if (hdr) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB10_A2, vp.w, vp.h, 0, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, nullptr);
+        } else {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, vp.w, vp.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        }
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         dstSnapshot_.width = vp.w;
         dstSnapshot_.height = vp.h;
+        dstSnapshot_.hdr = hdr;
     } else {
         glBindTexture(GL_TEXTURE_2D, dstSnapshot_.texture);
     }
@@ -499,7 +518,10 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
         glBindTexture(GL_TEXTURE_2D, texture);
         glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, matrix);
         glUniform1f(compositeOpacityLoc_, clampOpacity(layer.transform.opacity));
-        glUniform1i(compositeModeLoc_, premultiplied ? 0 : static_cast<int>(layer.mode));
+        // Effect intermediates already went through the colour conversion in pass 0; titles are SDR
+        // graphics, so in an HLG target they are placed at reference white.
+        const ColorMode drawMode = fromIntermediate ? ColorMode::Sdr709 : titleLayer ? titleMode() : layer.mode;
+        glUniform1i(compositeModeLoc_, static_cast<int>(drawMode));
         glUniform1i(compositeTurnsLoc_, premultiplied ? 0 : layer.turns);
         glUniform1i(compositePremulLoc_, premultiplied ? 1 : 0);
         glUniform1i(compositeSrcGlLoc_, fromIntermediate ? 1 : 0);
