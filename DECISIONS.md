@@ -479,7 +479,7 @@ banners and the hub Recover/Delete rows are therefore verified by JVM tests and 
 
 ## Base clips can be lifted onto an overlay
 
-**Decision:** dragging a base clip onto an overlay lane (or above the lanes, which creates a new lane) lifts it off the base: the base closes the gap it leaves and the overlays follow, exactly like a delete, and the clip lands at the dropped frame on the overlay, overwriting what it covers there. Dragging within the base still reorders. Command `LiftFromBase` (one undo step), decided by `DropPlan` so the indicator matches.
+**Decision:** dragging a base clip onto an overlay lane (or above the lanes, which creates a new lane) lifts it off the base: the base closes the gap it leaves, no overlay is deleted or shifted (it is a move, not a delete), and the clip lands at the dropped frame on the overlay, overwriting what it covers there. Dragging within the base still reorders. Command `LiftFromBase` (one undo step), decided by `DropPlan` so the indicator matches.
 **Why:** the user reported that after dropping an overlay clip onto the base it could not be dragged back up; the earlier "a base clip never leaves the base" rule was too strict and unlike LumaFusion.
 **Alternative:** leave a gap on the base where the clip was (breaks the gap-free base invariant), or keep the overlays where they were (they would lose their footage alignment).
 
@@ -526,3 +526,5 @@ styles are changing in parallel work, so a background field on `TitleContent` wo
 text-template sheet with an optional text field. **Why:** the toolbar already scrolls sideways; five more icons would bury the rest.
 **Alternative:** a dedicated "Beats" panel with a BPM readout and per-beat editing, once markers are draggable on the ruler.
 
+
+**Update:** per the user ("if you take a clip off the base, it goes to the layer where I drop it"), lifting is a pure move: overlays are never deleted or shifted. Trade-off: overlays that sat over later base footage no longer line up with it after the base closes. Alternative: shift later overlays with the base (risks overlap with overlays that cross the lifted range).
