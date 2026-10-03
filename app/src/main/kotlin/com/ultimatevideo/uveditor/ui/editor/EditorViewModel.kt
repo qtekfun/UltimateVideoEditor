@@ -1,0 +1,433 @@
+package com.ultimatevideo.uveditor.ui.editor
+
+import androidx.lifecycle.viewModelScope
+import com.ultimatevideo.uveditor.data.MediaImportException
+import com.ultimatevideo.uveditor.data.MediaImporter
+import com.ultimatevideo.uveditor.data.ProjectError
+import com.ultimatevideo.uveditor.data.ProjectStore
+import com.ultimatevideo.uveditor.data.TimelineMapper
+import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.data.model.ProjectDto
+import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.EditCommand
+import com.ultimatevideo.uveditor.domain.EditError
+import com.ultimatevideo.uveditor.domain.EditHistory
+import com.ultimatevideo.uveditor.domain.EditResult
+import com.ultimatevideo.uveditor.domain.FrameIndex
+import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.Snap
+import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.Track
+import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.TrimEdge
+import com.ultimatevideo.uveditor.engine.timeline.HitKind
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
+import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
+import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
+import com.ultimatevideo.uveditor.mvi.MviViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.UUID
+import kotlin.math.abs
+
+/**
+ * Holds the editing session of one project: the domain [Timeline] behind an undo history, the media
+ * library, and the playhead/selection. Touch gestures arrive as intents already hit-tested by the
+ * native canvas. Edits are autosaved (debounced) through [store].
+ */
+class EditorViewModel(
+    private val projectId: String,
+    private val store: ProjectStore,
+    private val importer: MediaImporter,
+    private val idGenerator: () -> String = { UUID.randomUUID().toString().take(ID_LENGTH) },
+    private val saveDebounceMillis: Long = DEFAULT_SAVE_DEBOUNCE_MILLIS,
+) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
+
+    private enum class DragMode { MOVE, TRIM_START, TRIM_END }
+
+    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long)
+
+    private val clipKeys = KeyRegistry()
+    private val assetKeys = KeyRegistry()
+
+    private var history = EditHistory(Timeline())
+    private var baseProject: ProjectDto? = null
+    private var drag: DragSession? = null
+    private var pendingDragCommand: EditCommand? = null
+    private var saveJob: Job? = null
+    private var dirty = false
+
+    init {
+        load()
+    }
+
+    override fun onIntent(intent: EditorIntent) {
+        when (intent) {
+            is EditorIntent.TapTimeline -> tap(intent.hit)
+            is EditorIntent.SetPlayhead -> setPlayhead(intent.frame)
+            is EditorIntent.DragStart -> dragStart(intent.hit)
+            is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex)
+            is EditorIntent.DragEnd -> dragEnd(intent.commit)
+            EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
+            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.RippleDelete(it)) }
+            EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
+            EditorIntent.Undo -> undo()
+            EditorIntent.Redo -> redo()
+            is EditorIntent.ImportMedia -> importMedia(intent.uris)
+            is EditorIntent.AddAsset -> addAssetById(intent.assetId)
+            EditorIntent.Flush -> flush(thenClose = false)
+            EditorIntent.Back -> flush(thenClose = true)
+            is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
+        }
+    }
+
+    /** True if a drag that starts on [hit] should edit the clip instead of scrolling the timeline. */
+    fun canDrag(hit: TimelineHit): Boolean {
+        val selected = state.value.selectedClipId ?: return false
+        val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
+        return onClip && clipKeys.idFor(hit.clipKey) == selected
+    }
+
+    /** Native key for [assetId]; used to request its waveform. */
+    fun assetKey(assetId: String): Long = assetKeys.keyFor(assetId)
+
+    /** Encodes [state] for the native canvas. All keys are stable for the life of this ViewModel. */
+    fun snapshotOf(state: EditorState): TimelineSnapshot {
+        val timeline = state.visibleTimeline
+        val tracks = timeline.tracks.map {
+            when (it.type) {
+                TrackType.VIDEO -> SnapshotTrackType.VIDEO
+                TrackType.AUDIO -> SnapshotTrackType.AUDIO
+                TrackType.TITLE -> SnapshotTrackType.TITLE
+            }
+        }
+        val clips = timeline.tracks.flatMapIndexed { trackIndex, track ->
+            track.clips.map { clip ->
+                SnapshotClip(
+                    clipKey = clipKeys.keyFor(clip.id),
+                    trackIndex = trackIndex,
+                    assetKey = clip.assetId?.let(assetKeys::keyFor) ?: NO_ASSET_KEY,
+                    startFrame = clip.timelineStart.value,
+                    durationFrames = clip.durationFrames,
+                    sourceInFrame = clip.sourceIn.value,
+                    sourceFpsNum = state.fps.num,
+                    sourceFpsDen = state.fps.den,
+                    selected = clip.id == state.selectedClipId,
+                )
+            }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips)
+    }
+
+    // region loading and saving
+
+    private fun load() {
+        viewModelScope.launch {
+            try {
+                val project = store.load(projectId)
+                val timeline = withDefaultTracks(TimelineMapper.toTimeline(project))
+                baseProject = project
+                history = EditHistory(timeline)
+                reduce {
+                    copy(
+                        isLoading = false,
+                        projectName = project.name,
+                        fps = FrameRate(project.settings.fpsNum, project.settings.fpsDen),
+                        timeline = timeline,
+                        assets = project.mediaLibrary,
+                    )
+                }
+            } catch (e: ProjectError) {
+                reduce { copy(isLoading = false, loadError = e.message) }
+            }
+        }
+    }
+
+    private fun scheduleSave() {
+        dirty = true
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(saveDebounceMillis)
+            persist()
+        }
+    }
+
+    private fun flush(thenClose: Boolean) {
+        viewModelScope.launch {
+            saveJob?.cancelAndJoin()
+            if (dirty) persist()
+            if (thenClose) emit(EditorEffect.Close)
+        }
+    }
+
+    private suspend fun persist() {
+        val base = baseProject ?: return
+        val dto = TimelineMapper.toDto(base, history.timeline, state.value.assets)
+        try {
+            store.save(dto)
+            baseProject = dto
+            dirty = false
+        } catch (e: ProjectError) {
+            emit(EditorEffect.ShowMessage("Could not save the project: ${e.message}"))
+        }
+    }
+
+    private fun withDefaultTracks(timeline: Timeline): Timeline {
+        var tracks = timeline.tracks
+        if (tracks.none { it.type == TrackType.VIDEO }) tracks = listOf(Track(uniqueTrackId(tracks, "track-v"), TrackType.VIDEO)) + tracks
+        if (tracks.none { it.type == TrackType.AUDIO }) tracks = tracks + Track(uniqueTrackId(tracks, "track-a"), TrackType.AUDIO)
+        return Timeline(tracks)
+    }
+
+    private fun uniqueTrackId(tracks: List<Track>, prefix: String): String =
+        generateSequence(1) { it + 1 }.map { "$prefix$it" }.first { id -> tracks.none { it.id == id } }
+
+    // endregion
+
+    // region selection, playhead, history
+
+    private fun tap(hit: TimelineHit) {
+        when (hit.kind) {
+            HitKind.RULER -> setPlayhead(hit.frame)
+            HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE ->
+                reduce { copy(selectedClipId = clipKeys.idFor(hit.clipKey)) }
+            HitKind.EMPTY_TRACK, HitKind.NONE -> reduce { copy(selectedClipId = null) }
+        }
+    }
+
+    private fun setPlayhead(frame: Long) {
+        reduce { copy(playhead = FrameIndex(frame.coerceAtLeast(0))) }
+    }
+
+    private fun undo() {
+        history = history.undo()
+        syncFromHistory()
+        scheduleSave()
+    }
+
+    private fun redo() {
+        history = history.redo()
+        syncFromHistory()
+        scheduleSave()
+    }
+
+    private fun syncFromHistory() {
+        val committed = history.timeline
+        val canUndo = history.canUndo
+        val canRedo = history.canRedo
+        reduce {
+            copy(
+                timeline = committed,
+                dragPreview = null,
+                canUndo = canUndo,
+                canRedo = canRedo,
+                selectedClipId = selectedClipId?.takeIf { committed.trackOfClip(it) != null },
+            )
+        }
+    }
+
+    // endregion
+
+    // region editing
+
+    private inline fun withSelection(block: (String) -> Unit) {
+        val selected = state.value.selectedClipId
+        if (selected == null) {
+            emit(EditorEffect.ShowMessage("Select a clip first"))
+            return
+        }
+        block(selected)
+    }
+
+    /** Runs [command] through the undo history; reports the reason and returns false on failure. */
+    private fun execute(command: EditCommand): Boolean = when (val result = history.execute(command)) {
+        is EditResult.Success -> {
+            history = result.value
+            syncFromHistory()
+            scheduleSave()
+            true
+        }
+        is EditResult.Failure -> {
+            emit(EditorEffect.ShowMessage(describe(result.error)))
+            false
+        }
+    }
+
+    private fun splitAtPlayhead() = withSelection { clipId ->
+        val track = history.timeline.trackOfClip(clipId) ?: return@withSelection
+        execute(EditCommand.Split(track.id, state.value.playhead, "$clipId~${idGenerator()}"))
+    }
+
+    private fun dragStart(hit: TimelineHit) {
+        if (!canDrag(hit)) return
+        val clipId = clipKeys.idFor(hit.clipKey) ?: return
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
+        val mode = when (hit.kind) {
+            HitKind.CLIP_LEFT_EDGE -> DragMode.TRIM_START
+            HitKind.CLIP_RIGHT_EDGE -> DragMode.TRIM_END
+            else -> DragMode.MOVE
+        }
+        drag = DragSession(clipId, mode, hit.frame - clip.timelineStart.value)
+        pendingDragCommand = null
+    }
+
+    private fun dragMove(frame: Long, trackIndex: Int) {
+        val session = drag ?: return
+        val base = history.timeline
+        val sourceTrack = base.trackOfClip(session.clipId) ?: return
+        val clip = sourceTrack.clip(session.clipId) ?: return
+        val playhead = state.value.playhead
+        val command = when (session.mode) {
+            DragMode.MOVE -> {
+                val destination = base.tracks.getOrNull(trackIndex)
+                    ?.takeIf { it.type == sourceTrack.type && it.id != sourceTrack.id }
+                    ?.id
+                EditCommand.Move(
+                    clipId = session.clipId,
+                    newStart = FrameIndex((frame - session.grabOffset).coerceAtLeast(0)),
+                    toTrackId = destination,
+                    snap = Snap(playhead, SNAP_THRESHOLD_FRAMES),
+                )
+            }
+            DragMode.TRIM_START -> EditCommand.Trim(
+                clipId = session.clipId,
+                edge = TrimEdge.START,
+                frame = snapFrame(base, session.clipId, frame, playhead),
+            )
+            DragMode.TRIM_END -> EditCommand.Trim(
+                clipId = session.clipId,
+                edge = TrimEdge.END,
+                frame = snapFrame(base, session.clipId, frame, playhead),
+                sourceLength = assetLengthFrames(clip.assetId),
+            )
+        }
+        // A rejected position (overlap, out of range) keeps the last valid preview on screen.
+        val result = command.apply(base)
+        if (result is EditResult.Success) {
+            pendingDragCommand = if (result.value == base) null else command
+            reduce { copy(dragPreview = result.value) }
+        }
+    }
+
+    private fun dragEnd(commit: Boolean) {
+        val command = pendingDragCommand
+        drag = null
+        pendingDragCommand = null
+        if (commit && command != null && execute(command)) return
+        reduce { copy(dragPreview = null) }
+    }
+
+    private fun snapFrame(timeline: Timeline, movingClipId: String, frame: Long, playhead: FrameIndex): FrameIndex {
+        val targets = buildList {
+            add(0L)
+            add(playhead.value)
+            for (track in timeline.tracks) {
+                for (other in track.clips) {
+                    if (other.id == movingClipId) continue
+                    add(other.timelineStart.value)
+                    add(other.timelineEnd.value)
+                }
+            }
+        }
+        val nearest = targets.minByOrNull { abs(it - frame) }
+        return FrameIndex(if (nearest != null && abs(nearest - frame) <= SNAP_THRESHOLD_FRAMES) nearest else frame.coerceAtLeast(0))
+    }
+
+    // endregion
+
+    // region media
+
+    private fun importMedia(uris: List<String>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            reduce { copy(isImporting = true) }
+            var cursor = state.value.playhead
+            for (uri in uris) {
+                try {
+                    val asset = assetFor(uri)
+                    cursor = place(asset, cursor) ?: cursor
+                } catch (e: MediaImportException) {
+                    emit(EditorEffect.ShowMessage(e.message ?: "Could not import the file"))
+                }
+            }
+            reduce { copy(isImporting = false) }
+        }
+    }
+
+    private fun addAssetById(assetId: String) {
+        val asset = state.value.assets.firstOrNull { it.id == assetId }
+        if (asset == null) {
+            emit(EditorEffect.ShowMessage("That media is no longer in the project"))
+            return
+        }
+        place(asset, state.value.playhead)
+    }
+
+    /** Returns the library entry for [uri], importing and registering it first if it is new. */
+    private suspend fun assetFor(uri: String): MediaAssetDto {
+        state.value.assets.firstOrNull { it.uri == uri }?.let { return it }
+        val probed = importer.import(uri)
+        val project = state.value.fps
+        // Audio-only files have no native frame rate; use the project's.
+        val (fpsNum, fpsDen) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else project.num to project.den
+        val durationFrames = FrameRate(fpsNum, fpsDen).microsToFrames(probed.durationMicros)
+        if (durationFrames <= 0) throw MediaImportException("The file is too short to place on the timeline")
+        val asset = MediaAssetDto(
+            id = "asset-${idGenerator()}",
+            uri = uri,
+            durationFrames = durationFrames,
+            nativeFpsNum = fpsNum,
+            nativeFpsDen = fpsDen,
+            colorSpace = probed.colorSpace,
+            hasVideo = probed.hasVideo,
+            hasAudio = probed.hasAudio,
+        )
+        reduce { copy(assets = assets + asset) }
+        scheduleSave()
+        return asset
+    }
+
+    /** Overwrites [asset] onto its track at [start]; returns the new clip's end, or null on failure. */
+    private fun place(asset: MediaAssetDto, start: FrameIndex): FrameIndex? {
+        val type = if (asset.hasVideo) TrackType.VIDEO else TrackType.AUDIO
+        val track = history.timeline.tracks.firstOrNull { it.type == type }
+        if (track == null) {
+            emit(EditorEffect.ShowMessage("There is no ${type.name.lowercase()} track to place the clip on"))
+            return null
+        }
+        val length = assetLengthFrames(asset.id) ?: return null
+        val clip = Clip("clip-${idGenerator()}", asset.id, start, FrameIndex.ZERO, FrameIndex(length))
+        if (!execute(EditCommand.Overwrite(track.id, clip))) return null
+        reduce { copy(selectedClipId = clip.id) }
+        return clip.timelineEnd
+    }
+
+    /** Length of an asset in project frames, or null if it is not in the library. */
+    private fun assetLengthFrames(assetId: String?): Long? {
+        val asset = state.value.assets.firstOrNull { it.id == assetId } ?: return null
+        val micros = FrameRate(asset.nativeFpsNum, asset.nativeFpsDen).framesToMicros(asset.durationFrames)
+        return state.value.fps.microsToFrames(micros).takeIf { it > 0 }
+    }
+
+    // endregion
+
+    private fun describe(error: EditError): String = when (error) {
+        is EditError.Overlap -> "That would overlap another clip"
+        EditError.SplitOutsideClip -> "Move the playhead inside the selected clip to split it"
+        EditError.NegativeStart -> "A clip cannot start before the beginning of the timeline"
+        EditError.SourceOutOfRange -> "That is beyond the end of the source media"
+        is EditError.InvalidTrim -> "That trim is not possible: ${error.reason}"
+        is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
+        is EditError.DuplicateClipId, is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
+    }
+
+    private companion object {
+        const val ID_LENGTH = 8
+        const val DEFAULT_SAVE_DEBOUNCE_MILLIS = 500L
+        const val SNAP_THRESHOLD_FRAMES = 8L
+        const val NO_ASSET_KEY = -1L
+    }
+}

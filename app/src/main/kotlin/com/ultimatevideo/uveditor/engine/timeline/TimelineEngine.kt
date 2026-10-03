@@ -44,8 +44,16 @@ class TimelineEngine(
     }
 
     fun surfaceCreated(surface: Surface) = throwIfFailed(NativeTimeline.nativeSurfaceCreated(live(), surface), "surfaceCreated")
-    fun surfaceChanged(width: Int, height: Int) = NativeTimeline.nativeSurfaceChanged(live(), width, height)
-    fun surfaceDestroyed() = NativeTimeline.nativeSurfaceDestroyed(live())
+
+    // The view can outlive the engine by a frame when a screen is torn down; late surface
+    // callbacks after close() have nothing left to release.
+    fun surfaceChanged(width: Int, height: Int) {
+        if (handle != 0L) NativeTimeline.nativeSurfaceChanged(handle, width, height)
+    }
+
+    fun surfaceDestroyed() {
+        if (handle != 0L) NativeTimeline.nativeSurfaceDestroyed(handle)
+    }
 
     fun setSnapshot(snapshot: TimelineSnapshot) {
         val buffer = snapshot.encode()
