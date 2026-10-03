@@ -56,6 +56,11 @@ harness exports a file without UI: `am start -n com.ultimatevideo.uveditor/.debu
 [--es codec avc|hevc] [--ei w 1280 --ei h 720 --ei fps 30] [--es layout single|split|layers]`, then `ffprobe` the pulled file; the outcome is
 written to `<out>.result.txt` (see the class comment). Exported audio is shifted earlier by the AAC encoder delay (`kAacDelaySamples`).
 
+A/V drift: `scripts/av-drift-test.sh <serial> [minutes]` generates a beep+flash clip, seeds a project of N copies
+(app-private `files/projects/avdrift`, needs a debug build for `run-as`), and logs tag `UVSync` while you open it and play
+(`adb shell setprop log.tag.UVSync DEBUG` is set by the script). Playback model: audio is the master clock; the preview runs a native
+clock and is re-anchored only on composition change or >2 frames of drift (SPECS.md 5.3).
+
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests
   covering collisions, gaps, and boundary frames. Write them with the operation, not afterwards.

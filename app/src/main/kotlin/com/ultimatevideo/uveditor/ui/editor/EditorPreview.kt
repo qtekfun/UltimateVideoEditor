@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.preview.DecoderLimits
@@ -78,6 +79,11 @@ class EditorPreview(
     private val failed = HashSet<Int>()
     private var latest: PreviewScene? = null
     private val anchor = PreviewAnchor(DRIFT_THRESHOLD_FRAMES)
+
+    // `adb shell setprop log.tag.UVSync DEBUG` before opening the editor prints the drift between
+    // the audio clock and the native preview clock every few seconds (see scripts/av-drift-test.sh).
+    private val syncLogging = Log.isLoggable(SYNC_TAG, Log.DEBUG)
+    private val syncStats = SyncStats()
     // True while [follow] drives the preview; the screen's next tick then picks up newly opened assets.
     private var following = false
     private var reportedSkipped: Set<Int> = emptySet()
@@ -114,7 +120,9 @@ class EditorPreview(
         // The composition is the same while each clip's source range maps linearly to the timeline,
         // which is what the offset (source frame minus playhead) captures.
         val composition = ready.map { FollowedLayer(it.assetKey, it.sourceFrame - heardFrame, it.endFrame, it.transform) }
-        if (!anchor.needsReanchor(composition, heardFrame, nowNanos, fps)) return
+        val reanchor = anchor.needsReanchor(composition, heardFrame, nowNanos, fps)
+        if (syncLogging) syncStats.record(heardFrame, anchor.expectedFrame(nowNanos, fps), reanchor, nowNanos)
+        if (!reanchor) return
         engine.playScene(
             scene.canvasWidth,
             scene.canvasHeight,
@@ -207,8 +215,39 @@ class EditorPreview(
         engine?.close()
     }
 
+    /** Running drift statistics (heard frame minus where the native clock is), logged every few seconds. */
+    private class SyncStats {
+        private var samples = 0L
+        private var sum = 0L
+        private var maxAbs = 0L
+        private var reanchors = 0L
+        private var windowStart = 0L
+
+        fun record(heardFrame: Long, expected: Long?, reanchor: Boolean, nowNanos: Long) {
+            if (windowStart == 0L) windowStart = nowNanos
+            if (reanchor) reanchors++
+            if (expected != null) {
+                val drift = heardFrame - expected
+                samples++
+                sum += drift
+                maxAbs = maxOf(maxAbs, kotlin.math.abs(drift))
+            }
+            if (nowNanos - windowStart >= LOG_INTERVAL_NANOS) {
+                val mean = if (samples > 0) sum.toDouble() / samples else 0.0
+                Log.d(SYNC_TAG, "t=${nowNanos / 1_000_000} samples=$samples meanDriftFrames=$mean maxAbsDriftFrames=$maxAbs reanchors=$reanchors")
+                samples = 0
+                sum = 0
+                maxAbs = 0
+                reanchors = 0
+                windowStart = nowNanos
+            }
+        }
+    }
+
     private companion object {
         /** The native and audio clocks agree to well under this, so a re-anchor means a real discontinuity. */
         const val DRIFT_THRESHOLD_FRAMES = 2L
+        const val SYNC_TAG = "UVSync"
+        const val LOG_INTERVAL_NANOS = 5_000_000_000L
     }
 }
