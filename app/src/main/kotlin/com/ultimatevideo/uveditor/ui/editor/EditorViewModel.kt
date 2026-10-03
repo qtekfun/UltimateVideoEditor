@@ -144,6 +144,7 @@ class EditorViewModel(
             EditorIntent.ToggleInspector -> toggleInspector()
             EditorIntent.AddTitle -> addTitle()
             is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips)
+            is EditorIntent.RestyleCaptions -> execute(com.ultimatevideo.uveditor.domain.RestyleCaptions(intent.style, intent.canvasHeight))
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
             is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
             EditorIntent.AddTransition -> addTransition()

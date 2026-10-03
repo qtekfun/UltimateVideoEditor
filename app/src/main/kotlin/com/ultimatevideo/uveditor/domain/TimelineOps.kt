@@ -1,5 +1,6 @@
 package com.ultimatevideo.uveditor.domain
 
+import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
 import kotlin.math.abs
 
 /** Magnetic snapping: clip edges snap to other clip edges, frame 0 and the playhead. */
@@ -474,8 +475,14 @@ object TimelineOps {
     fun setTitle(timeline: Timeline, clipId: String, title: TitleContent): EditResult<Timeline> {
         title.problem()?.let { return failure(EditError.InvalidAppearance(it)) }
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
-        if (clip.title == null) return failure(EditError.NotATitle(clipId))
-        return updateClip(timeline, clipId) { it.copy(title = title) }
+        val old = clip.title ?: return failure(EditError.NotATitle(clipId))
+        // New text no longer matches the stored word timing: an animated caption gets evenly spaced words.
+        val resolved = if (title.text != old.text && title.words == old.words && old.words.isNotEmpty()) {
+            title.copy(words = if (title.animation == TitleAnimation.NONE) emptyList() else CaptionAnimator.synthesizeWords(title.text, clip.durationFrames))
+        } else {
+            title
+        }
+        return updateClip(timeline, clipId) { it.copy(title = resolved) }
     }
 
     /**

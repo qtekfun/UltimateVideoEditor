@@ -8,6 +8,9 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
+import com.ultimatevideo.uveditor.data.model.TitleWordDto
+import com.ultimatevideo.uveditor.domain.TitleAnimation
+import com.ultimatevideo.uveditor.domain.TitleWord
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.data.model.TransformDto
 import com.ultimatevideo.uveditor.data.model.TransitionDto
@@ -159,6 +162,15 @@ object TimelineMapper {
         },
         bold = dto.bold,
         outline = dto.outline,
+        words = dto.words.map { TitleWord(it.text, it.start, it.end) },
+        animation = when (dto.animation) {
+            "none" -> TitleAnimation.NONE
+            "karaoke" -> TitleAnimation.KARAOKE
+            "pop_in" -> TitleAnimation.POP_IN
+            "typewriter" -> TitleAnimation.TYPEWRITER
+            else -> throw ProjectError.Corrupt("clip $clipId has unknown title animation '${dto.animation}'")
+        },
+        highlightArgb = parseColor(clipId, dto.highlight),
     )
 
     private fun parseColor(clipId: String, value: String): Int {
@@ -174,6 +186,9 @@ object TimelineMapper {
         alignment = title.alignment.name.lowercase(),
         bold = title.bold,
         outline = title.outline,
+        words = title.words.map { TitleWordDto(it.text, it.startFrame, it.endFrame) },
+        animation = title.animation.name.lowercase(),
+        highlight = "#%08X".format(title.highlightArgb),
     )
 
     private fun toTransition(dto: TransitionDto): Transition = Transition(

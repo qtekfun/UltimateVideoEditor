@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.domain.captions
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.TitleWord
 
 /** One recognised word, in milliseconds on the source media's own timeline. */
 data class TranscriptWord(val text: String, val startMs: Long, val endMs: Long)
@@ -32,7 +33,13 @@ data class Transcript(val language: String, val words: List<TranscriptWord>) {
 }
 
 /** A caption to show from [start] (inclusive) to [end] (exclusive) on the timeline. */
-data class CaptionCue(val start: FrameIndex, val end: FrameIndex, val text: String) {
+data class CaptionCue(
+    val start: FrameIndex,
+    val end: FrameIndex,
+    val text: String,
+    /** The cue's words with their timing in clip frames (0 is [start]), for the animated styles. */
+    val words: List<TitleWord> = emptyList(),
+) {
     val durationFrames: Long get() = end - start
 }
 
@@ -121,7 +128,12 @@ object CaptionPlanner {
             val limit = groups.getOrNull(index + 1)?.first()?.start ?: clipEnd
             val wanted = maxOf(spokenEnd + linger, start + minDuration)
             val end = minOf(limit, clipEnd, wanted).coerceAtLeast(start + 1)
-            cues += CaptionCue(FrameIndex(start), FrameIndex(end), join(group.map { it.text }))
+            cues += CaptionCue(
+                FrameIndex(start),
+                FrameIndex(end),
+                join(group.map { it.text }),
+                group.map { TitleWord(it.text, it.start - start, it.end - start) },
+            )
         }
         return cues
     }

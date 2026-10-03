@@ -48,10 +48,53 @@ object ClipGain {
 
 enum class TitleAlignment { LEFT, CENTER, RIGHT }
 
+/** One spoken word of a caption, in clip frames (0 is the clip's first frame; may be negative or past the end after a trim). */
+data class TitleWord(val text: String, val startFrame: Long, val endFrame: Long)
+
+/** How a caption's words come in and out of emphasis over the clip. */
+enum class TitleAnimation {
+    NONE,
+
+    /** All words show; the word being spoken is highlighted and slightly enlarged. */
+    KARAOKE,
+
+    /** Words appear one by one as they are spoken; the newest pops in highlighted. */
+    POP_IN,
+
+    /** Letters appear progressively across each word. */
+    TYPEWRITER,
+}
+
+/**
+ * Which moment of a caption animation to draw. Renderers set it per frame from `CaptionAnimator`;
+ * it is never stored in a project. Indexes are into [TitleContent.words] and into its text.
+ */
+data class TitleLook(
+    /** Words from this index on are hidden (-1 shows all). */
+    val visibleWords: Int = ALL,
+    /** Text characters from this index on are hidden (-1 shows all). */
+    val visibleChars: Int = ALL,
+    /** The word drawn highlighted (and at [activePercent]); -1 for none. */
+    val activeWord: Int = NO_WORD,
+    /** Size of the active word in percent of normal (100 = unchanged). */
+    val activePercent: Int = 100,
+) {
+    val isFull: Boolean get() = this == FULL
+
+    companion object {
+        const val ALL = -1
+        const val NO_WORD = -1
+        val FULL = TitleLook()
+    }
+}
+
 /**
  * Text payload of a title clip. Sizes are fractions of the project height so a title looks the
  * same at any export resolution. Placement, scale, rotation and opacity come from the clip's
  * [ClipTransform]; the text block is centred on the canvas before that transform.
+ *
+ * A caption can carry the timing of its [words] and an [animation]; the words must appear in
+ * [text] in order, or the text is simply drawn as a static title.
  */
 data class TitleContent(
     val text: String,
@@ -61,19 +104,35 @@ data class TitleContent(
     val bold: Boolean = false,
     /** A dark outline around the glyphs so the text stays readable over any footage (captions use it). */
     val outline: Boolean = false,
+    val words: List<TitleWord> = emptyList(),
+    val animation: TitleAnimation = TitleAnimation.NONE,
+    /** Colour of the emphasised word of an animation. */
+    val highlightArgb: Int = DEFAULT_HIGHLIGHT_ARGB,
+    /** Set by renderers per frame; stored projects always have the full look. */
+    val look: TitleLook = TitleLook.FULL,
 ) {
     fun problem(): String? = when {
         text.isBlank() -> "title text must not be blank"
         !(sizeFraction.isFinite() && sizeFraction in MIN_SIZE_FRACTION..MAX_SIZE_FRACTION) ->
             "title size must be between $MIN_SIZE_FRACTION and $MAX_SIZE_FRACTION of the canvas height"
+        words.any { it.text.isBlank() || it.endFrame < it.startFrame } -> "caption words must have text and end after they start"
+        words.zipWithNext().any { (a, b) -> b.startFrame < a.startFrame } -> "caption words must be in order"
         else -> null
     }
+
+    /** The same title with every word [delta] frames earlier, for a clip whose start moved [delta] frames later. */
+    fun shiftedBy(delta: Long): TitleContent =
+        if (words.isEmpty() || delta == 0L) this else copy(words = words.map { it.copy(startFrame = it.startFrame - delta, endFrame = it.endFrame - delta) })
+
+    /** This title as a cache key for its pixels: word timing does not change what is drawn. */
+    fun withoutTiming(): TitleContent = if (words.isEmpty()) this else copy(words = words.map { it.copy(startFrame = 0, endFrame = 0) })
 
     companion object {
         const val MIN_SIZE_FRACTION = 0.01
         const val MAX_SIZE_FRACTION = 0.5
         const val DEFAULT_SIZE_FRACTION = 0.08
         const val DEFAULT_COLOR_ARGB = 0xFFFFFFFF.toInt()
+        const val DEFAULT_HIGHLIGHT_ARGB = 0xFFFFE600.toInt()
     }
 }
 
