@@ -299,27 +299,25 @@ Per-clip source colour: each video clip may override how its source is read (`Au
 - FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec. Deferred, see
   DECISIONS.md.
 
-### 5.10 Automatic captions
-- Speech recognition runs on the device with whisper.cpp (MIT, git submodule `app/src/main/cpp/third_party/whisper.cpp`,
-  pinned to `v1.9.4`, built statically into `uveditor_engine` through `cmake/captions.cmake`). CPU only, up to 4 threads;
-  ggml is built for `armv8.2-a+dotprod+fp16`, which the arm64 phones this app targets (API 33+) have.
-- No model ships in the APK. The user picks "Fast" (tiny, 31 MB) or "Balanced" (base, 57 MB), both multilingual
-  `q5_1` ggml files downloaded once over HTTPS from the whisper.cpp model repository into
-  `filesDir/caption-models`, verified by size and SHA-256 against the values pinned in
-  `engine/captions/CaptionTypes.kt` and written atomically (`.part`, then rename). This is the only use of the
-  `INTERNET` permission; captions work offline afterwards.
-- Pipeline (`captions/caption_pipeline.cpp`): `AndroidPcmDecoder` seeks to the clip's source range -> stereo float ->
-  `Mono16kConverter` (exact-integer box average to 16 kHz mono) -> `whisper_full` with token timestamps and
-  `max_len = 1` / `split_on_word`, so each result is one word. Progress (decode 0-10 %, recognition 10-100 %) and
-  cancellation flow through one JNI callback object; a cancelled coroutine aborts the run. At most 30 minutes
-  (about 115 MB of PCM) per run.
-- Words are in source milliseconds. `domain/captions/CaptionPlanner` maps them to timeline frames with the
-  clip's `timelineStart - sourceIn` (source ranges are project frames, see section 4), groups them into cues by
-  character limit, duration, pauses and sentence ends, and times each cue so cues never overlap or leave the clip.
-- Captions are ordinary title clips (`outline = true` so they read over any footage) on a new title track
-  placed on top, added by one `AddCaptions` command, so one Undo removes them all and they stay editable.
-  Four static styles (Classic, Bold, Pop, Impact) set size, colour, position and chunking; the animated styles
-  (Karaoke, Word pop, Typewriter, Bounce) are in section 5.15.
+### 5.10 Captions (typed or imported, no recognition)
+- There is no speech recognition and no model: the app is offline by design (`docs/PRIVACY.md`). An earlier
+  on-device whisper.cpp pipeline was removed for that reason (see DECISIONS.md, "Privacy").
+- Captions come from the user: **typed** one at a time (text, a start and a length stepped by frames or seconds, the next
+  caption starting where the last ended) or **imported** from a `.srt` or `.vtt` file picked with the system file
+  picker. `domain/captions/Subtitles` decodes the file (BOM, strict UTF-8, UTF-16 without a mark, Latin-1 fallback; at
+  most 5 MB), detects SRT or WebVTT, ignores the WebVTT header, NOTE / STYLE / REGION blocks and cue settings,
+  strips tags and common entities, joins multi-line cues, counts and skips unusable blocks, and sorts the cues.
+- `Subtitles.toCues` maps times to project frames with integer maths from an offset (the start of the project, or
+  the playhead), makes every cue at least one frame, cuts a cue short when the next one starts before it ends, and
+  joins cues that start on the same frame. Each cue gets evenly timed words (`CaptionAnimator.synthesizeWords`) so the
+  animated styles work on any caption. `CaptionPlanner` (grouping timed words into cues) stays for sources that
+  carry word times.
+- Captions are ordinary title clips (ids start with `caption-`, `outline = true` so they read over any footage). An
+  imported file goes on a new title track on top (`AddCaptions`, one undo step; one track per file, so languages stay
+  apart); typed captions go on the existing caption track (`AddCaptionsToTrack`, overwriting what they cover) or
+  start one. Eight styles set size, colour, position, chunking and animation: Classic, Bold, Pop, Impact and the
+  animated Karaoke, Word pop, Typewriter and Bounce (section 5.15); "Restyle" applies a style and colours to every
+  caption in one undo step.
 
 ### 5.11 Keyframes, canvas formats and upload presets
 - **Keyframes.** A clip (video or title) may carry `keyframes`: poses (position, scale, rotation, opacity) at
@@ -646,7 +644,9 @@ the left when it leaves the 10%–90% band).
 
 Derived from `docs/lumafusion-comparison.md`. Each work package is written so it can be handed to one
 agent as is: scope, design, data model, UI, tests, acceptance criteria, dependencies and which files it
-owns (to avoid conflicts when two packages run in parallel). Existing conventions apply to all of them:
+owns (to avoid conflicts when two packages run in parallel). **Privacy rule (hard):** no AI or ML features, no models, no network access, no third-party services, no
+analytics. Packages below that would need any of these were removed or rewritten with classical on-device
+algorithms (see DECISIONS.md, "Privacy"). Existing conventions apply to all of them:
 integer frames only, MVI, domain in pure Kotlin with unit tests, preview and export through the same
 `RenderPlan` / `drawScene` / offline mixer, optional JSON fields (old projects must load unchanged), one
 undo step per user action, explicit typed errors, decisions logged in `DECISIONS.md`.
@@ -748,8 +748,8 @@ Avoid: render/, audio/.
 
 - **Per clip:** pan (-1..1, equal-power), fade in / fade out (frames, with draggable handles on the clip),
   EQ (low shelf, 3 peaking bands, high shelf and high/low-pass, biquads, Q and gain ranges documented),
-  noise suppression (RNNoise or an equivalent permissively licensed model; log the choice and licence in
-  `THIRD_PARTY_NOTICES.md`), loudness normalise to a target LUFS (BS.1770 measured offline and cached, applied
+  noise suppression with classical DSP only (spectral gating with a noise profile taken from a quiet
+  stretch, or a Wiener filter; no neural denoiser), loudness normalise to a target LUFS (BS.1770 measured offline and cached, applied
   as gain).
 - **Per track:** volume, mute, solo, a simple bus compressor option; master limiter at -1 dBTP.
 - **Auto-ducking:** pick a "voice" track and one or more "music" tracks; the voice envelope (from the waveform
@@ -910,9 +910,8 @@ equivalence, decoder budget planner.
 ### 9.10 WP-R Release preparation
 
 - App signing and release build config (keystore from env, never committed), R8 rules for JNI classes, a
-  release CI job that builds an unsigned AAB and APK as artifacts, versioning scheme, crash reporting opt-in
-  (decision logged: local logs only vs a privacy-preserving service), a privacy note (no network except model
-  download), Play listing text and screenshots checklist in `docs/`, and a first-run onboarding that points to
+  release CI job that builds an unsigned AAB and APK as artifacts, versioning scheme, crash information as local
+  logs only (no reporting service, no network), a privacy note pointing to `docs/PRIVACY.md`, Play listing text and screenshots checklist in `docs/`, and a first-run onboarding that points to
   `docs/USER_GUIDE.md` content in app (short tips, dismissible).
 
 **Acceptance.** `./gradlew :app:bundleRelease` works with the signing config supplied by environment and the
@@ -1004,6 +1003,14 @@ inserts, undo removes it; drag onto an empty overlay area creates an overlay cli
 **Owns:** `ui/editor/tray/`, `domain/DropPlan.kt` additions, `timeline_view/` drag-hover bridge. Avoid:
 render/, audio/. Run after WP-U1 and before WP-U3.
 
+**Implementation notes (as built).** `ui/editor/tray/` holds `TrayModel.kt` (tabs, filters, search, usage counts,
+library reordering: pure, tested), `MediaTray.kt` (Compose panel, tiles, header with snap heights),
+`AssetThumbnails.kt` and `DragPayload.kt`. The native canvas view implements `TimelineDropTarget` through the
+platform `DragEvent` listener and forwards positions as `TrayDragMove` / `ExternalDrop` intents;
+`DropPlan.decideNew` plans the drop and `LaneOps.addClipOnNewLane` / `overwriteNewClip` apply it. Tray
+payloads use the clip label `uveditor-asset` with the asset id as text. See the decisions in `DECISIONS.md`
+for what was left out (drag of stickers/templates, a native "place" indicator).
+
 ### 9.14 WP-U3 Resizable and customisable layout
 
 **Goal:** the user shapes the workspace, like LumaFusion.
@@ -1034,49 +1041,42 @@ orientation; "Reset layout" returns to the default.
 **Owns:** `ui/editor/layout/`, preferences store, `EditorScreen` structure. Avoid: domain/, audio/, render/.
 Because it restructures `EditorScreen`, run it as the only editor-structure package in its wave.
 
-### 9.15 WP-V1 Smart cutout and motion tracking (CapCut parity)
+### 9.15 WP-V1 Motion tracking (classical)
 
-- **Smart cutout:** on-device person/foreground segmentation (candidate: MediaPipe Selfie/Interactive
-  segmenter or a licence-compatible TFLite model; record the choice and licence in `DECISIONS.md` and
-  `THIRD_PARTY_NOTICES.md`), run as a background analysis per clip and range, mask cached per frame
-  (low resolution alpha, 8-bit) and applied as a per-clip alpha matte in the layer pass with feather and
-  invert; refine edges with a bilateral/guided filter on the GPU; manual "keep/remove" hints as a follow-up.
-- **Motion tracking:** track a user-chosen point or box (pyramidal Lucas-Kanade or a small template matcher;
-  share the tracker code with WP-X), store a per-frame path; "attach" a title, sticker or clip to the path
-  (generates position keyframes through WP-K, or a dedicated `TrackedPose` evaluated by `RenderPlan` if WP-K
-  is not ready).
-- **UI:** "Cutout" and "Track" actions in the inspector with progress and cancel, status when stale.
-- **Tests:** synthetic moving square tracking error bounds, mask cache keys, attach maths; golden masks on a
-  tiny model fixture when feasible.
-- **Acceptance:** a person on a plain background is cut out with usable edges at 1080p within a minute of
-  analysis for a 10 s clip on the reference device (measure and report).
+Smart cutout (ML segmentation) was removed: it needs a model. The existing chroma key, luma key and masks cover
+keying; manual mask keyframes (WP-K) cover moving subjects.
 
-### 9.16 WP-V2 Auto reframe and auto cut
+- **Motion tracking:** track a user-chosen point or box (pyramidal Lucas-Kanade or a small template matcher; reuse the
+  tracker code of WP-X), store a per-frame path; "attach" a title, sticker or clip to the path (generates position
+  keyframes through WP-K, or a dedicated `TrackedPose` evaluated by `RenderPlan` if WP-K is not ready).
+- **UI:** a "Track" action in the inspector with progress and cancel, status when stale.
+- **Tests:** synthetic moving square tracking error bounds, path cache keys, attach maths.
+- **Acceptance:** a title attached to a moving object follows it within a few pixels over a 10 s clip.
 
-- **Auto reframe:** when the canvas aspect ratio changes (or on request), compute a crop path that keeps the
-  subject in frame: saliency or face/person detection on sampled frames, smoothing of the crop centre (same
-  smoother as the stabiliser), written as position/scale keyframes on the clip (editable afterwards).
-- **Auto cut:** silence removal (threshold, minimum gap, padding) from the waveform cache producing cuts
-  on the base with ripple; "highlights" as a stretch goal using audio energy and scene changes; a preview of the
-  cuts before applying; one undo step.
-- **Speech-based editing (stretch):** delete words in the caption transcript to cut the clip.
-- **Tests:** crop-path smoothing and bounds, silence detection on synthetic audio, cut application and undo.
-- **Acceptance:** converting a 16:9 interview to 9:16 keeps the speaker centred; silence removal shortens a
-  clip with long pauses and keeps A/V sync.
+### 9.16 WP-V2 Auto cut and manual reframe helper
 
-### 9.17 WP-V3 Text to speech, voice effects and vocal isolation
+Subject-detecting auto reframe was removed: it needs a model.
 
-- **Text to speech:** an "Add voice-over from text" action: type text, choose a voice and language
-  (Android `TextToSpeech` offline voices first; `synthesizeToFile` into app storage), the result becomes an
-  audio clip on an audio lane at the playhead with its duration derived from the file; the text is stored for
-  re-generation. Optional neural voice (e.g. Piper, MIT) as a later download with a clear size notice.
-- **Voice effects:** pitch/formant shift (WSOLA or phase vocoder), robot, chipmunk, deep, echo and reverb
-  presets as audio clip effects in the WP-A chain.
-- **Vocal isolation / music separation:** an on-device model (small, downloadable) producing a vocals stem
-  and an accompaniment stem; stems are cached assets; stretch goal, record licence and size.
-- **Speaker-aware captions:** diarisation on the whisper output (stretch) to colour captions per speaker.
-- **Tests:** TTS file registration and duration mapping with fakes, effect DSP vectors, stem cache keys.
-- **Acceptance:** a typed sentence becomes a voice-over clip that exports with the video.
+- **Auto cut:** silence removal (threshold, minimum gap, padding) from the waveform cache producing cuts on the
+  base with ripple; "highlights" as a stretch goal using audio energy and scene changes (classical frame differences);
+  a preview of the cuts before applying; one undo step.
+- **Manual reframe helper:** when the canvas aspect ratio changes, offer a centred crop and a two-point "pan"
+  (start and end framing set by the user on the preview) that writes position/scale keyframes on the clip, editable
+  afterwards (WP-K).
+- **Tests:** silence detection on synthetic audio, cut application and undo, pan-keyframe generation and bounds.
+- **Acceptance:** silence removal shortens a clip with long pauses and keeps A/V sync; a 16:9 clip can be reframed to
+  9:16 with a start and an end framing in three taps.
+
+### 9.17 WP-V3 Voice effects
+
+Text to speech, vocal isolation and speaker-aware captions were removed: they need a model or a speech engine
+that may reach a server (the Android system `TextToSpeech` service can use network voices, so it is dropped for
+strictness; see DECISIONS.md, "Privacy").
+
+- **Voice effects:** pitch/formant shift (WSOLA or phase vocoder), robot, chipmunk, deep, echo and reverb presets as
+  audio clip effects in the WP-A chain; all classical DSP.
+- **Tests:** effect DSP vectors (pitch ratio, delay times), parity between realtime and offline mixing.
+- **Acceptance:** a voice clip with the "deep" preset sounds lower and exports identically.
 
 ### 9.18 WP-V4 Optical-flow slow motion, video denoise and deflicker
 
@@ -1115,8 +1115,8 @@ Because it restructures `EditorScreen`, run it as the only editor-structure pack
 | 2 | WP-S Multiselect and bulk edits | WP-A Audio tools |
 | 3 | WP-T Multilayer titles and fonts | WP-K Generalised keyframes |
 | 4 | WP-X Stabiliser | WP-I Interchange and media library |
-| 5 | WP-V1 Cutout and tracking | WP-V4 Optical-flow slow motion and repair |
-| 6 | WP-V2 Auto reframe and auto cut | WP-V3 Text to speech and voice |
+| 5 | WP-V1 Motion tracking | WP-V4 Optical-flow slow motion and repair |
+| 6 | WP-V2 Auto cut and reframe helper | WP-V3 Voice effects |
 | 7 | WP-P Proxy media | WP-V5 Templates and packs |
 | 8 | WP-M Multicam | WP-R Release preparation |
 
