@@ -16,6 +16,22 @@ using Clock = std::chrono::steady_clock;
 constexpr auto kRetryCooldown = std::chrono::seconds(1);
 constexpr size_t kMaxQueuedFaults = 64;
 
+// Identity of a clip's retime: knots that differ in any frame or position give a different source.
+uint64_t hashKnots(const std::vector<RetimeKnot>& knots) {
+    uint64_t h = 1469598103934665603ull;
+    const auto mix = [&h](uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    for (const RetimeKnot& k : knots) {
+        mix(static_cast<uint64_t>(k.frame));
+        uint64_t bits = 0;
+        std::memcpy(&bits, &k.sourceFrame, sizeof(bits));
+        mix(bits);
+    }
+    return h;
+}
+
 int32_t pow2Ceil(int64_t v) {
     int64_t p = 1;
     while (p < v) p <<= 1;
@@ -68,13 +84,13 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         const int64_t end = framesToSamples(d.startFrame + d.durationFrames, data.fps, rate);
         if (end <= start) continue;  // shorter than one output sample
 
-        const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den};
+        const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den, hashKnots(d.knots)};
         std::shared_ptr<ClipSource> source;
         if (auto it = sources_.find(key); it != sources_.end()) {
             source = it->second;
         } else {
             source = std::make_shared<ClipSource>(d.clipKey, d.assetKey, sourceFramesToMicros(d.sourceInFrame, d.sourceFps),
-                                                  bufferFrames_);
+                                                  bufferFrames_, d.knots, d.sourceFps);
         }
         next[key] = source;
 
@@ -366,6 +382,10 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
                             int32_t rate) {
     if (src.failed.load(std::memory_order_acquire) && Clock::now() < src.retryAfter) return;
     if (!src.buffer.allocated()) src.buffer.allocate();
+    if (!src.knots.empty()) {
+        serviceRetimedClip(src, clip, needStart, needEnd, rate);
+        return;
+    }
 
     const bool inWindow = needStart >= src.buffer.windowStart() && needStart <= src.buffer.writeEnd();
     // (Re)position when the playhead left the buffered window, or when there is no decoder yet
@@ -412,6 +432,39 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
     }
 }
 
+// Like serviceClip, for a clip whose source is read through its retime knots: the decoder is not
+// positioned here (the reader seeks as the mapping needs), the worker just asks it for the next
+// output samples of the clip.
+void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, int64_t needStart, int64_t needEnd,
+                                   int32_t rate) {
+    const bool inWindow = needStart >= src.buffer.windowStart() && needStart <= src.buffer.writeEnd();
+    if (!inWindow || !src.decoder) {
+        if (!src.decoder && !openDecoder(src, rate)) return;
+        src.retimed->reset();
+        src.buffer.reset(needStart);
+        src.decodedEnd = needStart;
+        src.hitEof = false;
+        src.eofAt.store(INT64_MAX, std::memory_order_release);
+        src.failed.store(false, std::memory_order_release);
+    }
+    if (src.failed.load(std::memory_order_acquire) || !src.decoder || !src.retimed) return;
+
+    const int64_t len = clip.endSample - clip.startSample;
+    for (int guard = 0; guard < 64 && src.decodedEnd < needEnd && src.decodedEnd < len; ++guard) {
+        const int32_t n = static_cast<int32_t>(std::min<int64_t>(kRetimeBlock, len - src.decodedEnd));
+        src.outScratch.resize(static_cast<size_t>(n) * 2);
+        const RetimedReader::Result r = src.retimed->render(src.decodedEnd, n, src.outScratch.data());
+        if (r == RetimedReader::Result::Error) {
+            failClip(src, src.retimed->lastStatus());
+            return;
+        }
+        if (r == RetimedReader::Result::NotReady) break;  // nothing decoded yet; try again next pass
+        src.buffer.append(src.outScratch.data(), n);
+        src.decodedEnd += n;
+    }
+    if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to render
+}
+
 bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
     Status st = Status::Ok;
     std::unique_ptr<PcmDecoder> dec = factory_(src.assetKey, &st);
@@ -425,11 +478,16 @@ bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
         return false;
     }
     src.decoder = std::move(dec);
-    src.resampler.emplace(srcRate, rate);
+    if (!src.knots.empty()) {
+        src.retimed = std::make_unique<RetimedReader>(src.decoder.get(), RetimeMap(src.knots, src.fps, rate, srcRate));
+    } else {
+        src.resampler.emplace(srcRate, rate);
+    }
     return true;
 }
 
 void AudioCore::releaseClip(ClipSource& src) {
+    src.retimed.reset();  // before the decoder it reads from
     src.decoder.reset();
     src.resampler.reset();
     src.hitEof = false;
@@ -443,6 +501,7 @@ void AudioCore::releaseClip(ClipSource& src) {
 void AudioCore::failClip(ClipSource& src, Status status) {
     src.failed.store(true, std::memory_order_release);
     src.retryAfter = Clock::now() + kRetryCooldown;
+    src.retimed.reset();
     src.decoder.reset();
     src.resampler.reset();
     src.hitEof = false;

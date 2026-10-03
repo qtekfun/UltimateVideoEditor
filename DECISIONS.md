@@ -145,6 +145,56 @@ costs no seek). **Why:** the scene API takes a static pose per call. **Alternati
 vectors. **Why:** same pattern as the crossfade curve. **Alternative:** sample poses per output frame in Kotlin
 and ship them as arrays (no duplicate maths, but large arrays and a per-frame Kotlin pass).
 
+## 2026-10-03 · A retimed clip stores its timeline length; speed is derived, a freeze is a one-frame range
+**Chosen:** `Clip.retimedFrames` (null = 1x) holds the length on the timeline, so speed is `range / length` and
+clip ends are exact integers; a freeze frame is a one-frame range held for N frames, with no separate model.
+**Why:** a stored speed would need rounding every time a clip is cut, and the halves of a split could then
+disagree on length; with the length stored, split/trim/overwrite re-derive both from one mapping and the halves
+always tile. **Alternative:** store speed as a rational and derive the length (cuts drift by a frame), or add an
+explicit freeze clip kind (more branches in every operation).
+
+## 2026-10-03 · Speed ramps are relative weights, normalised to the clip's range
+**Chosen:** a ramp is a list of `{frame, weightPermille}` keys (linear between, held outside) that only shapes
+the speed; the average still comes from range and length. **Why:** a ramp can never change where a clip starts
+or ends, so it never collides with neighbours and cuts stay consistent. **Alternative:** absolute speed keys
+(the length would depend on the ramp and every ramp edit would move later clips).
+
+## 2026-10-03 · The frame mapping lives only in Kotlin; export gets a table, the preview maps per tick
+**Chosen:** `domain/Retime.kt` is the single definition. The exporter receives one source frame per project
+frame of each retimed clip; the preview maps the playhead each tick (and re-anchors, like an animated clip);
+audio gets knots. **Why:** a ramp's integral in floating point would otherwise exist twice and could disagree by
+a frame at the boundaries; tables are small (one long per frame). **Alternative:** mirror the maths in C++ with
+shared vectors, as keyframes do (fewer bytes, a second implementation to keep in sync).
+
+## 2026-10-03 · Slow motion holds or skips source frames; no frame blending yet
+**Chosen:** `floor` mapping, so 0.5x shows every source frame twice and 2x skips every other one. **Why:**
+blending needs a second sampled layer per output frame in the compositor and the exporter. **Alternative (follow-up):**
+blend the two nearest source frames for speeds below 1x.
+
+## 2026-10-03 · Reverse playback: mirrored decode window, bounded by memory
+**Chosen:** a reversed layer keeps frames behind the playhead decoded (preview: the window is swapped; export:
+`reverseWindowFrames`, about 8 frames at 4K and 32 at 1080p) so one pass over a GOP serves the next stretch.
+**Why:** no codec decodes backwards; a pass over the GOP is the cheapest way to get the frames. **Limit:**
+long-GOP 4K footage re-decodes a GOP every few frames, so reverse playback and export are slow there.
+**Alternative:** transcode a reversed proxy first (fast to play, costs time and storage).
+
+## 2026-10-03 · Audio of retimed clips: varispeed between 0.25x and 4x, muted outside, freeze is silent
+**Chosen:** the mixer reads the source along the clip's knots with linear interpolation, so the pitch follows
+the speed; a clip whose speed leaves 0.25x–4x at any knot, and every freeze frame, is muted. **Why:** it is
+exact, simple and bounded, and extreme speeds sound like noise anyway. **Alternative:** WSOLA time stretching
+that keeps the pitch (a "maintain pitch" switch like CapCut's), a real DSP task for a follow-up.
+
+## 2026-10-03 · Speed changes ripple later clips in the editor
+**Chosen:** the inspector sends `SetSpeed` with ripple on: slowing a clip pushes later clips on its track later,
+speeding up pulls them earlier. **Why:** without it slow motion fails with "would overlap" whenever the clip has
+a neighbour. **Alternative:** leave gaps / fail and let the user move clips (the domain operation supports both).
+
+## 2026-10-03 · Speed limits 0.1x–8x; the timeline labels a ramp at its average speed
+**Chosen:** `SpeedLimits` (0.1x to 8x) for the control; split rounding can leave a half slightly outside that
+range, which is allowed (only the control is limited). The canvas draws waveforms and thumbnails of a ramped clip
+at the average speed and labels it with that speed. **Why:** the canvas has no ramp curve; the preview, the export
+and the sound do follow it. **Alternative:** send the curve to the canvas as knots.
+
 ## 2026-10-03 · Effects are one generic type with a parameter table, and their values are not keyframable
 **Chosen:** `Effect(id, type, values)` with `EffectType` carrying each parameter's name, range and default; one
 uber fragment shader switches on the type; the wire format is a flat `double` blob per layer. **Why:** adding an

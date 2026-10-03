@@ -25,6 +25,7 @@ constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg,
 constexpr size_t kKeyClipLongs = 2;  // keyframe origin frame, keyframe count per clip
 constexpr size_t kKeyLongs = 2;      // frame, interpolation per keyframe
 constexpr size_t kKeyDoubles = 6;    // the same six pose values per keyframe
+constexpr size_t kSourceClipLongs = 2;  // reverse flag, source table length per clip
 
 void throwExport(JNIEnv* env, Status code, const std::string& message) {
     jclass cls = env->FindClass(kExceptionClass);
@@ -100,8 +101,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
-    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jintArray titleMeta, jobjectArray titlePixels,
-    jobject audioSnapshot, jint outputFd) {
+    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jlongArray sourceClips,
+    jlongArray sourceTable, jintArray titleMeta, jobjectArray titlePixels, jobject audioSnapshot, jint outputFd) {
     ExportParams params;
     params.width = width;
     params.height = height;
@@ -204,6 +205,36 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
                 key.pose = {keyPose[v], keyPose[v + 1], keyPose[v + 2], keyPose[v + 3], keyPose[v + 4], keyPose[v + 5]};
                 c.keyframes.push_back(key);
             }
+        }
+    }
+
+    // Retimed clips: `sourceClips` holds {reverse flag, table length} per clip and `sourceTable` the
+    // source frame of every project frame of those clips, concatenated in clip order.
+    const jsize sourceClipLongs = sourceClips == nullptr ? 0 : env->GetArrayLength(sourceClips);
+    const jsize sourceLongs = sourceTable == nullptr ? 0 : env->GetArrayLength(sourceTable);
+    if (static_cast<size_t>(sourceClipLongs) != clipCount * kSourceClipLongs) {
+        throwExport(env, Status::InvalidArgument, "clip source tables do not match the clips");
+        closeAll(params.assetFds, outputFd);
+        return 0;
+    }
+    if (clipCount > 0) {
+        std::vector<jlong> perClip(static_cast<size_t>(sourceClipLongs));
+        std::vector<jlong> table(static_cast<size_t>(sourceLongs));
+        env->GetLongArrayRegion(sourceClips, 0, sourceClipLongs, perClip.data());
+        if (sourceLongs > 0) env->GetLongArrayRegion(sourceTable, 0, sourceLongs, table.data());
+        size_t next = 0;
+        for (size_t n = 0; n < clipCount; ++n) {
+            VideoClip& c = params.clips[n];
+            c.reverse = perClip[n * kSourceClipLongs] != 0;
+            const jlong length = perClip[n * kSourceClipLongs + 1];
+            if (length < 0 || next + static_cast<size_t>(length) > table.size()) {
+                throwExport(env, Status::InvalidArgument, "clip source table lengths exceed the table given");
+                closeAll(params.assetFds, outputFd);
+                return 0;
+            }
+            const auto first = table.begin() + static_cast<std::ptrdiff_t>(next);
+            c.sourceTable.assign(first, first + static_cast<std::ptrdiff_t>(length));
+            next += static_cast<size_t>(length);
         }
     }
 

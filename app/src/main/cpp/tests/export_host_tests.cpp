@@ -155,6 +155,37 @@ void sourceFrameMapsAndClamps() {
     CHECK_EQ(totalFramesOf({clip}, 400), 400);
 }
 
+void retimedClipsReadTheirSourceTable() {
+    // A 2x clip: the Kotlin plan (domain/Retime.kt) lists source frames 20, 22, 24, ... for project frames 100...
+    VideoClip clip = makeClip(100, 5, 0, 1, 0);
+    clip.sourceTable = {20, 22, 24, 26, 28};
+    CHECK_EQ(sourceFrameFor(clip, 100, 1000), 20);
+    CHECK_EQ(sourceFrameFor(clip, 103, 1000), 26);
+    CHECK_EQ(sourceFrameFor(clip, 104, 27), 26);   // media ends: hold its last frame
+    CHECK_EQ(sourceFrameFor(clip, 120, 1000), 28);  // past the table (transition tail): the last entry holds
+    CHECK_EQ(sourceFrameFor(clip, 90, 1000), 20);   // before it: the first entry
+    // A reversed clip's table runs downwards and the same lookup applies.
+    VideoClip back = makeClip(0, 4, 0, 1, 0);
+    back.sourceTable = {99, 98, 97, 96};
+    back.reverse = true;
+    CHECK_EQ(sourceFrameFor(back, 0, 1000), 99);
+    CHECK_EQ(sourceFrameFor(back, 3, 1000), 96);
+    // A freeze frame is a table of one repeated frame.
+    VideoClip freeze = makeClip(0, 3, 0, 1, 0);
+    freeze.sourceTable = {42, 42, 42};
+    CHECK_EQ(sourceFrameFor(freeze, 2, 1000), 42);
+}
+
+void reverseWindowIsBoundedByMemory() {
+    constexpr int64_t k4k = 3840LL * 2160 * 4;
+    constexpr int64_t k1080 = 1920LL * 1080 * 4;
+    CHECK_EQ(reverseWindowFrames(k4k), 8);     // 256 MiB / 33.2 MB
+    CHECK_EQ(reverseWindowFrames(k1080), 32);  // 256 MiB / 8.3 MB
+    CHECK_EQ(reverseWindowFrames(640LL * 360 * 4), 48);  // small frames: capped
+    CHECK_EQ(reverseWindowFrames(1LL << 40), 4);          // huge frames: never below the minimum
+    CHECK_EQ(reverseWindowFrames(0), 4);
+}
+
 // Mirrors domain/RenderPlanTest.kt: the same clips, frames and expected values, so the preview
 // (Kotlin) and the exporter (here) agree on how a transition looks.
 void transitionOverlapMatchesTheKotlinPlan() {
@@ -290,6 +321,8 @@ int main() {
     topLayerWinsAndGapsAreEmpty();
     outputFramesMapToProjectFrames();
     sourceFrameMapsAndClamps();
+    retimedClipsReadTheirSourceTable();
+    reverseWindowIsBoundedByMemory();
     transitionOverlapMatchesTheKotlinPlan();
     sameLayerClipsStackByStartFrame();
     titleClipsCarryTheirKey();

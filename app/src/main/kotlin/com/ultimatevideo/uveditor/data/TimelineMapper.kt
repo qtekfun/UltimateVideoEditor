@@ -6,6 +6,7 @@ import com.ultimatevideo.uveditor.data.model.KeyframeDto
 import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
+import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.data.model.TransformDto
@@ -20,6 +21,7 @@ import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.Effect
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.Keyframe
+import com.ultimatevideo.uveditor.domain.SpeedKey
 import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -85,6 +87,9 @@ object TimelineMapper {
         gainDb = dto.gainDb,
         title = dto.title?.let { toTitle(dto.id, it) },
         keyframes = dto.keyframes.map { toKeyframe(dto.id, it) },
+        retimedFrames = dto.timelineFrames,
+        reverse = dto.reverse,
+        speedRamp = dto.speedRamp.map { SpeedKey(it.frame, it.weightPermille) },
         fx = toFx(dto),
     )
 
@@ -222,6 +227,9 @@ object TimelineMapper {
             gainDb = clip.gainDb,
             title = clip.title?.let(::toTitleDto),
             keyframes = clip.keyframes.map(::toKeyframeDto),
+            timelineFrames = clip.retimedFrames,
+            reverse = clip.reverse,
+            speedRamp = clip.speedRamp.map { SpeedKeyDto(it.frame, it.weightPermille) },
             effects = clip.fx.effects.map(::toEffectDto),
             blendMode = clip.fx.blendMode.name.lowercase(),
             mask = clip.fx.mask?.let(::toMaskDto),

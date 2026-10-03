@@ -38,11 +38,18 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipGain
 import com.ultimatevideo.uveditor.domain.Interpolation
+import com.ultimatevideo.uveditor.domain.SpeedLimits
+import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Transition
+import com.ultimatevideo.uveditor.domain.isFreeze
+import com.ultimatevideo.uveditor.domain.speed
+import kotlin.math.log2
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -118,6 +125,7 @@ fun InspectorPanel(
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(opacity = it.toDouble()))) }
             FxControls(clip.fx, onIntent)
         }
+        if (title == null) SpeedControls(state, clip, isVisual, onIntent)
         if (title == null) {
             InspectorSlider(
                 label = "Volume",
@@ -130,6 +138,107 @@ fun InspectorPanel(
         TransitionControls(state, onIntent, transitionLimit)
     }
 }
+
+/**
+ * Speed of the selected media clip: presets and a slider for a constant speed (0.1x to 8x), a ramp
+ * that speeds it up or slows it down over the clip, reverse, and (for video) a freeze frame at the
+ * playhead. Changing the speed changes the clip's length and moves the clips after it.
+ */
+@Composable
+private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onIntent: (EditorIntent) -> Unit) {
+    val freeze = clip.isFreeze
+    val speed = clip.speed
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = if (freeze) "Freeze frame" else "Speed",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f),
+        )
+        if (!freeze) Text(text = formatSpeed(speed), style = MaterialTheme.typography.titleSmall)
+    }
+    if (!freeze) {
+        val rampless = clip.speedRamp.isEmpty()
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            for (preset in SPEED_PRESETS) {
+                FilterChip(
+                    selected = rampless && kotlin.math.abs(speed - preset) < SPEED_MATCH,
+                    onClick = { onIntent(speedIntent(preset)) },
+                    label = { Text(formatSpeed(preset)) },
+                )
+            }
+        }
+        var logSpeed by remember(clip.id, clip.durationFrames) { mutableFloatStateOf(log2(speed).toFloat()) }
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "Custom", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Slider(
+                value = logSpeed.coerceIn(LOG_SPEED_MIN, LOG_SPEED_MAX),
+                onValueChange = { logSpeed = it },
+                onValueChangeFinished = { onIntent(speedIntent(2.0.pow(logSpeed.toDouble()))) },
+                valueRange = LOG_SPEED_MIN..LOG_SPEED_MAX,
+                modifier = Modifier.weight(1f).semantics { contentDescription = "Speed ${formatSpeed(2.0.pow(logSpeed.toDouble()))}" },
+            )
+            Text(text = formatSpeed(2.0.pow(logSpeed.toDouble())), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        }
+        val shape = rampShapeOf(clip)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = "Ramp", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            for ((option, label) in RAMP_SHAPES) {
+                FilterChip(
+                    selected = shape == option,
+                    onClick = { onIntent(EditorIntent.SetSpeedRamp(option)) },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "Reverse", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Switch(checked = clip.reverse, onCheckedChange = { onIntent(EditorIntent.ToggleReverse) })
+        }
+        if (speed > MAX_AUDIBLE_SPEED || speed < MIN_AUDIBLE_SPEED) {
+            Text(text = "Sound is muted outside 0.25x to 4x", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (isVisual) {
+        TextButton(
+            onClick = { onIntent(EditorIntent.FreezeFrame) },
+            enabled = state.selectedClipVisible,
+        ) { Text("Freeze frame at the playhead") }
+    }
+}
+
+/** The preset that [clip]'s ramp is, null for a ramp that is none of them. */
+private fun rampShapeOf(clip: Clip): SpeedRampShape? = when (clip.speedRamp) {
+    emptyList<com.ultimatevideo.uveditor.domain.SpeedKey>() -> SpeedRampShape.NONE
+    SpeedRamps.easeIn(clip.durationFrames) -> SpeedRampShape.EASE_IN
+    SpeedRamps.easeOut(clip.durationFrames) -> SpeedRampShape.EASE_OUT
+    SpeedRamps.bell(clip.durationFrames) -> SpeedRampShape.BELL
+    else -> null
+}
+
+/** A speed as the whole-percent ratio the domain stores: 1.25 is 125/100. Clamped to what clips accept. */
+private fun speedIntent(speed: Double): EditorIntent {
+    val percent = (speed * PERCENT).roundToLong().coerceIn(
+        SpeedLimits.MIN_NUM * PERCENT.toLong() / SpeedLimits.MIN_DEN,
+        SpeedLimits.MAX * PERCENT.toLong(),
+    )
+    return EditorIntent.SetSpeed(percent, PERCENT.toLong())
+}
+
+internal fun formatSpeed(speed: Double): String {
+    val rounded = (speed * PERCENT).roundToInt()
+    return if (rounded % PERCENT.toInt() == 0) "${rounded / PERCENT.toInt()}x" else "${(rounded / PERCENT).toString().trimEnd('0').trimEnd('.')}x"
+}
+
+private val SPEED_PRESETS = listOf(0.25, 0.5, 1.0, 2.0, 4.0)
+private val RAMP_SHAPES = listOf(
+    SpeedRampShape.NONE to "None",
+    SpeedRampShape.EASE_IN to "Ease in",
+    SpeedRampShape.EASE_OUT to "Ease out",
+    SpeedRampShape.BELL to "Bell",
+)
+private const val SPEED_MATCH = 0.01
+private val LOG_SPEED_MIN = log2(0.1).toFloat()
+private val LOG_SPEED_MAX = log2(8.0).toFloat()
 
 /**
  * Animation of the selected clip: a diamond adds or removes a keyframe at the playhead, arrows jump

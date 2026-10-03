@@ -138,6 +138,9 @@ data class EditorState(
         }
 }
 
+/** How the speed is spread over the selected clip; [NONE] is a constant speed. */
+enum class SpeedRampShape { NONE, EASE_IN, EASE_OUT, BELL }
+
 sealed interface EditorIntent : UiIntent {
     data class TapTimeline(val hit: TimelineHit) : EditorIntent
     data class SetPlayhead(val frame: Long) : EditorIntent
@@ -208,6 +211,18 @@ sealed interface EditorIntent : UiIntent {
     data class JumpToKeyframe(val forward: Boolean) : EditorIntent
     data class SetKeyframeInterpolation(val interpolation: Interpolation) : EditorIntent
     data object ClearKeyframes : EditorIntent
+
+    /**
+     * Plays the selected clip at [num]/[den] times normal speed (0.1x to 8x). The clip keeps its source
+     * range and changes length; later clips on its track follow (slowing down pushes them later,
+     * speeding up pulls them earlier).
+     */
+    data class SetSpeed(val num: Long, val den: Long) : EditorIntent
+    data object ToggleReverse : EditorIntent
+    data class SetSpeedRamp(val shape: SpeedRampShape) : EditorIntent
+
+    /** Holds the frame under the playhead of the selected video clip for a couple of seconds, splitting the clip there. */
+    data object FreezeFrame : EditorIntent
 
     /**
      * Effects, blend mode and mask of the selected clip. Add, remove, reorder, blend and clear are one
