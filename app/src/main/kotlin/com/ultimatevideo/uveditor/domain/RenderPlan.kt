@@ -37,6 +37,8 @@ data class RenderClip(
     val keyframes: List<Keyframe> = emptyList(),
     /** Project frame of the clip's own first frame (a transition can start [startFrame] earlier). */
     val keyframeOriginFrame: Long = startFrame,
+    /** Effects, blend mode and mask of the clip; the compositor applies them in this order. */
+    val fx: ClipFx = ClipFx.NONE,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -110,6 +112,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 crossfadeOutFrames = outgoing?.durationFrames ?: 0L,
                 keyframes = clip.keyframes,
                 keyframeOriginFrame = clip.timelineStart.value,
+                fx = clip.fx,
             )
         }
     }

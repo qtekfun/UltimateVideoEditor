@@ -1,5 +1,7 @@
 package com.ultimatevideo.uveditor.engine.preview
 
+import com.ultimatevideo.uveditor.domain.ClipFx
+
 /** Mirrors `uv::decode::Status` in the native engine. Keep values in sync. */
 enum class PreviewErrorCode(val value: Int) {
     InvalidArgument(1),
@@ -67,6 +69,8 @@ data class PreviewLayer(
     val placement: LayerPlacement = LayerPlacement.IDENTITY,
     val endFrame: Long? = null,
     val titleKey: Int = 0,
+    /** Effects, blend mode and mask; neutral draws the layer as is. */
+    val fx: ClipFx = ClipFx.NONE,
 )
 
 data class AssetInfo(

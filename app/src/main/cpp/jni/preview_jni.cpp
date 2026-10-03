@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "core/layer_fx.h"
 #include "decode/log.h"
 #include "render/preview_engine.h"
 
@@ -157,7 +158,9 @@ namespace {
 // frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity}, both bottom to top.
 // A negative assetId -k is the title uploaded under key k (frame is ignored).
 // Returns false after throwing if the arrays do not agree.
-bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jsize idStride, std::vector<uv::render::SceneLayer>* out) {
+// `fx` (may be null) holds one effects/blend/mask blob per layer, see core/layer_fx.h.
+bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx, jsize idStride,
+                std::vector<uv::render::SceneLayer>* out) {
     const jsize layerCount = env->GetArrayLength(ids) / idStride;
     if (env->GetArrayLength(ids) != layerCount * idStride || env->GetArrayLength(params) != layerCount * 6) {
         throwPreview(env, Status::InvalidArgument, "scene arrays do not match");
@@ -169,9 +172,22 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jsize idStride,
         env->GetLongArrayRegion(ids, 0, layerCount * idStride, idValues.data());
         env->GetFloatArrayRegion(params, 0, layerCount * 6, paramValues.data());
     }
+    std::vector<uv::core::LayerFx> fxValues;
+    {
+        std::vector<jdouble> raw;
+        if (fx != nullptr) {
+            raw.resize(static_cast<size_t>(env->GetArrayLength(fx)));
+            if (!raw.empty()) env->GetDoubleArrayRegion(fx, 0, static_cast<jsize>(raw.size()), raw.data());
+        }
+        if (!uv::core::parseSceneFx(raw.data(), raw.size(), static_cast<size_t>(layerCount), &fxValues)) {
+            throwPreview(env, Status::InvalidArgument, "scene effects do not match the layers");
+            return false;
+        }
+    }
     out->reserve(static_cast<size_t>(layerCount));
     for (jsize i = 0; i < layerCount; ++i) {
         uv::render::SceneLayer layer;
+        layer.fx = std::move(fxValues[static_cast<size_t>(i)]);
         const jlong* id = &idValues[static_cast<size_t>(i) * static_cast<size_t>(idStride)];
         if (id[0] < 0) {
             layer.title = static_cast<uint32_t>(-id[0]);
@@ -189,17 +205,18 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jsize idStride,
 }  // namespace
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScene(
-    JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params) {
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params,
+    jdoubleArray fx) {
     std::vector<uv::render::SceneLayer> layers;
-    if (!parseScene(env, ids, params, 2, &layers)) return;
+    if (!parseScene(env, ids, params, fx, 2, &layers)) return;
     fromHandle(handle)->engine->setScene(canvasW, canvasH, std::move(layers));
 }
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativePlayScene(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params,
-    jint fpsNum, jint fpsDen) {
+    jdoubleArray fx, jint fpsNum, jint fpsDen) {
     std::vector<uv::render::SceneLayer> layers;
-    if (!parseScene(env, ids, params, 3, &layers)) return;
+    if (!parseScene(env, ids, params, fx, 3, &layers)) return;
     fromHandle(handle)->engine->playScene(canvasW, canvasH, std::move(layers), uv::decode::Rational{fpsNum, fpsDen});
 }
 

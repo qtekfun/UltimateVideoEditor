@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.engine.export
 
 import java.nio.ByteBuffer
+import com.ultimatevideo.uveditor.engine.fx.FxWire
 
 internal interface NativeExportListener {
     fun onProgress(permille: Int)
@@ -35,6 +36,7 @@ internal object NativeExport {
         keyClips: LongArray,
         keyFrames: LongArray,
         keyValues: DoubleArray,
+        fx: DoubleArray,
         titleMeta: IntArray,
         titlePixels: Array<ByteBuffer>,
         audioSnapshot: ByteBuffer?,
@@ -110,7 +112,8 @@ class NativeExportRunner : ExportRunner {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
                 request.canvasWidth, request.canvasHeight, s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
-                keys, fds, clips, transforms, keyClips, keyFrames, keyValues, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
+                keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
+                titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")

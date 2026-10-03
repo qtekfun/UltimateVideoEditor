@@ -56,6 +56,7 @@ private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0)
         )
     },
     keyframeOriginFrame = keyframeOriginFrame,
+    fx = fx,
 )
 
 private const val HLG_TO_SDR = 1
