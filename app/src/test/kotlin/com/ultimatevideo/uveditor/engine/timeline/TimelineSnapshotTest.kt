@@ -29,7 +29,7 @@ class TimelineSnapshotTest {
         assertEquals(ByteOrder.LITTLE_ENDIAN, buffer.order())
         assertEquals(
             TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
-                TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES,
+                TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -66,7 +66,7 @@ class TimelineSnapshotTest {
     fun `empty timeline encodes to a header only`() {
         val buffer = TimelineSnapshot(30, 1, emptyList(), emptyList()).encode()
         assertEquals(
-            TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES,
+            TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -84,7 +84,7 @@ class TimelineSnapshotTest {
 
         val trailer = TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES
         assertEquals(
-            trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES,
+            trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES,
             b.remaining(),
         )
         assertEquals(2, b.getInt(trailer))
@@ -108,6 +108,43 @@ class TimelineSnapshotTest {
     }
 
     @Test
+    fun `retimes follow the keyframes with their own count`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(clip(key = 7), clip(key = 9, start = 100), clip(key = 11, start = 200)),
+            keyframes = listOf(SnapshotKeyframe(7, 3)),
+            retimes = listOf(SnapshotRetime(9, 200, reverse = true), SnapshotRetime(11, 1, freeze = true)),
+        )
+        val b = snapshot.encode()
+        val keyframes = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 3 * TimelineSnapshot.CLIP_BYTES +
+            TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.KEYFRAME_BYTES
+        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES, b.remaining())
+        assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
+        assertEquals(2, b.getInt(keyframes))
+        assertEquals(9L, b.getLong(keyframes + 4))
+        assertEquals(200L, b.getLong(keyframes + 12))
+        assertEquals(1, b.getInt(keyframes + 20)) // reverse
+        assertEquals(11L, b.getLong(keyframes + 28))
+        assertEquals(1L, b.getLong(keyframes + 36))
+        assertEquals(2, b.getInt(keyframes + 44)) // freeze
+    }
+
+    @Test
+    fun `retimes of missing clips or empty spans are rejected`() {
+        val tracks = listOf(SnapshotTrackType.VIDEO)
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(1)), retimes = listOf(SnapshotRetime(2, 10)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(1)), retimes = listOf(SnapshotRetime(1, 0)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(1)), retimes = listOf(SnapshotRetime(1, 5), SnapshotRetime(1, 6)))
+        }
+    }
+
+    @Test
     fun `keyframe markers follow the transitions with their own count`() {
         val snapshot = TimelineSnapshot(
             30, 1,
@@ -118,7 +155,7 @@ class TimelineSnapshotTest {
         val b = snapshot.encode()
         val keys = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
             TimelineSnapshot.TRAILER_BYTES
-        assertEquals(keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES, b.remaining())
+        assertEquals(keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES, b.remaining())
         assertEquals(2, b.getInt(keys))
         assertEquals(7L, b.getLong(keys + 4))
         assertEquals(0L, b.getLong(keys + 12))

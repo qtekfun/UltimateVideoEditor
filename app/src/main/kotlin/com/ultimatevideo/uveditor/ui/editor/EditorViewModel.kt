@@ -21,6 +21,7 @@ import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.Snap
+import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TimelineOps
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -28,9 +29,13 @@ import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.domain.TrimEdge
+import com.ultimatevideo.uveditor.domain.isFreeze
+import com.ultimatevideo.uveditor.domain.isRetimed
+import com.ultimatevideo.uveditor.domain.sourceSpan
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotKeyframe
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotRetime
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
@@ -131,6 +136,10 @@ class EditorViewModel(
             is EditorIntent.JumpToKeyframe -> jumpToKeyframe(intent.forward)
             is EditorIntent.SetKeyframeInterpolation -> setKeyframeInterpolation(intent.interpolation)
             EditorIntent.ClearKeyframes -> clearKeyframes()
+            is EditorIntent.SetSpeed -> setSpeed(intent.num, intent.den)
+            EditorIntent.ToggleReverse -> toggleReverse()
+            is EditorIntent.SetSpeedRamp -> setSpeedRamp(intent.shape)
+            EditorIntent.FreezeFrame -> freezeFrame()
             is EditorIntent.SetSafeZone -> reduce { copy(safeZone = intent.platform) }
             EditorIntent.ShowCanvasDialog -> reduce { copy(canvasDialogOpen = true) }
             EditorIntent.DismissCanvasDialog -> reduce { copy(canvasDialogOpen = false) }
@@ -201,7 +210,12 @@ class EditorViewModel(
         val keyframes = timeline.tracks.flatMap { track ->
             track.clips.flatMap { clip -> clip.keyframes.map { SnapshotKeyframe(clipKeys.keyFor(clip.id), it.frame) } }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes)
+        val retimes = timeline.tracks.flatMap { track ->
+            track.clips.filter { it.isRetimed || it.isFreeze }.map {
+                SnapshotRetime(clipKeys.keyFor(it.id), it.sourceSpan, reverse = it.reverse, freeze = it.isFreeze)
+            }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes)
     }
 
     // region loading and saving
@@ -807,6 +821,50 @@ class EditorViewModel(
         reduce { copy(dragPreview = null) }
     }
 
+    // region speed
+
+    /** Slowing down pushes the clips after this one later and speeding up pulls them earlier, so a slow-motion clip never fails on its neighbour. */
+    private fun setSpeed(num: Long, den: Long) = withSelection { clipId ->
+        execute(EditCommand.SetSpeed(clipId, num, den, ripple = true))
+    }
+
+    private fun toggleReverse() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        execute(EditCommand.SetReverse(clipId, !clip.reverse))
+    }
+
+    private fun setSpeedRamp(shape: SpeedRampShape) = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        val ramp = when (shape) {
+            SpeedRampShape.NONE -> emptyList()
+            SpeedRampShape.EASE_IN -> SpeedRamps.easeIn(clip.durationFrames)
+            SpeedRampShape.EASE_OUT -> SpeedRamps.easeOut(clip.durationFrames)
+            SpeedRampShape.BELL -> SpeedRamps.bell(clip.durationFrames)
+        }
+        if (shape != SpeedRampShape.NONE && ramp.isEmpty()) {
+            emit(EditorEffect.ShowMessage("This clip is too short for a speed ramp"))
+            return@withSelection
+        }
+        execute(EditCommand.SetSpeedRamp(clipId, ramp))
+    }
+
+    private fun freezeFrame() = withSelection { clipId ->
+        val track = history.timeline.trackOfClip(clipId) ?: return@withSelection
+        val clip = track.clip(clipId) ?: return@withSelection
+        val playhead = state.value.playhead
+        if (track.type != TrackType.VIDEO || playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the selected video clip to freeze a frame"))
+            return@withSelection
+        }
+        val frames = state.value.fps.microsToFrames(FREEZE_DEFAULT_MICROS).coerceAtLeast(1)
+        val still = "freeze-${idGenerator()}"
+        if (execute(EditCommand.FreezeFrame(track.id, playhead, frames, still, "$clipId~${idGenerator()}"))) {
+            reduce { copy(selectedClipId = still) }
+        }
+    }
+
+    // endregion
+
     private fun addTransition() = withSelection { clipId ->
         val timeline = history.timeline
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
@@ -952,6 +1010,7 @@ class EditorViewModel(
         const val DEFAULT_TITLE_TEXT = "Title"
         const val TITLE_DEFAULT_MICROS = 3_000_000L
         const val TRANSITION_DEFAULT_MICROS = 1_000_000L
+        const val FREEZE_DEFAULT_MICROS = 2_000_000L
         const val PLAY_TICK_MILLIS = 16L
         const val NANOS_PER_MICRO = 1_000L
     }

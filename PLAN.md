@@ -75,7 +75,9 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       pass; not yet seen on the device (phone offline during this work)
 - [x] Keyframes: position, scale, rotation, opacity (linear / ease / hold), inspector diamond, timeline markers,
       same pose in preview and export — JVM and host tests pass; not yet seen on the device
-- [ ] Speed changes, ramps, reverse, freeze frame
+- [x] Speed changes (0.1x–8x), ramps, reverse, freeze frame — domain, preview, export table, audio (varispeed, muted
+      outside 0.25x–4x) and inspector; JVM and host tests pass; not yet seen on the device (phone busy). Follow-ups:
+      pitch-preserving time stretch, frame blending for slow motion
 - [ ] Chainable shader effects, chroma key, masks, blend modes
 - [ ] Automatic subtitles (on-device transcription) and animated caption styles
 - [ ] Stickers, animated text templates, beat sync
