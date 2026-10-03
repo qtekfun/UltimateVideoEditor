@@ -92,6 +92,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         }
         c.selected = (flags & 1) != 0;
         c.hasFx = (flags & 2) != 0;
+        c.missing = (flags & 4) != 0;
         snap.clips.push_back(c);
     }
     int32_t transitionCount = 0;

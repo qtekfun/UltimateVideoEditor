@@ -100,7 +100,8 @@ class ProjectRepositoryTest {
         repo.save(created.copy(name = "A2"))
 
         val dir = File(tmp.root, "projects/${created.id}")
-        assertEquals(listOf("project.json"), dir.list()!!.toList())
+        // No temp file is left; the previous good save stays as the backup.
+        assertEquals(listOf("project.json", "project.json.bak"), dir.list()!!.sorted())
         assertEquals("A2", repo.load(created.id).name)
     }
 

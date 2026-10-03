@@ -167,7 +167,10 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         // The dialog works from what the editor holds right now; the autosave is not involved.
         exportViewModel.onIntent(
             ExportIntent.Open(
-                ExportInput(state.projectName, state.canvasWidth, state.canvasHeight, state.fps, state.timeline, state.assets, state.colorSpace),
+                ExportInput(
+                    state.projectName, state.canvasWidth, state.canvasHeight, state.fps, state.timeline, state.assets, state.colorSpace,
+                    missingAssetIds = state.missingMedia.keys,
+                ),
             ),
         )
     }
@@ -206,11 +209,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     // Keep the mixer in step with the committed timeline (not with a drag in progress).
-    LaunchedEffect(state.timeline, state.assets, state.fps, state.isLoading) {
+    LaunchedEffect(state.timeline, state.assets, state.missingMedia, state.fps, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
+        // Files that cannot be read are left out: the mixer would only fail on them.
         audio.update(
-            audioSnapshotOf(state.timeline, state.assets, state.fps, viewModel::clipKey, viewModel::assetKey),
-            state.assets,
+            audioSnapshotOf(state.timeline, state.playableAssets, state.fps, viewModel::clipKey, viewModel::assetKey),
+            state.playableAssets,
             viewModel::assetKey,
         )
     }
@@ -219,9 +223,9 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     // shows a still frame. Playing, the playhead is the audio clock: the native preview runs by
     // itself and is only re-anchored when the composition changes or drifts from it, never seeked
     // per tick. It follows the visible timeline, so a transform being dragged shows live.
-    LaunchedEffect(state.playhead, state.isPlaying, state.visibleTimeline, state.assets, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
+    LaunchedEffect(state.playhead, state.isPlaying, state.visibleTimeline, state.assets, state.missingMedia, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
-        val layers = previewRequestsAt(state.visibleTimeline, state.assets, state.fps, state.playhead) { viewModel.assetKey(it).toInt() }
+        val layers = previewRequestsAt(state.visibleTimeline, state.playableAssets, state.fps, state.playhead) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(state.canvasWidth, state.canvasHeight, layers)
         when {
             state.isPlaying -> preview.follow(scene, state.playhead.value, state.fps)
@@ -245,6 +249,14 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     val launchImport = { importPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }
 
+    // The replacement for a missing file: which asset it is for is remembered while the picker is open.
+    var relinkTarget by remember { mutableStateOf<String?>(null) }
+    val relinkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val assetId = relinkTarget
+        relinkTarget = null
+        if (uri != null && assetId != null) viewModel.onIntent(EditorIntent.RelinkAsset(assetId, uri.toString()))
+    }
+
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
@@ -253,12 +265,16 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     scope.launch { snackbar.showSnackbar(effect.text) }
                 }
                 EditorEffect.Close -> onClose()
+                is EditorEffect.LaunchRelinkPicker -> {
+                    relinkTarget = effect.assetId
+                    relinkPicker.launch(arrayOf("video/*", "audio/*", "image/*"))
+                }
             }
         }
     }
 
     // Publish what the canvas should draw; drags show a provisional timeline until released.
-    LaunchedEffect(state.visibleTimeline, state.selectedClipId, state.fps, state.isLoading) {
+    LaunchedEffect(state.visibleTimeline, state.selectedClipId, state.missingMedia, state.fps, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
         try {
             engine.setSnapshot(viewModel.snapshotOf(state))
@@ -298,16 +314,17 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     val requestedWaveforms = remember { mutableSetOf<String>() }
-    LaunchedEffect(state.assets) {
-        for (asset in state.assets) {
-            if (!asset.hasAudio || !requestedWaveforms.add(asset.id)) continue
+    LaunchedEffect(state.assets, state.missingMedia) {
+        for (asset in state.playableAssets) {
+            // Keyed by the file too, so a relinked asset is requested again from its new file.
+            if (!asset.hasAudio || !requestedWaveforms.add("${asset.id}|${asset.uri}")) continue
             requestWaveform(context, engine, viewModel, projectId, asset)
         }
     }
     val requestedThumbnails = remember { mutableSetOf<String>() }
-    LaunchedEffect(state.assets) {
-        for (asset in state.assets) {
-            if (!asset.hasVideo || !requestedThumbnails.add(asset.id)) continue
+    LaunchedEffect(state.assets, state.missingMedia) {
+        for (asset in state.playableAssets) {
+            if (!asset.hasVideo || !requestedThumbnails.add("${asset.id}|${asset.uri}")) continue
             requestThumbnails(context, engine, viewModel, projectId, asset)
         }
     }
@@ -373,6 +390,8 @@ private fun EditorMain(
 ) {
     val hasSelection = state.selectedClipId != null
     var stickersOpen by remember { mutableStateOf(false) }
+    if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
+    if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     if (stickersOpen) {
         StickerSheet(
             onPick = {
@@ -398,6 +417,7 @@ private fun EditorMain(
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
             ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
         }
+        MediaBanners(state) { viewModel.onIntent(it) }
 
         // No background here: the preview is a SurfaceView, and an opaque parent would hide it.
         Box(modifier = Modifier.fillMaxWidth().weight(PREVIEW_WEIGHT), contentAlignment = Alignment.Center) {

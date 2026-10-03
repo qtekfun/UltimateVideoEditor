@@ -18,6 +18,8 @@ data class SnapshotClip(
     val selected: Boolean = false,
     /** The clip has effects, a blend mode or a mask; the canvas marks it. */
     val hasFx: Boolean = false,
+    /** The clip's media file cannot be read; the canvas tints and hatches it. */
+    val missing: Boolean = false,
 )
 
 /**
@@ -98,7 +100,7 @@ data class TimelineSnapshot(
             buffer.putLong(clip.sourceInFrame)
             buffer.putInt(clip.sourceFpsNum)
             buffer.putInt(clip.sourceFpsDen)
-            buffer.putInt((if (clip.selected) 1 else 0) or (if (clip.hasFx) 2 else 0))
+            buffer.putInt((if (clip.selected) 1 else 0) or (if (clip.hasFx) 2 else 0) or (if (clip.missing) 4 else 0))
         }
         buffer.putInt(transitions.size)
         for (transition in transitions) {
