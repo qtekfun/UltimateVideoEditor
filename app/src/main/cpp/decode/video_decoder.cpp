@@ -11,12 +11,12 @@
 #include <vector>
 
 #include "decode/log.h"
+#include "decode/seek_policy.h"
 
 namespace uv::decode {
 
 namespace {
 
-constexpr int64_t kMaxForwardSkipFrames = 120;   // decode forward instead of seeking up to this far
 constexpr int64_t kPendingTimeoutMs = 400;       // a released frame that never shows up is retried
 // Frames released to the reader but not yet blitted. Releasing faster than the render thread
 // drains makes the buffer queue drop frames, which then get decoded again.
@@ -471,8 +471,7 @@ bool VideoDecoder::step(int64_t target) {
     const int64_t hi = std::min<int64_t>(lastFrame_, clamped + lookAhead_.load());
 
     const bool forced = forceSeek_.exchange(false);
-    const bool needSeek = forced || !decoderPrimed_ ||
-                          (!awaitingFirstOutput_ && (decodePos_ > missing || missing - decodePos_ > kMaxForwardSkipFrames));
+    const bool needSeek = needsSeek(forced, decoderPrimed_, awaitingFirstOutput_, decodePos_, missing, seekGoal_);
     if (needSeek) {
         UV_LOGI("seek: missing=%lld decodePos=%lld target=%lld primed=%d awaiting=%d", static_cast<long long>(missing),
                 static_cast<long long>(decodePos_), static_cast<long long>(target), decoderPrimed_, awaitingFirstOutput_);
