@@ -50,6 +50,27 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setAppearance(timeline, clipId, transform, gainDb)
     }
 
+    data class SetTitle(val clipId: String, val title: TitleContent) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setTitle(timeline, clipId, title)
+    }
+
+    data class AddTransition(val transition: Transition, val outgoingSourceLength: Long? = null) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.addTransition(timeline, transition, outgoingSourceLength)
+    }
+
+    data class SetTransitionDuration(
+        val transitionId: String,
+        val durationFrames: Long,
+        val outgoingSourceLength: Long? = null,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) =
+            TimelineOps.setTransitionDuration(timeline, transitionId, durationFrames, outgoingSourceLength)
+    }
+
+    data class RemoveTransition(val transitionId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.removeTransition(timeline, transitionId)
+    }
+
     data class Trim(
         val clipId: String,
         val edge: TrimEdge,

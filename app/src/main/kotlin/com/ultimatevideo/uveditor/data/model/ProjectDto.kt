@@ -61,6 +61,21 @@ data class ClipDto(
     val transform: TransformDto = TransformDto(),
     val gainDb: Double = 0.0,
     val colorOverride: String? = null,
+    /** Text payload; present exactly on clips of `title` tracks. */
+    val title: TitleDto? = null,
+)
+
+/**
+ * Title text and style. [sizeFraction] is relative to the project height; [color] is `#AARRGGBB`;
+ * [alignment] is `left`, `center` or `right`.
+ */
+@Serializable
+data class TitleDto(
+    val text: String,
+    val sizeFraction: Double = 0.08,
+    val color: String = "#FFFFFFFF",
+    val alignment: String = "center",
+    val bold: Boolean = false,
 )
 
 /**
@@ -77,9 +92,11 @@ data class TransformDto(
     val opacity: Double = 1.0,
 )
 
+/** Transition across the cut where [toClipId] starts, centred on it; see `domain/Transition`. */
 @Serializable
 data class TransitionDto(
     val id: String,
+    /** Only `crossfade` exists so far. */
     val type: String,
     val fromClipId: String,
     val toClipId: String,

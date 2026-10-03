@@ -691,7 +691,11 @@ class EditorViewModel(
         is EditError.InvalidAppearance -> "That value is not allowed: ${error.reason}"
         is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
         is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
-        is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
+        is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
+        is EditError.TransitionNotFound -> "The transition no longer exists"
+        is EditError.NotATitle -> "That clip is not a title"
+        is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
+        is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
 
     private companion object {
