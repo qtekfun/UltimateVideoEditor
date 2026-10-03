@@ -63,6 +63,15 @@ class ExportPlanTest {
     }
 
     @Test
+    fun `pq sources are marked for the pq conversion`() {
+        val tl = timeline(track("v1", clip("c1", 0, 10, asset = "pq")))
+
+        val plan = buildExportPlan(tl, listOf(asset("pq", "Rec2020-PQ")), fps)!!
+
+        assertEquals(4, plan.videoClips.single().colorMode)
+    }
+
+    @Test
     fun `clip transform and opacity are carried over`() {
         val moved = clip("c", 0, 100, asset = "a").copy(
             transform = ClipTransform(positionX = 120.0, positionY = -40.0, scaleX = 0.5, scaleY = 0.75, rotationDegrees = 15.0, opacity = 0.6),

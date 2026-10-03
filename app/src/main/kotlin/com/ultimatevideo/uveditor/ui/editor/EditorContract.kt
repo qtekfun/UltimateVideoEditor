@@ -11,6 +11,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.TrackType
@@ -28,6 +29,8 @@ data class EditorState(
     /** Project resolution: the canvas the preview composites on and clip positions are measured in. */
     val canvasWidth: Int = 1920,
     val canvasHeight: Int = 1080,
+    /** Colour space the project is composited and exported in; HDR (HLG) or SDR. */
+    val colorSpace: ProjectColorSpace = ProjectColorSpace.REC709_SDR,
     /** Committed timeline; only changes through the undo history. */
     val timeline: Timeline = Timeline(),
     /** Provisional timeline while a clip is being dragged; discarded or committed on release. */
@@ -231,6 +234,13 @@ sealed interface EditorIntent : UiIntent {
      * relative place. The undo history is cleared, because earlier steps were made on another canvas.
      */
     data class ChangeCanvas(val width: Int, val height: Int) : EditorIntent
+
+    /**
+     * Switches the project between SDR and HDR (HLG). Nothing in the timeline changes: media are
+     * converted to the project colour space when they are drawn, so this is saved and undone by
+     * switching back, not through the edit history.
+     */
+    data class ChangeColorSpace(val space: ProjectColorSpace) : EditorIntent
 
     data class ImportMedia(val uris: List<String>) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent

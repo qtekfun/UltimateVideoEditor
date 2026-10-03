@@ -30,13 +30,56 @@ class PreviewException(val code: Int, message: String) : Exception(message) {
     val errorCode: PreviewErrorCode get() = PreviewErrorCode.fromValue(code)
 }
 
-/** Mirrors `uv::render::ColorMode`. */
+/**
+ * Mirrors `uv::render::ColorMode`: how one source is converted into the colour space the target is
+ * rendered in. The native side derives it from the decoded stream and the [OutputSpace]; only the
+ * source class matters when an explicit value is given ([sourceClass]).
+ */
 enum class ColorMode(val value: Int) {
-    /** Source already is SDR Rec.709; sampled as is. */
+    /** SDR Rec.709 source into an SDR target: sampled as is. */
     Sdr709(0),
 
     /** HLG / Rec.2020 source tone-mapped and gamut-converted to SDR Rec.709. */
     Hlg2020ToSdr709(1),
+
+    /** SDR Rec.709 source placed in an HLG target, SDR white at 203 nit. */
+    Sdr709ToHlg2020(2),
+
+    /** HLG / Rec.2020 source into an HLG target: sampled as is. */
+    Hlg2020(3),
+
+    /** PQ / Rec.2020 source tone-mapped to SDR Rec.709. */
+    Pq2020ToSdr709(4),
+
+    /** PQ / Rec.2020 source re-encoded as HLG for an HLG target. */
+    Pq2020ToHlg2020(5),
+    ;
+
+    /** What the source is, independent of the target. */
+    val sourceClass: SourceColor
+        get() = when (this) {
+            Sdr709, Sdr709ToHlg2020 -> SourceColor.SDR
+            Hlg2020ToSdr709, Hlg2020 -> SourceColor.HLG
+            Pq2020ToSdr709, Pq2020ToHlg2020 -> SourceColor.PQ
+        }
+}
+
+/** Transfer characteristic of a source, as far as colour conversion cares. */
+enum class SourceColor(val mode: ColorMode) {
+    SDR(ColorMode.Sdr709),
+    HLG(ColorMode.Hlg2020ToSdr709),
+    PQ(ColorMode.Pq2020ToSdr709),
+}
+
+/** Mirrors `uv::render::OutputSpace`: the colour space a render target holds. */
+enum class OutputSpace(val value: Int) {
+    SDR_709(0),
+    HLG_2020(1),
+    ;
+
+    companion object {
+        fun fromValue(value: Int): OutputSpace = if (value == HLG_2020.value) HLG_2020 else SDR_709
+    }
 }
 
 /**

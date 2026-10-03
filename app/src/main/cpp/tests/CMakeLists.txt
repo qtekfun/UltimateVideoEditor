@@ -60,7 +60,13 @@ add_executable(uv_effects_host_tests effects_host_tests.cpp)
 target_include_directories(uv_effects_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_effects_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# HDR (HLG / PQ) colour conversion maths, the CPU reference of the composite shader.
+add_executable(uv_hdr_host_tests hdr_host_tests.cpp)
+target_include_directories(uv_hdr_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_hdr_host_tests PRIVATE -Wall -Wextra -Werror)
+
 enable_testing()
+add_test(NAME uv_hdr_host_tests COMMAND uv_hdr_host_tests)
 add_test(NAME uv_effects_host_tests COMMAND uv_effects_host_tests)
 add_test(NAME uv_captions_host_tests COMMAND uv_captions_host_tests)
 add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
