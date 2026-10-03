@@ -43,7 +43,16 @@ object StickerIds {
 
     val all: List<StickerInfo> get() = shapes + emoji
 
-    fun isKnown(id: String): Boolean = all.any { it.id == id }
+    /**
+     * Plain bars the text templates stretch into lower thirds and subtitle plates. They are valid
+     * stickers (so saved projects draw them) but are not offered in the picker.
+     */
+    val templateBars: List<StickerInfo> = listOf(
+        StickerInfo("shape:bar-dark", "Bar (dark)"),
+        StickerInfo("shape:bar-accent", "Bar (accent)"),
+    )
+
+    fun isKnown(id: String): Boolean = all.any { it.id == id } || templateBars.any { it.id == id }
 }
 
 /** Draws one sticker into a square of [side] pixels, transparent around the artwork. */
@@ -88,6 +97,9 @@ object StickerArt {
         "bubble" -> StickerDrawing { c, s -> outlined(c, s, bubblePath(s), WHITE) }
         "ring" -> StickerDrawing { c, s -> c.drawCircle(s / 2f, s / 2f, s * 0.38f, stroke(RED, s * 0.12f)) }
         "exclaim" -> StickerDrawing { c, s -> exclaim(c, s) }
+        // Edge to edge and square-cornered, so stretching it into a bar does not distort anything.
+        "bar-dark" -> StickerDrawing { c, s -> c.drawRect(0f, 0f, s, s, fill(BAR_DARK)) }
+        "bar-accent" -> StickerDrawing { c, s -> c.drawRect(0f, 0f, s, s, fill(BAR_ACCENT)) }
         else -> null
     }
 
@@ -163,6 +175,8 @@ object StickerArt {
         canvas.drawCircle(s * 0.5f, s * 0.71f, s * 0.04f, fill(OUTLINE))
     }
 
+    private const val BAR_DARK = 0xFF111418.toInt()
+    private const val BAR_ACCENT = 0xFFFFB300.toInt()
     private const val EMOJI_SIZE = 0.78f
     private const val OUTLINE_FRACTION = 0.045f
     private const val RED = 0xFFE53935.toInt()

@@ -58,6 +58,10 @@ data class EditorState(
     val safeZone: SafeZonePlatform? = null,
     /** The "change canvas" dialog is open. */
     val canvasDialogOpen: Boolean = false,
+    /** Moving, trimming and dropping clips snaps to ruler markers (manual and beat) as well as to clip edges. */
+    val snapToMarkers: Boolean = true,
+    /** Beat detection is running for the selected clip. */
+    val isAnalyzingBeats: Boolean = false,
 ) : UiState {
     /**
      * The selected clip's own frame under the playhead (0 is its first frame), or null when the
@@ -196,6 +200,32 @@ sealed interface EditorIntent : UiIntent {
 
     /** Puts a new title on the title track (made if needed) at the playhead, selects it and opens the inspector. */
     data object AddTitle : EditorIntent
+
+    /** Adds a marker at the playhead, or removes the one already there (within a couple of frames). */
+    data object ToggleMarkerAtPlayhead : EditorIntent
+
+    /** Removes every detected beat marker; markers placed by hand stay. */
+    data object ClearBeatMarkers : EditorIntent
+
+    data object ToggleMarkerSnap : EditorIntent
+
+    /**
+     * Finds the beats in the selected clip's audio and marks them on the ruler, replacing the beats
+     * that were over that clip. One undo step.
+     */
+    data object AnalyzeBeats : EditorIntent
+
+    /**
+     * Ends the selected base-track clip and every clip after it on the nearest ruler marker, one
+     * undo step (see `domain.CutToBeat`).
+     */
+    data object CutToBeatFromSelected : EditorIntent
+
+    /**
+     * Puts the text template [templateId] with [text] at the playhead as one undo step, selects its
+     * text and opens the inspector so the text can be changed.
+     */
+    data class ApplyTextTemplate(val templateId: String, val text: String) : EditorIntent
 
     /**
      * Edits of the selected title's text and style: shown live, committed as one undo step by
