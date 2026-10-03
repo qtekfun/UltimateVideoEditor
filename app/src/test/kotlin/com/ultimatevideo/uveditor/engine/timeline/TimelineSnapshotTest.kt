@@ -29,7 +29,8 @@ class TimelineSnapshotTest {
         assertEquals(ByteOrder.LITTLE_ENDIAN, buffer.order())
         assertEquals(
             TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
-                TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES,
+                TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
+                TimelineSnapshot.MARKER_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -66,7 +67,8 @@ class TimelineSnapshotTest {
     fun `empty timeline encodes to a header only`() {
         val buffer = TimelineSnapshot(30, 1, emptyList(), emptyList()).encode()
         assertEquals(
-            TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES,
+            TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
+                TimelineSnapshot.MARKER_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -84,7 +86,8 @@ class TimelineSnapshotTest {
 
         val trailer = TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES
         assertEquals(
-            trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES,
+            trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
+                TimelineSnapshot.MARKER_TRAILER_BYTES,
             b.remaining(),
         )
         assertEquals(2, b.getInt(trailer))
@@ -119,7 +122,7 @@ class TimelineSnapshotTest {
         val b = snapshot.encode()
         val keyframes = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 3 * TimelineSnapshot.CLIP_BYTES +
             TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.KEYFRAME_BYTES
-        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES, b.remaining())
+        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES + TimelineSnapshot.MARKER_TRAILER_BYTES, b.remaining())
         assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
         assertEquals(2, b.getInt(keyframes))
         assertEquals(9L, b.getLong(keyframes + 4))
@@ -155,7 +158,11 @@ class TimelineSnapshotTest {
         val b = snapshot.encode()
         val keys = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
             TimelineSnapshot.TRAILER_BYTES
-        assertEquals(keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES, b.remaining())
+        assertEquals(
+            keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
+                TimelineSnapshot.MARKER_TRAILER_BYTES,
+            b.remaining(),
+        )
         assertEquals(2, b.getInt(keys))
         assertEquals(7L, b.getLong(keys + 4))
         assertEquals(0L, b.getLong(keys + 12))
@@ -181,6 +188,32 @@ class TimelineSnapshotTest {
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(duration = 0))) }
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(start = -1))) }
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(0, 1, tracks, emptyList()) }
+    }
+
+    @Test
+    fun `markers are the last section with frame and beat flag`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(clip(1)),
+            markers = listOf(SnapshotMarker(30), SnapshotMarker(90, beat = true)),
+        )
+        val b = snapshot.encode()
+        val markers = b.remaining() - TimelineSnapshot.MARKER_TRAILER_BYTES - 2 * TimelineSnapshot.MARKER_BYTES
+        assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
+        assertEquals(2, b.getInt(markers))
+        assertEquals(30L, b.getLong(markers + 4))
+        assertEquals(0, b.getInt(markers + 12))
+        assertEquals(90L, b.getLong(markers + 20))
+        assertEquals(1, b.getInt(markers + 28))
+        assertEquals(markers + TimelineSnapshot.MARKER_TRAILER_BYTES + 2 * TimelineSnapshot.MARKER_BYTES, b.remaining())
+    }
+
+    @Test
+    fun `a marker before frame zero is rejected before reaching native code`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, emptyList(), emptyList(), markers = listOf(SnapshotMarker(-1)))
+        }
     }
 
     @Test

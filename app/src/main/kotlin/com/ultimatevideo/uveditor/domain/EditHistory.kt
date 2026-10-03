@@ -73,6 +73,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.overwriteMove(timeline, clipId, toTrackId, newStart)
     }
 
+    /** Lifts a base clip onto an overlay lane ([toTrackId]) or a new lane (null); the base closes the gap. */
+    data class LiftFromBase(val clipId: String, val toTrackId: String?, val newStart: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.liftFromBase(timeline, clipId, toTrackId, newStart)
+    }
+
     /** Reorders a lane among the lanes of its kind: [delta] -1 is up, +1 is down. */
     data class MoveTrack(val trackId: String, val delta: Int) : EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.moveTrack(timeline, trackId, delta)

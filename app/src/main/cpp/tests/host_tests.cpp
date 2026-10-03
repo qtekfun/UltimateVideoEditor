@@ -36,7 +36,8 @@ struct Buf {
 static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& clips,
                         const std::vector<timeline::TransitionSnapshot>& transitions = {},
                         const std::vector<timeline::KeyframeSnapshot>& keyframes = {}, uint32_t version = timeline::kSnapshotVersion,
-                        const std::vector<timeline::RetimeSnapshot>& retimes = {}) {
+                        const std::vector<timeline::RetimeSnapshot>& retimes = {},
+                        const std::vector<timeline::MarkerSnapshot>& markers = {}) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
     w.put<uint32_t>(version);
@@ -80,6 +81,14 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
             w.put<int32_t>(0);
         }
     }
+    if (version >= 5) {
+        w.put<int32_t>(static_cast<int32_t>(markers.size()));
+        for (const auto& m : markers) {
+            w.put<int64_t>(m.frame);
+            w.put<int32_t>(m.flags);
+            w.put<int32_t>(0);
+        }
+    }
     return w;
 }
 
@@ -89,10 +98,12 @@ static timeline::ClipSnapshot clip(int64_t key, int track, int64_t start, int64_
 
 static void testSnapshotRoundTrip() {
     auto buf = makeSnapshot(2, {clip(7, 0, 0, 100), clip(8, 1, 50, 25)});
-    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4);
+    // Four trailing counts: transitions, keyframes, retimes and markers.
+    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4 + 4);
     timeline::TimelineSnapshot s;
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
     CHECK(s.tracks.size() == 2 && s.clips.size() == 2);
+    CHECK(s.markers.empty());
     CHECK(s.clips[1].clipKey == 8 && s.clips[1].startFrame == 50);
     CHECK(s.fpsNum == 30000 && s.fpsDen == 1001);
     CHECK(s.endFrame() == 100);
@@ -177,7 +188,7 @@ static void testSnapshotKeyframes() {
     CHECK(timeline::parseSnapshot(truncated.data(), truncated.size(), &s) == core::Status::BadSnapshot);
     auto negative = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {{1, -1}});
     CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
-    auto future = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, 5);
+    auto future = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, timeline::kSnapshotVersion + 1);
     CHECK(timeline::parseSnapshot(future.b.data(), future.b.size(), &s) == core::Status::BadSnapshot);
 }
 
@@ -226,6 +237,33 @@ static void testRetimeBoundaries() {
     CHECK(timeline::retimeBoundary(&back, 40, 40) == 0);
     const timeline::RetimeSnapshot still{4, 1, 2};
     CHECK(timeline::retimeBoundary(&still, 30, 29) == 0);
+}
+
+static void testSnapshotMarkers() {
+    timeline::TimelineSnapshot s;
+    // Markers come out sorted by frame with their flags; frames may be anywhere on the timeline.
+    auto buf = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {},
+                            {{90, 1}, {30, 0}, {60, 1}});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.markers.size() == 3);
+    CHECK(s.markers[0].frame == 30 && !s.markers[0].beat());
+    CHECK(s.markers[1].frame == 60 && s.markers[1].beat());
+    CHECK(s.markers[2].frame == 90 && s.markers[2].beat());
+
+    // Version 4 has no marker trailer and still parses, with no markers.
+    auto v4 = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, 4);
+    CHECK(timeline::parseSnapshot(v4.b.data(), v4.b.size(), &s) == core::Status::Ok);
+    CHECK(s.markers.empty());
+
+    // A count that disagrees with the bytes, trailing garbage and a negative frame are rejected.
+    auto truncated = buf.b;
+    truncated.resize(truncated.size() - 1);
+    CHECK(timeline::parseSnapshot(truncated.data(), truncated.size(), &s) == core::Status::BadSnapshot);
+    auto extra = buf.b;
+    extra.push_back(0);
+    CHECK(timeline::parseSnapshot(extra.data(), extra.size(), &s) == core::Status::BadSnapshot);
+    auto negative = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {{-5, 0}});
+    CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
 }
 
 static void testSnapshotRejectsBadInput() {
@@ -527,6 +565,7 @@ int main() {
     testSnapshotTransitions();
     testSnapshotKeyframes();
     testSnapshotRetimes();
+    testSnapshotMarkers();
     testRetimeBoundaries();
     testSnapshotRejectsBadInput();
     testViewport();
