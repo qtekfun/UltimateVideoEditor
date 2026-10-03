@@ -15,5 +15,7 @@ target_include_directories(uveditor_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_options(uveditor_engine PRIVATE -Wall -Wextra -Werror)
 
+include(cmake/timeline.cmake)
+
 find_library(log-lib log)
 target_link_libraries(uveditor_engine PRIVATE ${log-lib})
