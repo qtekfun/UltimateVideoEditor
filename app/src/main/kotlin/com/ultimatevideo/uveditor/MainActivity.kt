@@ -19,7 +19,10 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.ultimatevideo.uveditor.data.AndroidClipPeeker
 import com.ultimatevideo.uveditor.data.AndroidMediaImporter
+import com.ultimatevideo.uveditor.data.AndroidProjectThumbnails
+import com.ultimatevideo.uveditor.data.PreferencesNewProjectDefaults
 import com.ultimatevideo.uveditor.data.AndroidPersistedUris
 import com.ultimatevideo.uveditor.data.ContentResolverTransferIO
 import com.ultimatevideo.uveditor.data.PreferencesSessionStore
@@ -50,6 +53,9 @@ class MainActivity : ComponentActivity() {
         )
         val mediaImporter = AndroidMediaImporter(applicationContext)
         val session = PreferencesSessionStore(applicationContext)
+        val newProjectDefaults = PreferencesNewProjectDefaults(applicationContext)
+        val clipPeeker = AndroidClipPeeker(applicationContext)
+        val projectThumbnails = AndroidProjectThumbnails(applicationContext)
         // Android drops the oldest persisted file permissions past its limit, which would leave old projects
         // with missing media: give back the ones no project uses before that can happen.
         lifecycleScope.launch {
@@ -61,7 +67,15 @@ class MainActivity : ComponentActivity() {
             UVEditorTheme {
                 val hubViewModel: HubViewModel = viewModel(
                     factory = viewModelFactory {
-                        initializer { HubViewModel(NativeEngineClient(), repository, session = session) }
+                        initializer {
+                            HubViewModel(
+                                NativeEngineClient(),
+                                repository,
+                                session = session,
+                                defaults = newProjectDefaults,
+                                peeker = clipPeeker,
+                            )
+                        }
                     },
                 )
                 var openProjectId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -75,6 +89,7 @@ class MainActivity : ComponentActivity() {
                             session.markOpen(it)
                             openProjectId = it
                         },
+                        thumbnails = projectThumbnails,
                     )
                 } else {
                     val owner = rememberScopedViewModelOwner(projectId)

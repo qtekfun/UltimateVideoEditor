@@ -62,7 +62,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
 - [x] Audio offline mix and AAC encode
 - [x] Export UI: resolution/fps/bitrate, progress, cancel, share
-- [ ] Optional: static FFmpeg fallback behind a feature flag
+- [ ] Optional: static FFmpeg fallback behind a feature flag — **designed, not built**: see `docs/ffmpeg-fallback.md` (options, sizes, CI recipe, decoder seam); trigger is a real file MediaCodec cannot open
 - _Status:_ exports the full timeline (all video layers composited with their transform and opacity through the preview's
   `drawScene`, clip gain in the audio mix, gaps black, HLG sources tone-mapped to SDR Rec.709) at the project
   or a lower frame rate, H.264 or HEVC + AAC in MP4, saved through SAF. On the reference device a 4K60 HEVC export runs at ~90 fps
@@ -98,7 +98,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       (8 drawn shapes + 8 emoji) and an 'Add sticker' picker; same compositor path and effects/keyframes as titles, in
       preview and export. Domain, JSON, preview scene and export plan are covered by JVM tests; nothing of this has been
       seen on the device yet (the OPPO was not reachable by adb), in particular EXIF orientation, HEIC and the sticker art.
-      Follow-ups: a thumbnail tile on still clips in the timeline (needs a native tile upload), animated GIF/WebP
+      Photos now ask the native thumbnail worker for one tile (AImageDecoder, host-tested sampling; not seen on the device). Follow-ups: animated GIF/WebP
 - [x] Animated text templates (lower third, pop title, slide-in headline, subtitle bar) and beat sync (ruler markers, beat
       detection from the waveform cache, snap to markers, 'Cut to beat'). Domain, JSON, snapshot v5, ViewModel and the beat
       detector (synthetic click tracks) are covered by JVM tests and the host tests pass; the native ruler drawing, the template
@@ -107,7 +107,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       beyond keyframes
 - [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
 - [x] 3D LUTs (.cube 17/33/65): library import, per-clip LUT effect with intensity, preview/export parity — parser, store, wire format and the CPU reference have JVM/host tests; the GL 3D-texture path was not seen on the device
-- [ ] Vulkan renderer evaluation
+- [x] Vulkan renderer evaluation — `docs/vulkan-evaluation.md`: recommendation is **not to migrate now** (render thread costs ~0.85 ms of a 16.6 ms frame at 4K60); prepare a `Compositor` seam, revisit when a feature needs compute
 
 ## Cross-cutting
 - Every clip-manipulation feature ships with unit tests for collisions and gaps.
@@ -126,7 +126,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Drop zones decided by position with a live native indicator: insert (base), overwrite, new lane, cancel
 - [x] Move lanes up/down (toolbar)
 - [ ] Verified on the OPPO (the device was unreachable when this was written)
-- [ ] Insert on overlay/audio lanes (deferred)
+- [x] Insert on overlay/audio lanes: a drop in a cut between two touching clips shifts that lane's later clips right (`LaneOps.insertOnLane`, JVM tests; not seen on the device)
 
 ## Phase 8 — Closing the gaps with LumaFusion and CapCut (queued work packages)
 Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; the research is in
@@ -134,7 +134,7 @@ Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; t
 waves of SPECS 9.20.
 
 ### Wave 0 — usability first
-- [ ] WP-U1 New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
+- [x] WP-U1 (JVM-tested; not yet seen on the device) New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
 - [x] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
       _Status:_ implemented and unit-tested (domain `DropPlan.decideNew`, tray model, ViewModel drag/drop/import/reorder, drag payload helpers); **not seen on the OPPO** (not reachable by adb when this was built): the tray layout, the platform drag from tray to the native canvas, edge auto-scroll while dragging, drops from other apps and the drag shadow still need a manual check.
 

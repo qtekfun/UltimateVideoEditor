@@ -161,6 +161,50 @@ object LaneOps {
         return EditResult.Success(timeline.copy(tracks = tracks))
     }
 
+    /**
+     * Drops a clip into the cut between two touching clips of an overlay, audio or title lane, opening room
+     * for it: the clips after the cut shift right by the clip's length, only on that lane (nothing else
+     * moves). A cut inside a clip, or a base lane (use the base insert there), is refused.
+     */
+    fun insertOnLane(timeline: Timeline, clipId: String, toTrackId: String, at: FrameIndex): EditResult<Timeline> {
+        val source = timeline.trackOfClip(clipId) ?: return EditResult.Failure(EditError.ClipNotFound(clipId))
+        val clip = checkNotNull(source.clip(clipId))
+        val dest = timeline.track(toTrackId) ?: return EditResult.Failure(EditError.TrackNotFound(toTrackId))
+        if (dest.type != source.type) return EditResult.Failure(EditError.TrackTypeMismatch(clipId, toTrackId))
+        if (dest.id == ClipDeletion.baseTrack(timeline)?.id) {
+            return EditResult.Failure(EditError.InvalidClip("the base is inserted into with the base insert"))
+        }
+        if (at < FrameIndex.ZERO) return EditResult.Failure(EditError.NegativeStart)
+        val without = timeline.withTrack(source.withClips(source.clips - clip))
+        val lane = checkNotNull(without.track(dest.id))
+        lane.clips.firstOrNull { it.timelineStart < at && it.timelineEnd > at }?.let {
+            return EditResult.Failure(EditError.Overlap(it.id))
+        }
+        val length = clip.durationFrames
+        val shifted = lane.clips.map { if (it.timelineStart >= at) it.copy(timelineStart = it.timelineStart + length) else it }
+        return EditResult.Success(without.withTrack(lane.withClips(shifted + clip.copy(timelineStart = at))).pruned())
+    }
+
+    /**
+     * Drops a clip that is not on the timeline yet into the cut between two touching clips of an overlay,
+     * audio or title lane: the clips after the cut shift right by the clip's length, only on that lane.
+     * A cut inside a clip, or the base lane (use the base insert there), is refused.
+     */
+    fun insertNewOnLane(timeline: Timeline, clip: Clip, toTrackId: String, at: FrameIndex): EditResult<Timeline> {
+        val lane = timeline.track(toTrackId) ?: return EditResult.Failure(EditError.TrackNotFound(toTrackId))
+        if (lane.id == ClipDeletion.baseTrack(timeline)?.id) {
+            return EditResult.Failure(EditError.InvalidClip("the base is inserted into with the base insert"))
+        }
+        if (at < FrameIndex.ZERO) return EditResult.Failure(EditError.NegativeStart)
+        if (timeline.trackOfClip(clip.id) != null) return EditResult.Failure(EditError.DuplicateClipId(clip.id))
+        lane.clips.firstOrNull { it.timelineStart < at && it.timelineEnd > at }?.let {
+            return EditResult.Failure(EditError.Overlap(it.id))
+        }
+        val length = clip.durationFrames
+        val shifted = lane.clips.map { if (it.timelineStart >= at) it.copy(timelineStart = it.timelineStart + length) else it }
+        return EditResult.Success(timeline.withTrack(lane.withClips(shifted + clip.copy(timelineStart = at))).pruned())
+    }
+
     private fun freshTrackId(timeline: Timeline, prefix: String): String =
         generateSequence(1) { it + 1 }.map { "$prefix$it" }.first { timeline.track(it) == null }
 }

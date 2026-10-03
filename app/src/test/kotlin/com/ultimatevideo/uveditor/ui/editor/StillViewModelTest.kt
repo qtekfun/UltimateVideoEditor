@@ -125,7 +125,7 @@ class StillViewModelTest {
     }
 
     @Test
-    fun `a picture's canvas block has no media key so no waveform or thumbnail is requested`() = runTest(dispatcher) {
+    fun `a photo's canvas block carries its asset key for the thumbnail, a sticker has none`() = runTest(dispatcher) {
         val h = harness(baseOnly(), FakeImporter(mapOf("content://pic" to photo)))
         h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://pic")))
         advanceUntilIdle()
@@ -133,8 +133,16 @@ class StillViewModelTest {
         val snapshot = h.vm.snapshotOf(h.state)
         val ordered = h.state.visibleTimeline.tracks.flatMap { it.clips }
         val index = ordered.indexOfFirst { it.still != null }
-        assertEquals(-1L, snapshot.clips[index].assetKey)
+        assertEquals(StillKind.PHOTO, ordered[index].still)
+        assertTrue(snapshot.clips[index].assetKey != -1L)
         assertTrue(snapshot.clips.filterIndexed { i, _ -> i != index && ordered[i].hasMedia }.all { it.assetKey != -1L })
+
+        h.vm.onIntent(EditorIntent.AddSticker("shape:heart"))
+        advanceUntilIdle()
+        val withSticker = h.vm.snapshotOf(h.state)
+        val all = h.state.visibleTimeline.tracks.flatMap { it.clips }
+        val stickerIndex = all.indexOfFirst { it.still == StillKind.STICKER }
+        assertEquals(-1L, withSticker.clips[stickerIndex].assetKey)
     }
 
     @Test
