@@ -79,6 +79,8 @@ struct SceneLayer {
     // keeps its window of decoded frames behind `frame` instead of ahead (see applyWindowForBudget).
     int32_t direction = 1;
     core::LayerFx fx = {};  // effects, blend mode and mask; neutral by default
+    // The clip's colour override: a SourceTransfer value, or -1 to use the asset's own (detected) transfer.
+    int32_t source = -1;
 };
 
 // Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
@@ -158,8 +160,10 @@ private:
         LayerTransform transform;
         uint32_t title = 0;
         core::LayerFx fx = {};
+        int32_t source = -1;
         bool operator==(const DrawnLayer& o) const {
-            return asset == o.asset && frame == o.frame && title == o.title && fx == o.fx && transform.posX == o.transform.posX &&
+            return asset == o.asset && frame == o.frame && title == o.title && fx == o.fx && source == o.source &&
+                   transform.posX == o.transform.posX &&
                    transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
                    transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&
                    transform.opacity == o.transform.opacity;

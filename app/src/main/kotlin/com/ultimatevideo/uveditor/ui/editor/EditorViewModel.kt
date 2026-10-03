@@ -196,6 +196,7 @@ class EditorViewModel(
             is EditorIntent.MoveEffect -> withSelection { execute(EditCommand.MoveEffect(it, intent.effectId, intent.toIndex)) }
             is EditorIntent.UpdateEffect -> updateEffect(intent.effectId, intent.values)
             is EditorIntent.SetBlendMode -> withSelection { execute(EditCommand.SetBlendMode(it, intent.mode)) }
+            is EditorIntent.SetClipColor -> withSelection { execute(EditCommand.SetColorOverride(it, intent.space)) }
             is EditorIntent.UpdateMask -> updateMask(intent.mask)
             is EditorIntent.EndFxEdit -> endFxEdit(intent.commit)
             EditorIntent.ClearFx -> withSelection { execute(EditCommand.ClearFx(it)) }

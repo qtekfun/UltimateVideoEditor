@@ -16,10 +16,10 @@ enum class ProjectColorSpace(val id: String, val label: String, val isHdr: Boole
 }
 
 /** Transfer characteristic of a media file, as far as colour conversion cares. */
-enum class SourceColorSpace {
-    SDR,
-    HLG,
-    PQ,
+enum class SourceColorSpace(val id: String, val label: String, val transferIndex: Int) {
+    SDR("Rec709-SDR", "SDR Rec.709", 0),
+    HLG("Rec2020-HLG", "HDR HLG Rec.2020", 1),
+    PQ("Rec2020-PQ", "HDR PQ Rec.2020", 2),
     ;
 
     /**
@@ -34,6 +34,9 @@ enum class SourceColorSpace {
         }
 
     companion object {
+        /** An override stored in `project.json`: null for absent or unknown values, meaning "use the file's own". */
+        fun fromIdOrNull(id: String?): SourceColorSpace? = entries.firstOrNull { it.id.equals(id, ignoreCase = true) }
+
         /** Reads the `colorSpace` string of a media asset ("Rec709-SDR", "Rec2020-HLG", "Rec2020-PQ"). */
         fun fromId(id: String?): SourceColorSpace = when {
             id == null -> SDR

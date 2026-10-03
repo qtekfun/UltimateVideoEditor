@@ -313,6 +313,9 @@ sealed interface EditorIntent : UiIntent {
     data class MoveEffect(val effectId: String, val toIndex: Int) : EditorIntent
     data class UpdateEffect(val effectId: String, val values: List<Double>) : EditorIntent
     data class SetBlendMode(val mode: BlendMode) : EditorIntent
+
+    /** Reads the selected video clip's source as this colour space; null goes back to what its file says. */
+    data class SetClipColor(val space: com.ultimatevideo.uveditor.domain.SourceColorSpace?) : EditorIntent
     data class UpdateMask(val mask: ClipMask?) : EditorIntent
     data class EndFxEdit(val commit: Boolean) : EditorIntent
     data object ClearFx : EditorIntent

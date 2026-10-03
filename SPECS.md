@@ -238,6 +238,8 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   `ANativeWindow_setBuffersDataSpace`); the window uses `COLOR_MODE_HDR`. If the device refuses, the preview
   falls back to SDR (HLG sources tone-mapped) and the editor says so. The engine reports what it granted.
 
+Per-clip source colour: each video clip may override how its source is read (`Auto`, SDR, HLG, PQ; `clips[].colorOverride`). The project colour space remains the working/export space and every clip is converted to it individually, so SDR and HLG clips mix freely in either kind of project. The override reaches the native layer through the scene `params` (`-1` auto, `0..2` a `SourceTransfer`) and the export spec's `colorMode`.
+
 ### 5.6 Audio
 - Oboe (AAudio backend) low-latency output; mixer sums audio tracks and the embedded audio of video
   clips with per-clip gain (`gainDb`, -96..+24), clipped to ±1. The device clock, compensated with the

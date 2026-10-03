@@ -51,6 +51,8 @@ data class PreviewRequest(
     val fx: ClipFx = ClipFx.NONE,
     /** A photo or sticker: a picture drawn like a title, with no decoder ([assetKey], [uri] and [sourceFrame] are unused). */
     val still: StillRef? = null,
+    /** The clip's colour space override as a native index (0 SDR, 1 HLG, 2 PQ), or -1 for the file's own. */
+    val sourceOverride: Int = -1,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -241,6 +243,7 @@ class EditorPreview(
                     if (withEnd) request.endFrame else null,
                     reverse = request.reverse,
                     fx = request.fx,
+                    sourceOverride = request.sourceOverride,
                 )
             }
     }

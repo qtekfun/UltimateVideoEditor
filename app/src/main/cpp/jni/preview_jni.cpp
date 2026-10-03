@@ -155,7 +155,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 }
 
 namespace {
-constexpr jsize kParamsPerLayer = 7;
+constexpr jsize kParamsPerLayer = 8;
 
 // `ids` holds `idStride` longs per layer ({assetId, frame} and, for playback, the exclusive limit
 // frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity, direction}, both bottom to top.
@@ -203,6 +203,8 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx
         const jfloat* p = &paramValues[static_cast<size_t>(i) * kParamsPerLayer];
         layer.transform = uv::render::LayerTransform{p[0], p[1], p[2], p[3], p[4], p[5]};
         layer.direction = p[6] < 0.0f ? -1 : 1;
+        // -1 (or anything out of range) keeps the asset's own colour; 0..2 is a SourceTransfer override.
+        layer.source = (p[7] >= 0.0f && p[7] <= 2.0f) ? static_cast<int32_t>(p[7]) : -1;
         out->push_back(layer);
     }
     return true;
