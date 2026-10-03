@@ -106,6 +106,20 @@ object Keyframes {
         return kept
     }
 
+    /**
+     * [keys] stretched for a clip that went from [oldLength] to [newLength] frames, so the animation
+     * keeps its shape against the clip. Keys that land on the same frame keep the earlier one.
+     */
+    fun scaled(keys: List<Keyframe>, oldLength: Long, newLength: Long): List<Keyframe> {
+        if (keys.isEmpty() || oldLength <= 0) return keys
+        val result = ArrayList<Keyframe>(keys.size)
+        for (key in keys) {
+            val frame = (key.frame * newLength / oldLength).coerceIn(0, newLength - 1)
+            if (result.isEmpty() || frame > result.last().frame) result += key.copy(frame = frame)
+        }
+        return result
+    }
+
     /** Scales positions to a canvas of another size: x by the width ratio, y by the height ratio. */
     fun remapped(keys: List<Keyframe>, xRatio: Double, yRatio: Double): List<Keyframe> =
         keys.map { it.copy(transform = it.transform.remapped(xRatio, yRatio)) }

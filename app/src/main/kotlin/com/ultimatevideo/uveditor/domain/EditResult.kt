@@ -35,6 +35,9 @@ sealed interface EditError {
     data class TransitionNotFound(val transitionId: String) : EditError
     data class DuplicateTransitionId(val transitionId: String) : EditError
 
+    /** A speed, reverse or ramp the clip cannot take (out of range, a title, a one-frame clip). */
+    data class InvalidSpeed(val reason: String) : EditError
+
     /** A transition that cannot hold between its clips (not adjacent, too long, no handle). */
     data class InvalidTransition(val reason: String) : EditError
 }
