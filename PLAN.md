@@ -128,29 +128,46 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [ ] Verified on the OPPO (the device was unreachable when this was written)
 - [ ] Insert on overlay/audio lanes (deferred)
 
-## Phase 8 — Closing the gaps with LumaFusion (queued work packages)
-Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; the research behind them is in
-`docs/lumafusion-comparison.md`. Run at most two packages at a time, in the waves listed in SPECS 9.0.
+## Phase 8 — Closing the gaps with LumaFusion and CapCut (queued work packages)
+Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; the research is in
+`docs/lumafusion-comparison.md` and `docs/capcut-comparison.md`. Run at most two packages at a time, in the
+waves of SPECS 9.20.
+
+### Wave 0 — usability first
+- [ ] WP-U1 New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
+- [ ] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
 
 ### Wave 1
-- [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect (lift/gamma/gain wheels, curves, contrast, saturation); looks (needs the in-flight 3D LUT and per-clip colour PRs merged first)
-- [ ] WP-S Multiselect and bulk edits: selection model, marquee, group move/delete/duplicate, copy/paste (clips and attributes), apply transition to many, head and tail dissolves
+- [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
+- [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect; looks (after the 3D LUT and per-clip colour PRs)
 
 ### Wave 2
-- [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness normalise, track volume/mute/solo, auto-ducking, meters
-- [ ] WP-T Multilayer titles and fonts: text + shape + image layers, custom fonts, shareable presets, title editor
+- [ ] WP-S Multiselect and bulk edits
+- [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness, track mixer, auto-ducking, meters
 
 ### Wave 3
-- [ ] WP-K Generalised keyframes: parameter tracks for effects, grade and audio, Bezier handles, keyframe lane (after WP-C and WP-A)
-- [ ] WP-X Stabiliser: analysis, path smoothing, crop levels, cached per asset
+- [ ] WP-T Multilayer titles and fonts
+- [ ] WP-K Generalised keyframes (after WP-C and WP-A)
 
 ### Wave 4
-- [ ] WP-I Interchange and media library: project bundle, EDL, FCPXML subset, tags, search, find in timeline/library
-- [ ] WP-P Proxy media: background proxies, preview-only use, budget and eviction
+- [ ] WP-X Stabiliser (builds the shared tracker and smoother)
+- [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search
 
-### Wave 5
-- [ ] WP-M Multicam: audio sync, up to 6 angles, live switching, flatten (after WP-A, WP-S, WP-P)
-- [ ] WP-R Release preparation: signing, release CI, R8, privacy note, store checklist, onboarding tips
+### Wave 5 — CapCut-style creator tools
+- [ ] WP-V1 Smart cutout and motion tracking
+- [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker
+
+### Wave 6
+- [ ] WP-V2 Auto reframe and auto cut
+- [ ] WP-V3 Text to speech, voice effects, vocal isolation
+
+### Wave 7
+- [ ] WP-P Proxy media
+- [ ] WP-V5 Project templates, transition and filter packs
+
+### Wave 8
+- [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
+- [ ] WP-R Release preparation
 
 ### Standing requirement for every package
 - [ ] Verified on the OPPO CPH2841 (list what was and was not seen in the PR body)

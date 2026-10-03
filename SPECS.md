@@ -608,6 +608,9 @@ undo step per user action, explicit typed errors, decisions logged in `DECISIONS
 
 ### 9.0 Queue and parallelism
 
+> The table below was the first draft; the current queue, which adds the interface and CapCut-style
+> packages (sections 9.12 to 9.19), is in **9.20**.
+
 Run at most two packages at a time. Pairs that do not share files:
 
 | Wave | Package A | Package B |
@@ -878,3 +881,201 @@ CI job uploads the artifacts.
 - Memory: new caches are bounded and registered with the existing budget logic.
 - Accessibility: every new control has a content description; the user guide gets a row.
 - Backwards compatibility: opening a project from the previous build must still work, covered by a JSON test.
+
+### 9.12 WP-U1 New-project flow and a simpler hub (first in the queue)
+
+**Problem.** The creation dialog shows many buttons at once (resolutions, rates, colour spaces as chips),
+which is hard to read. Target: a handful of selectors, sensible defaults, one primary button.
+
+**New project sheet (Compose, bottom sheet on phones, dialog on tablets).**
+- A **Name** field (prefilled "Project <date>" or "New project 2" if taken).
+- A row of **quick presets** as a single horizontally scrolling chip row: "YouTube 1080p30", "YouTube 4K30",
+  "TikTok / Reels / Shorts 9:16", "Instagram 4:5", "Square 1:1", "Cinema 24p", "Match first clip". One tap
+  fills the selectors below; the selectors stay editable.
+- Four **dropdown selectors** (`ExposedDropdownMenuBox`), each showing only its current value:
+  1. **Aspect ratio**: 16:9, 9:16, 1:1, 4:5, 4:3, 21:9, Custom.
+  2. **Resolution**: 720p, 1080p, 1440p, 4K (2160p), Custom; the labels adapt to the aspect ratio
+     (the "p" value is the short side), and the exact pixels are shown as a caption ("1920 x 1080").
+  3. **Frame rate**: 23.976, 24, 25, 29.97, 30, 50, 59.94, 60, 120 fps (rational values kept exact).
+  4. **Colour space**: Rec.709 SDR (default), Rec.2020 HLG (HDR). A small info icon explains that each clip
+     is converted to this space individually (see per-clip colour space).
+- A one-line **summary** ("1920 x 1080, 30 fps, SDR") and a small **aspect preview** rectangle.
+- **Start from**: a segmented control with "Blank" and "Match first clip" (the project takes size, frame
+  rate and colour space from the first imported clip, like LumaFusion and CapCut); "Template" appears once
+  WP-V5 exists.
+- The last used choices are remembered (preferences) and offered as the default.
+- One primary button **Create**. Advanced values (custom size, odd frame rates) live behind the Custom entries.
+
+**Hub clean-up.**
+- One floating **New project** button; **Import** moves into an overflow menu with Settings and Help.
+- Each project card shows a thumbnail (first frame of the first clip, cached), name, "1080p, 30 fps, SDR",
+  duration and last change; actions in one overflow menu (rename, duplicate, export file, delete); search
+  field and sort (recent, name) when the list is longer than a screen.
+- The relink, recover and reopen banners keep working, in a single notice area.
+
+**Tests.** ViewModel tests for preset application, aspect x resolution to pixel mapping (all combinations,
+even dimensions), "Match first clip" from probed metadata, remembered choices, name uniqueness; screenshot
+checklist in the PR.
+
+**Acceptance.** Creating a 9:16 1080p 30 fps project takes three taps and no scrolling in the dialog.
+
+**Owns:** `ui/hub/`, `data/` settings store. Avoid: editor, render, audio.
+
+### 9.13 WP-U2 Media tray with drag and drop
+
+**Problem.** Adding media today means the + button and a system picker, then guessing where it lands.
+
+**Tray.**
+- A persistent **media tray** in the editor: a bottom panel on phones (collapsible, snap heights), a side
+  panel on wide windows. Tabs: **Media** (project assets), **Stickers**, **Titles/Templates**, **Audio**
+  (project audio assets). The existing sheets (stickers, templates) open as tray tabs instead of modal sheets.
+- Media tab: grid or list toggle, thumbnails (reuse the thumbnail cache), duration badge, colour-space badge
+  (SDR/HLG), usage badge (count in the timeline), a "missing" overlay for unreadable media, search and
+  filters (video, photo, audio, unused). An **Import** tile at the start opens the system picker and adds the
+  files to the tray without touching the timeline.
+- Long-press an asset to enter drag; tap adds it at the playhead as today (to the selected lane or the base).
+- Multi-select (checkbox mode) and dragging several assets at once becomes available with WP-S.
+
+**Drag and drop to the timeline.**
+- Use the platform drag-and-drop (`startDragAndDrop` with a `ClipData` carrying the asset id, plus a
+  shadow of the thumbnail) so the native timeline `SurfaceView` receives `DragEvent`s with coordinates.
+- While hovering, the same decision as clip drags runs for a clip that is not on the timeline yet
+  (`DropPlan.decideNew(asset, requestedStart, target)`): on the base near a junction -> **Insert**, over a
+  clip -> **Overwrite**; on overlays -> overwrite or free placement; above the top lane -> new lane; outside
+  -> cancel. The native indicator draws the hint; the tray shows the dragged asset's ghost near the finger.
+- Auto-scroll of the timeline near its edges while dragging, snapping to the playhead and markers, one undo
+  step on drop. Audio-only assets can only land on audio lanes; photos default to 5 s.
+- **Drop from other apps** (tablets, split screen, desktop windowing): accept `video/*`, `image/*`, `audio/*`
+  content URIs dragged from the Files app onto the tray or the timeline (take persistable permission when
+  offered, probe like a normal import).
+- **Reorder in the tray**: drag assets within the tray to sort (stored as an optional order list).
+
+**Tests.** `DropPlan.decideNew` over all zones, ViewModel tests for tray drop intents, undo, audio-only and
+photo rules, import without placement; host tests for drag-hit geometry.
+
+**Acceptance.** Drag a clip from the tray onto the junction of two base clips: the insert marker shows, release
+inserts, undo removes it; drag onto an empty overlay area creates an overlay clip at that time.
+
+**Owns:** `ui/editor/tray/`, `domain/DropPlan.kt` additions, `timeline_view/` drag-hover bridge. Avoid:
+render/, audio/. Run after WP-U1 and before WP-U3.
+
+### 9.14 WP-U3 Resizable and customisable layout
+
+**Goal:** the user shapes the workspace, like LumaFusion.
+
+- **Dividers:** draggable splitters between preview and timeline (vertical), and between the preview and the
+  side panel (horizontal) on wide windows; minimum and maximum sizes; double-tap a divider to reset; haptic tick
+  at the default position.
+- **Track height:** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
+  choice of Small / Medium / Large lane heights; waveforms, thumbnails and keyframe diamonds scale.
+- **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
+  (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
+  toggle already exists.
+- **Layout presets:** Default, Timeline focus (big timeline, small preview), Preview focus, Two panels (tablet),
+  plus "Customise layout" mode that shows handles and lets the user drag panels between docks; "Reset layout".
+- **Persistence:** stored per window size class and orientation in preferences (DataStore), restored on open,
+  clamped when the window changes (foldables, split screen, rotation).
+- **Implementation:** a `LayoutState` (pure Kotlin, reducer-tested) holding split fractions, dock assignments
+  and lane height; Compose layout using the state; the native views only receive their new size. Resize drags
+  must not recompose the timeline: only the container weights change, and the surfaces resize once the drag
+  ends or at a throttled rate.
+
+**Tests.** `LayoutState` reducer (clamping, presets, reset), persistence round trips, window-size
+transitions; a manual checklist for devices.
+
+**Acceptance.** Drag the divider to make the timeline taller; rotate and reopen: the layout restores for each
+orientation; "Reset layout" returns to the default.
+
+**Owns:** `ui/editor/layout/`, preferences store, `EditorScreen` structure. Avoid: domain/, audio/, render/.
+Because it restructures `EditorScreen`, run it as the only editor-structure package in its wave.
+
+### 9.15 WP-V1 Smart cutout and motion tracking (CapCut parity)
+
+- **Smart cutout:** on-device person/foreground segmentation (candidate: MediaPipe Selfie/Interactive
+  segmenter or a licence-compatible TFLite model; record the choice and licence in `DECISIONS.md` and
+  `THIRD_PARTY_NOTICES.md`), run as a background analysis per clip and range, mask cached per frame
+  (low resolution alpha, 8-bit) and applied as a per-clip alpha matte in the layer pass with feather and
+  invert; refine edges with a bilateral/guided filter on the GPU; manual "keep/remove" hints as a follow-up.
+- **Motion tracking:** track a user-chosen point or box (pyramidal Lucas-Kanade or a small template matcher;
+  share the tracker code with WP-X), store a per-frame path; "attach" a title, sticker or clip to the path
+  (generates position keyframes through WP-K, or a dedicated `TrackedPose` evaluated by `RenderPlan` if WP-K
+  is not ready).
+- **UI:** "Cutout" and "Track" actions in the inspector with progress and cancel, status when stale.
+- **Tests:** synthetic moving square tracking error bounds, mask cache keys, attach maths; golden masks on a
+  tiny model fixture when feasible.
+- **Acceptance:** a person on a plain background is cut out with usable edges at 1080p within a minute of
+  analysis for a 10 s clip on the reference device (measure and report).
+
+### 9.16 WP-V2 Auto reframe and auto cut
+
+- **Auto reframe:** when the canvas aspect ratio changes (or on request), compute a crop path that keeps the
+  subject in frame: saliency or face/person detection on sampled frames, smoothing of the crop centre (same
+  smoother as the stabiliser), written as position/scale keyframes on the clip (editable afterwards).
+- **Auto cut:** silence removal (threshold, minimum gap, padding) from the waveform cache producing cuts
+  on the base with ripple; "highlights" as a stretch goal using audio energy and scene changes; a preview of the
+  cuts before applying; one undo step.
+- **Speech-based editing (stretch):** delete words in the caption transcript to cut the clip.
+- **Tests:** crop-path smoothing and bounds, silence detection on synthetic audio, cut application and undo.
+- **Acceptance:** converting a 16:9 interview to 9:16 keeps the speaker centred; silence removal shortens a
+  clip with long pauses and keeps A/V sync.
+
+### 9.17 WP-V3 Text to speech, voice effects and vocal isolation
+
+- **Text to speech:** an "Add voice-over from text" action: type text, choose a voice and language
+  (Android `TextToSpeech` offline voices first; `synthesizeToFile` into app storage), the result becomes an
+  audio clip on an audio lane at the playhead with its duration derived from the file; the text is stored for
+  re-generation. Optional neural voice (e.g. Piper, MIT) as a later download with a clear size notice.
+- **Voice effects:** pitch/formant shift (WSOLA or phase vocoder), robot, chipmunk, deep, echo and reverb
+  presets as audio clip effects in the WP-A chain.
+- **Vocal isolation / music separation:** an on-device model (small, downloadable) producing a vocals stem
+  and an accompaniment stem; stems are cached assets; stretch goal, record licence and size.
+- **Speaker-aware captions:** diarisation on the whisper output (stretch) to colour captions per speaker.
+- **Tests:** TTS file registration and duration mapping with fakes, effect DSP vectors, stem cache keys.
+- **Acceptance:** a typed sentence becomes a voice-over clip that exports with the video.
+
+### 9.18 WP-V4 Optical-flow slow motion, video denoise and deflicker
+
+- **Smooth slow motion:** frame interpolation for speeds below 1x (GPU optical flow at reduced resolution,
+  block matching plus bidirectional warping and blending, with fallbacks to frame blending when the motion is
+  too large); applied in preview at a quality level that holds the frame budget and in full quality at export.
+- **Speed curves:** a graphical editor for the existing speed ramps (Bezier handles, presets like "montage",
+  "hero", "bullet"), speed limit raised to 100x with skip-decode rules.
+- **Video noise reduction:** temporal-spatial denoise as an effect (GPU), strength slider.
+- **Flicker removal:** per-frame luminance normalisation with a smoothing window.
+- **Tests:** warping/blending maths with synthetic motion, speed-curve evaluation, denoise reference.
+- **Acceptance:** a 240 fps or 60 fps clip slowed to 0.25x looks smoother than frame repetition in a side by
+  side export.
+
+### 9.19 WP-V5 Project templates and content packs
+
+- **Project templates:** a template is a project with **placeholders** (named, typed, duration bounds); "Use
+  template" asks for media for each placeholder, fits clips (center crop, trim to duration), keeps titles,
+  effects, transitions and music slots; save the current project as a template (strips media, keeps structure);
+  import/export `.uvtemplate` through SAF; a small built-in starter set.
+- **Transition pack:** slide, zoom, spin, glitch, wipe, whip pan and light leak as shader transitions on top
+  of the crossfade infrastructure (preview and export parity), plus a transition picker with previews.
+- **Filter pack:** 20 LUT-based looks (original, licence-clean, `.cube` generated by us) with thumbnails.
+- **Music and sound effects:** no bundled commercial library; "bring your own" audio plus a documented list of
+  free-licence sources; a local sound-effects mini pack only if originals can be generated (tones, whooshes,
+  clicks) with a clear licence.
+- **Tests:** placeholder fitting maths, template round trip, transition parity tests, LUT sanity checks.
+- **Acceptance:** a user creates a 15 s vertical montage from a template by choosing five clips.
+
+### 9.20 Updated queue (supersedes the table in 9.0 where they differ)
+
+| Wave | Package A | Package B |
+|---|---|---|
+| 0 | WP-U1 New-project flow and hub | WP-U2 Media tray with drag and drop |
+| 1 | WP-U3 Resizable layout | WP-C Colour tools and scopes |
+| 2 | WP-S Multiselect and bulk edits | WP-A Audio tools |
+| 3 | WP-T Multilayer titles and fonts | WP-K Generalised keyframes |
+| 4 | WP-X Stabiliser | WP-I Interchange and media library |
+| 5 | WP-V1 Cutout and tracking | WP-V4 Optical-flow slow motion and repair |
+| 6 | WP-V2 Auto reframe and auto cut | WP-V3 Text to speech and voice |
+| 7 | WP-P Proxy media | WP-V5 Templates and packs |
+| 8 | WP-M Multicam | WP-R Release preparation |
+
+Rationale: usability first (the user reported the creation flow and the lack of a tray), then colour in
+parallel with the layout work (different files), then editing and audio depth, then CapCut-style creator
+tools. WP-X (wave 4) builds the tracker and smoother; WP-V1 and WP-V2 reuse that code (record it in
+`DECISIONS.md`).
