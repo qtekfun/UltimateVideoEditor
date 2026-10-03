@@ -2,7 +2,13 @@ package com.ultimatevideo.uveditor.ui.editor
 
 import androidx.lifecycle.viewModelScope
 import com.ultimatevideo.uveditor.data.MediaImportException
+import com.ultimatevideo.uveditor.data.MediaCaches
 import com.ultimatevideo.uveditor.data.MediaImporter
+import com.ultimatevideo.uveditor.data.MediaProblem
+import com.ultimatevideo.uveditor.data.MissingMedia
+import com.ultimatevideo.uveditor.data.ProbedMedia
+import com.ultimatevideo.uveditor.data.RelinkCheck
+import com.ultimatevideo.uveditor.data.RelinkVerdict
 import com.ultimatevideo.uveditor.data.ProjectError
 import com.ultimatevideo.uveditor.data.ProjectStore
 import com.ultimatevideo.uveditor.data.TimelineMapper
@@ -72,6 +78,8 @@ class EditorViewModel(
     private val idGenerator: () -> String = { UUID.randomUUID().toString().take(ID_LENGTH) },
     private val saveDebounceMillis: Long = DEFAULT_SAVE_DEBOUNCE_MILLIS,
     private val nanoClock: () -> Long = System::nanoTime,
+    /** Derived data kept per library file (waveforms, thumbnails), dropped when a file is relinked. */
+    private val mediaCaches: MediaCaches = MediaCaches.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
@@ -109,6 +117,8 @@ class EditorViewModel(
     private var titleEdit: TitleSession? = null
     private var fxEdit: FxSession? = null
     private var saveJob: Job? = null
+    private var saveRetryJob: Job? = null
+    private var saveRetries = 0
     private var playJob: Job? = null
 
     /** Set by the screen once the audio engine is up. Until then the transport uses the system clock. */
@@ -182,6 +192,12 @@ class EditorViewModel(
             is EditorIntent.ChangeColorSpace -> changeColorSpace(intent.space)
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
+            EditorIntent.ShowRelink -> reduce { copy(relinkOpen = true) }
+            EditorIntent.HideRelink -> reduce { copy(relinkOpen = false) }
+            is EditorIntent.RequestRelink -> emit(EditorEffect.LaunchRelinkPicker(intent.assetId))
+            is EditorIntent.RelinkAsset -> relinkAsset(intent.assetId, intent.uri)
+            EditorIntent.RetrySave -> retrySave()
+            EditorIntent.LeaveWithoutSaving -> emit(EditorEffect.Close)
             EditorIntent.Flush -> flush(thenClose = false)
             EditorIntent.Back -> flush(thenClose = true)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
@@ -233,6 +249,7 @@ class EditorViewModel(
                     sourceFpsDen = state.fps.den,
                     selected = clip.id == state.selectedClipId,
                     hasFx = !clip.fx.isNeutral,
+                    missing = clip.hasMedia && clip.assetId in state.missingMedia,
                 )
             }
         }
@@ -278,7 +295,7 @@ class EditorViewModel(
                         assets = project.mediaLibrary,
                     )
                 }
-                refreshAssetTracks(project.mediaLibrary)
+                verifyAssets(project.mediaLibrary)
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false, loadError = e.message) }
             }
@@ -286,34 +303,107 @@ class EditorViewModel(
     }
 
     /**
-     * Projects saved before `hasVideo`/`hasAudio` existed read as "has both", so a file without an
-     * audio track would be sent to the mixer and fail. Re-probing fixes the flags once and the
-     * project is saved with them. A file that cannot be probed keeps its flags: its absence is
-     * reported by the waveform, audio and preview paths when they open it.
+     * Opens every library file once. Files that cannot be read are recorded in [EditorState.missingMedia]:
+     * their clips stay on the timeline, marked, while the preview, the mixer and the thumbnail workers
+     * leave them alone, and the user is offered Relink. Probing also repairs two things in place:
+     * projects saved before `hasVideo`/`hasAudio` existed read as "has both" (a file without an audio
+     * track would reach the mixer and fail), and projects saved before names were kept lack a file name.
+     * Reading a file also re-takes its persisted permission where Android allows it.
      */
-    private suspend fun refreshAssetTracks(loaded: List<MediaAssetDto>) {
-        val probed = HashMap<String, Pair<Boolean, Boolean>>()
+    private suspend fun verifyAssets(loaded: List<MediaAssetDto>) {
+        val missing = HashMap<String, MediaProblem>()
+        val probed = HashMap<String, ProbedMedia>()
         for (asset in loaded) {
             try {
-                val media = importer.import(asset.uri)
-                probed[asset.id] = media.hasVideo to media.hasAudio
+                probed[asset.id] = importer.verify(asset.uri)
             } catch (e: MediaImportException) {
-                continue
+                missing[asset.id] = e.problem
             }
         }
-        val stale = probed.filter { (id, flags) ->
-            state.value.assets.firstOrNull { it.id == id }?.let { it.hasVideo to it.hasAudio != flags } == true
+        val stale = probed.filter { (id, media) ->
+            state.value.assets.firstOrNull { it.id == id }?.let {
+                (it.hasVideo to it.hasAudio) != (media.hasVideo to media.hasAudio) || (it.displayName == null && media.displayName != null)
+            } == true
         }
-        if (stale.isEmpty()) return
         // Apply to the current list: media may have been imported while probing.
         reduce {
             copy(
-                assets = assets.map { asset ->
-                    stale[asset.id]?.let { (video, audio) -> asset.copy(hasVideo = video, hasAudio = audio) } ?: asset
+                missingMedia = missingMedia + missing,
+                assets = if (stale.isEmpty()) assets else assets.map { asset ->
+                    stale[asset.id]?.let { media ->
+                        asset.copy(hasVideo = media.hasVideo, hasAudio = media.hasAudio, displayName = asset.displayName ?: media.displayName)
+                    } ?: asset
                 },
             )
         }
-        scheduleSave()
+        if (stale.isNotEmpty()) scheduleSave()
+    }
+
+    /**
+     * Points [assetId] at a different file. The new file must be able to stand in for the old one
+     * (see [RelinkCheck]); differences that do not prevent it are reported as warnings. This is a saved
+     * change of the media library, not a step of the undo history: undoing it would put back a file the
+     * user just said does not exist.
+     */
+    private fun relinkAsset(assetId: String, uri: String) {
+        val old = state.value.assets.firstOrNull { it.id == assetId }
+        if (old == null) {
+            emit(EditorEffect.ShowMessage("That media is no longer in the project"))
+            return
+        }
+        viewModelScope.launch {
+            val probed = try {
+                importer.import(uri)
+            } catch (e: MediaImportException) {
+                emit(EditorEffect.ShowMessage(e.message ?: "Could not open the file"))
+                return@launch
+            }
+            val fps = state.value.fps
+            val others = state.value.assets.filter { it.id != assetId }.map { it.uri }
+            val verdict = RelinkCheck.evaluate(old, probed, uri, others, MissingMedia.requiredSourceMicros(history.timeline, assetId, fps))
+            val warnings = when (verdict) {
+                is RelinkVerdict.Rejected -> {
+                    emit(EditorEffect.ShowMessage(verdict.reason))
+                    return@launch
+                }
+                is RelinkVerdict.Accepted -> verdict.warnings
+            }
+            val relinked = if (probed.isImage) {
+                old.copy(uri = uri, displayName = probed.displayName ?: old.displayName)
+            } else {
+                // Audio-only files have no native frame rate; use the project's.
+                val (num, den) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else fps.num to fps.den
+                val durationFrames = FrameRate(num, den).microsToFrames(probed.durationMicros)
+                if (durationFrames <= 0) {
+                    emit(EditorEffect.ShowMessage("The file is too short to use"))
+                    return@launch
+                }
+                old.copy(
+                    uri = uri,
+                    durationFrames = durationFrames,
+                    nativeFpsNum = num,
+                    nativeFpsDen = den,
+                    colorSpace = probed.colorSpace,
+                    hasVideo = probed.hasVideo,
+                    hasAudio = probed.hasAudio,
+                    displayName = probed.displayName ?: old.displayName,
+                )
+            }
+            // Waveforms and thumbnails were made from the old file; the new key makes the native side start over.
+            mediaCaches.invalidate(assetId)
+            assetKeys.rekey(assetId)
+            reduce {
+                val stillMissing = missingMedia - assetId
+                copy(
+                    assets = assets.map { if (it.id == assetId) relinked else it },
+                    missingMedia = stillMissing,
+                    relinkOpen = relinkOpen && stillMissing.isNotEmpty(),
+                )
+            }
+            scheduleSave()
+            val name = MissingMedia.nameOf(relinked)
+            emit(EditorEffect.ShowMessage(if (warnings.isEmpty()) "Relinked $name" else "Relinked $name. ${warnings.joinToString(". ")}"))
+        }
     }
 
     private fun scheduleSave() {
@@ -329,20 +419,48 @@ class EditorViewModel(
         pausePlayback()
         viewModelScope.launch {
             saveJob?.cancelAndJoin()
-            if (dirty) persist()
-            if (thenClose) emit(EditorEffect.Close)
+            val saved = if (dirty) persist() else true
+            if (!thenClose) return@launch
+            // Closing on top of a failed save would silently throw the edits away: ask first.
+            if (saved) emit(EditorEffect.Close) else reduce { copy(leaveBlockedBySave = true) }
         }
     }
 
-    private suspend fun persist() {
-        val base = baseProject ?: return
+    private fun retrySave() {
+        reduce { copy(leaveBlockedBySave = false) }
+        saveRetries = 0
+        saveRetryJob?.cancel()
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch { persist() }
+    }
+
+    /** Writes the project; returns whether it is on disk. A failure stays visible in [EditorState.saveError] and is retried. */
+    private suspend fun persist(): Boolean {
+        val base = baseProject ?: return true
         val dto = TimelineMapper.toDto(base, history.timeline, state.value.assets)
-        try {
+        return try {
             store.save(dto)
             baseProject = dto
             dirty = false
+            saveRetries = 0
+            saveRetryJob?.cancel()
+            if (state.value.saveError != null) reduce { copy(saveError = null, leaveBlockedBySave = false) }
+            true
         } catch (e: ProjectError) {
-            emit(EditorEffect.ShowMessage("Could not save the project: ${e.message}"))
+            val first = state.value.saveError == null
+            reduce { copy(saveError = e.message ?: "unknown error") }
+            if (first) emit(EditorEffect.ShowMessage("Could not save the project: ${e.message}"))
+            saveRetryJob?.cancel()
+            // A few quiet retries cover a transient failure (a full disk someone just cleared); after that the
+            // banner stays and Retry is the user's call, instead of writing to a broken disk for ever.
+            if (saveRetries < MAX_SAVE_RETRIES) {
+                saveRetries++
+                saveRetryJob = viewModelScope.launch {
+                    delay(SAVE_RETRY_MILLIS)
+                    persist()
+                }
+            }
+            false
         }
     }
 
@@ -1119,6 +1237,10 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("That media is no longer in the project"))
             return
         }
+        if (asset.id in state.value.missingMedia) {
+            emit(EditorEffect.ShowMessage("${MissingMedia.nameOf(asset)} is missing: relink it first"))
+            return
+        }
         place(asset, state.value.playhead)
     }
 
@@ -1229,6 +1351,8 @@ class EditorViewModel(
     private companion object {
         const val ID_LENGTH = 8
         const val DEFAULT_SAVE_DEBOUNCE_MILLIS = 500L
+        const val SAVE_RETRY_MILLIS = 5_000L
+        const val MAX_SAVE_RETRIES = 3
         const val SNAP_THRESHOLD_FRAMES = 8L
         const val NO_ASSET_KEY = -1L
         const val DEFAULT_TITLE_TEXT = "Title"

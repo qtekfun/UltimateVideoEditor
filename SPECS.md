@@ -123,7 +123,31 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 - Persistence: one directory per project in app-private `filesDir/projects/<id>/` (`project.json`,
   waveform cache, thumbnails). Writes are atomic (temp file + rename). Import/export of a project via SAF.
 - Media referenced by `content://` URI with persisted read permission; never copied by default.
-  Missing media must open the project in a "relink" state, not crash.
+  Missing media must open the project in a "relink" state, not crash (see 4.1).
+
+### 4.1 Missing media, relink and recovery
+- **Detection.** When a project opens, every library file is probed once (`MediaImporter.verify`). A file that
+  cannot be read is recorded with its reason (`UNREADABLE`, `PERMISSION_LOST`, `UNSUPPORTED`) in
+  `EditorState.missingMedia`. Probing also re-takes the persisted read permission where Android allows; a file that
+  is readable but whose permission cannot be persisted (a `file://` URI, the permission limit) is not "missing".
+  Assets keep the file's `displayName` so a lost file can still be named.
+- **While media is missing** its clips stay on the timeline and stay editable. The native canvas tints and hatches them
+  (clip flag bit 2 of the timeline snapshot, no version bump); the preview, the mixer and the waveform/thumbnail
+  workers skip the file (`EditorState.playableAssets`); export refuses with a message that names the clips by lane and time.
+- **Relink** (`RelinkAsset`) replaces the asset's URI after `RelinkCheck`: rejected when the file is already another asset,
+  is a picture where media was expected (or the reverse), lacks video the asset had, or lacks audio for an audio-only asset;
+  accepted with warnings for no audio, a shorter file than the part in use, another frame rate, another colour space.
+  The asset's duration/fps/flags are re-read from the new file, its waveform and thumbnails are invalidated, and its native
+  key is replaced. It is a saved library change, not an undo step.
+- **Permissions.** At startup, when 80% of Android's 512 persisted permissions are in use, those no project refers to are released.
+- **Project files.** `project.json` is written through `project.json.tmp` and renamed. Each save of a parsable file first copies
+  it to `project.json.bak` (the last good save). A corrupt or missing `project.json` is listed in the hub as unreadable;
+  **Recover** restores the newest parsable of `.tmp` (an interrupted write) then `.bak` and keeps the damaged file as
+  `project.json.corrupt`; **Delete** removes it.
+- **Autosave failures** show a banner with Retry, are retried quietly three times, and refuse to leave the editor until the
+  user retries or chooses to leave without saving.
+- **Session marker.** The open project id is stored (synchronously) when the editor opens and cleared when the user leaves it;
+  if it is still set at the next start the hub offers to reopen that project.
 
 ## 5. Architecture
 

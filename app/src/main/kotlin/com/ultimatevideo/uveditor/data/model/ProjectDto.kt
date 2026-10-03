@@ -45,6 +45,11 @@ data class MediaAssetDto(
      * the picture path rather than decoded as video.
      */
     val isImage: Boolean = false,
+    /**
+     * The file's name as the picker showed it, kept so a missing file can be named to the user and
+     * recognised when relinking (the URI of a lost file says nothing). Absent in older projects.
+     */
+    val displayName: String? = null,
 )
 
 @Serializable

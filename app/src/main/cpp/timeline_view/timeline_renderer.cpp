@@ -41,6 +41,9 @@ constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
 constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
+// A clip whose media cannot be read: a red veil with darker stripes so it reads as broken, not selected.
+constexpr Color kMissingTint{0.85f, 0.15f, 0.15f, 0.45f};
+constexpr Color kMissingStripe{0.35f, 0.0f, 0.0f, 0.55f};
 constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
 constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kDropInsert{1.0f, 0.78f, 0.1f, 1.0f};
@@ -936,6 +939,24 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 g.rect(right - s * 1.5f, cy - s, right - s * 0.5f, cy + s, kFxBadge);
                 g.rect(right - s * 3.0f, cy - s * 0.2f, right - s * 0.5f, cy + s * 0.2f, kFxBadge);
             }
+        }
+
+        if (c.missing) {
+            g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
+            g.rect(fx0, top, fx1, bottom, kMissingTint);
+            // Stripes stepped down the clip approximate a diagonal hatch with plain rectangles.
+            const float step = std::max(6.0f, 8.0f * density);
+            const float bar = std::max(1.0f, 1.5f * density);
+            const int rows = 6;
+            const float rowH = (bottom - top) / static_cast<float>(rows);
+            for (int row = 0; row < rows; ++row) {
+                const float y0 = top + rowH * static_cast<float>(row);
+                const float offset = step * static_cast<float>(row) / static_cast<float>(rows);
+                for (float x = fx0 - step + offset; x < fx1; x += step) {
+                    g.rect(x, y0, x + bar, y0 + rowH, kMissingStripe);
+                }
+            }
+            g.setClip(0, layout.rulerHeight, W, H);
         }
 
         if (c.selected) {

@@ -431,3 +431,47 @@ thumbnail needs a native upload path into the thumbnail atlas, which could not b
 was not reachable), so it is deferred rather than shipped blind. **Alternative:** pre-seed the on-disk tile cache from Kotlin
 (couples to the tile file format). Animated GIF/WebP are also deferred: `ImageDecoder` returns the first frame, which is what shows.
 
+## 2026-10-04 · Missing media: probe on load, mark, keep editable, relink as a saved change
+**Chosen:** the load-time probe (`MediaImporter.verify`) decides what is missing; a file readable now but whose permission cannot be
+persisted (`file://`, the permission limit) is not missing. Missing clips stay editable and are tinted/hatched by the native canvas
+(clip flag bit 2, no snapshot version bump); the preview, mixer and workers skip the file; export refuses before asking where to save and
+names the clips by lane and time ("V2 at 0:10"). Relinking is a saved library change and not an undo step, because undoing it would
+restore a file the user just said does not exist. **Alternatives:** treat any failed permission take as missing (would flag readable
+`file://` test media); make relink undoable; let export continue with black holes.
+
+## 2026-10-04 · Relink: asset key replaced, waveform file deleted, thumbnails left to self-invalidate
+**Chosen:** relinking gives the asset a new native key (`KeyRegistry.rekey`) and deletes `waveforms/<id>.peaks`; thumbnail tiles are
+already tied to the media size, so they rebuild by themselves. **Why:** the waveform file has no size check, so a same-length replacement
+would keep drawing the old waveform. **Alternative:** add a size/hash header to the peaks file (native change, more risk).
+
+## 2026-10-04 · Replacement checks: reject what cannot work, warn about the rest
+**Chosen:** reject a duplicate file, picture/video mix-ups, a replacement without video for a video asset, and without audio for an audio-only
+asset; warn (but accept) about no audio, a file shorter than the part in use, another frame rate or colour space. Frames stay as they are
+(source ranges are in project frames), the asset's duration/fps are re-read from the new file. **Alternative:** refuse shorter files.
+
+## 2026-10-04 · Persisted URI permissions: release the unused ones only near the limit, at startup
+**Chosen:** at app start, when 80% of Android's 512 persisted permissions are held, release those no readable project refers to.
+**Why:** Android silently drops the oldest beyond the limit, which would turn old projects into "missing media". Doing it at startup and
+only near the limit keeps it cheap and avoids releasing a permission for an import that is still being saved. **Alternative:** release when
+a project is deleted or a file relinked (more bookkeeping, same effect).
+
+## 2026-10-04 · Project recovery: `.bak` = last good save, prefer the temp file, keep the damaged file
+**Chosen:** each save of a parsable file copies it to `project.json.bak` first, so a crash can lose at most the newest save. Recover restores the
+newest parsable of `.tmp` then `.bak`, and keeps the damaged file as `project.json.corrupt`; nothing is overwritten when no copy parses.
+The hub lists such projects with Recover (only when a copy parses) and Delete. **Alternative:** a rotating history of several backups
+(more disk, more UI).
+
+## 2026-10-04 · Save failures: banner, three quiet retries, refuse to leave
+**Chosen:** a failed autosave sets a persistent banner with Retry, is retried three times 5 s apart, and Back is refused with a dialog (Retry /
+Leave without saving) while the project is not on disk. **Why:** closing used to emit Close even when the last save had failed, silently
+dropping the edits; unbounded retries also hang tests and hammer a broken disk. **Alternative:** keep retrying for ever.
+
+## 2026-10-04 · Interrupted sessions: a marker written with commit(), a hub offer
+**Chosen:** the open project id is stored synchronously when the editor opens and cleared when the user leaves it; if it is still set at
+the next start the hub offers to reopen that project (dismissable). **Alternative:** reopen it automatically (surprising after a crash
+caused by that very project).
+
+## 2026-10-04 · Not installed on the OPPO
+The OPPO (CPH2841) was reachable, but the app was in the foreground with the screen on, so it was being used by hand. Installing would
+have killed the process and could have lost its last edits; nothing was installed or tapped. The relink UI, the hatched clips, the
+banners and the hub Recover/Delete rows are therefore verified by JVM tests and native host tests only.

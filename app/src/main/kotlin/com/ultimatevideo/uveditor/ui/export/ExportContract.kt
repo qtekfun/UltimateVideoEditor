@@ -18,6 +18,8 @@ data class ExportInput(
     val timeline: Timeline,
     val assets: List<MediaAssetDto>,
     val colorSpace: ProjectColorSpace = ProjectColorSpace.REC709_SDR,
+    /** Library files that cannot be read; clips that need them cannot be exported. */
+    val missingAssetIds: Set<String> = emptySet(),
 )
 
 sealed interface ExportPhase {

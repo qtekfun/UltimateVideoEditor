@@ -7,6 +7,8 @@ import android.media.MediaFormat
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,14 +26,40 @@ data class ProbedMedia(
     val hasAudio: Boolean,
     /** A still picture: no frames, no audio, [durationMicros] is 0 and the editor picks a default length. */
     val isImage: Boolean = false,
+    /** The file name as the document provider reports it, when it does. */
+    val displayName: String? = null,
 )
 
+/** Why a media file cannot be used; decides what the editor tells the user and offers. */
+enum class MediaProblem {
+    /** The file is gone, moved, or its provider is not answering. */
+    UNREADABLE,
+
+    /** The file may still exist, but this app no longer holds permission to read it. */
+    PERMISSION_LOST,
+
+    /** The file opens but is not something the editor can decode. */
+    UNSUPPORTED,
+}
+
 /** The media file could not be opened or understood. Always carries a user-presentable message. */
-class MediaImportException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class MediaImportException(
+    message: String,
+    cause: Throwable? = null,
+    val problem: MediaProblem = MediaProblem.UNREADABLE,
+) : Exception(message, cause)
 
 interface MediaImporter {
     /** Keeps read access to [uri] across restarts, then probes it. @throws MediaImportException */
     suspend fun import(uri: String): ProbedMedia
+
+    /**
+     * Probes an existing library file without requiring it to be re-grantable: a file that is readable
+     * now but whose persisted permission cannot be taken (a `file://` URI, the permission limit) is
+     * still usable, so it is not reported as missing. Re-takes the permission when it can.
+     * @throws MediaImportException if the file cannot be read.
+     */
+    suspend fun verify(uri: String): ProbedMedia = import(uri)
 }
 
 /** Maps a measured (floating point) frame rate onto the exact rational the project model stores. */
@@ -77,9 +105,35 @@ class AndroidMediaImporter(
         try {
             context.contentResolver.takePersistableUriPermission(parsed, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (e: SecurityException) {
-            throw MediaImportException("Cannot keep access to the selected file", e)
+            throw MediaImportException(
+                "Cannot keep access to the selected file. Android limits how many files an app can keep; " +
+                    "remove unused projects or pick the file again",
+                e,
+                MediaProblem.PERMISSION_LOST,
+            )
         }
+        warnIfNearPermissionLimit()
         probe(parsed)
+    }
+
+    override suspend fun verify(uri: String): ProbedMedia = withContext(ioDispatcher) {
+        val parsed = Uri.parse(uri)
+        val media = probe(parsed)
+        // Readable now: make sure it stays readable after a restart. Not being able to is worth a log, not an error.
+        try {
+            context.contentResolver.takePersistableUriPermission(parsed, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            warnIfNearPermissionLimit()
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot persist read access to $uri: ${e.message}")
+        }
+        media
+    }
+
+    private fun warnIfNearPermissionLimit() {
+        val held = context.contentResolver.persistedUriPermissions.size
+        if (PermissionTrim.nearLimit(held, AndroidPersistedUris.LIMIT)) {
+            Log.w(TAG, "$held of ${AndroidPersistedUris.LIMIT} persisted URI permissions are in use")
+        }
     }
 
     internal fun probe(uri: Uri): ProbedMedia {
@@ -89,13 +143,13 @@ class AndroidMediaImporter(
             try {
                 extractor.setDataSource(context, uri, null)
             } catch (e: IOException) {
-                throw MediaImportException("Cannot open the selected file", e)
+                throw MediaImportException("Cannot open the selected file", e, MediaProblem.UNREADABLE)
             } catch (e: IllegalArgumentException) {
-                throw MediaImportException("Unsupported file", e)
+                throw MediaImportException("Unsupported file", e, MediaProblem.UNSUPPORTED)
             } catch (e: SecurityException) {
-                throw MediaImportException("No permission to read the selected file", e)
+                throw MediaImportException("No permission to read the selected file", e, MediaProblem.PERMISSION_LOST)
             }
-            return probeTracks(extractor, uri)
+            return probeTracks(extractor, uri).copy(displayName = displayNameOf(uri))
         } finally {
             extractor.release()
         }
@@ -110,11 +164,13 @@ class AndroidMediaImporter(
                 BitmapFactory.decodeStream(stream, null, options)
             }
         } catch (e: IOException) {
-            throw MediaImportException("Cannot open the selected picture", e)
+            throw MediaImportException("Cannot open the selected picture", e, MediaProblem.UNREADABLE)
         } catch (e: SecurityException) {
-            throw MediaImportException("No permission to read the selected picture", e)
+            throw MediaImportException("No permission to read the selected picture", e, MediaProblem.PERMISSION_LOST)
         }
-        if (options.outWidth <= 0 || options.outHeight <= 0) throw MediaImportException("This picture format is not supported")
+        if (options.outWidth <= 0 || options.outHeight <= 0) {
+            throw MediaImportException("This picture format is not supported", problem = MediaProblem.UNSUPPORTED)
+        }
         return ProbedMedia(
             durationMicros = 0,
             fpsNum = FpsRational.DEFAULT_FPS,
@@ -123,7 +179,19 @@ class AndroidMediaImporter(
             hasVideo = false,
             hasAudio = false,
             isImage = true,
+            displayName = displayNameOf(uri),
         )
+    }
+
+    private fun displayNameOf(uri: Uri): String? = try {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0)?.takeIf { it.isNotBlank() } else null
+        }
+    } catch (e: SecurityException) {
+        // The name is only a label; the caller falls back to the URI's last segment.
+        null
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     private fun probeTracks(extractor: MediaExtractor, uri: Uri): ProbedMedia {
@@ -149,8 +217,8 @@ class AndroidMediaImporter(
                 mime.startsWith("audio/") -> hasAudio = true
             }
         }
-        if (!hasVideo && !hasAudio) throw MediaImportException("The file has no audio or video track")
-        if (durationMicros <= 0) throw MediaImportException("The file has no readable duration")
+        if (!hasVideo && !hasAudio) throw MediaImportException("The file has no audio or video track", problem = MediaProblem.UNSUPPORTED)
+        if (durationMicros <= 0) throw MediaImportException("The file has no readable duration", problem = MediaProblem.UNSUPPORTED)
         val (num, den) = FpsRational.fromFloat(fps ?: captureFrameRate(uri) ?: FpsRational.DEFAULT_FPS.toDouble())
         return ProbedMedia(durationMicros, num, den, ColorSpaceNames.fromTransfer(transfer), hasVideo, hasAudio)
     }
@@ -168,3 +236,5 @@ class AndroidMediaImporter(
         }
     }
 }
+
+private const val TAG = "MediaImport"
