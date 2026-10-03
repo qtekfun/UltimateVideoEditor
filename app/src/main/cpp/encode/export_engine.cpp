@@ -358,6 +358,11 @@ public:
                 failDecode(e, "a title could not be prepared for the export");
             }
         }
+        for (const LutImage& lut : params.luts) {
+            if (pipeline_->uploadLut(lut.key, lut.size, lut.rgb.data(), &e) != decode::Status::Ok) {
+                failDecode(e, "a LUT could not be prepared for the export");
+            }
+        }
         for (const auto& entry : params.assetFds) fds_[entry.first] = entry.second;
     }
 

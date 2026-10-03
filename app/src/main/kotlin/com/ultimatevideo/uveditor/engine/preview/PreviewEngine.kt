@@ -45,6 +45,8 @@ internal object NativePreview {
     external fun nativePlay(handle: Long, assetId: Int, startFrame: Long)
     external fun nativePause(handle: Long)
     external fun nativeSetColorMode(handle: Long, assetId: Int, mode: Int)
+    external fun nativeUploadLut(handle: Long, key: Int, size: Int, rgb: java.nio.ByteBuffer)
+    external fun nativeReleaseLut(handle: Long, key: Int)
     external fun nativeSetOutputSpace(handle: Long, space: Int): Int
     external fun nativeGetOutputSpace(handle: Long): Int
     external fun nativeSetCacheBudget(handle: Long, bytes: Long)
@@ -162,6 +164,20 @@ class PreviewEngine private constructor(
     }
 
     fun releaseTitle(key: Int) = NativePreview.nativeReleaseTitle(requireHandle(), key)
+
+    /**
+     * Stores a 3D LUT under [key] (positive; the LUT library's key) for LUT effects: [size]^3 RGB floats, red
+     * varying fastest, in a direct native-order buffer. The values are copied; re-uploading a key replaces it.
+     */
+    fun uploadLut(key: Int, size: Int, rgb: java.nio.ByteBuffer) {
+        require(key > 0) { "LUT keys must be positive" }
+        require(size in 2..65 && rgb.isDirect && rgb.remaining() >= size * size * size * 3 * Float.SIZE_BYTES) {
+            "LUT data must be a direct buffer of $size^3 RGB floats"
+        }
+        NativePreview.nativeUploadLut(requireHandle(), key, size, rgb)
+    }
+
+    fun releaseLut(key: Int) = NativePreview.nativeReleaseLut(requireHandle(), key)
 
     /** Shows [frame] of the asset as soon as it is decoded; also moves the look-ahead window. */
     fun seek(assetId: Int, frame: Long) = NativePreview.nativeSeek(requireHandle(), assetId, frame)
