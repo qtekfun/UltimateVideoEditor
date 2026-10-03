@@ -965,6 +965,14 @@ inserts, undo removes it; drag onto an empty overlay area creates an overlay cli
 **Owns:** `ui/editor/tray/`, `domain/DropPlan.kt` additions, `timeline_view/` drag-hover bridge. Avoid:
 render/, audio/. Run after WP-U1 and before WP-U3.
 
+**Implementation notes (as built).** `ui/editor/tray/` holds `TrayModel.kt` (tabs, filters, search, usage counts,
+library reordering: pure, tested), `MediaTray.kt` (Compose panel, tiles, header with snap heights),
+`AssetThumbnails.kt` and `DragPayload.kt`. The native canvas view implements `TimelineDropTarget` through the
+platform `DragEvent` listener and forwards positions as `TrayDragMove` / `ExternalDrop` intents;
+`DropPlan.decideNew` plans the drop and `LaneOps.addClipOnNewLane` / `overwriteNewClip` apply it. Tray
+payloads use the clip label `uveditor-asset` with the asset id as text. See the decisions in `DECISIONS.md`
+for what was left out (drag of stickers/templates, a native "place" indicator).
+
 ### 9.14 WP-U3 Resizable and customisable layout
 
 **Goal:** the user shapes the workspace, like LumaFusion.

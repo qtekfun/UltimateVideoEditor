@@ -131,7 +131,8 @@ waves of SPECS 9.20.
 
 ### Wave 0 — usability first
 - [x] WP-U1 (JVM-tested; not yet seen on the device) New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
-- [ ] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+- [x] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+      _Status:_ implemented and unit-tested (domain `DropPlan.decideNew`, tray model, ViewModel drag/drop/import/reorder, drag payload helpers); **not seen on the OPPO** (not reachable by adb when this was built): the tray layout, the platform drag from tray to the native canvas, edge auto-scroll while dragging, drops from other apps and the drag shadow still need a manual check.
 
 ### Wave 1
 - [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
