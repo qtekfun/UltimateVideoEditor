@@ -45,6 +45,8 @@ internal object NativePreview {
     external fun nativePlay(handle: Long, assetId: Int, startFrame: Long)
     external fun nativePause(handle: Long)
     external fun nativeSetColorMode(handle: Long, assetId: Int, mode: Int)
+    external fun nativeSetOutputSpace(handle: Long, space: Int): Int
+    external fun nativeGetOutputSpace(handle: Long): Int
     external fun nativeSetCacheBudget(handle: Long, bytes: Long)
     external fun nativeStats(handle: Long): LongArray
 }
@@ -170,6 +172,18 @@ class PreviewEngine private constructor(
 
     fun setColorMode(assetId: Int, mode: ColorMode) =
         NativePreview.nativeSetColorMode(requireHandle(), assetId, mode.value)
+
+    /**
+     * Chooses the colour space the preview surface is rendered in and returns the one actually in use:
+     * [OutputSpace.HLG_2020] needs a ten-bit surface the device accepts as BT.2020 HLG, otherwise the
+     * preview stays [OutputSpace.SDR_709] (HLG sources are tone-mapped). Call it again after the
+     * surface is attached, because a request made earlier only applies once there is a surface.
+     */
+    fun setOutputSpace(space: OutputSpace): OutputSpace =
+        OutputSpace.fromValue(NativePreview.nativeSetOutputSpace(requireHandle(), space.value))
+
+    /** The colour space the surface is rendered in right now, see [setOutputSpace]. */
+    fun outputSpace(): OutputSpace = OutputSpace.fromValue(NativePreview.nativeGetOutputSpace(requireHandle()))
 
     fun setCacheBudget(bytes: Long) = NativePreview.nativeSetCacheBudget(requireHandle(), bytes)
 

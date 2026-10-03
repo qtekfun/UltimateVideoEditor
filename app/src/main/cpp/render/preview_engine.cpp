@@ -95,7 +95,7 @@ Result<std::unique_ptr<PreviewEngine>> PreviewEngine::create(size_t cacheBudgetB
     engine->thread_->postAndWait([&engine, &error] {
         engine->egl_ = std::make_unique<EglContext>();
         Error e{Status::Ok, ""};
-        if (engine->egl_->init(&e) != Status::Ok) {
+        if (engine->egl_->init(&e, false, /*tenBit=*/true) != Status::Ok) {
             error = e;
             return;
         }
@@ -133,10 +133,11 @@ Status PreviewEngine::attachSurface(ANativeWindow* window, Error* error) {
     Status result = Status::Ok;
     thread_->postAndWait([&] {
         Error e{Status::Ok, ""};
-        result = egl_->attachWindow(window, &e);
+        result = egl_->attachWindow(window, &e, requestedSpace_ == OutputSpace::Hlg2020);
         if (result == Status::Ok) result = egl_->makeCurrentWindow(&e);
         if (result != Status::Ok && error != nullptr) *error = e;
         if (result == Status::Ok) {
+            applyOutputSpace();
             pipeline_->clear(egl_->windowWidth(), egl_->windowHeight());
             egl_->swap(&e);
             maybeDraw(true);
@@ -187,8 +188,11 @@ Result<AssetInfo> PreviewEngine::openAsset(uint32_t assetId, int fd, decode::Rat
     const AssetInfo info = decoder->info();
     {
         std::lock_guard<std::mutex> lock(assetMu_);
-        assets_[assetId] = Asset{decoder, info.colorTransfer == 7 /* HLG */ ? ColorMode::Hlg2020ToSdr709 : ColorMode::Sdr709,
-                                 quarterTurns(info.rotationDegrees)};
+        const SourceTransfer transfer = sourceTransferFromMedia(info.colorTransfer);
+        const OutputSpace space = static_cast<OutputSpace>(effectiveSpace_.load());
+        Asset asset{decoder, colorModeFor(transfer, space), quarterTurns(info.rotationDegrees)};
+        asset.transfer = transfer;
+        assets_[assetId] = std::move(asset);
     }
     applyWindowForBudget();
     return info;
@@ -260,6 +264,38 @@ void PreviewEngine::releaseTitle(uint32_t key) {
     });
 }
 
+// Render thread, window (if any) current. Settles what the surface really is and re-derives the
+// layer modes from it.
+void PreviewEngine::applyOutputSpace() {
+    const bool hdr = requestedSpace_ == OutputSpace::Hlg2020 && egl_->hasWindow() && egl_->hdrSurface();
+    const OutputSpace space = hdr ? OutputSpace::Hlg2020 : OutputSpace::Sdr709;
+    if (requestedSpace_ == OutputSpace::Hlg2020 && !hdr && egl_->hasWindow()) {
+        UV_LOGE("HLG preview refused (ten-bit surface: %d); rendering SDR", egl_->tenBit() ? 1 : 0);
+    }
+    effectiveSpace_.store(static_cast<int>(space));
+    pipeline_->setOutputSpace(space);
+    std::lock_guard<std::mutex> lock(assetMu_);
+    for (auto& entry : assets_) entry.second.mode = colorModeFor(entry.second.transfer, space);
+}
+
+OutputSpace PreviewEngine::setOutputSpace(OutputSpace requested) {
+    thread_->postAndWait([&] {
+        requestedSpace_ = requested;
+        Error e{Status::Ok, ""};
+        if (egl_->hasWindow()) {
+            if (egl_->reattachWindow(&e, requested == OutputSpace::Hlg2020) != Status::Ok ||
+                egl_->makeCurrentWindow(&e) != Status::Ok) {
+                report(e);
+                return;
+            }
+            pipeline_->clear(egl_->windowWidth(), egl_->windowHeight());
+        }
+        applyOutputSpace();
+        maybeDraw(true);
+    });
+    return static_cast<OutputSpace>(effectiveSpace_.load());
+}
+
 void PreviewEngine::setCacheBudget(size_t bytes) {
     cache_.setBudget(bytes);  // the cache is internally synchronised; evicted frames drop here
     applyWindowForBudget();
@@ -270,7 +306,8 @@ void PreviewEngine::setColorMode(uint32_t assetId, ColorMode mode) {
         std::lock_guard<std::mutex> lock(assetMu_);
         auto it = assets_.find(assetId);
         if (it == assets_.end()) return;
-        it->second.mode = mode;
+        it->second.transfer = sourceTransferOf(mode);
+        it->second.mode = colorModeFor(it->second.transfer, static_cast<OutputSpace>(effectiveSpace_.load()));
     }
     thread_->post([this] { maybeDraw(true); });
 }

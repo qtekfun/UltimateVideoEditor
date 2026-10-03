@@ -16,6 +16,7 @@ import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import kotlinx.coroutines.Dispatchers
@@ -387,5 +388,36 @@ class KeyframeViewModelTest {
         h.vm.onIntent(EditorIntent.ChangeCanvas(0, 1080))
 
         assertEquals(1920 to 1080, h.state.canvasWidth to h.state.canvasHeight)
+    }
+
+    @Test
+    fun `an SDR project loads as SDR and switching to HDR is saved without touching the history`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.UpdateGain(-3.0))
+        h.vm.onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+        assertEquals(ProjectColorSpace.REC709_SDR, h.state.colorSpace)
+
+        h.vm.onIntent(EditorIntent.ShowCanvasDialog)
+        h.vm.onIntent(EditorIntent.ChangeColorSpace(ProjectColorSpace.REC2020_HLG))
+        h.vm.onIntent(EditorIntent.Flush)
+        advanceUntilIdle()
+
+        assertEquals(ProjectColorSpace.REC2020_HLG, h.state.colorSpace)
+        assertFalse(h.state.canvasDialogOpen)
+        assertTrue(h.state.canUndo)
+        assertEquals("Rec2020-HLG", h.store.saved.last().settings.colorSpace)
+        assertEquals(1920 to 1080, h.state.canvasWidth to h.state.canvasHeight)
+    }
+
+    @Test
+    fun `choosing the current colour space saves nothing`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.onIntent(EditorIntent.ChangeColorSpace(ProjectColorSpace.REC709_SDR))
+        h.vm.onIntent(EditorIntent.Flush)
+        advanceUntilIdle()
+
+        assertTrue(h.store.saved.isEmpty())
     }
 }

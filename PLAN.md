@@ -84,7 +84,8 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
     static styles, "Auto captions" sheet in the editor. Still to do: run it on the phone, then animated / word-highlight
     styles once keyframes land. The box stays open until both are done.
 - [ ] Stickers, animated text templates, beat sync
-- [ ] HDR end-to-end (HLG, HEVC Main10), 3D LUTs
+- [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
+- [ ] 3D LUTs
 - [ ] Vulkan renderer evaluation
 
 ## Cross-cutting

@@ -4,6 +4,7 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderClip
 import com.ultimatevideo.uveditor.domain.RenderKind
+import com.ultimatevideo.uveditor.domain.SourceColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.renderClips
@@ -59,8 +60,7 @@ private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0)
     fx = fx,
 )
 
-private const val HLG_TO_SDR = 1
-private const val SDR = 0
+private val SDR = SourceColorSpace.SDR.nativeModeValue
 
 /**
  * Plans an export of [timeline]. Returns null when it is empty. The first visual track (video or
@@ -85,8 +85,9 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
                 val key = used.getOrPut(asset.id) { assetKeys.keyFor(asset.id) }
                 videoClips += clip.toSpec(
                     assetKey = key,
-                    // The export is SDR Rec.709: HLG sources are tone-mapped down to it.
-                    colorMode = if (asset.colorSpace.contains("HLG", ignoreCase = true)) HLG_TO_SDR else SDR,
+                    // What the source is; the engine converts it to the colour space the export renders in
+                    // (HLG sources are tone-mapped for an SDR export, kept for an HLG one).
+                    colorMode = SourceColorSpace.fromId(asset.colorSpace).nativeModeValue,
                 )
             }
             RenderKind.TITLE -> {
