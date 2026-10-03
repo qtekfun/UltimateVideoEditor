@@ -32,9 +32,9 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 ## Phase 3 — Timeline canvas and waveforms
 - [x] Timeline `SurfaceView` + native GLES renderer (blocks, playhead, ruler)
 - [x] Scroll and pinch-zoom at 60/120 fps; gesture forwarding; hit-testing (scroll, fling and tap seen working on device; frame rate not measured; pinch-zoom only host-tested)
-- [ ] Media import (SAF picker, persisted URI permission), media library panel
+- [x] Media import (SAF picker, persisted URI permission), media library panel (probe verified on device and picker opens; the picker-to-timeline path was not seen end to end)
 - [x] Background waveform extraction and on-disk peak cache
-- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; thumbnails and touch editing pending)
+- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; touch editing implemented and unit-tested but not yet verified on device; thumbnails pending)
 - **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank.
 
 ## Phase 4 — Decode, preview and audio playback
