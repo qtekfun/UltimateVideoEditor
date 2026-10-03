@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.data
 import com.ultimatevideo.uveditor.data.model.ClipDto
 import com.ultimatevideo.uveditor.data.model.EffectDto
 import com.ultimatevideo.uveditor.data.model.KeyframeDto
+import com.ultimatevideo.uveditor.data.model.MarkerDto
 import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
@@ -24,6 +25,8 @@ import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.Effect
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.Keyframe
+import com.ultimatevideo.uveditor.domain.Marker
+import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.SpeedKey
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.domain.MaskShape
@@ -57,7 +60,7 @@ object TimelineMapper {
                 clips = track.clips.map(::toClip).sortedBy { it.timelineStart },
             )
         }
-        val timeline = Timeline(tracks, project.transitions.map(::toTransition))
+        val timeline = Timeline(tracks, project.transitions.map(::toTransition), project.markers.map(::toMarker).sortedBy { it.frame })
         val violations = timeline.invariantViolations()
         if (violations.isNotEmpty()) throw ProjectError.Corrupt("invalid timeline: ${violations.first()}")
         return timeline
@@ -74,7 +77,23 @@ object TimelineMapper {
             )
         }
         val transitions = timeline.transitions.map { toTransitionDto(it) }
-        return base.copy(mediaLibrary = assets, tracks = tracks, transitions = transitions)
+        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind)) }
+        return base.copy(mediaLibrary = assets, tracks = tracks, transitions = transitions, markers = markers)
+    }
+
+    private fun toMarker(dto: MarkerDto) = Marker(
+        id = dto.id,
+        frame = FrameIndex(dto.frame),
+        kind = when (dto.kind) {
+            "manual" -> MarkerKind.MANUAL
+            "beat" -> MarkerKind.BEAT
+            else -> throw ProjectError.Corrupt("marker ${dto.id} has unknown kind '${dto.kind}'")
+        },
+    )
+
+    private fun markerKindName(kind: MarkerKind) = when (kind) {
+        MarkerKind.MANUAL -> "manual"
+        MarkerKind.BEAT -> "beat"
     }
 
     /** Extras of the clip itself, else of the clip it was derived from by a split or overwrite. */

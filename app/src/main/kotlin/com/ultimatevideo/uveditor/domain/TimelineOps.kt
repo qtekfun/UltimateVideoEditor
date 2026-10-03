@@ -3,8 +3,11 @@ package com.ultimatevideo.uveditor.domain
 import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
 import kotlin.math.abs
 
-/** Magnetic snapping: clip edges snap to other clip edges, frame 0 and the playhead. */
-data class Snap(val playhead: FrameIndex?, val thresholdFrames: Long)
+/**
+ * Magnetic snapping: clip edges snap to other clip edges, frame 0, the playhead and [extraTargets]
+ * (timeline markers, when the editor's marker snapping is on).
+ */
+data class Snap(val playhead: FrameIndex?, val thresholdFrames: Long, val extraTargets: List<FrameIndex> = emptyList())
 
 enum class TrimEdge { START, END }
 
@@ -350,6 +353,7 @@ object TimelineOps {
         val targets = buildList {
             add(FrameIndex.ZERO)
             snap.playhead?.let { add(it) }
+            addAll(snap.extraTargets)
             for (track in timeline.tracks) {
                 for (other in track.clips) {
                     if (other.id == clip.id) continue

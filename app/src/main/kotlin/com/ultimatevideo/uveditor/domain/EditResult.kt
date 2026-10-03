@@ -57,6 +57,17 @@ sealed interface EditError {
 
     /** A base-track clip cannot be dragged onto another track: that would leave a gap in the base. */
     data class BaseClipCannotLeave(val clipId: String) : EditError
+
+    /** A marker that cannot exist (negative frame, duplicate id or frame). */
+    data class InvalidMarker(val reason: String) : EditError
+
+    data class MarkerNotFound(val markerId: String) : EditError
+
+    /** A text template that cannot be placed (unknown id, empty length, bad ids supplied). */
+    data class InvalidTemplate(val reason: String) : EditError
+
+    /** "Cut to beat" had nothing to do (no base clips selected, or no beat markers to cut to). */
+    data class CutToBeatUnavailable(val reason: String) : EditError
 }
 
 internal fun failure(error: EditError): EditResult.Failure = EditResult.Failure(error)
