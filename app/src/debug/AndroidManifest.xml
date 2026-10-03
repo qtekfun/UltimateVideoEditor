@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Debug-only harness for the native timeline canvas; start with:
+             adb shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity -->
+        <activity
+            android:name=".debug.TimelineDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
+    </application>
+
+</manifest>
