@@ -99,7 +99,12 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       preview and export. Domain, JSON, preview scene and export plan are covered by JVM tests; nothing of this has been
       seen on the device yet (the OPPO was not reachable by adb), in particular EXIF orientation, HEIC and the sticker art.
       Follow-ups: a thumbnail tile on still clips in the timeline (needs a native tile upload), animated GIF/WebP
-- [ ] Animated text templates, beat sync
+- [x] Animated text templates (lower third, pop title, slide-in headline, subtitle bar) and beat sync (ruler markers, beat
+      detection from the waveform cache, snap to markers, 'Cut to beat'). Domain, JSON, snapshot v5, ViewModel and the beat
+      detector (synthetic click tracks) are covered by JVM tests and the host tests pass; the native ruler drawing, the template
+      look and beat detection on real music were not seen on the device (the OPPO was not reachable by adb).
+      Follow-ups: spectral-flux onsets (the detector reads amplitude only), dragging markers on the ruler, text animations
+      beyond keyframes
 - [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
 - [ ] 3D LUTs
 - [ ] Vulkan renderer evaluation
