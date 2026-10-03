@@ -364,6 +364,99 @@ class EditorViewModelTest {
         assertTrue(empty.effects.single() is EditorEffect.ShowMessage)
     }
 
+    private class FakeOutput : PlaybackOutput {
+        val calls = mutableListOf<String>()
+        var heard: Long? = null
+
+        override fun play(fromFrame: Long) {
+            calls += "play($fromFrame)"
+        }
+
+        override fun pause() {
+            calls += "pause"
+        }
+
+        override fun seek(frame: Long) {
+            calls += "seek($frame)"
+        }
+
+        override fun heardFrame(): Long? = heard
+    }
+
+    @Test
+    fun `playing starts the output at the playhead and pausing stops it`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+        val out = FakeOutput().also { h.vm.playbackOutput = it }
+        h.vm.onIntent(EditorIntent.SetPlayhead(40))
+
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        h.vm.onIntent(EditorIntent.TogglePlay)
+
+        assertEquals(listOf("seek(40)", "play(40)", "pause"), out.calls)
+    }
+
+    @Test
+    fun `the audio clock drives the playhead and is never allowed to run backwards`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+        val out = FakeOutput().also { h.vm.playbackOutput = it }
+        h.vm.onIntent(EditorIntent.SetPlayhead(50))
+        h.vm.onIntent(EditorIntent.TogglePlay)
+
+        out.heard = 48 // latency compensation puts the heard position slightly before the start
+        advanceTimeBy(20)
+        assertEquals(FrameIndex(50), h.state.playhead)
+
+        out.heard = 120
+        advanceTimeBy(20)
+        assertEquals(FrameIndex(120), h.state.playhead)
+
+        h.vm.onIntent(EditorIntent.TogglePlay) // stop the tick loop so runTest can finish
+    }
+
+    @Test
+    fun `reaching the end stops the output`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+        val out = FakeOutput().also { h.vm.playbackOutput = it }
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        out.heard = 250
+
+        advanceTimeBy(20)
+
+        assertFalse(h.state.isPlaying)
+        assertEquals(FrameIndex(200), h.state.playhead)
+        assertEquals("pause", out.calls.last())
+    }
+
+    @Test
+    fun `scrubbing seeks the output and tapping the ruler while playing restarts from there`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+        val out = FakeOutput().also { h.vm.playbackOutput = it }
+
+        h.vm.onIntent(EditorIntent.DragStart(TimelineHit(HitKind.PLAYHEAD, -1, -1, 10)))
+        h.vm.onIntent(EditorIntent.DragMove(frame = 80, trackIndex = -1))
+        assertEquals("seek(80)", out.calls.last())
+
+        out.calls.clear()
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        h.vm.onIntent(EditorIntent.TapTimeline(TimelineHit(HitKind.RULER, -1, -1, 30)))
+
+        assertEquals(listOf("play(80)", "pause", "seek(30)", "play(30)"), out.calls)
+        assertTrue(h.state.isPlaying)
+
+        h.vm.onIntent(EditorIntent.TogglePlay)
+    }
+
+    @Test
+    fun `without an output the transport falls back to the system clock`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        advanceTimeBy(1_000)
+
+        assertEquals(30.0, h.state.playhead.value.toDouble(), 2.0)
+        h.vm.onIntent(EditorIntent.TogglePlay)
+    }
+
     @Test
     fun `seeking jumps between clip boundaries`() = runTest(dispatcher) {
         val h = harness()
