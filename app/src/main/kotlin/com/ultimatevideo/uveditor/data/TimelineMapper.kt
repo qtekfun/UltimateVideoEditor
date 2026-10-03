@@ -107,6 +107,7 @@ object TimelineMapper {
             else -> throw ProjectError.Corrupt("clip $clipId has unknown title alignment '${dto.alignment}'")
         },
         bold = dto.bold,
+        outline = dto.outline,
     )
 
     private fun parseColor(clipId: String, value: String): Int {
@@ -121,6 +122,7 @@ object TimelineMapper {
         color = "#%08X".format(title.colorArgb),
         alignment = title.alignment.name.lowercase(),
         bold = title.bold,
+        outline = title.outline,
     )
 
     private fun toTransition(dto: TransitionDto): Transition = Transition(

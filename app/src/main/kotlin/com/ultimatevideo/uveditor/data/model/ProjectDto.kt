@@ -89,6 +89,7 @@ data class TitleDto(
     val color: String = "#FFFFFFFF",
     val alignment: String = "center",
     val bold: Boolean = false,
+    val outline: Boolean = false,
 )
 
 /**

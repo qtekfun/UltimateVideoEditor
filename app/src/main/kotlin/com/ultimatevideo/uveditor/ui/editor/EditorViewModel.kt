@@ -8,6 +8,7 @@ import com.ultimatevideo.uveditor.data.ProjectStore
 import com.ultimatevideo.uveditor.data.TimelineMapper
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
+import com.ultimatevideo.uveditor.domain.AddCaptions
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipGain
 import com.ultimatevideo.uveditor.domain.ClipTransform
@@ -116,6 +117,7 @@ class EditorViewModel(
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
             EditorIntent.AddTitle -> addTitle()
+            is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips)
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
             is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
             EditorIntent.AddTransition -> addTransition()
@@ -786,6 +788,14 @@ class EditorViewModel(
         )
         if (!execute(EditCommand.Overwrite(trackId, clip))) return
         reduce { copy(selectedClipId = clip.id, selectedTrackId = trackId, inspectorOpen = true) }
+    }
+
+    private fun addCaptionClips(clips: List<Clip>) {
+        if (clips.isEmpty()) return
+        val track = Track(uniqueTrackId(history.timeline.tracks, "track-t"), TrackType.TITLE)
+        // Captions go above everything, like any title, on their own track so they never cut an existing title.
+        if (!execute(AddCaptions(track, 0, clips))) return
+        reduce { copy(selectedTrackId = track.id, selectedClipId = clips.first().id) }
     }
 
     private fun updateTitle(content: TitleContent) {

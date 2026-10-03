@@ -65,6 +65,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.EngineException
+import com.ultimatevideo.uveditor.engine.captions.CaptionModelStore
+import com.ultimatevideo.uveditor.engine.captions.HttpModelSource
+import com.ultimatevideo.uveditor.engine.captions.WhisperTranscriber
+import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
+import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
+import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsViewModel
+import com.ultimatevideo.uveditor.ui.editor.captions.captionTarget
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
 import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
@@ -111,6 +118,34 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         },
     )
     ExportHost(exportViewModel)
+
+    val captionsViewModel: CaptionsViewModel = viewModel(
+        key = "captions-$projectId",
+        factory = viewModelFactory {
+            initializer {
+                val appContext = context.applicationContext
+                val models = CaptionModelStore(File(appContext.filesDir, "caption-models"), HttpModelSource())
+                CaptionsViewModel(models, WhisperTranscriber(appContext, models))
+            }
+        },
+    )
+    CaptionsHost(
+        captionsViewModel,
+        onClips = { viewModel.onIntent(EditorIntent.AddCaptionClips(it)) },
+        onMessage = { text ->
+            snackbar.currentSnackbarData?.dismiss()
+            scope.launch { snackbar.showSnackbar(text) }
+        },
+    )
+    val openCaptions: () -> Unit = {
+        val target = state.captionTarget()
+        if (target == null) {
+            snackbar.currentSnackbarData?.dismiss()
+            scope.launch { snackbar.showSnackbar("Select a clip with audio to caption") }
+        } else {
+            captionsViewModel.onIntent(CaptionsIntent.Open(target))
+        }
+    }
     val openExport = {
         // The dialog works from what the editor holds right now; the autosave is not involved.
         exportViewModel.onIntent(
@@ -282,7 +317,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             modifier = Modifier.width(280.dp).fillMaxHeight(),
                         )
                     }
-                    EditorMain(state, viewModel, engine, preview, editing, launchImport, openExport, Modifier.weight(1f).fillMaxHeight())
+                    EditorMain(state, viewModel, engine, preview, editing, launchImport, openExport, openCaptions, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -298,6 +333,7 @@ private fun EditorMain(
     editing: TimelineEditing,
     onImport: () -> Unit,
     onExport: () -> Unit,
+    onCaptions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasSelection = state.selectedClipId != null
@@ -377,6 +413,7 @@ private fun EditorMain(
                 viewModel.onIntent(EditorIntent.RippleAppendSelected)
             }
             ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
+            ToolButton(EditorIcons.Captions, "Auto captions for the selected clip", onClick = onCaptions)
             ToolButton(
                 EditorIcons.Transition,
                 "Add a crossfade between the selected clip and the next",

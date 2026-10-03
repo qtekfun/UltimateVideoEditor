@@ -248,7 +248,29 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   the partial file. Output is written through SAF (`CreateDocument`).
 - FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec.
 
-### 5.10 Keyframes, canvas formats and upload presets
+### 5.10 Automatic captions
+- Speech recognition runs on the device with whisper.cpp (MIT, git submodule `app/src/main/cpp/third_party/whisper.cpp`,
+  pinned to `v1.9.4`, built statically into `uveditor_engine` through `cmake/captions.cmake`). CPU only, up to 4 threads;
+  ggml is built for `armv8.2-a+dotprod+fp16`, which the arm64 phones this app targets (API 33+) have.
+- No model ships in the APK. The user picks "Fast" (tiny, 31 MB) or "Balanced" (base, 57 MB), both multilingual
+  `q5_1` ggml files downloaded once over HTTPS from the whisper.cpp model repository into
+  `filesDir/caption-models`, verified by size and SHA-256 against the values pinned in
+  `engine/captions/CaptionTypes.kt` and written atomically (`.part`, then rename). This is the only use of the
+  `INTERNET` permission; captions work offline afterwards.
+- Pipeline (`captions/caption_pipeline.cpp`): `AndroidPcmDecoder` seeks to the clip's source range -> stereo float ->
+  `Mono16kConverter` (exact-integer box average to 16 kHz mono) -> `whisper_full` with token timestamps and
+  `max_len = 1` / `split_on_word`, so each result is one word. Progress (decode 0-10 %, recognition 10-100 %) and
+  cancellation flow through one JNI callback object; a cancelled coroutine aborts the run. At most 30 minutes
+  (about 115 MB of PCM) per run.
+- Words are in source milliseconds. `domain/captions/CaptionPlanner` maps them to timeline frames with the
+  clip's `timelineStart - sourceIn` (source ranges are project frames, see section 4), groups them into cues by
+  character limit, duration, pauses and sentence ends, and times each cue so cues never overlap or leave the clip.
+- Captions are ordinary title clips (`outline = true` so they read over any footage) on a new title track
+  placed on top, added by one `AddCaptions` command, so one Undo removes them all and they stay editable.
+  Four static styles (Classic, Bold, Pop, Impact) set size, colour, position and chunking. Animated and
+  word-highlight styles need keyframes and are a follow-up.
+
+### 5.11 Keyframes, canvas formats and upload presets
 - **Keyframes.** A clip (video or title) may carry `keyframes`: poses (position, scale, rotation, opacity) at
   integer *clip* frames (0 is the clip's first frame, so they travel with the clip when it moves). Before the first
   keyframe the first pose holds, after the last the last one holds; between two the earlier keyframe's mode
