@@ -37,9 +37,16 @@ object ClipDeletion {
     /**
      * Removes the frames [start, end) from [trackId] and closes them: clips inside vanish, clips
      * overlapping an edge are trimmed, a clip spanning the whole range is cut in two, and
-     * everything after the range moves left by its length.
+     * everything after the range moves left by its length. With [closeGap] false the range is only
+     * cleared: what remains stays where it is.
      */
-    internal fun removeRange(timeline: Timeline, trackId: String, start: FrameIndex, end: FrameIndex): EditResult<Timeline> {
+    internal fun removeRange(
+        timeline: Timeline,
+        trackId: String,
+        start: FrameIndex,
+        end: FrameIndex,
+        closeGap: Boolean = true,
+    ): EditResult<Timeline> {
         var current = timeline
         val length = end - start
         for (original in checkNotNull(timeline.track(trackId)).clips) {
@@ -57,6 +64,7 @@ object ClipDeletion {
                 is EditResult.Failure -> return result
             }
         }
+        if (!closeGap) return EditResult.Success(current.pruned())
         val track = checkNotNull(current.track(trackId))
         val shifted = track.clips.map { if (it.timelineStart >= end) it.copy(timelineStart = it.timelineStart - length) else it }
         return EditResult.Success(current.withTrack(track.withClips(shifted)).pruned())

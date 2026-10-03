@@ -11,6 +11,8 @@ import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.DropHint
+import com.ultimatevideo.uveditor.domain.DropKind
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.TrackType
@@ -318,23 +320,232 @@ class EditorViewModelTest {
         assertEquals(listOf("c2" to 0L, "c1" to 100L), h.clips("v1").map { it.id to it.timelineStart.value })
     }
 
+    // region drop zones: the indicator shown during the drag is what a release does
+
+    private fun stackedProject() = ProjectDto(
+        id = "p1",
+        name = "Test",
+        settings = settings,
+        mediaLibrary = listOf(asset),
+        tracks = listOf(
+            TrackDto("v3", "video", 0),
+            TrackDto("v2", "video", 1, listOf(clipDto("x", 0), clipDto("y", 100))),
+            TrackDto("v1", "video", 2, listOf(clipDto("c1", 0), clipDto("c2", 100))),
+            TrackDto("a1", "audio", 3),
+        ),
+    )
+
+    private fun Harness.startDrag(clipId: String) {
+        select(clipId)
+        vm.onIntent(EditorIntent.DragStart(hitOn(clipId, frame = state.timeline.trackOfClip(clipId)!!.clip(clipId)!!.timelineStart.value)))
+    }
+
     @Test
-    fun `dragging an overlay onto another clip is rejected and cancelling discards the preview`() = runTest(dispatcher) {
+    fun `dropping an overlay on another clip overwrites it and the hint says so`() = runTest(dispatcher) {
         val h = harness(overlayProject())
-        h.select("x")
-        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("x", frame = 0)))
+        h.startDrag("x")
 
         h.vm.onIntent(EditorIntent.DragMove(frame = 150, trackIndex = 0))
+        assertEquals(DropHint(DropKind.OVERWRITE, "v2", 150, 250), h.state.dropHint)
+        assertNotNull(h.state.dragPreview)
+        assertFalse(h.state.canUndo)
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertNull(h.state.dropHint)
         assertNull(h.state.dragPreview)
+        assertEquals(listOf("y" to (100L to 150L), "x" to (150L to 250L)), h.clips("v2").map { it.id to (it.timelineStart.value to it.timelineEnd.value) })
+        // One undo step restores everything.
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("x" to 0L, "y" to 100L), h.clips("v2").map { it.id to it.timelineStart.value })
+    }
+
+    @Test
+    fun `free space in an overlay lane is a plain move with no indicator`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
 
         h.vm.onIntent(EditorIntent.DragMove(frame = 300, trackIndex = 0))
+        assertNull(h.state.dropHint)
         assertNotNull(h.state.dragPreview)
-        h.vm.onIntent(EditorIntent.DragEnd(commit = false))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
 
-        assertNull(h.state.dragPreview)
-        assertEquals(FrameIndex(0), h.clips("v2").first().timelineStart)
-        assertFalse(h.state.canUndo)
+        assertEquals(FrameIndex(300), h.clips("v2").first { it.id == "x" }.timelineStart)
     }
+
+    @Test
+    fun `dragging an overlay near a cut on the base inserts there and overlays follow`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 103, trackIndex = 1))
+        assertEquals(DropHint(DropKind.INSERT, "v1", 100, 100), h.state.dropHint)
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(listOf("c1", "x", "c2"), h.clips("v1").map { it.id })
+        assertEquals(300L, h.clips("v1").last().timelineEnd.value)
+        // y started at the cut, so it moves with the footage that was under it.
+        assertEquals(listOf("y" to 200L), h.clips("v2").map { it.id to it.timelineStart.value })
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
+        assertEquals(listOf("x", "y"), h.clips("v2").map { it.id })
+    }
+
+    @Test
+    fun `dragging an overlay over a base clip body overwrites it and keeps the base length`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 40, trackIndex = 1))
+        assertEquals(DropHint(DropKind.OVERWRITE, "v1", 40, 140), h.state.dropHint)
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(200L, h.state.timeline.track("v1")!!.end.value)
+        assertTrue(h.clips("v1").any { it.id == "x" && it.timelineStart.value == 40L })
+        assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
+    }
+
+    @Test
+    fun `the add-lane zone shows a new lane, stays stable while it appears, and is one undo step`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
+        val hint = h.state.dropHint!!
+        assertEquals(DropKind.NEW_LANE, hint.kind)
+        assertEquals(4, h.state.dragPreview!!.tracks.size)
+        assertEquals(hint.trackId, h.state.dragPreview!!.tracks.first().id)
+
+        // The finger is now over the new lane (index 0 of what is shown): the target must not flip back.
+        h.vm.onIntent(EditorIntent.DragMove(frame = 20, trackIndex = 0))
+        assertEquals(DropKind.NEW_LANE, h.state.dropHint!!.kind)
+        assertEquals(4, h.state.dragPreview!!.tracks.size)
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(4, h.state.timeline.tracks.size)
+        assertEquals(listOf("x"), h.state.timeline.tracks.first().clips.map { it.id })
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(3, h.state.timeline.tracks.size)
+        assertEquals(listOf("x", "y"), h.clips("v2").map { it.id })
+    }
+
+    @Test
+    fun `moving the finger back from the new lane drops into the lane below`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
+        h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
+
+        // In the shown timeline the old overlay lane is now index 1.
+        h.vm.onIntent(EditorIntent.DragMove(frame = 300, trackIndex = 1))
+        assertNull(h.state.dropHint)
+        assertEquals(3, h.state.dragPreview!!.tracks.size)
+    }
+
+    @Test
+    fun `leaving the panel cancels and release changes nothing`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
+        h.vm.onIntent(EditorIntent.DragMove(frame = 150, trackIndex = 0))
+        assertNotNull(h.state.dragPreview)
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 150, trackIndex = -1, zone = DragZone.OUTSIDE))
+        assertEquals(DropKind.CANCEL, h.state.dropHint!!.kind)
+        assertNull(h.state.dragPreview)
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertNull(h.state.dropHint)
+        assertFalse(h.state.canUndo)
+        assertEquals(listOf("x" to 0L, "y" to 100L), h.clips("v2").map { it.id to it.timelineStart.value })
+    }
+
+    @Test
+    fun `crossing a gap between lanes keeps the last target`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.startDrag("x")
+        h.vm.onIntent(EditorIntent.DragMove(frame = 40, trackIndex = 1))
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint!!.kind)
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 50, trackIndex = -1))
+        assertEquals(DropHint(DropKind.OVERWRITE, "v1", 50, 150), h.state.dropHint)
+    }
+
+    @Test
+    fun `reordering inside the base shows an insertion marker at the cut`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.select("c2")
+        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("c2", frame = 100, track = 1)))
+
+        // The clip's centre has to pass the neighbour's centre, so drag it all the way to the start.
+        h.vm.onIntent(EditorIntent.DragMove(frame = 0, trackIndex = 1))
+        assertEquals(DropHint(DropKind.INSERT, "v1", 0, 0), h.state.dropHint)
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(listOf("c2", "c1"), h.clips("v1").map { it.id })
+    }
+
+    @Test
+    fun `a base clip cannot leave the base and the new-lane zone does nothing for it`() = runTest(dispatcher) {
+        val h = harness(overlayProject())
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.DragStart(h.hitOn("c1", frame = 0, track = 1)))
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
+        assertNull(h.state.dropHint?.takeIf { it.kind == DropKind.NEW_LANE })
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(3, h.state.timeline.tracks.size)
+    }
+
+    @Test
+    fun `an audio clip dropped on another audio clip overwrites, never inserts`() = runTest(dispatcher) {
+        val project = ProjectDto(
+            id = "p1", name = "Test", settings = settings, mediaLibrary = listOf(asset),
+            tracks = listOf(
+                TrackDto("v1", "video", 0, listOf(clipDto("c1", 0))),
+                TrackDto("a1", "audio", 1, listOf(clipDto("m", 0), clipDto("n", 100))),
+            ),
+        )
+        val h = harness(project)
+        h.startDrag("m")
+        // Right on the m|n cut: a base would insert here, an audio lane overwrites.
+        h.vm.onIntent(EditorIntent.DragMove(frame = 100, trackIndex = 1))
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint!!.kind)
+    }
+
+    // endregion
+
+    // region moving lanes
+
+    @Test
+    fun `the selected overlay lane moves up and down among overlays and undo restores it`() = runTest(dispatcher) {
+        val h = harness(stackedProject())
+        h.select("x")
+        assertEquals("v2", h.state.selectedTrackId)
+
+        h.vm.onIntent(EditorIntent.MoveSelectedTrack(-1))
+        assertEquals(listOf("v2", "v3", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+        h.vm.onIntent(EditorIntent.MoveSelectedTrack(1))
+        assertEquals(listOf("v3", "v2", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("v2", "v3", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+    }
+
+    @Test
+    fun `the base lane and the edge lanes refuse to move with a message`() = runTest(dispatcher) {
+        val h = harness(stackedProject())
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.MoveSelectedTrack(-1))
+        assertEquals(listOf("v3", "v2", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+        assertTrue(h.effects.any { it is EditorEffect.ShowMessage })
+
+        h.effects.clear()
+        h.select("x")
+        h.vm.onIntent(EditorIntent.MoveSelectedTrack(1))
+        assertEquals(listOf("v3", "v2", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+        assertTrue(h.effects.any { it is EditorEffect.ShowMessage })
+    }
+
+    // endregion
 
     @Test
     fun `only the selected clip can be dragged`() = runTest(dispatcher) {

@@ -280,6 +280,36 @@ GPL linking, ~10+ MB per ABI, long CI) and nothing in the editor needs it yet: e
 through MediaCodec. **Alternative:** vendor a prebuilt LGPL FFmpeg and use it only for unsupported containers
 once a concrete format gap shows up.
 
+## 2026-10-03 · Export: a late frame is waited for, never replaced by the previous one
+**Chosen:** the exporter's `fetch` substitutes another frame only when the decoder reports that the stream never
+produces the wanted one (`VideoDecoder::isUnavailable`: skipped, or past the last frame); otherwise it waits, and
+logs `slow frame` with the decoder's state if that takes over 500 ms. The choice lives in `encode/pickSourceFrame`
+(host-tested). **Why:** the old code returned the nearest earlier cached frame whenever any later frame was already
+cached, so a frame that was merely late (or dropped by the image queue, then re-decoded after the 400 ms in-flight
+timeout) showed the picture before it: the "4-7 frames one frame early" in the retime check (the report says one frame
+early, not a constant 4-7 frame offset; the checker counts them as off by one). **Alternative:** keep substituting
+and bound the lateness; rejected, an export is offline and has all the time it needs, correctness first.
+**Not verified on the device** (adb offline): the diagnosis comes from reading the code and the new log lines are what
+will confirm it.
+
+## 2026-10-03 · Export: decoder stalls report their state and recover by themselves
+**Chosen:** a stall message now carries the decoder snapshot (`describe()`: target, decode position, last output,
+seek goal, flags, counters) and the cached range; after 3 s without progress `VideoDecoder::recover` clears the
+in-flight bookkeeping and forces a fresh seek (repeated every 3 s), and only 15 s without progress fails the export.
+Frames the stream skips are logged (`never produced`). **Why:** the "stalled at source frame 230 after a reversed
+clip" could not be reproduced here; every hypothesis (stale in-flight entries, a codec positioned oddly after the
+mirrored reverse window) is cured by a re-seek, and the next occurrence will say exactly which state it was in.
+**Alternative:** rebuild the whole decoder on a stall; heavier, and hardware decoders are scarce.
+
+## 2026-10-03 · Export: audio decode failures are retried, an unready clip is waited for or reported by name
+**Chosen:** in offline mode a clip whose decoder fails is retried (1 s cooldown, up to 4 consecutive failures) and the
+render waits for it instead of mixing silence; only a clip that keeps failing raises the `Decode` fault, and an
+offline wait over 30 s raises `OfflineStall`; both name the clip. Previously `ClipSource::ready()` treated a failed
+clip as ready, so a single hiccup (codec reclaimed, failed seek) put silence in the export and aborted it with a
+generic error. **Why:** transient hardware codec failures happen under load and when another app takes a decoder.
+**Alternative:** fail on the first fault (the old behaviour) or retry forever; neither tells a bad file from a busy
+phone. Playback (non-offline) behaviour is unchanged.
+
 ## 2026-10-03 · Magnetic base track: insertion point, reorder rule, trim rules
 **Chosen:** base = lowest video track, always contiguous from 0. Insert/import goes to the *nearest clip boundary*
 (ties to the end), not mid-clip, so no fragments appear. Reorder places the dragged clip in the slot its centre is
@@ -293,6 +323,35 @@ primary-storyline behaviour the user described and makes it impossible to create
 (Final Cut style); leaving legacy gaps untouched; letting overlays crossing an insertion point be split.
 **Open:** overlays that cross a base insertion point stay put (not split), and overlays over a closed legacy gap are
 deleted; confirm both feel right.
+
+## 2026-10-03 · Lane layout: video stack anchored to the bottom, ruler on top
+**Chosen:** lanes keep display order (first = topmost). The lane stack (overlays, then the base, then audio) rests on the
+bottom of the timeline panel and grows upward, so with few lanes the free room is between the ruler and the first lane;
+once the stack is taller than the panel it scrolls vertically, opening at the bottom so the base is visible. The room above
+the stack is the 'add a lane' drop zone. **Why:** the user wants overlays high on the screen and the base low, like
+LumaFusion. **Alternative:** pin the stack to the top (the old layout) or centre the base. **Open:** audio lanes sit below the
+base, so the base is not literally the lowest lane on screen; say if audio should sit elsewhere.
+
+## 2026-10-03 · Dropping a clip: the position decides, an indicator says what happens (no prompt)
+**Chosen:** one function, `DropPlan.decide`, picks the action while dragging and the same command runs on release; the
+timeline draws its hint natively (`DropHint`). Thresholds: **INSERT radius = 10 project frames** measured from the dragged
+clip's **start edge** to a junction of the *base* (a cut between two clips, frame 0, or the end); past the base's end the clip
+is appended. Otherwise over a clip body it is an **OVERWRITE** of the frames the clip covers (tinted range). On overlay, audio
+and title lanes there is **no insert**: landing on clips is always overwrite, free space is a plain move (ghost only).
+The 'add lane' zone (below the ruler above the stack, or the ruler itself) creates a new overlay lane (placeholder tint); a
+finger outside the panel is a **cancel** (red wash, release restores). A base clip dragged within the base only reorders (its
+indicator is an insertion marker at the cut it lands on); it can never leave the base. A gap between lanes keeps the last lane.
+Overwriting onto the base keeps its length (a drop past the end is placed at the end) and clears overlays above the replaced
+frames like a deleted range, without closing it. One undo step per drop. **Why:** the user asked for LumaFusion's
+position-driven behaviour with a live indicator instead of a confirmation prompt. **Alternatives:** a bottom-sheet prompt;
+a zoom-dependent radius in pixels (the frame radius is large when zoomed in and tiny when zoomed out); using the clip centre
+or end edge. **Deferred:** inserting (shifting later clips) on overlay and audio lanes; 'remember my choice'.
+**Open:** whether clearing overlays above an overwritten base range is wanted (the alternative is to leave them untouched).
+
+## 2026-10-03 · Reordering lanes with toolbar buttons
+**Chosen:** up/down buttons for the selected lane; overlay video lanes swap with each other (their order is the stacking
+order), audio lanes with audio lanes, and the base never moves or gets passed. **Why:** cheap and unambiguous on a touch
+screen; long-press dragging of lane headers can come later. **Alternative:** long-press a lane header and drag it.
 
 ## 2026-10-03 · CI: two jobs, host tests separate from the Android build
 **Chosen:** `.github/workflows/ci.yml` runs on pushes to master and on pull requests with two parallel jobs. `native-host-tests`

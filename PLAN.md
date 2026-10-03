@@ -81,6 +81,8 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       2x, reversed, ramped and 0.5x clip was checked frame by frame and by pitch (`scripts/run-retime-export-test.sh`):
       correct in 3 clean runs, but 2 of the first 6 runs failed (a decoder stall, an audio decode error) while another
       session shared the phone. The inspector, the timeline labels and reverse playback in the preview were not seen.
+      Export reliability fixes (fetch waits for late frames, decoder self-recovery, offline audio retries) are in and pass
+      host tests, but were not yet re-run on the phone (adb offline): re-run `scripts/run-retime-export-test.sh` ~10 times.
       Follow-ups: pitch-preserving time stretch, frame blending for slow motion
 - [x] Chainable shader effects, chroma key, masks, blend modes — domain, JSON, undo, JVM and host tests pass and the
       native engine compiles; the shaders and the inspector are not yet seen on the device (adb offline)
@@ -98,3 +100,10 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - Every clip-manipulation feature ships with unit tests for collisions and gaps.
 - Profile on the reference device at the end of each phase (frame time, memory, battery).
 - Keep CLAUDE.md and SPECS.md updated when decisions change.
+
+## Lane layout and drops (added after the first on-device review)
+- [x] Video stack anchored to the bottom of the timeline panel (overlays above, base below, audio under it)
+- [x] Drop zones decided by position with a live native indicator: insert (base), overwrite, new lane, cancel
+- [x] Move lanes up/down (toolbar)
+- [ ] Verified on the OPPO (the device was unreachable when this was written)
+- [ ] Insert on overlay/audio lanes (deferred)

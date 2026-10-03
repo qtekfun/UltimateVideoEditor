@@ -40,6 +40,7 @@ struct ClipSource {
     const Rational fps;  // project frame rate, the unit of the knots
     std::atomic<int64_t> eofAt{INT64_MAX};  // clip-local sample where decoded audio ends
     std::atomic<bool> failed{false};
+    std::atomic<int32_t> failures{0};  // consecutive failures; reset once the clip decodes again
 
     // Worker only.
     std::unique_ptr<PcmDecoder> decoder;
@@ -52,9 +53,13 @@ struct ClipSource {
     std::vector<float> outScratch;
 
     // True when the audio thread can play [localPos, localPos + frames) without an underrun, or
-    // when waiting would be pointless (failed or past the end of the media).
-    bool ready(int64_t localPos, int32_t frames) const {
-        if (failed.load(std::memory_order_acquire)) return true;
+    // when waiting would be pointless (failed or past the end of the media). An offline render passes
+    // `waitForFailed`: a clip that failed fewer than `maxFailures` times is retried by the worker, and
+    // rendering on without it would put a silent hole in the export.
+    bool ready(int64_t localPos, int32_t frames, bool waitForFailed = false, int32_t maxFailures = 0) const {
+        if (failed.load(std::memory_order_acquire)) {
+            return !(waitForFailed && failures.load(std::memory_order_acquire) <= maxFailures);
+        }
         const int64_t eof = eofAt.load(std::memory_order_acquire);
         if (localPos >= eof) return true;
         const int32_t need = static_cast<int32_t>(std::min<int64_t>(frames, eof - localPos));
