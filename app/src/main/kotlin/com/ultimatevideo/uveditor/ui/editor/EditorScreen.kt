@@ -35,6 +35,11 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.ultimatevideo.uveditor.domain.TrackType
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +60,7 @@ import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
+import com.ultimatevideo.uveditor.ui.preview.PreviewSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -82,6 +88,28 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         }
     }
     DisposableEffect(engine) { onDispose { engine.close() } }
+
+    val preview = remember {
+        EditorPreview(context, scope) { viewModel.onIntent(EditorIntent.ReportError(it)) }
+    }
+    DisposableEffect(preview) { onDispose { preview.close() } }
+
+    // Show the frame under the playhead; while playing this runs on every tick.
+    LaunchedEffect(state.playhead, state.timeline, state.assets, state.fps, state.isLoading) {
+        if (state.isLoading) return@LaunchedEffect
+        val target = previewTargetAt(state.timeline, state.playhead) ?: return@LaunchedEffect
+        val asset = state.assets.firstOrNull { it.id == target.clip.assetId } ?: return@LaunchedEffect
+        if (!asset.hasVideo) return@LaunchedEffect
+        preview.show(
+            PreviewRequest(
+                assetKey = viewModel.assetKey(asset.id).toInt(),
+                uri = asset.uri,
+                sourceFrame = target.sourceFrame,
+                fpsNum = state.fps.num,
+                fpsDen = state.fps.den,
+            ),
+        )
+    }
 
     val editing = remember(viewModel) {
         object : TimelineEditing {
@@ -150,8 +178,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
 
             else -> BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
                 // Window size classes without a new dependency: the media panel appears on wide windows.
-                if (maxWidth >= ExpandedWidth) {
-                    Row(modifier = Modifier.fillMaxSize()) {
+                // One Row in both layouts, with EditorMain as a stable child: switching between
+                // layouts must not recreate the native timeline view, or a late surfaceDestroyed
+                // of the old view tears down the surface of the new one.
+                val wide = maxWidth >= ExpandedWidth
+                Row(modifier = Modifier.fillMaxSize()) {
+                    if (wide) {
                         MediaPanel(
                             assets = state.assets,
                             isImporting = state.isImporting,
@@ -159,10 +191,8 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
                             modifier = Modifier.width(280.dp).fillMaxHeight(),
                         )
-                        EditorMain(state, viewModel, engine, editing, launchImport, Modifier.weight(1f))
                     }
-                } else {
-                    EditorMain(state, viewModel, engine, editing, launchImport, Modifier.fillMaxSize())
+                    EditorMain(state, viewModel, engine, preview, editing, launchImport, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -174,6 +204,7 @@ private fun EditorMain(
     state: EditorState,
     viewModel: EditorViewModel,
     engine: TimelineEngine,
+    preview: EditorPreview,
     editing: TimelineEditing,
     onImport: () -> Unit,
     modifier: Modifier = Modifier,
@@ -195,15 +226,14 @@ private fun EditorMain(
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
         }
 
-        // Placeholder until the native preview is wired in a later phase.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(PREVIEW_WEIGHT)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = "Preview", style = MaterialTheme.typography.labelLarge)
+        // No background here: the preview is a SurfaceView, and an opaque parent would hide it.
+        Box(modifier = Modifier.fillMaxWidth().weight(PREVIEW_WEIGHT), contentAlignment = Alignment.Center) {
+            val previewEngine = preview.engine
+            if (previewEngine != null) {
+                PreviewSurface(previewEngine, Modifier.fillMaxSize())
+            } else {
+                Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
+            }
         }
 
         // Transport: timecode on the left, previous / play / next centred.
@@ -238,6 +268,9 @@ private fun EditorMain(
             ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.RippleAppendSelected)
             }
+            TrackControls(state.selectedTrackLabel, onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) }) {
+                viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
+            }
         }
 
         TimelineHost(
@@ -247,6 +280,29 @@ private fun EditorMain(
             modifier = Modifier.fillMaxWidth().weight(TIMELINE_WEIGHT),
         )
     }
+}
+
+/** Add a video or audio track, remove the selected empty one, and show which track is selected. */
+@Composable
+private fun TrackControls(
+    selectedLabel: String?,
+    onAdd: (TrackType) -> Unit,
+    onRemove: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        ToolButton(EditorIcons.Layers, "Add track") { menuOpen = true }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(text = { Text("Video track") }, onClick = { menuOpen = false; onAdd(TrackType.VIDEO) })
+            DropdownMenuItem(text = { Text("Audio track") }, onClick = { menuOpen = false; onAdd(TrackType.AUDIO) })
+        }
+    }
+    ToolButton(EditorIcons.Minus, "Remove selected track", enabled = selectedLabel != null, onClick = onRemove)
+    Text(
+        text = selectedLabel ?: "",
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(start = 4.dp).width(28.dp),
+    )
 }
 
 /** Small icon-only button; [description] is read by screen readers. */

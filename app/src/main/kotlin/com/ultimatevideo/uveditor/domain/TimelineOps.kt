@@ -12,6 +12,21 @@ object TimelineOps {
 
     private fun success(timeline: Timeline): EditResult<Timeline> = EditResult.Success(timeline)
 
+    /** Inserts an empty [track] at [index] (clamped to the valid range). Track order is display order. */
+    fun addTrack(timeline: Timeline, track: Track, index: Int): EditResult<Timeline> {
+        if (timeline.track(track.id) != null) return failure(EditError.DuplicateTrackId(track.id))
+        if (track.clips.isNotEmpty()) return failure(EditError.InvalidClip("a new track must be empty"))
+        val at = index.coerceIn(0, timeline.tracks.size)
+        return success(Timeline(timeline.tracks.toMutableList().apply { add(at, track) }))
+    }
+
+    /** Removes an empty track. */
+    fun removeTrack(timeline: Timeline, trackId: String): EditResult<Timeline> {
+        val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))
+        if (track.clips.isNotEmpty()) return failure(EditError.TrackNotEmpty(trackId))
+        return success(Timeline(timeline.tracks.filter { it.id != trackId }))
+    }
+
     /** Splits the clip on [trackId] that strictly contains [at]; the right half gets [newClipId]. */
     fun split(timeline: Timeline, trackId: String, at: FrameIndex, newClipId: String): EditResult<Timeline> {
         val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))

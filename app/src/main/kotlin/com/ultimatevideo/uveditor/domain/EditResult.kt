@@ -10,6 +10,10 @@ sealed interface EditError {
     data class TrackNotFound(val trackId: String) : EditError
     data class ClipNotFound(val clipId: String) : EditError
     data class DuplicateClipId(val clipId: String) : EditError
+    data class DuplicateTrackId(val trackId: String) : EditError
+
+    /** Only an empty track can be removed; removing one with clips would silently delete them. */
+    data class TrackNotEmpty(val trackId: String) : EditError
     data class InvalidClip(val reason: String) : EditError
     data class TrackTypeMismatch(val clipId: String, val trackId: String) : EditError
     data class Overlap(val blockingClipId: String) : EditError

@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.ui.editor
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Rect
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -84,6 +85,17 @@ class TimelineSurfaceView(
         holder.addCallback(this)
     }
 
+    /**
+     * A playhead or clip near the screen edge would otherwise start the system back gesture.
+     * Android honours at most [MAX_EXCLUSION_DP] of height per edge, so the strip reserved here
+     * covers the ruler and the first track lanes, which is where grabs happen.
+     */
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        val limit = (MAX_EXCLUSION_DP * resources.displayMetrics.density).toInt()
+        systemGestureExclusionRects = listOf(Rect(0, 0, right - left, minOf(bottom - top, limit)))
+    }
+
     private fun tryStartDrag() {
         val hit = downHit ?: return
         val handler = editing() ?: return
@@ -110,3 +122,5 @@ class TimelineSurfaceView(
         return true
     }
 }
+
+private const val MAX_EXCLUSION_DP = 200
