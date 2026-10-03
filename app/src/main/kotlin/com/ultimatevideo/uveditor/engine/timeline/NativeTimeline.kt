@@ -27,6 +27,8 @@ internal object NativeTimeline {
     external fun nativeIsAutoFit(handle: Long): Boolean
     external fun nativeSetPlayhead(handle: Long, frame: Long)
     external fun nativeEnsureVisible(handle: Long, frame: Long)
+
+    external fun nativeSetDropHint(handle: Long, kind: Int, trackIndex: Int, startFrame: Long, endFrame: Long)
     external fun nativeHitTest(handle: Long, x: Float, y: Float): LongArray?
     external fun nativeRequestWaveform(handle: Long, assetKey: Long, fd: Int, cachePath: String): Int
 }

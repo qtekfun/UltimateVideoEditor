@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -134,6 +135,7 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     d->startPtsUs_ = firstPts;
     d->info_.durationFrames = hasDuration ? ptsUsToFrame(durationUs, d->info_.fps) : kUnknownDuration;
     d->lastFrame_ = d->info_.durationFrames > 0 ? d->info_.durationFrames - 1 : 0;
+    d->sharedLastFrame_.store(d->lastFrame_);
 
     // Decoder output goes to an AImageReader so every frame arrives as an AHardwareBuffer.
     constexpr int32_t kMaxImages = 8;
@@ -247,6 +249,37 @@ void VideoDecoder::markResolved(int64_t frame) {
     pendingCv_.notify_all();
 }
 
+bool VideoDecoder::isUnavailable(int64_t frame) const {
+    if (frame > sharedLastFrame_.load()) return true;
+    std::lock_guard<std::mutex> lock(unavailableMu_);
+    return unavailable_.count(frame) != 0;
+}
+
+void VideoDecoder::recover(int64_t frame) {
+    {
+        std::lock_guard<std::mutex> lock(pendingMu_);
+        pending_.clear();
+    }
+    pendingCv_.notify_all();
+    UV_LOGW("recovering the decoder for frame %lld (%s)", static_cast<long long>(frame), describe().c_str());
+    forceSeek_.store(true);
+    setTarget(frame);
+}
+
+std::string VideoDecoder::describe() const {
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "target=%lld decodePos=%lld lastOut=%lld seekGoal=%lld lastFrame=%lld seeks=%lld unavailable=%lld "
+                  "primed=%d inputEos=%d failed=%d window=-%d/+%d decoded=%lld",
+                  static_cast<long long>(target_.load()), static_cast<long long>(sharedDecodePos_.load()),
+                  static_cast<long long>(sharedLastOutFrame_.load()), static_cast<long long>(sharedSeekGoal_.load()),
+                  static_cast<long long>(sharedLastFrame_.load()), static_cast<long long>(sharedSeeks_.load()),
+                  static_cast<long long>(sharedMarkedUnavailable_.load()), sharedPrimed_.load(), sharedInputEos_.load(),
+                  sharedFailed_.load(), lookBehind_.load(), lookAhead_.load(),
+                  static_cast<long long>(framesDecoded_.load()));
+    return buf;
+}
+
 size_t VideoDecoder::inFlightCount() {
     std::lock_guard<std::mutex> lock(pendingMu_);
     const int64_t now = nowMs();
@@ -262,7 +295,10 @@ void VideoDecoder::reportError(Status code, const std::string& message) {
 }
 
 bool VideoDecoder::needsFrame(int64_t frame) {
-    if (unavailable_.count(frame) != 0) return false;
+    {
+        std::lock_guard<std::mutex> lock(unavailableMu_);
+        if (unavailable_.count(frame) != 0) return false;
+    }
     if (callbacks_.isCached && callbacks_.isCached(frame)) return false;
     std::lock_guard<std::mutex> lock(pendingMu_);
     auto it = pending_.find(frame);
@@ -311,17 +347,23 @@ void VideoDecoder::seekTo(int64_t frame) {
     const int64_t ptsUs = startPtsUs_ + frameToPtsUs(frame, info_.fps);
     if (AMediaExtractor_seekTo(extractor_, ptsUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC) != AMEDIA_OK) {
         failed_ = true;
+        sharedFailed_.store(true);
         reportError(Status::IoError, "AMediaExtractor_seekTo failed");
         return;
     }
     if (AMediaCodec_flush(codec_) != AMEDIA_OK) {
         failed_ = true;
-        reportError(Status::CodecError, "AMediaCodec_flush failed");
+        sharedFailed_.store(true);
+        reportError(Status::CodecError, "AMediaCodec_flush failed (" + describe() + ")");
         return;
     }
     decoderPrimed_ = true;
     awaitingFirstOutput_ = true;
     seekGoal_ = frame;
+    sharedSeekGoal_.store(frame);
+    sharedPrimed_.store(true);
+    sharedInputEos_.store(false);
+    sharedSeeks_.fetch_add(1);
 }
 
 void VideoDecoder::pump(int64_t lo, int64_t hi) {
@@ -336,13 +378,15 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
             AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(index), 0, 0, 0,
                                          AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
             inputEos_ = true;
+            sharedInputEos_.store(true);
             break;
         }
         const int64_t sampleTime = AMediaExtractor_getSampleTime(extractor_);
         if (AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(index), 0, static_cast<size_t>(size),
                                          static_cast<uint64_t>(std::max<int64_t>(sampleTime, 0)), 0) != AMEDIA_OK) {
             failed_ = true;
-            reportError(Status::CodecError, "AMediaCodec_queueInputBuffer failed");
+            sharedFailed_.store(true);
+            reportError(Status::CodecError, "AMediaCodec_queueInputBuffer failed (" + describe() + ")");
             return;
         }
         AMediaExtractor_advance(extractor_);
@@ -368,7 +412,9 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
     }
     if (out < 0) {
         failed_ = true;
-        reportError(Status::CodecError, "AMediaCodec_dequeueOutputBuffer failed (" + std::to_string(out) + ")");
+        sharedFailed_.store(true);
+        reportError(Status::CodecError,
+                    "AMediaCodec_dequeueOutputBuffer failed (" + std::to_string(out) + "; " + describe() + ")");
         return;
     }
 
@@ -376,11 +422,23 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
     if (info.size > 0) {
         const int64_t frame = ptsToFrame(info.presentationTimeUs);
         if (seekGoal_ >= 0 && frame >= seekGoal_) {
-            if (frame > seekGoal_) unavailable_.insert(seekGoal_);  // the stream skipped it
+            if (frame > seekGoal_) {  // the stream skipped it
+                {
+                    std::lock_guard<std::mutex> lock(unavailableMu_);
+                    unavailable_.insert(seekGoal_);
+                }
+                sharedMarkedUnavailable_.fetch_add(1);
+                UV_LOGW("frame %lld never produced: first output after the seek was %lld (pts %lld us, start %lld us)",
+                        static_cast<long long>(seekGoal_), static_cast<long long>(frame),
+                        static_cast<long long>(info.presentationTimeUs), static_cast<long long>(startPtsUs_));
+            }
             seekGoal_ = -1;
+            sharedSeekGoal_.store(-1);
         }
         awaitingFirstOutput_ = false;
         decodePos_ = frame + 1;
+        sharedDecodePos_.store(decodePos_);
+        sharedLastOutFrame_.store(frame);
         if (frame >= lo && frame <= hi && needsFrame(frame)) {
             render = true;
             std::lock_guard<std::mutex> lock(pendingMu_);
@@ -397,7 +455,9 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
 
     if ((info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0) {
         decoderPrimed_ = false;  // next work needs a flush + seek
+        sharedPrimed_.store(false);
         if (decodePos_ > 0) lastFrame_ = std::min(lastFrame_, decodePos_ - 1);
+        sharedLastFrame_.store(lastFrame_);
     }
 }
 
@@ -410,7 +470,8 @@ bool VideoDecoder::step(int64_t target) {
     const int64_t lo = std::max<int64_t>(0, clamped - lookBehind_.load());
     const int64_t hi = std::min<int64_t>(lastFrame_, clamped + lookAhead_.load());
 
-    const bool needSeek = !decoderPrimed_ ||
+    const bool forced = forceSeek_.exchange(false);
+    const bool needSeek = forced || !decoderPrimed_ ||
                           (!awaitingFirstOutput_ && (decodePos_ > missing || missing - decodePos_ > kMaxForwardSkipFrames));
     if (needSeek) {
         UV_LOGI("seek: missing=%lld decodePos=%lld target=%lld primed=%d awaiting=%d", static_cast<long long>(missing),

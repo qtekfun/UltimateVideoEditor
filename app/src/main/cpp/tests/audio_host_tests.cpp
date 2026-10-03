@@ -266,7 +266,9 @@ struct FakeSpec {
     int64_t totalFrames = 48000 * 600;  // source frames available
     float constant = -1.0f;             // >= 0: constant signal instead of the index ramp
     Status openStatus = Status::Ok;     // != Ok: factory fails
+    int failReads = 0;                  // the first N read() calls (across decoders) fail with CodecError
 };
+static std::atomic<int> g_readsToFail{0};
 static FakeSpec g_spec;
 
 // Source sample i has a unique, reproducible value so placement and seeking can be verified.
@@ -287,6 +289,11 @@ public:
     }
     PcmReadResult read(float* dst, int32_t maxFrames) override {
         PcmReadResult r;
+        if (g_readsToFail.load() > 0) {
+            --g_readsToFail;
+            r.status = Status::CodecError;
+            return r;
+        }
         if (pos_ >= spec_.totalFrames) {
             r.eof = true;
             return r;
@@ -690,6 +697,56 @@ static void testOfflineRenderWaitsForData() {
     core.streamStopped();
 }
 
+// A clip whose decoder hiccups (a reclaimed codec, a failed seek) is retried by an offline render,
+// which waits for it: the output stays exact, with no silent hole and no fault.
+static void testOfflineRenderSurvivesTransientDecodeFailures() {
+    g_spec = FakeSpec{};
+    g_readsToFail = 2;
+    AudioCore core(fakeFactory());
+    core.configure(48000);
+    core.setOfflineMode(true);
+    core.streamStarting();
+    core.setSnapshot(snap30({clipDesc(1, 0, 600, 0)}));
+    core.startWorker();
+    core.play();
+    std::vector<float> out(static_cast<size_t>(3 * 48000) * 2);
+    for (int64_t done = 0; done < 3 * 48000; done += kBlock) core.render(out.data() + done * 2, kBlock);
+    int bad = 0;
+    for (int64_t k = 0; k < 3 * 48000; ++k) {
+        if (std::fabs(out[2 * k] - valueAt(k)) > 1e-4f) ++bad;
+    }
+    CHECK(bad == 0);
+    CHECK(core.underrunBlocks() == 0);
+    std::vector<AudioFault> faults;
+    core.pollFaults(&faults);
+    CHECK(faults.empty());
+    core.stopWorker();
+    core.streamStopped();
+    g_readsToFail = 0;
+}
+
+// A clip that never decodes is reported once its retries run out, as a typed Decode fault, instead of
+// rendering silence in its place.
+static void testOfflineRenderReportsAPermanentlyFailingClip() {
+    g_spec = FakeSpec{};
+    g_readsToFail = 1000000;
+    AudioCore core(fakeFactory());
+    core.configure(48000);
+    core.setOfflineMode(true);
+    core.streamStarting();
+    core.setSnapshot(snap30({clipDesc(7, 0, 600, 0)}));
+    core.startWorker();
+    core.play();
+    std::vector<float> out(static_cast<size_t>(kBlock) * 2);
+    core.render(out.data(), kBlock);
+    std::vector<AudioFault> faults;
+    core.pollFaults(&faults);
+    CHECK(faults.size() == 1 && faults[0].kind == AudioFault::Kind::Decode && faults[0].clipKey == 7 &&
+          faults[0].status == Status::CodecError);
+    core.stopWorker();
+    core.streamStopped();
+    g_readsToFail = 0;
+}
 
 // ------------------------------------------------------------------ retimed clips
 
@@ -955,6 +1012,8 @@ int main() {
     testFarClipsHoldNoDecoder();
     testThreadedWorker();
     testOfflineRenderWaitsForData();
+    testOfflineRenderSurvivesTransientDecodeFailures();
+    testOfflineRenderReportsAPermanentlyFailingClip();
     testRetimeSnapshotParsing();
     testRetimeMap();
     testRetimedReaderForward();

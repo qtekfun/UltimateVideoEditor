@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "audio/waveform_peaks.h"
+#include "timeline_view/drop_hint.h"
 #include "timeline_view/hit_test.h"
 #include "timeline_view/layout.h"
 #include "timeline_view/timeline_snapshot.h"
@@ -54,6 +55,8 @@ public:
     bool isAutoFit() const;
     void fling(float velocityX);
     void invalidate();
+    // The live indicator of what releasing a dragged clip would do; DropHintKind::None clears it.
+    void setDropHint(const DropHint& hint);
     HitResult hitTest(float x, float y) const;
 
     class Gl;  // render-thread only (public so file-local helpers can name it)

@@ -43,6 +43,13 @@ constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
 constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
 constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
+constexpr Color kDropInsert{1.0f, 0.78f, 0.1f, 1.0f};
+constexpr Color kDropInsertGlow{1.0f, 0.78f, 0.1f, 0.28f};
+constexpr Color kDropOverwrite{1.0f, 0.42f, 0.2f, 0.38f};
+constexpr Color kDropOverwriteEdge{1.0f, 0.42f, 0.2f, 0.95f};
+constexpr Color kDropNewLane{0.3f, 0.9f, 0.5f, 0.3f};
+constexpr Color kDropNewLaneEdge{0.3f, 0.9f, 0.5f, 0.95f};
+constexpr Color kDropCancel{0.9f, 0.2f, 0.2f, 0.24f};
 
 constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
 constexpr size_t kUploadsPerFrame = 6;                     // keeps a frame cheap while tiles stream in
@@ -133,6 +140,7 @@ struct TimelineRenderer::State {
     float density = 1.0f;
     int width = 0, height = 0;
     int64_t playhead = 0;
+    DropHint dropHint;
     float flingVelocity = 0.0f;  // px/s
     bool flingStarted = false;
     bool dirty = true;
@@ -515,7 +523,10 @@ void TimelineRenderer::surfaceDestroyed() {
 void TimelineRenderer::setSnapshot(std::shared_ptr<const TimelineSnapshot> snapshot) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        const bool firstContent = state_->snapshot->tracks.empty() && !snapshot->tracks.empty();
         state_->snapshot = std::move(snapshot);
+        // The base lane is at the bottom of the stack: when the stack is taller than the panel, open scrolled to it.
+        if (firstContent) state_->vp.scrollY = 1.0e9;
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -526,6 +537,15 @@ void TimelineRenderer::setThumbnails(std::weak_ptr<thumb::ThumbnailService> serv
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state_->thumbs = std::move(service);
+        state_->dirty = true;
+    }
+    wake();
+}
+
+void TimelineRenderer::setDropHint(const DropHint& hint) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->dropHint = hint;
         state_->dirty = true;
     }
     wake();
@@ -614,12 +634,22 @@ HitResult TimelineRenderer::hitTest(float x, float y) const {
     Viewport vp;
     Layout layout;
     int64_t playhead = 0;
+    int width = 0, height = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         snap = state_->snapshot;
         vp = state_->vp;
-        layout = state_->layout;
+        layout = state_->layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(state_->height));
         playhead = state_->playhead;
+        width = state_->width;
+        height = state_->height;
+    }
+    // A finger that has left the panel is far from every valid drop: the caller treats it as a cancel.
+    if (x < 0.0f || y < 0.0f || x > static_cast<float>(width) || y > static_cast<float>(height)) {
+        HitResult outside;
+        outside.kind = HitKind::Outside;
+        outside.frame = std::max<int64_t>(0, vp.xToFrame(x));
+        return outside;
     }
     return uv::timeline::hitTest(*snap, vp, layout, x, y, playhead);
 }
@@ -697,6 +727,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     Layout layout;
     int width, height;
     int64_t playhead;
+    DropHint dropHint;
     bool keepAnimating = false;
     std::weak_ptr<thumb::ThumbnailService> thumbWeak;
     {
@@ -721,7 +752,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         s.dirty = false;
         snap = s.snapshot;
         vp = s.vp;
-        layout = s.layout;
+        layout = s.layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(s.height));
+        dropHint = s.dropHint;
         width = s.width;
         height = s.height;
         playhead = s.playhead;
@@ -934,6 +966,51 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     if (thumbs) {
         for (const auto& [assetKey, want] : wanted) {
             thumbs->want(assetKey, want.level, std::vector<int64_t>(want.indices.begin(), want.indices.end()));
+        }
+    }
+
+    // Drop indicator: what releasing the dragged clip would do.
+    if (dropHint.kind != DropHintKind::None) {
+        g.setClip(0, layout.rulerHeight, W, H);
+        const float bar = std::max(2.0f, 3.0f * density);
+        const HintRect hr = dropHintRect(dropHint, vp, layout, W, H, static_cast<int>(snap->tracks.size()), bar);
+        if (hr.valid) {
+            const float edge = std::max(1.0f, 2.0f * density);
+            switch (dropHint.kind) {
+                case DropHintKind::Insert: {
+                    const float cx = (hr.x0 + hr.x1) * 0.5f;
+                    g.rect(cx - 7.0f * density, hr.y0, cx + 7.0f * density, hr.y1, kDropInsertGlow);
+                    g.rect(hr.x0, hr.y0 - 4.0f * density, hr.x1, hr.y1 + 4.0f * density, kDropInsert);
+                    // A small arrow pointing down into the gap that will open.
+                    for (int i = 0; i < 3; ++i) {
+                        const float half = (7.0f - 2.5f * static_cast<float>(i)) * density;
+                        const float y = hr.y0 + (4.0f + 3.0f * static_cast<float>(i)) * density;
+                        g.rect(cx - half, y, cx + half, y + 3.0f * density, kDropInsert);
+                    }
+                    break;
+                }
+                case DropHintKind::Overwrite:
+                    g.rect(hr.x0, hr.y0, hr.x1, hr.y1, kDropOverwrite);
+                    g.rect(hr.x0, hr.y0, hr.x1, hr.y0 + edge, kDropOverwriteEdge);
+                    g.rect(hr.x0, hr.y1 - edge, hr.x1, hr.y1, kDropOverwriteEdge);
+                    g.rect(hr.x0, hr.y0, hr.x0 + edge, hr.y1, kDropOverwriteEdge);
+                    g.rect(hr.x1 - edge, hr.y0, hr.x1, hr.y1, kDropOverwriteEdge);
+                    break;
+                case DropHintKind::NewLane: {
+                    g.rect(hr.x0, hr.y0, hr.x1, hr.y1, kDropNewLane);
+                    g.rect(hr.x0, hr.y0, hr.x1, hr.y0 + edge, kDropNewLaneEdge);
+                    g.rect(hr.x0, hr.y1 - edge, hr.x1, hr.y1, kDropNewLaneEdge);
+                    const float cx = W * 0.5f, cy = (hr.y0 + hr.y1) * 0.5f, arm = 10.0f * density;
+                    g.rect(cx - arm, cy - edge * 0.5f, cx + arm, cy + edge * 0.5f, kDropNewLaneEdge);
+                    g.rect(cx - edge * 0.5f, cy - arm, cx + edge * 0.5f, cy + arm, kDropNewLaneEdge);
+                    break;
+                }
+                case DropHintKind::Cancel:
+                    g.rect(hr.x0, hr.y0, hr.x1, hr.y1, kDropCancel);
+                    break;
+                default:
+                    break;
+            }
         }
     }
 
