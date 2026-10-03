@@ -33,6 +33,16 @@ target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
 find_package(Threads REQUIRED)
 target_link_libraries(uv_audio_host_tests PRIVATE Threads::Threads)
 
+# Thumbnail grid math, atlas slot LRU, on-disk tile store and YUV conversion.
+add_executable(uv_thumbnail_host_tests
+    thumbnail_host_tests.cpp
+    ${ENGINE_DIR}/core/error.cpp
+    ${ENGINE_DIR}/thumbnail/thumb_store.cpp
+)
+target_include_directories(uv_thumbnail_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_thumbnail_host_tests PRIVATE -Wall -Wextra -Werror)
+
 enable_testing()
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
+add_test(NAME uv_thumbnail_host_tests COMMAND uv_thumbnail_host_tests)
