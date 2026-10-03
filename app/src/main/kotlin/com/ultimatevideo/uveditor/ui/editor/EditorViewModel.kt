@@ -60,6 +60,9 @@ class EditorViewModel(
     private var pendingDragCommand: EditCommand? = null
     private var saveJob: Job? = null
     private var playJob: Job? = null
+
+    /** Set by the screen once the audio engine is up. Until then the transport uses the system clock. */
+    var playbackOutput: PlaybackOutput? = null
     private var dirty = false
 
     init {
@@ -69,7 +72,7 @@ class EditorViewModel(
     override fun onIntent(intent: EditorIntent) {
         when (intent) {
             is EditorIntent.TapTimeline -> tap(intent.hit)
-            is EditorIntent.SetPlayhead -> setPlayhead(intent.frame)
+            is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             is EditorIntent.DragStart -> dragStart(intent.hit)
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
@@ -99,6 +102,9 @@ class EditorViewModel(
         val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
         return onClip && clipKeys.idFor(hit.clipKey) == selected
     }
+
+    /** Stable native key for [clipId]; the same key the timeline canvas uses. */
+    fun clipKey(clipId: String): Long = clipKeys.keyFor(clipId)
 
     /** Native key for [assetId]; used to request its waveform. */
     fun assetKey(assetId: String): Long = assetKeys.keyFor(assetId)
@@ -202,7 +208,7 @@ class EditorViewModel(
 
     private fun tap(hit: TimelineHit) {
         when (hit.kind) {
-            HitKind.RULER, HitKind.PLAYHEAD -> setPlayhead(hit.frame)
+            HitKind.RULER, HitKind.PLAYHEAD -> seekTo(hit.frame)
             HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> {
                 val clipId = clipKeys.idFor(hit.clipKey)
                 reduce { copy(selectedClipId = clipId, selectedTrackId = clipId?.let { timeline.trackOfClip(it)?.id } ?: selectedTrackId) }
@@ -215,7 +221,9 @@ class EditorViewModel(
     }
 
     private fun setPlayhead(frame: Long) {
-        reduce { copy(playhead = FrameIndex(frame.coerceAtLeast(0))) }
+        val clamped = frame.coerceAtLeast(0)
+        reduce { copy(playhead = FrameIndex(clamped)) }
+        if (!state.value.isPlaying) playbackOutput?.seek(clamped)
     }
 
     /**
@@ -238,16 +246,21 @@ class EditorViewModel(
         val from = state.value.playhead.value.takeIf { it < end } ?: 0
         val startedAt = nanoClock()
         reduce { copy(isPlaying = true, playhead = FrameIndex(from)) }
+        playbackOutput?.play(from)
         playJob?.cancel()
         playJob = viewModelScope.launch {
             while (true) {
                 delay(PLAY_TICK_MILLIS)
+                // The audio device is the master clock; the system clock is the fallback. Never
+                // go backwards: the heard position can lag the start frame by the device latency.
+                val heard = playbackOutput?.heardFrame()
                 val elapsedMicros = (nanoClock() - startedAt) / NANOS_PER_MICRO
-                val frame = from + fps.microsToFrames(elapsedMicros)
+                val frame = maxOf(from, heard ?: (from + fps.microsToFrames(elapsedMicros)))
                 // Re-read the end each tick: the timeline can be edited while playing.
                 val currentEnd = timelineEnd()
                 if (frame >= currentEnd) {
                     reduce { copy(playhead = FrameIndex(currentEnd), isPlaying = false) }
+                    playbackOutput?.pause()
                     return@launch
                 }
                 reduce { copy(playhead = FrameIndex(frame)) }
@@ -283,7 +296,10 @@ class EditorViewModel(
     private fun pausePlayback() {
         playJob?.cancel()
         playJob = null
-        if (state.value.isPlaying) reduce { copy(isPlaying = false) }
+        if (state.value.isPlaying) {
+            reduce { copy(isPlaying = false) }
+            playbackOutput?.pause()
+        }
     }
 
     private fun undo() {
