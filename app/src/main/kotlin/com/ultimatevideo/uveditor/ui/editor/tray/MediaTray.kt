@@ -113,7 +113,8 @@ internal fun MediaTray(
         ),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        Column(Modifier.fillMaxSize()) {
+        // A bottom panel is only as tall as its content (the editor above takes the rest); a side panel fills its column.
+        Column(if (bottomPanel) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
             TrayHeader(state, onState, bottomPanel)
             val collapsed = bottomPanel && state.height == TrayHeight.COLLAPSED
             if (!collapsed) {

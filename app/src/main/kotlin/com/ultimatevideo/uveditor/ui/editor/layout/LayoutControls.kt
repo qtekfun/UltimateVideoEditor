@@ -100,7 +100,7 @@ internal fun CollapsedBottomBar(label: String, onExpand: () -> Unit, modifier: M
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            ToolButton(icon = EditorIcons.Add, description = "Show the $label", onClick = onExpand)
+            ToolButton(icon = EditorIcons.ChevronUp, description = "Show the $label", onClick = onExpand)
         }
     }
 }
