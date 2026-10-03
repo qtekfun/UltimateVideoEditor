@@ -76,8 +76,11 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Keyframes: position, scale, rotation, opacity (linear / ease / hold), inspector diamond, timeline markers,
       same pose in preview and export — JVM and host tests pass; not yet seen on the device
 - [x] Speed changes (0.1x–8x), ramps, reverse, freeze frame — domain, preview, export table, audio (varispeed, muted
-      outside 0.25x–4x) and inspector; JVM and host tests pass; not yet seen on the device (phone busy). Follow-ups:
-      pitch-preserving time stretch, frame blending for slow motion
+      outside 0.25x–4x) and inspector; JVM and host tests pass. On the OnePlus the export of a timeline with a freeze,
+      2x, reversed, ramped and 0.5x clip was checked frame by frame and by pitch (`scripts/run-retime-export-test.sh`):
+      correct in 3 clean runs, but 2 of the first 6 runs failed (a decoder stall, an audio decode error) while another
+      session shared the phone. The inspector, the timeline labels and reverse playback in the preview were not seen.
+      Follow-ups: pitch-preserving time stretch, frame blending for slow motion
 - [x] Chainable shader effects, chroma key, masks, blend modes — domain, JSON, undo, JVM and host tests pass and the
       native engine compiles; the shaders and the inspector are not yet seen on the device (adb offline)
 - [ ] Automatic subtitles (on-device transcription) and animated caption styles

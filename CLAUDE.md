@@ -76,6 +76,12 @@ A/V drift: `scripts/av-drift-test.sh <serial> [minutes]` generates a beep+flash 
 (`adb shell setprop log.tag.UVSync DEBUG` is set by the script). Playback model: audio is the master clock; the preview runs a native
 clock and is re-anchored only on composition change or >2 frames of drift (SPECS.md 5.3).
 
+Retiming: `scripts/run-retime-export-test.sh <serial> [runs]` exports a timeline with a freeze, 2x, reversed, ramped and 0.5x clip
+from a synthetic source (every frame carries its own number in binary squares, plus a 440 Hz tone), then
+`scripts/check-retime-export.py` reads the frame numbers and the pitch back from the MP4 and compares them with what the domain
+mapping (`domain/Retime.kt`, SPECS.md 5.13) says. Needs the app and androidTest APKs installed (`adb install -r` / `-r -t`); the test
+APK's instrumentation does not clear app data when run with `am instrument`. Do not run it while another session installs builds.
+
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests
   covering collisions, gaps, and boundary frames. Write them with the operation, not afterwards.
