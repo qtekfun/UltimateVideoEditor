@@ -262,8 +262,8 @@ class EditorViewModel(
                 SnapshotClip(
                     clipKey = clipKeys.keyFor(clip.id),
                     trackIndex = trackIndex,
-                    // Titles, photos and stickers have no media to read waveforms or thumbnails from.
-                    assetKey = clip.assetId?.takeIf { clip.hasMedia }?.let(assetKeys::keyFor) ?: NO_ASSET_KEY,
+                    // Titles and stickers have no media to read waveforms or thumbnails from; a photo has a thumbnail.
+                    assetKey = clip.assetId?.takeIf { clip.hasMedia || clip.still == StillKind.PHOTO }?.let(assetKeys::keyFor) ?: NO_ASSET_KEY,
                     startFrame = clip.timelineStart.value,
                     durationFrames = clip.durationFrames,
                     sourceInFrame = clip.sourceIn.value,
