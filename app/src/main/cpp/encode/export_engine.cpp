@@ -335,6 +335,11 @@ public:
         if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
         pipeline_ = std::make_unique<render::GlPipeline>(egl_);
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
+        for (const TitleImage& title : params.titles) {
+            if (pipeline_->uploadTitle(title.key, title.width, title.height, title.rgba.data(), &e) != decode::Status::Ok) {
+                failDecode(e, "a title could not be prepared for the export");
+            }
+        }
         for (const auto& entry : params.assetFds) fds_[entry.first] = entry.second;
     }
 
@@ -361,7 +366,17 @@ public:
         std::vector<render::LayerDraw> layers;
         std::vector<Used> used;
         for (const VideoClip* clip : layersAt(params_.clips, projectFrame)) {
-            AssetState& asset = assetFor(clip->assetKey, clip->layer);
+            const float opacity = static_cast<float>(opacityAt(*clip, projectFrame));
+            if (clip->titleKey != 0) {
+                render::LayerDraw title;
+                title.titleKey = clip->titleKey;
+                title.transform = render::LayerTransform{
+                    static_cast<float>(clip->posX),   static_cast<float>(clip->posY),        static_cast<float>(clip->scaleX),
+                    static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), opacity};
+                layers.push_back(title);
+                continue;
+            }
+            AssetState& asset = assetFor(clip->assetKey, clip->layer * 2 + clip->lane);
             asset.lastUsedFrame = frame;
             const int64_t source = sourceFrameFor(*clip, projectFrame, asset.info.durationFrames);
             held.push_back(fetch(asset, source));
@@ -371,7 +386,7 @@ public:
             layer.turns = asset.turns;
             layer.transform = render::LayerTransform{
                 static_cast<float>(clip->posX),   static_cast<float>(clip->posY),     static_cast<float>(clip->scaleX),
-                static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), static_cast<float>(clip->opacity)};
+                static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), opacity};
             layers.push_back(layer);
             used.push_back({&asset, source});
         }
@@ -392,10 +407,11 @@ public:
     }
 
 private:
-    // One decoder per (media, layer): two layers showing the same file at different source frames
-    // must not fight over a single decoder's position.
-    AssetState& assetFor(int64_t key, int32_t layer) {
-        const auto slot = std::make_pair(key, layer);
+    // One decoder per (media, slot), the slot being layer * 2 + lane: two layers, or the two sides
+    // of a transition, showing the same file at different source frames must not fight over a
+    // single decoder's position.
+    AssetState& assetFor(int64_t key, int32_t layerSlot) {
+        const auto slot = std::make_pair(key, layerSlot);
         auto it = assets_.find(slot);
         if (it != assets_.end()) return *it->second;
         auto fdIt = fds_.find(key);

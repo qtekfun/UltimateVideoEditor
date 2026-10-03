@@ -14,7 +14,20 @@ class AudioSnapshotTest {
         duration: Long = 30,
         sourceIn: Long = 0,
         gainDb: Float = 0f,
-    ) = AudioClipSpec(key, assetKey = 9, start, duration, sourceIn, sourceFpsNum = 30000, sourceFpsDen = 1001, gainDb = gainDb)
+        fadeIn: Long = 0,
+        fadeOut: Long = 0,
+    ) = AudioClipSpec(
+        key,
+        assetKey = 9,
+        start,
+        duration,
+        sourceIn,
+        sourceFpsNum = 30000,
+        sourceFpsDen = 1001,
+        gainDb = gainDb,
+        fadeInFrames = fadeIn,
+        fadeOutFrames = fadeOut,
+    )
 
     @Test
     fun `encodes the layout the native parser expects`() {
@@ -36,7 +49,17 @@ class AudioSnapshotTest {
         assertEquals(30000, buffer.getInt(base + 40))
         assertEquals(1001, buffer.getInt(base + 44))
         assertEquals(-6f, buffer.getFloat(base + 48), 0f)
+        assertEquals(0, buffer.getInt(base + 52))
+        assertEquals(0, buffer.getInt(base + 56))
         assertTrue(buffer.isDirect)
+    }
+
+    @Test
+    fun `crossfade lengths are encoded after the gain`() {
+        val buffer = AudioSnapshot(30, 1, listOf(clip(duration = 40, fadeIn = 12, fadeOut = 40))).encode()
+
+        assertEquals(12, buffer.getInt(AudioSnapshot.HEADER_BYTES + 52))
+        assertEquals(40, buffer.getInt(AudioSnapshot.HEADER_BYTES + 56))
     }
 
     @Test
@@ -51,6 +74,9 @@ class AudioSnapshotTest {
         assertThrows(IllegalArgumentException::class.java) { clip(sourceIn = -1) }
         assertThrows(IllegalArgumentException::class.java) { clip(gainDb = 60f) }
         assertThrows(IllegalArgumentException::class.java) { clip(gainDb = Float.NaN) }
+        assertThrows(IllegalArgumentException::class.java) { clip(duration = 10, fadeIn = 11) }
+        assertThrows(IllegalArgumentException::class.java) { clip(duration = 10, fadeOut = 11) }
+        assertThrows(IllegalArgumentException::class.java) { clip(fadeIn = -1) }
         assertThrows(IllegalArgumentException::class.java) { AudioSnapshot(0, 1, emptyList()) }
         assertThrows(IllegalArgumentException::class.java) { AudioSnapshot(30, 1, listOf(clip(key = 1), clip(key = 1, start = 40))) }
     }

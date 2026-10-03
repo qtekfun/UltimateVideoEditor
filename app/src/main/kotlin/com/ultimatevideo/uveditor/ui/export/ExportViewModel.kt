@@ -9,6 +9,9 @@ import com.ultimatevideo.uveditor.engine.export.ExportListener
 import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
 import com.ultimatevideo.uveditor.engine.export.ExportSettings
+import com.ultimatevideo.uveditor.engine.export.ExportTitle
+import com.ultimatevideo.uveditor.engine.title.TitleRasterException
+import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
 import com.ultimatevideo.uveditor.mvi.MviViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +27,9 @@ class ExportViewModel(
     private val io: ExportIO,
     private val runner: ExportRunner,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val titleRasterizer: TitleRasterizer = TitleRasterizer { _, _, _ ->
+        throw TitleRasterException("This build cannot draw titles")
+    },
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
 
     private var input: ExportInput? = null
@@ -131,6 +137,14 @@ class ExportViewModel(
     ) {
         val plan = buildExportPlan(source.timeline, source.assets, source.fps)
             ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.")
+        val titleImages = plan.titles.map { (key, content) ->
+            val bitmap = try {
+                titleRasterizer.rasterize(content, source.projectWidth, source.projectHeight)
+            } catch (e: TitleRasterException) {
+                throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A title could not be drawn: ${e.message}")
+            }
+            ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
+        }
         val uriByAsset = source.assets.associate { it.id to it.uri }
         val opened = LinkedHashMap<Long, Int>()
         var outputFd = -1
@@ -165,6 +179,7 @@ class ExportViewModel(
             videoClips = plan.videoClips,
             audioSnapshot = plan.audio?.encode(),
             outputFd = outputFd,
+            titles = titleImages,
         )
         val started = runner.start(
             request,
