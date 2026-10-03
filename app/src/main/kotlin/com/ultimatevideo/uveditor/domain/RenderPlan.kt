@@ -41,6 +41,8 @@ data class RenderClip(
     val retime: ClipRetime? = null,
     /** Effects, blend mode and mask of the clip; the compositor applies them in this order. */
     val fx: ClipFx = ClipFx.NONE,
+    /** Set for a photo or sticker: a picture without a decoder, drawn like a title ([assetId] says which). */
+    val still: StillKind? = null,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -112,7 +114,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 startFrame = clip.timelineStart.value - pre,
                 durationFrames = clip.durationFrames + pre + post,
                 sourceInFrame = when {
-                    clip.title != null -> 0L
+                    !clip.hasMedia -> 0L
                     clip.isRetimed -> clip.retime.sourceFrameAt(-pre)
                     else -> clip.sourceIn.value - pre
                 },
@@ -122,8 +124,9 @@ fun Timeline.renderClips(): List<RenderClip> {
                 crossfadeOutFrames = outgoing?.durationFrames ?: 0L,
                 keyframes = clip.keyframes,
                 keyframeOriginFrame = clip.timelineStart.value,
-                retime = if (clip.title == null && clip.isRetimed) clip.retime else null,
+                retime = if (clip.hasMedia && clip.isRetimed) clip.retime else null,
                 fx = clip.fx,
+                still = clip.still,
             )
         }
     }

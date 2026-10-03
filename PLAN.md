@@ -94,7 +94,12 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
     per-word timing; karaoke highlight, word-by-word pop-in, typewriter and bounce entrance styles; per-frame look evaluated
     in Kotlin so preview and export draw the same pictures; style picker with colour options and "restyle all captions"
     (one undo step). The box stays open until the transcription and the animated looks have been run on the phone.
-- [ ] Stickers, animated text templates, beat sync
+- [x] Photos and stickers: import images, still clips on video tracks (default 5 s, free to stretch), a built-in sticker set
+      (8 drawn shapes + 8 emoji) and an 'Add sticker' picker; same compositor path and effects/keyframes as titles, in
+      preview and export. Domain, JSON, preview scene and export plan are covered by JVM tests; nothing of this has been
+      seen on the device yet (the OPPO was not reachable by adb), in particular EXIF orientation, HEIC and the sticker art.
+      Follow-ups: a thumbnail tile on still clips in the timeline (needs a native tile upload), animated GIF/WebP
+- [ ] Animated text templates, beat sync
 - [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
 - [ ] 3D LUTs
 - [ ] Vulkan renderer evaluation

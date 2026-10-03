@@ -397,3 +397,37 @@ opens alone (no clip needed) when captions exist but no clip with audio is selec
 change for a whole video; captions are found by id prefix because generated captions are the only titles with word timing.
 **Alternatives:** restyle only the selected track; keep manual positions; tag captions with an explicit flag in the JSON.
 Text edited by hand loses its word timing (words are re-spaced evenly across the clip) rather than keeping stale timing.
+
+## 2026-10-04 · Photos and stickers are title-like still clips drawn through the title texture path
+**Chosen:** a clip gets `still: StillKind?` (`PHOTO`/`STICKER`) on a video track; it has no source length (range = length, normalised
+in `Clip.cropped`), and is rendered by rasterising the picture in Kotlin to canvas-sized RGBA and uploading it with the existing title
+texture API, in the preview and in the exporter alike. **Why:** zero native changes, so preview and export stay identical and
+effects, keyframes, blend modes and HDR handling work for free; every title/media special case in the domain became one `hasMedia`
+check. **Alternatives:** a native still-image decoder path with a GL texture per asset (more code, native risk, nothing gained until
+photos need more than canvas resolution); treating a photo as a one-frame video asset with a long retime (breaks trimming past the
+source and the magnetic-base maths).
+**Limits:** a photo is stored at canvas resolution (fit inside), so zooming a still beyond 100 % looks soft; raise the raster size
+(or add a native high-res path) if that matters. All stills of an export are rasterised up front and held in RAM together (about
+8 MB each at 1080p, 33 MB at 4K): very large photo montages at 4K can run out of memory; stream them if that shows up.
+
+## 2026-10-04 · Sticker set: drawn shapes plus system emoji, ids are persistent
+**Chosen:** 8 procedurally drawn shapes (heart, star, arrow, check, burst, speech bubble, ring, alert) and 8 emoji drawn with the
+platform's emoji font; no bundled images, no network, no licences to track (the shapes are original code). Ids (`shape:*`,
+`emoji:*`) are stored in project files and must never be renamed. **Why:** a license-clean, zero-asset set that still looks like
+a sticker (dark outline so it reads on any footage). **Alternatives:** bundled PNG/SVG packs (licence tracking, APK size);
+downloading packs (network, caching). Emoji glyphs differ by device/OS version, so an export made on another device may look
+slightly different from the preview made on this one.
+
+## 2026-10-04 · Adding a sticker or photo: where it goes, how long it lasts
+**Chosen:** a sticker lasts 3 s and goes on the selected overlay lane, else the top overlay lane, else a new lane above the base (its
+own undo step) and overwrites what it overlaps there; a photo lasts 5 s and is placed like imported video (inserted on the base with
+a ripple, overwritten on an overlay). Both are selected afterwards (stickers also open the inspector). **Why:** stickers are overlays
+by nature, and the base-ripple rule is already how imports behave. **Alternative:** ask where to put it, or a longer default for
+photos on overlays.
+
+## 2026-10-04 · Still clips on the timeline: no thumbnail tile yet
+**Chosen:** stills are drawn as plain clip blocks (no waveform, no thumbnails, their snapshot asset key is -1). A single-tile
+thumbnail needs a native upload path into the thumbnail atlas, which could not be verified on a device in this session (the OPPO
+was not reachable), so it is deferred rather than shipped blind. **Alternative:** pre-seed the on-disk tile cache from Kotlin
+(couples to the tile file format). Animated GIF/WebP are also deferred: `ImageDecoder` returns the first frame, which is what shows.
+

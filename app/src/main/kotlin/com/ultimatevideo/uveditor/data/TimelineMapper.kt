@@ -25,6 +25,7 @@ import com.ultimatevideo.uveditor.domain.Effect
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.SpeedKey
+import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -94,7 +95,12 @@ object TimelineMapper {
         reverse = dto.reverse,
         speedRamp = dto.speedRamp.map { SpeedKey(it.frame, it.weightPermille) },
         fx = toFx(dto),
+        still = dto.still?.let { toStill(dto.id, it) },
     )
+
+    private fun toStill(clipId: String, name: String): StillKind =
+        StillKind.entries.firstOrNull { it.name.lowercase() == name }
+            ?: throw ProjectError.Corrupt("clip $clipId has unknown still kind '$name'")
 
     private fun toFx(dto: ClipDto) = ClipFx(
         effects = dto.effects.map { toEffect(dto.id, it) },
@@ -248,6 +254,7 @@ object TimelineMapper {
             effects = clip.fx.effects.map(::toEffectDto),
             blendMode = clip.fx.blendMode.name.lowercase(),
             mask = clip.fx.mask?.let(::toMaskDto),
+            still = clip.still?.name?.lowercase(),
         )
 
     private const val COLOR_HEX_LENGTH = 8

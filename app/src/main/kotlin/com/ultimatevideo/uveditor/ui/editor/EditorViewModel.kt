@@ -37,6 +37,8 @@ import com.ultimatevideo.uveditor.domain.TimelineOps
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.engine.still.StickerIds
+import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.domain.TrimEdge
 import com.ultimatevideo.uveditor.domain.isFreeze
@@ -143,6 +145,7 @@ class EditorViewModel(
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
             EditorIntent.AddTitle -> addTitle()
+            is EditorIntent.AddSticker -> addSticker(intent.stickerId)
             is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips)
             is EditorIntent.RestyleCaptions -> execute(com.ultimatevideo.uveditor.domain.RestyleCaptions(intent.style, intent.canvasHeight))
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
@@ -221,7 +224,8 @@ class EditorViewModel(
                 SnapshotClip(
                     clipKey = clipKeys.keyFor(clip.id),
                     trackIndex = trackIndex,
-                    assetKey = clip.assetId?.let(assetKeys::keyFor) ?: NO_ASSET_KEY,
+                    // Titles, photos and stickers have no media to read waveforms or thumbnails from.
+                    assetKey = clip.assetId?.takeIf { clip.hasMedia }?.let(assetKeys::keyFor) ?: NO_ASSET_KEY,
                     startFrame = clip.timelineStart.value,
                     durationFrames = clip.durationFrames,
                     sourceInFrame = clip.sourceIn.value,
@@ -949,6 +953,36 @@ class EditorViewModel(
         reduce { copy(selectedClipId = clip.id, selectedTrackId = trackId, inspectorOpen = true) }
     }
 
+    private fun addSticker(stickerId: String) {
+        if (!StickerIds.isKnown(stickerId)) {
+            emit(EditorEffect.ShowMessage("That sticker is not available"))
+            return
+        }
+        val timeline = history.timeline
+        val base = ClipDeletion.baseTrack(timeline)
+        val selected = timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
+        val overlay = selected?.takeIf { it.type == TrackType.VIDEO && it.id != base?.id }
+            ?: timeline.tracks.firstOrNull { it.type == TrackType.VIDEO && it.id != base?.id }
+        val trackId = overlay?.id ?: run {
+            // Only the base exists: stickers get a lane above it (its own undo step).
+            val track = Track(uniqueTrackId(timeline.tracks, "track-v"), TrackType.VIDEO)
+            val index = timeline.tracks.indexOfFirst { it.type == TrackType.VIDEO }.coerceAtLeast(0)
+            if (!execute(EditCommand.AddTrack(track, index))) return
+            track.id
+        }
+        val frames = state.value.fps.microsToFrames(STICKER_DEFAULT_MICROS).coerceAtLeast(1)
+        val clip = Clip(
+            id = "sticker-${idGenerator()}",
+            assetId = stickerId,
+            timelineStart = state.value.playhead,
+            sourceIn = FrameIndex.ZERO,
+            sourceOut = FrameIndex(frames),
+            still = StillKind.STICKER,
+        )
+        if (!execute(EditCommand.Overwrite(trackId, clip))) return
+        reduce { copy(selectedClipId = clip.id, selectedTrackId = trackId, inspectorOpen = true) }
+    }
+
     private fun addCaptionClips(clips: List<Clip>) {
         if (clips.isEmpty()) return
         val track = Track(uniqueTrackId(history.timeline.tracks, "track-t"), TrackType.TITLE)
@@ -1093,6 +1127,23 @@ class EditorViewModel(
         state.value.assets.firstOrNull { it.uri == uri }?.let { return it }
         val probed = importer.import(uri)
         val project = state.value.fps
+        if (probed.isImage) {
+            // A picture has no length of its own; the asset's "duration" is the default length of a clip of it.
+            val image = MediaAssetDto(
+                id = "asset-${idGenerator()}",
+                uri = uri,
+                durationFrames = project.microsToFrames(PHOTO_DEFAULT_MICROS).coerceAtLeast(1),
+                nativeFpsNum = project.num,
+                nativeFpsDen = project.den,
+                colorSpace = probed.colorSpace,
+                hasVideo = false,
+                hasAudio = false,
+                isImage = true,
+            )
+            reduce { copy(assets = assets + image) }
+            scheduleSave()
+            return image
+        }
         // Audio-only files have no native frame rate; use the project's.
         val (fpsNum, fpsDen) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else project.num to project.den
         val durationFrames = FrameRate(fpsNum, fpsDen).microsToFrames(probed.durationMicros)
@@ -1114,7 +1165,7 @@ class EditorViewModel(
 
     /** Overwrites [asset] onto its track at [start]; returns the new clip's end, or null on failure. */
     private fun place(asset: MediaAssetDto, start: FrameIndex): FrameIndex? {
-        val type = if (asset.hasVideo) TrackType.VIDEO else TrackType.AUDIO
+        val type = if (asset.hasVideo || asset.isImage) TrackType.VIDEO else TrackType.AUDIO
         // The selected track if it fits the media, else the first track of the right type.
         val selected = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
         val track = selected?.takeIf { it.type == type } ?: history.timeline.tracks.firstOrNull { it.type == type }
@@ -1122,8 +1173,11 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("There is no ${type.name.lowercase()} track to place the clip on"))
             return null
         }
-        val length = assetLengthFrames(asset.id) ?: return null
-        val clip = Clip("clip-${idGenerator()}", asset.id, start, FrameIndex.ZERO, FrameIndex(length))
+        val length = (if (asset.isImage) stillLengthFrames() else assetLengthFrames(asset.id)) ?: return null
+        val clip = Clip(
+            "clip-${idGenerator()}", asset.id, start, FrameIndex.ZERO, FrameIndex(length),
+            still = StillKind.PHOTO.takeIf { asset.isImage },
+        )
         // On the base track new media is inserted (everything after ripples); elsewhere it overwrites.
         val onBase = track.id == ClipDeletion.baseTrack(history.timeline)?.id
         val command = if (onBase) EditCommand.InsertBase(clip, start) else EditCommand.Overwrite(track.id, clip)
@@ -1133,9 +1187,14 @@ class EditorViewModel(
         return history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.timelineEnd ?: clip.timelineEnd
     }
 
-    /** Length of an asset in project frames, or null if it is not in the library. */
+    /** Default length of a new photo clip, in project frames. */
+    private fun stillLengthFrames(): Long = state.value.fps.microsToFrames(PHOTO_DEFAULT_MICROS).coerceAtLeast(1)
+
+    /** Length of an asset in project frames, or null if it is not in the library (or has no length of its own). */
     private fun assetLengthFrames(assetId: String?): Long? {
         val asset = state.value.assets.firstOrNull { it.id == assetId } ?: return null
+        // A picture has no length to run out of.
+        if (asset.isImage) return null
         val micros = FrameRate(asset.nativeFpsNum, asset.nativeFpsDen).framesToMicros(asset.durationFrames)
         return state.value.fps.microsToFrames(micros).takeIf { it > 0 }
     }
@@ -1174,6 +1233,8 @@ class EditorViewModel(
         const val NO_ASSET_KEY = -1L
         const val DEFAULT_TITLE_TEXT = "Title"
         const val TITLE_DEFAULT_MICROS = 3_000_000L
+        const val STICKER_DEFAULT_MICROS = 3_000_000L
+        const val PHOTO_DEFAULT_MICROS = 5_000_000L
         const val TRANSITION_DEFAULT_MICROS = 1_000_000L
         const val FREEZE_DEFAULT_MICROS = 2_000_000L
         const val PLAY_TICK_MILLIS = 16L

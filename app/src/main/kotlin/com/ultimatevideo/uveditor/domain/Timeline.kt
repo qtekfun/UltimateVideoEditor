@@ -162,6 +162,18 @@ data class Transition(
 }
 
 /**
+ * What a still clip shows. A [PHOTO] clip's [Clip.assetId] is an image in the media library; a
+ * [STICKER] clip's is the id of a built-in sticker (not in the library). Neither has a length of its
+ * own, so like a title the source range is only the clip's length.
+ */
+enum class StillKind { PHOTO, STICKER }
+
+/** Length a freshly added photo or sticker gets, in seconds. */
+object Stills {
+    const val DEFAULT_SECONDS = 5L
+}
+
+/**
  * A span of a source placed on a track. Source range is [sourceIn, sourceOut) in source frames;
  * the clip occupies [timelineStart, timelineEnd) on the timeline. Normally that is 1x speed and the
  * clip is as long as its range; [retimedFrames] makes it another length (speed = range / length),
@@ -169,7 +181,9 @@ data class Transition(
  * range held for a longer length is a freeze frame. [Clip.retime] is the mapping from timeline
  * frames to source frames that every renderer uses.
  * Title clips live on title tracks, have no [assetId] and carry [title] instead; their source
- * range is just the duration (sourceIn is 0).
+ * range is just the duration (sourceIn is 0). Still clips ([still]) live on video tracks and show
+ * one picture for as long as they last; they too have no source length, only a range equal to
+ * their duration, and can be trimmed or stretched freely.
  */
 data class Clip(
     val id: String,
@@ -194,7 +208,12 @@ data class Clip(
     val speedRamp: List<SpeedKey> = emptyList(),
     /** Effects, blend mode and mask of a video or title clip; neutral by default. */
     val fx: ClipFx = ClipFx.NONE,
+    /** Set for photos and stickers; see [StillKind]. */
+    val still: StillKind? = null,
 ) {
+    /** True for a clip that plays media with a length of its own (not a title, photo or sticker). */
+    val hasMedia: Boolean get() = title == null && still == null
+
     val durationFrames: Long get() = retimedFrames ?: (sourceOut - sourceIn)
     val timelineEnd: FrameIndex get() = timelineStart + durationFrames
 
@@ -257,7 +276,7 @@ data class Timeline(
         if (transition.durationFrames < Transition.MIN_DURATION_FRAMES) return "transition is too short"
         if (transition.preFrames > from.durationFrames) return "transition reaches past the start of the outgoing clip"
         if (transition.postFrames > to.durationFrames) return "transition reaches past the end of the incoming clip"
-        if (to.title == null && to.retime.sourceFrameAt(-transition.preFrames) < 0) return "incoming clip has no media before its in point"
+        if (to.hasMedia && to.retime.sourceFrameAt(-transition.preFrames) < 0) return "incoming clip has no media before its in point"
         val next = transitions.firstOrNull { it.id != transition.id && it.fromClipId == to.id }
         if (next != null && transition.postFrames + next.preFrames > to.durationFrames) {
             return "transitions on clip ${to.id} overlap"
@@ -291,7 +310,13 @@ data class Timeline(
                 if (clip.durationFrames <= 0) violations += "clip ${clip.id} has non-positive duration"
                 if (clip.sourceOut <= clip.sourceIn) violations += "clip ${clip.id} has an empty source range"
                 if (clip.retimedFrames != null && clip.retimedFrames == clip.sourceSpan) violations += "clip ${clip.id} stores its own length as a retime"
-                if (clip.title != null && clip.isRetimed) violations += "clip ${clip.id} is a title but is retimed"
+                if (!clip.hasMedia && clip.isRetimed) violations += "clip ${clip.id} has no media of its own but is retimed"
+                if (clip.still != null) {
+                    if (clip.title != null) violations += "clip ${clip.id} is both a title and a still"
+                    if (clip.assetId == null) violations += "still clip ${clip.id} has no picture"
+                    if (track.type != TrackType.VIDEO) violations += "still clip ${clip.id} is not on a video track"
+                    if (clip.gainDb != 0.0) violations += "still clip ${clip.id} has an audio gain"
+                }
                 if (clip.speedRamp.isNotEmpty() && clip.durationFrames > 0) {
                     SpeedRamps.problem(clip.speedRamp, clip.durationFrames)?.let { violations += "clip ${clip.id} $it" }
                 }
