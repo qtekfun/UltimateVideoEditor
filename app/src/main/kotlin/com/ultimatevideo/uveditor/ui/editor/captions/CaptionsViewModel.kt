@@ -31,25 +31,55 @@ class CaptionsViewModel(
 
     override fun onIntent(intent: CaptionsIntent) {
         when (intent) {
-            is CaptionsIntent.Open -> open(intent.target)
+            is CaptionsIntent.Open -> open(intent.target, intent.existingCaptions)
+            is CaptionsIntent.OpenRestyle -> openRestyle(intent.existingCaptions, intent.canvasHeight)
             CaptionsIntent.Close -> close()
             is CaptionsIntent.SelectModel -> if (!state.value.busy) reduce { copy(modelId = CaptionModels.byId(intent.id).id, error = null) }
             is CaptionsIntent.SelectLanguage -> if (!state.value.busy) reduce { copy(languageCode = intent.code, error = null) }
-            is CaptionsIntent.SelectStyle -> if (!state.value.busy) reduce { copy(styleId = CaptionStyle.byId(intent.id).id, error = null) }
+            // A new style brings its own colours, so the overrides of the old one are dropped.
+            is CaptionsIntent.SelectStyle -> if (!state.value.busy) {
+                reduce { copy(styleId = CaptionStyle.byId(intent.id).id, textColor = null, highlightColor = null, error = null) }
+            }
+            is CaptionsIntent.SelectTextColor -> if (!state.value.busy) reduce { copy(textColor = intent.argb) }
+            is CaptionsIntent.SelectHighlightColor -> if (!state.value.busy) reduce { copy(highlightColor = intent.argb) }
+            CaptionsIntent.ApplyToExisting -> applyToExisting()
             CaptionsIntent.Generate -> generate()
             CaptionsIntent.Cancel -> cancel()
             is CaptionsIntent.DeleteModel -> deleteModel(intent.id)
         }
     }
 
-    private fun open(target: CaptionTarget) {
+    private fun open(target: CaptionTarget, existingCaptions: Int) {
         if (state.value.busy) return
-        reduce { copy(target = target, models = options(provider), error = null, progress = 0, phase = CaptionPhase.IDLE) }
+        reduce {
+            copy(
+                target = target,
+                restyleOnly = false,
+                existingCaptions = existingCaptions,
+                models = options(provider),
+                error = null,
+                progress = 0,
+                phase = CaptionPhase.IDLE,
+            )
+        }
+    }
+
+    private fun openRestyle(existingCaptions: Int, canvasHeight: Int) {
+        if (state.value.busy) return
+        reduce { copy(target = null, restyleOnly = true, existingCaptions = existingCaptions, canvasHeight = canvasHeight, error = null) }
+    }
+
+    private fun applyToExisting() {
+        val current = state.value
+        if (current.busy || current.existingCaptions == 0) return
+        val canvasHeight = current.target?.canvasHeight ?: current.canvasHeight
+        emit(CaptionsEffect.Restyle(current.style, canvasHeight))
+        reduce { copy(target = null, restyleOnly = false, error = null) }
     }
 
     private fun close() {
         cancel()
-        reduce { copy(target = null, error = null) }
+        reduce { copy(target = null, restyleOnly = false, error = null) }
     }
 
     private fun cancel() {
@@ -69,7 +99,7 @@ class CaptionsViewModel(
         val target = current.target ?: return
         if (current.busy) return
         val model = CaptionModels.byId(current.modelId)
-        val style = CaptionStyle.byId(current.styleId)
+        val style = current.style
         val language = current.languageCode
 
         reduce { copy(error = null, progress = 0) }

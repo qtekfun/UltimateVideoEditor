@@ -5,10 +5,16 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.Layout
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.style.CharacterStyle
 import com.ultimatevideo.uveditor.domain.TitleAlignment
+import com.ultimatevideo.uveditor.domain.TitleAnimation
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLook
+import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
 import java.nio.ByteBuffer
 import kotlin.math.ceil
 import kotlin.math.max
@@ -58,14 +64,24 @@ class AndroidTitleRasterizer : TitleRasterizer {
             TitleAlignment.CENTER -> Layout.Alignment.ALIGN_CENTER
             TitleAlignment.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
         }
+        // An animated caption hides or highlights words with spans (hidden words keep their space, so
+        // the block does not move); the active word may be redrawn larger on top. Without a drawable
+        // animation the text is drawn plainly.
+        val ranges = if (content.look.isFull || content.animation == TitleAnimation.NONE) null else CaptionAnimator.wordRanges(content.text, content.words)
+        val spannable = if (ranges != null) SpannableString(content.text) else null
+        val styled: CharSequence = spannable ?: content.text
         // Measure with the widest allowed line, then lay out again at the real width so alignment
         // works inside the cropped block.
-        val measured = StaticLayout.Builder.obtain(content.text, 0, content.text.length, paint, maxLineWidth).setAlignment(alignment).build()
+        val measured = StaticLayout.Builder.obtain(styled, 0, styled.length, paint, maxLineWidth).setAlignment(alignment).build()
         var blockWidth = 1
         for (line in 0 until measured.lineCount) blockWidth = max(blockWidth, ceil(measured.getLineWidth(line).toDouble()).toInt())
-        val layout = StaticLayout.Builder.obtain(content.text, 0, content.text.length, paint, blockWidth).setAlignment(alignment).build()
+        val layout = StaticLayout.Builder.obtain(styled, 0, styled.length, paint, blockWidth).setAlignment(alignment).build()
 
-        val margin = ceil(paint.textSize * MARGIN_FRACTION).toInt()
+        // The active word is redrawn larger on top when it sits on one line and the look asks for it.
+        val scaledWord = if (ranges != null) scaledWordOf(content.look, ranges, layout) else null
+        if (spannable != null && ranges != null) applySpans(spannable, content, ranges, redrawn = scaledWord != null)
+        val growth = if (scaledWord != null) (content.look.activePercent - 100) / 100f * ACTIVE_MARGIN_FACTOR else 0f
+        val margin = ceil(paint.textSize * (MARGIN_FRACTION + growth)).toInt()
         val width = blockWidth + 2 * margin
         val height = layout.height + 2 * margin
         if (width > MAX_SIDE || height > MAX_SIDE) throw TitleRasterException("The title is too large to draw (${width}x$height)")
@@ -85,10 +101,12 @@ class AndroidTitleRasterizer : TitleRasterizer {
                     paint.strokeWidth = paint.textSize * OUTLINE_FRACTION
                     paint.color = OUTLINE_COLOR
                     layout.draw(this)
+                    scaledWord?.draw(this, content, paint, stroke = true)
                     paint.style = Paint.Style.FILL
                     paint.color = content.colorArgb
                 }
                 layout.draw(this)
+                scaledWord?.draw(this, content, paint, stroke = false)
             }
             val pixels = ByteBuffer.allocateDirect(width * height * BYTES_PER_PIXEL)
             bitmap.copyPixelsToBuffer(pixels)
@@ -99,14 +117,72 @@ class AndroidTitleRasterizer : TitleRasterizer {
         }
     }
 
+    /** The active word to redraw enlarged, when the look wants it and the word fits on one line. */
+    private fun scaledWordOf(look: TitleLook, ranges: List<IntRange>, layout: StaticLayout): ScaledWord? {
+        val index = look.activeWord
+        if (index !in ranges.indices || look.activePercent == 100) return null
+        val range = ranges[index]
+        val line = layout.getLineForOffset(range.first)
+        if (layout.getLineForOffset(range.last) != line) return null
+        return ScaledWord(range, line, look.activePercent / 100f, layout)
+    }
+
+    /** Hides the words and letters the look has not reached yet and highlights the active word. */
+    private fun applySpans(text: SpannableString, content: TitleContent, ranges: List<IntRange>, redrawn: Boolean) {
+        val look = content.look
+        fun hide(from: Int, to: Int) {
+            if (to > from) text.setSpan(PassColorSpan(0, 0), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        if (look.visibleWords != TitleLook.ALL) {
+            for (i in look.visibleWords.coerceAtLeast(0) until ranges.size) hide(ranges[i].first, ranges[i].last + 1)
+        }
+        if (look.visibleChars != TitleLook.ALL) hide(look.visibleChars.coerceIn(0, text.length), text.length)
+        val active = look.activeWord
+        if (active in ranges.indices) {
+            val range = ranges[active]
+            if (redrawn) {
+                // Drawn again, larger, by ScaledWord; leave a hole here so it is not drawn twice.
+                hide(range.first, range.last + 1)
+            } else {
+                text.setSpan(PassColorSpan(content.highlightArgb, STROKE_COLOR), range.first, range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+    }
+
     private companion object {
         const val MIN_TEXT_PX = 4f
         const val MAX_LINE_FRACTION = 0.9
         const val MARGIN_FRACTION = 0.1f
+        const val ACTIVE_MARGIN_FACTOR = 1.5f
         const val OUTLINE_FRACTION = 0.14f
-        const val OUTLINE_COLOR = 0xFF000000.toInt()
+        const val OUTLINE_COLOR = STROKE_COLOR
         const val MAX_SIDE = 8192
         const val BYTES_PER_PIXEL = 4
+    }
+}
+
+private const val STROKE_COLOR = 0xFF000000.toInt()
+
+/** Colours text by drawing pass: [fill] for the glyphs, [stroke] for the outline pass (0 hides it). */
+private class PassColorSpan(private val fill: Int, private val stroke: Int) : CharacterStyle() {
+    override fun updateDrawState(tp: TextPaint) {
+        tp.color = if (tp.style == Paint.Style.STROKE) stroke else fill
+    }
+}
+
+/** A word drawn again, scaled around its own centre, so growing it does not move the other words. */
+private class ScaledWord(val range: IntRange, val line: Int, val scale: Float, val layout: StaticLayout) {
+    fun draw(canvas: Canvas, content: TitleContent, paint: TextPaint, stroke: Boolean) {
+        val left = layout.getPrimaryHorizontal(range.first)
+        val right = layout.getPrimaryHorizontal(range.last + 1)
+        val centreY = (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+        val saved = paint.color
+        paint.color = if (stroke) STROKE_COLOR else content.highlightArgb
+        canvas.save()
+        canvas.scale(scale, scale, (left + right) / 2f, centreY)
+        canvas.drawText(content.text, range.first, range.last + 1, left, layout.getLineBaseline(line).toFloat(), paint)
+        canvas.restore()
+        paint.color = saved
     }
 }
 
@@ -117,7 +193,12 @@ class AndroidTitleRasterizer : TitleRasterizer {
  * textures. Pure bookkeeping: no Android types, unit-testable.
  */
 class TitleKeyCache(private val capacity: Int = DEFAULT_CAPACITY) {
-    private data class Appearance(val content: TitleContent, val canvasWidth: Int, val canvasHeight: Int)
+    // Word timing is left out of the key: it decides which look to draw, not what a look is.
+    private class Appearance(content: TitleContent, val canvasWidth: Int, val canvasHeight: Int) {
+        val content: TitleContent = content.withoutTiming()
+        override fun equals(other: Any?) = other is Appearance && other.content == content && other.canvasWidth == canvasWidth && other.canvasHeight == canvasHeight
+        override fun hashCode() = (content.hashCode() * 31 + canvasWidth) * 31 + canvasHeight
+    }
 
     private val keys = LinkedHashMap<Appearance, Int>(INITIAL_CAPACITY, LOAD_FACTOR, true)
     private val evicted = ArrayList<Int>()
@@ -145,7 +226,8 @@ class TitleKeyCache(private val capacity: Int = DEFAULT_CAPACITY) {
     fun drain(): List<Int> = evicted.toList().also { evicted.clear() }
 
     companion object {
-        const val DEFAULT_CAPACITY = 24
+        // An animated phrase has a handful of looks (a typewriter one per letter), and a clip may hold several phrases.
+        const val DEFAULT_CAPACITY = 96
         private const val INITIAL_CAPACITY = 16
         private const val LOAD_FACTOR = 0.75f
     }
