@@ -233,7 +233,135 @@ static void displaySizeAndLetterbox() {
     CHECK(v.w == 100 && v.h == 100);
 }
 
+// Corners of the quad in canvas pixels (+y down), via the same map the shader uses.
+static uv::render::Uv canvasPoint(const uv::render::QuadMap& m, int cw, int ch, float px, float py) {
+    const uv::render::Uv ndc = uv::render::applyQuadMap(m, {px, py});
+    return {ndc.u * static_cast<float>(cw) / 2.0f, -ndc.v * static_cast<float>(ch) / 2.0f};
+}
+
+static void layerIdentityFillsCanvasWhenAspectMatches() {
+    using namespace uv::render;
+    const QuadMap m = layerQuadMap(1920, 1080, 1920, 1080, LayerTransform{});
+    CHECK_NEAR(m.a, 1.0f, 1e-6f);
+    CHECK_NEAR(m.d, 1.0f, 1e-6f);
+    CHECK_NEAR(m.b, 0.0f, 1e-6f);
+    CHECK_NEAR(m.c, 0.0f, 1e-6f);
+    CHECK_NEAR(m.tx, 0.0f, 1e-6f);
+    CHECK_NEAR(m.ty, 0.0f, 1e-6f);
+    // A 1080p clip in a 4K canvas is fitted, so it still fills it.
+    const QuadMap big = layerQuadMap(3840, 2160, 1920, 1080, LayerTransform{});
+    CHECK_NEAR(big.a, 1.0f, 1e-6f);
+    CHECK_NEAR(big.d, 1.0f, 1e-6f);
+}
+
+static void layerFitLetterboxesMismatchedAspect() {
+    using namespace uv::render;
+    // A portrait 1080x1920 clip in a 1920x1080 canvas: full height, narrow width.
+    const QuadMap m = layerQuadMap(1920, 1080, 1080, 1920, LayerTransform{});
+    CHECK_NEAR(m.d, 1.0f, 1e-6f);
+    CHECK_NEAR(m.a, (1080.0f * 1080.0f / 1920.0f) / 1920.0f, 1e-5f);
+    // A square clip in a wide canvas.
+    const QuadMap sq = layerQuadMap(1920, 1080, 1000, 1000, LayerTransform{});
+    CHECK_NEAR(sq.d, 1.0f, 1e-6f);
+    CHECK_NEAR(sq.a, 1080.0f / 1920.0f, 1e-6f);
+}
+
+static void layerScaleAndPosition() {
+    using namespace uv::render;
+    LayerTransform t;
+    t.scaleX = 0.5f;
+    t.scaleY = 0.25f;
+    t.posX = 480.0f;   // a quarter of the canvas width to the right
+    t.posY = 270.0f;   // a quarter of the canvas height down
+    const QuadMap m = layerQuadMap(1920, 1080, 1920, 1080, t);
+    CHECK_NEAR(m.a, 0.5f, 1e-6f);
+    CHECK_NEAR(m.d, 0.25f, 1e-6f);
+    CHECK_NEAR(m.tx, 0.5f, 1e-6f);    // clip space spans 2, so a quarter of the width is 0.5
+    CHECK_NEAR(m.ty, -0.5f, 1e-6f);   // down in canvas pixels is negative in clip space
+    // Top-left image corner (p = (-1, +1)) lands at canvas px (480 - 480, 270 - 135) from the centre.
+    const Uv c = canvasPoint(m, 1920, 1080, -1.0f, 1.0f);
+    CHECK_NEAR(c.u, 0.0f, 1e-3f);
+    CHECK_NEAR(c.v, 135.0f, 1e-3f);
+}
+
+static void layerRotationIsClockwiseOnScreen() {
+    using namespace uv::render;
+    LayerTransform t;
+    t.rotationDeg = 90.0f;
+    const QuadMap m = layerQuadMap(1000, 1000, 1000, 1000, t);
+    // The top-centre of the image (p = (0, 1)) moves to the right-centre of the canvas.
+    const Uv top = canvasPoint(m, 1000, 1000, 0.0f, 1.0f);
+    CHECK_NEAR(top.u, 500.0f, 1e-2f);
+    CHECK_NEAR(top.v, 0.0f, 1e-2f);
+    // The right-centre (p = (1, 0)) moves to the bottom-centre.
+    const Uv right = canvasPoint(m, 1000, 1000, 1.0f, 0.0f);
+    CHECK_NEAR(right.u, 0.0f, 1e-2f);
+    CHECK_NEAR(right.v, 500.0f, 1e-2f);
+    // 360 degrees is the identity.
+    t.rotationDeg = 360.0f;
+    const QuadMap full = layerQuadMap(1000, 1000, 1000, 1000, t);
+    CHECK_NEAR(full.a, 1.0f, 1e-5f);
+    CHECK_NEAR(full.b, 0.0f, 1e-5f);
+}
+
+static void layerRotationPreservesAreaAndAboutCentre() {
+    using namespace uv::render;
+    LayerTransform t;
+    t.rotationDeg = 33.0f;
+    t.scaleX = 0.6f;
+    t.scaleY = 0.4f;
+    const QuadMap m = layerQuadMap(1920, 1080, 1280, 720, t);
+    // The centre does not move when there is no translation.
+    const Uv centre = canvasPoint(m, 1920, 1080, 0.0f, 0.0f);
+    CHECK_NEAR(centre.u, 0.0f, 1e-3f);
+    CHECK_NEAR(centre.v, 0.0f, 1e-3f);
+    // Rotation keeps lengths: the distance centre-to-right-edge is half the scaled width.
+    const Uv edge = canvasPoint(m, 1920, 1080, 1.0f, 0.0f);
+    CHECK_NEAR(std::sqrt(edge.u * edge.u + edge.v * edge.v), 1920.0f * 0.6f / 2.0f, 1e-2f);
+    // The determinant of the 2x2 part (in canvas pixels) equals the scaled, fitted area / 4.
+    const float det = (m.a * 1920.0f / 2.0f) * (m.d * 1080.0f / 2.0f) - (m.b * 1920.0f / 2.0f) * (m.c * 1080.0f / 2.0f);
+    CHECK_NEAR(det, 1920.0f * 0.6f / 2.0f * 1080.0f * 0.4f / 2.0f, 1.0f);
+}
+
+static void layerDegenerateInputsGiveIdentity() {
+    using namespace uv::render;
+    const QuadMap m = layerQuadMap(0, 1080, 1920, 1080, LayerTransform{});
+    CHECK(m.a == 1.0f && m.d == 1.0f && m.tx == 0.0f && m.ty == 0.0f);
+    const QuadMap z = layerQuadMap(1920, 1080, 0, 0, LayerTransform{});
+    CHECK(z.a == 1.0f && z.d == 1.0f);
+}
+
+static void layerMat3IsColumnMajor() {
+    using namespace uv::render;
+    const QuadMap m{2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
+    float out[9];
+    quadMapToMat3(m, out);
+    // (x, y, 1) -> (a x + b y + tx, c x + d y + ty, 1)
+    const float x = 0.5f;
+    const float y = -2.0f;
+    const float rx = out[0] * x + out[3] * y + out[6];
+    const float ry = out[1] * x + out[4] * y + out[7];
+    CHECK_NEAR(rx, 2.0f * x + 3.0f * y + 4.0f, 1e-6f);
+    CHECK_NEAR(ry, 5.0f * x + 6.0f * y + 7.0f, 1e-6f);
+    CHECK(out[8] == 1.0f && out[2] == 0.0f && out[5] == 0.0f);
+}
+
+static void opacityIsClamped() {
+    using uv::render::clampOpacity;
+    CHECK(clampOpacity(-1.0f) == 0.0f && clampOpacity(0.0f) == 0.0f);
+    CHECK(clampOpacity(0.4f) == 0.4f && clampOpacity(1.0f) == 1.0f && clampOpacity(7.0f) == 1.0f);
+    CHECK(clampOpacity(std::nanf("")) == 0.0f);
+}
+
 int main() {
+    layerIdentityFillsCanvasWhenAspectMatches();
+    layerFitLetterboxesMismatchedAspect();
+    layerScaleAndPosition();
+    layerRotationIsClockwiseOnScreen();
+    layerRotationPreservesAreaAndAboutCentre();
+    layerDegenerateInputsGiveIdentity();
+    layerMat3IsColumnMajor();
+    opacityIsClamped();
     lruEvictsLeastRecentlyUsed();
     lruNeverExceedsBudget();
     lruRejectsOversizedAndReplaces();

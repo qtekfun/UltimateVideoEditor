@@ -14,6 +14,19 @@ void main() {
 }
 )";
 
+// One layer as a quad: p in [-1,1]^2 is mapped to clip space by uXform (layout_math.h QuadMap).
+// vPos stays the quad coordinate so the fragment stage samples exactly as for the fullscreen case.
+inline constexpr const char* kQuadVertex = R"(#version 320 es
+uniform mat3 uXform;
+out vec2 vPos;
+void main() {
+    // Triangle strip: (-1,-1) (1,-1) (-1,1) (1,1)
+    vec2 p = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 2.0 - 1.0;
+    vPos = p;
+    gl_Position = vec4((uXform * vec3(p, 1.0)).xy, 0.0, 1.0);
+}
+)";
+
 // Copies a decoder-produced external image into the cache buffer (YUV -> RGB by the sampler).
 inline constexpr const char* kBlitFragment = R"(#version 320 es
 #extension GL_OES_EGL_image_external_essl3 : require
@@ -32,6 +45,7 @@ in vec2 vPos;
 uniform sampler2D uTex;
 uniform int uMode;   // 0 = SDR Rec.709 pass-through, 1 = HLG Rec.2020 -> SDR Rec.709
 uniform int uTurns;  // clockwise quarter turns applied for display (layout_math.h rotateUv)
+uniform float uOpacity;  // layer opacity, applied through alpha blending
 out vec4 outColor;
 
 const float A = 0.17883277;
@@ -91,7 +105,7 @@ void main() {
     vec2 uv = rotateUv(vec2(vPos.x * 0.5 + 0.5, 0.5 - vPos.y * 0.5));
     vec3 rgb = texture(uTex, uv).rgb;
     if (uMode == 1) rgb = hlg2020ToSdr709(rgb);
-    outColor = vec4(rgb, 1.0);
+    outColor = vec4(rgb, uOpacity);
 }
 )";
 
