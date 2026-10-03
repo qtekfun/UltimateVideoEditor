@@ -231,15 +231,25 @@ void PreviewEngine::applyWindowForBudget() {
         const int64_t capacity = static_cast<int64_t>(share / frameBytes);
         const int32_t ahead = static_cast<int32_t>(std::clamp<int64_t>(capacity * 2 / 3, 1, kDefaultLookAhead));
         const int32_t behind = static_cast<int32_t>(std::clamp<int64_t>(capacity / 4, 0, kDefaultLookBehind));
+        // Playing backwards the frames that matter are the ones below the playhead: mirror the window,
+        // so one pass over a GOP fills what the next stretch of playback will ask for.
+        bool reverse = false;
+        {
+            std::lock_guard<std::mutex> lock(assetMu_);
+            auto it = assets_.find(assetId);
+            if (it != assets_.end()) reverse = it->second.reverse;
+        }
+        const int32_t windowBehind = reverse ? ahead : behind;
+        const int32_t windowAhead = reverse ? behind : ahead;
         {
             std::lock_guard<std::mutex> lock(assetMu_);
             auto it = assets_.find(assetId);
             if (it != assets_.end()) {
-                it->second.windowBehind = behind;
-                it->second.windowAhead = ahead;
+                it->second.windowBehind = windowBehind;
+                it->second.windowAhead = windowAhead;
             }
         }
-        d->setWindow(behind, ahead);
+        d->setWindow(windowBehind, windowAhead);
     }
 }
 
@@ -278,6 +288,7 @@ void PreviewEngine::setColorMode(uint32_t assetId, ColorMode mode) {
 bool PreviewEngine::applyScene(int canvasW, int canvasH, std::vector<SceneLayer> layers) {
     std::vector<SceneLayer> kept;
     kept.reserve(layers.size());
+    bool windowsChanged = false;
     for (SceneLayer& layer : layers) {
         if (layer.title != 0) {  // a rasterised title needs no decoder
             layer.transform.opacity = clampOpacity(layer.transform.opacity);
@@ -292,9 +303,18 @@ bool PreviewEngine::applyScene(int canvasW, int canvasH, std::vector<SceneLayer>
         const int64_t last = std::max<int64_t>(decoder->info().durationFrames - 1, 0);
         layer.frame = std::clamp<int64_t>(layer.frame, 0, last);
         layer.transform.opacity = clampOpacity(layer.transform.opacity);
+        {
+            std::lock_guard<std::mutex> lock(assetMu_);
+            auto it = assets_.find(layer.asset);
+            if (it != assets_.end() && it->second.reverse != (layer.direction < 0)) {
+                it->second.reverse = layer.direction < 0;
+                windowsChanged = true;
+            }
+        }
         decoder->setTarget(layer.frame);
         kept.push_back(layer);
     }
+    if (windowsChanged) applyWindowForBudget();
     scene_ = std::move(kept);
     canvasW_ = canvasW;
     canvasH_ = canvasH;
@@ -334,7 +354,7 @@ void PreviewEngine::tickScene(uint64_t generation) {
         auto decoder = decoderFor(layer.asset);
         if (!decoder) continue;
         const int64_t last = std::min<int64_t>(std::max<int64_t>(decoder->info().durationFrames - 1, 0), layer.limitFrame - 1);
-        const int64_t frame = std::clamp<int64_t>(layer.baseFrame + advanced, 0, std::max<int64_t>(last, 0));
+        const int64_t frame = std::clamp<int64_t>(layer.baseFrame + layer.direction * advanced, 0, std::max<int64_t>(last, 0));
         if (frame != layer.frame) {
             layer.frame = frame;
             decoder->setTarget(frame);

@@ -65,6 +65,23 @@ data class ClipDto(
     val title: TitleDto? = null,
     /** Animated pose in clip frames; empty means [transform] holds for the whole clip. */
     val keyframes: List<KeyframeDto> = emptyList(),
+    /**
+     * Length of the clip on the timeline when it is not the length of its source range (so the speed
+     * is `(sourceOutFrame - sourceInFrame) / timelineFrames`); absent means normal speed. A one-frame
+     * source range held for this many frames is a freeze frame.
+     */
+    val timelineFrames: Long? = null,
+    /** Plays the source range backwards. */
+    val reverse: Boolean = false,
+    /** Relative speed over the clip; empty means constant speed. */
+    val speedRamp: List<SpeedKeyDto> = emptyList(),
+)
+
+/** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */
+@Serializable
+data class SpeedKeyDto(
+    val frame: Long,
+    val weightPermille: Int = 1000,
 )
 
 /**

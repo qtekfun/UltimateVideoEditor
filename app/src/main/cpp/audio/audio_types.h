@@ -12,6 +12,7 @@
 #include "audio/clip_buffer.h"
 #include "audio/pcm_decoder.h"
 #include "audio/resampler.h"
+#include "audio/retime_source.h"
 
 namespace uv::audio {
 
@@ -19,19 +20,31 @@ namespace uv::audio {
 // rest is touched only by the decode worker. Sources survive snapshot edits that merely move or
 // re-gain a clip (the buffer is clip-local), so such edits never restart decoding.
 struct ClipSource {
-    ClipSource(int64_t key, int64_t asset, int64_t srcInMicros, int32_t bufferFrames)
-        : buffer(bufferFrames), clipKey(key), assetKey(asset), sourceInMicros(srcInMicros) {}
+    ClipSource(int64_t key, int64_t asset, int64_t srcInMicros, int32_t bufferFrames, std::vector<RetimeKnot> retimeKnots = {},
+               Rational projectFps = {})
+        : buffer(bufferFrames),
+          clipKey(key),
+          assetKey(asset),
+          sourceInMicros(srcInMicros),
+          knots(std::move(retimeKnots)),
+          fps(projectFps) {}
 
     ClipBuffer buffer;
     const int64_t clipKey;
     const int64_t assetKey;
     const int64_t sourceInMicros;
+    // A retimed clip (speed, ramp, reverse) reads its source through these knots instead of at 1x
+    // from sourceInMicros; see audio/retime_source.h. Part of the source's identity: a new retime
+    // makes a new source, so the clip buffer is never reused across it.
+    const std::vector<RetimeKnot> knots;
+    const Rational fps;  // project frame rate, the unit of the knots
     std::atomic<int64_t> eofAt{INT64_MAX};  // clip-local sample where decoded audio ends
     std::atomic<bool> failed{false};
 
     // Worker only.
     std::unique_ptr<PcmDecoder> decoder;
     std::optional<LinearResampler> resampler;
+    std::unique_ptr<RetimedReader> retimed;  // set instead of `resampler` for a retimed clip
     int64_t decodedEnd = 0;
     bool hitEof = false;
     std::chrono::steady_clock::time_point retryAfter{};  // failed clips are retried no sooner

@@ -35,6 +35,8 @@ internal object NativeExport {
         keyClips: LongArray,
         keyFrames: LongArray,
         keyValues: DoubleArray,
+        sourceClips: LongArray,
+        sourceTable: LongArray,
         titleMeta: IntArray,
         titlePixels: Array<ByteBuffer>,
         audioSnapshot: ByteBuffer?,
@@ -98,6 +100,19 @@ class NativeExportRunner : ExportRunner {
             keyValues[v + 4] = k.rotationDegrees
             keyValues[v + 5] = k.opacity
         }
+        // Retimed clips, flattened: per clip {reverse flag, table length}, then every clip's table in order.
+        val sourceClips = LongArray(request.videoClips.size * SOURCE_CLIP_LONGS)
+        request.videoClips.forEachIndexed { i, c ->
+            sourceClips[i * SOURCE_CLIP_LONGS] = if (c.reverse) 1L else 0L
+            sourceClips[i * SOURCE_CLIP_LONGS + 1] = c.sourceFrames?.size?.toLong() ?: 0L
+        }
+        val sourceTable = LongArray(request.videoClips.sumOf { it.sourceFrames?.size ?: 0 })
+        var tableAt = 0
+        for (c in request.videoClips) {
+            val frames = c.sourceFrames ?: continue
+            frames.copyInto(sourceTable, tableAt)
+            tableAt += frames.size
+        }
         val titleMeta = IntArray(request.titles.size * TITLE_INTS)
         request.titles.forEachIndexed { i, title ->
             titleMeta[i * TITLE_INTS] = title.key
@@ -110,7 +125,7 @@ class NativeExportRunner : ExportRunner {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
                 request.canvasWidth, request.canvasHeight, s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
-                keys, fds, clips, transforms, keyClips, keyFrames, keyValues, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
+                keys, fds, clips, transforms, keyClips, keyFrames, keyValues, sourceClips, sourceTable, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
@@ -141,6 +156,7 @@ class NativeExportRunner : ExportRunner {
         const val KEY_CLIP_LONGS = 2
         const val KEY_LONGS = 2
         const val KEY_DOUBLES = 6
+        const val SOURCE_CLIP_LONGS = 2
         const val TITLE_INTS = 3
     }
 }

@@ -28,10 +28,13 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
     result.fps.den = readLe<int32_t>(data + 12);
     const uint32_t count = readLe<uint32_t>(data + 16);
     if (result.fps.num <= 0 || result.fps.den <= 0) return Status::BadSnapshot;
-    if ((size - kAudioSnapshotHeaderBytes) / kAudioSnapshotClipBytes != count ||
-        (size - kAudioSnapshotHeaderBytes) % kAudioSnapshotClipBytes != 0) {
-        return Status::BadSnapshot;
-    }
+    // The clips come first, then the knots of all clips; the size must match exactly.
+    if (count > (size - kAudioSnapshotHeaderBytes) / kAudioSnapshotClipBytes) return Status::BadSnapshot;
+    const size_t clipsEnd = kAudioSnapshotHeaderBytes + static_cast<size_t>(count) * kAudioSnapshotClipBytes;
+    const size_t knotBytes = size - clipsEnd;
+    if (knotBytes % kAudioSnapshotKnotBytes != 0) return Status::BadSnapshot;
+    size_t knotsLeft = knotBytes / kAudioSnapshotKnotBytes;
+    const uint8_t* knotData = data + clipsEnd;
 
     result.clips.reserve(count);
     const uint8_t* p = data + kAudioSnapshotHeaderBytes;
@@ -47,6 +50,7 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         c.gainDb = readLe<float>(p + 48);
         c.fadeInFrames = readLe<int32_t>(p + 52);
         c.fadeOutFrames = readLe<int32_t>(p + 56);
+        const uint32_t knotCount = readLe<uint32_t>(p + 60);
         // Frames are bounded well below 2^40 so 128-bit time math can never overflow.
         constexpr int64_t kMaxFrame = int64_t{1} << 40;
         if (c.startFrame < 0 || c.startFrame > kMaxFrame || c.durationFrames <= 0 ||
@@ -56,8 +60,26 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
             c.fadeInFrames > c.durationFrames || c.fadeOutFrames > c.durationFrames) {
             return Status::BadSnapshot;
         }
-        result.clips.push_back(c);
+        if (knotCount != 0) {
+            if (knotCount < 2 || knotCount > kMaxClipKnots || knotCount > knotsLeft) return Status::BadSnapshot;
+            c.knots.reserve(knotCount);
+            for (uint32_t k = 0; k < knotCount; ++k, knotData += kAudioSnapshotKnotBytes) {
+                RetimeKnot knot;
+                knot.frame = readLe<int64_t>(knotData);
+                knot.sourceFrame = readLe<double>(knotData + 8);
+                const bool inOrder = c.knots.empty() ? knot.frame == 0 : knot.frame > c.knots.back().frame;
+                if (!inOrder || knot.frame > c.durationFrames || !std::isfinite(knot.sourceFrame) ||
+                    std::fabs(knot.sourceFrame) > static_cast<double>(kMaxFrame)) {
+                    return Status::BadSnapshot;
+                }
+                c.knots.push_back(knot);
+            }
+            knotsLeft -= knotCount;
+            if (c.knots.back().frame != c.durationFrames) return Status::BadSnapshot;
+        }
+        result.clips.push_back(std::move(c));
     }
+    if (knotsLeft != 0) return Status::BadSnapshot;  // knots nobody asked for
     *out = std::move(result);
     return Status::Ok;
 }

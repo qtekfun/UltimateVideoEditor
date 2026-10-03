@@ -201,6 +201,16 @@ class ClipRetime(
         return result
     }
 
+    /**
+     * [knots] for the audio mixer: the same mapping with the position made absolute (a reversed
+     * clip's positions fall from its end) and the frame counted from [fromFrame], the first clip frame
+     * the audio clip covers (a transition starts clips early).
+     */
+    fun sourceKnots(fromFrame: Long, toFrame: Long, maxStepFrames: Long): List<Pair<Long, Double>> =
+        knots(maxStepFrames, fromFrame, toFrame).map { (t, position) ->
+            (t - fromFrame) to (if (reverse) sourceOut - position else sourceIn + position)
+        }
+
     companion object {
         private const val EPSILON = 1e-9
 

@@ -39,6 +39,8 @@ data class PreviewRequest(
     /** Exclusive source frame where the clip ends; playback holds its last frame there. */
     val endFrame: Long? = null,
     val title: TitleContent? = null,
+    /** The clip plays its source backwards: the decoder keeps its window behind the frame, not ahead. */
+    val reverse: Boolean = false,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -127,14 +129,16 @@ class EditorPreview(
             anchor.reset()
             return
         }
-        // The composition is the same while each clip's source range maps linearly to the timeline,
-        // which is what the offset (source frame minus playhead) captures.
+        // The composition is the same while each clip's source range maps linearly at 1x to the
+        // timeline, which is what the offset (source frame minus playhead) captures. A retimed clip's
+        // offset changes every frame, so it re-anchors every tick, like an animated one.
         val composition = ready.map {
             val request = it.request
             FollowedLayer(
                 assetKey = request.assetKey,
                 titleKey = it.titleKey,
                 offset = if (it.titleKey != 0) 0 else request.sourceFrame - heardFrame,
+                reverse = request.reverse,
                 endFrame = request.endFrame,
                 transform = request.transform,
             )
@@ -164,6 +168,7 @@ class EditorPreview(
         val assetKey: Int,
         val titleKey: Int,
         val offset: Long,
+        val reverse: Boolean,
         val endFrame: Long?,
         val transform: ClipTransform,
     )
@@ -205,7 +210,13 @@ class EditorPreview(
             if (titleKey != 0) {
                 PreviewLayer(0, 0, request.transform.toPlacement(), titleKey = titleKey)
             } else {
-                PreviewLayer(request.assetKey, request.sourceFrame, request.transform.toPlacement(), if (withEnd) request.endFrame else null)
+                PreviewLayer(
+                    request.assetKey,
+                    request.sourceFrame,
+                    request.transform.toPlacement(),
+                    if (withEnd) request.endFrame else null,
+                    reverse = request.reverse,
+                )
             }
     }
 

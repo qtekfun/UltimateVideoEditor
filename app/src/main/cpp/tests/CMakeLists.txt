@@ -27,6 +27,7 @@ add_executable(uv_audio_host_tests
     ${ENGINE_DIR}/audio/audio_snapshot.cpp
     ${ENGINE_DIR}/audio/clip_buffer.cpp
     ${ENGINE_DIR}/audio/resampler.cpp
+    ${ENGINE_DIR}/audio/retime_source.cpp
 )
 target_include_directories(uv_audio_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
