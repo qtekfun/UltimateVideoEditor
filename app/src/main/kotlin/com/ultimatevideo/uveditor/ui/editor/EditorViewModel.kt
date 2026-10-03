@@ -117,7 +117,7 @@ class EditorViewModel(
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
-            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.RippleDelete(it)) }
+            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.DeleteClip(it)) }
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
             EditorIntent.TogglePlay -> togglePlay()
             is EditorIntent.AddTrack -> addTrack(intent.type)
