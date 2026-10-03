@@ -4,6 +4,8 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
+import com.ultimatevideo.uveditor.domain.StillKind
+import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.domain.visualClipsAt
@@ -43,7 +45,22 @@ internal fun previewRequestsAt(
                     fx = clip.fx,
                 )
             }
-            RenderKind.VIDEO -> {
+            RenderKind.VIDEO -> if (clip.still != null) {
+                clip.assetId?.let { id ->
+                    // A photo is drawn from its file, a sticker from its built-in art; neither has a decoder.
+                    val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: return@let null else id)
+                    PreviewRequest(
+                        assetKey = 0,
+                        uri = "",
+                        sourceFrame = 0,
+                        fpsNum = fps.num,
+                        fpsDen = fps.den,
+                        transform = transform,
+                        fx = clip.fx,
+                        still = ref,
+                    )
+                }
+            } else {
                 val asset = clip.assetId?.let(assetsById::get)
                 if (asset == null || !asset.hasVideo) {
                     null

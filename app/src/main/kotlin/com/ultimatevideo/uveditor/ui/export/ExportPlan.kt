@@ -5,6 +5,8 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderClip
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
+import com.ultimatevideo.uveditor.domain.StillKind
+import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.renderClips
@@ -26,6 +28,8 @@ internal data class ExportPlan(
     val assetKeys: Map<String, Long>,
     /** Distinct titles to rasterise, by the key [VideoClipSpec.titleKey] refers to. */
     val titles: Map<Int, TitleContent> = emptyMap(),
+    /** Distinct photos and stickers to draw, by the key [VideoClipSpec.titleKey] refers to (keys never collide with [titles]'). */
+    val stills: Map<Int, StillRef> = emptyMap(),
 )
 
 private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0) = VideoClipSpec(
@@ -78,10 +82,18 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
 
     val videoClips = ArrayList<VideoClipSpec>()
     val titles = LinkedHashMap<TitleContent, Int>()
+    val stills = LinkedHashMap<StillRef, Int>()
+    // Titles and stills share one key space: both reach the engine as uploaded pictures.
+    var nextPictureKey = 1
     for (clip in timeline.renderClips()) {
         when (clip.kind) {
             RenderKind.AUDIO -> continue
-            RenderKind.VIDEO -> {
+            RenderKind.VIDEO -> if (clip.still != null) {
+                val id = clip.assetId ?: continue
+                val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: continue else id)
+                val pictureKey = stills.getOrPut(ref) { nextPictureKey++ }
+                videoClips += clip.toSpec(assetKey = 0L, colorMode = SDR, titleKey = pictureKey)
+            } else {
                 val asset = clip.assetId?.let(assetsById::get) ?: continue
                 if (!asset.hasVideo) continue
                 val key = used.getOrPut(asset.id) { assetKeys.keyFor(asset.id) }
@@ -94,7 +106,7 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
             }
             RenderKind.TITLE -> {
                 val content = clip.title ?: continue
-                val titleKey = titles.getOrPut(content) { titles.size + 1 }
+                val titleKey = titles.getOrPut(content) { nextPictureKey++ }
                 videoClips += clip.toSpec(assetKey = 0L, colorMode = SDR, titleKey = titleKey)
             }
         }
@@ -105,7 +117,7 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
 
     val end = timeline.tracks.flatMap { it.clips }.maxOfOrNull { it.timelineEnd.value } ?: 0L
     if (end <= 0L || (videoClips.isEmpty() && audio == null)) return null
-    return ExportPlan(end, videoClips, audio, used, titles.entries.associate { it.value to it.key })
+    return ExportPlan(end, videoClips, audio, used, titles.entries.associate { it.value to it.key }, stills.entries.associate { it.value to it.key })
 }
 
 /** Output frames needed to cover [projectFrames] project frames, rounded up so no audio is cut off. */
