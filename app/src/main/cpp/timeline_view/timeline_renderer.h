@@ -17,6 +17,10 @@
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
 
+namespace uv::thumb {
+class ThumbnailService;
+}
+
 namespace uv::timeline {
 
 using WaveformLookup = std::function<std::shared_ptr<const audio::PeakPyramid>(int64_t assetKey)>;
@@ -37,6 +41,8 @@ public:
     void surfaceDestroyed();
 
     void setSnapshot(std::shared_ptr<const TimelineSnapshot> snapshot);
+    // Source of video thumbnails; held weakly so the owner can destroy it first. May be empty.
+    void setThumbnails(std::weak_ptr<thumb::ThumbnailService> service);
     void setPlayhead(int64_t frame);
     void scrollBy(float dx, float dy);
     void zoomBy(float factor, float focusX);

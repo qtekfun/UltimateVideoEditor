@@ -59,6 +59,7 @@ import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
+import com.ultimatevideo.uveditor.engine.timeline.ThumbnailCache
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.preview.PreviewSurface
 import kotlinx.coroutines.Dispatchers
@@ -80,7 +81,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
 
     val engine = remember {
         val main = Handler(Looper.getMainLooper())
-        TimelineEngine(density) { _, status ->
+        TimelineEngine(
+            density,
+            onThumbnailError = { _, status ->
+                // Called on a native worker thread. The clip stays usable without its filmstrip.
+                main.post { viewModel.onIntent(EditorIntent.ReportError("Could not generate thumbnails ($status)")) }
+            },
+        ) { _, status ->
             // Called on a native worker thread. A file without audio is not an error worth showing.
             if (status == EngineStatus.IO_ERROR || status == EngineStatus.CODEC_ERROR) {
                 main.post { viewModel.onIntent(EditorIntent.ReportError("Could not read the audio of a clip ($status)")) }
@@ -181,6 +188,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         for (asset in state.assets) {
             if (!asset.hasAudio || !requestedWaveforms.add(asset.id)) continue
             requestWaveform(context, engine, viewModel, projectId, asset)
+        }
+    }
+    val requestedThumbnails = remember { mutableSetOf<String>() }
+    LaunchedEffect(state.assets) {
+        for (asset in state.assets) {
+            if (!asset.hasVideo || !requestedThumbnails.add(asset.id)) continue
+            requestThumbnails(context, engine, viewModel, projectId, asset)
         }
     }
 
@@ -412,6 +426,33 @@ private suspend fun requestWaveform(
         engine.requestWaveform(viewModel.assetKey(asset.id), prepared.first, prepared.second)
     } catch (e: EngineException) {
         viewModel.onIntent(EditorIntent.ReportError(e.message ?: "Waveform extraction failed"))
+    }
+}
+
+/** Opens a video asset and hands its descriptor to the native thumbnail worker. */
+private suspend fun requestThumbnails(
+    context: android.content.Context,
+    engine: TimelineEngine,
+    viewModel: EditorViewModel,
+    projectId: String,
+    asset: MediaAssetDto,
+) {
+    val prepared = try {
+        withContext(Dispatchers.IO) {
+            val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(asset.uri), "r")
+                ?: throw FileNotFoundException(asset.uri)
+            val dir = ThumbnailCache(File(context.filesDir, "projects/$projectId")).dirFor(asset.id)
+            descriptor.detachFd() to dir
+        }
+    } catch (e: FileNotFoundException) {
+        return  // the waveform request already reports a missing file; no second message
+    } catch (e: SecurityException) {
+        return
+    }
+    try {
+        engine.requestThumbnails(viewModel.assetKey(asset.id), prepared.first, prepared.second)
+    } catch (e: EngineException) {
+        viewModel.onIntent(EditorIntent.ReportError(e.message ?: "Thumbnail generation failed"))
     }
 }
 
