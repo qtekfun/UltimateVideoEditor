@@ -75,6 +75,10 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [ ] Keyframes; speed changes, ramps, reverse, freeze frame
 - [ ] Chainable shader effects, chroma key, masks, blend modes
 - [ ] Automatic subtitles (on-device transcription) and animated caption styles
+  - _Status (captions):_ implemented but not yet verified on the device (adb was offline): whisper.cpp v1.9.4 in the engine,
+    model download with checksum, audio -> 16 kHz mono -> word timestamps -> caption title clips on a new track (one undo), four
+    static styles, "Auto captions" sheet in the editor. Still to do: run it on the phone, then animated / word-highlight
+    styles once keyframes land. The box stays open until both are done.
 - [ ] Stickers, animated text templates, beat sync
 - [ ] HDR end-to-end (HLG, HEVC Main10), 3D LUTs
 - [ ] Vulkan renderer evaluation

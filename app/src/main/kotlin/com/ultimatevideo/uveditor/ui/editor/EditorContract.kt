@@ -131,6 +131,12 @@ sealed interface EditorIntent : UiIntent {
     data class UpdateTitle(val content: TitleContent) : EditorIntent
     data class EndTitleEdit(val commit: Boolean) : EditorIntent
 
+    /**
+     * Generated captions (title clips) go on a new title track on top, as one undo step. The clips are
+     * built elsewhere (see the captions sheet); this only places them.
+     */
+    data class AddCaptionClips(val clips: List<Clip>) : EditorIntent
+
     /** A crossfade across the cut between the selected clip and the one right after it. */
     data object AddTransition : EditorIntent
     data class SetTransitionDuration(val frames: Long) : EditorIntent

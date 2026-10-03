@@ -43,10 +43,19 @@ cut and fades the incoming one in, so the compositor only draws layers with an o
 audio must keep using it; do not special-case transitions in native code. Titles are rasterised in Kotlin
 (`engine/title`) and uploaded as textures. Details: SPECS.md 5.7.
 
+## Captions (whisper.cpp)
+whisper.cpp is a submodule: after cloning, initialise it with `submodule update --init --depth 1`. The CMake build stops with a
+clear message if it is missing. The first native build compiles ggml/whisper for arm64 (use
+`nice -n 15 ./gradlew ... --max-workers=2` on a busy laptop). The speech model is downloaded at runtime, never bundled.
+Licence notices are in `THIRD_PARTY_NOTICES.md`; update it when adding a dependency. Planning and styles are pure Kotlin in
+`domain/captions/` (unit tested); `engine/captions/` holds the model store and the JNI transcriber.
+
 ## Native host tests
 Pure-logic C++ (snapshot parsing, viewport, hit-testing, waveform peaks) is tested on the desktop without GoogleTest:
 `cmake -S app/src/main/cpp/tests -B /tmp/uv-host -G Ninja && cmake --build /tmp/uv-host && ctest --test-dir /tmp/uv-host`
 (CMake/Ninja from `$ANDROID_HOME/cmake/<ver>/bin`). Add new pure sources to `tests/CMakeLists.txt`.
+`uv_captions_host_tests` covers the stereo -> mono 16 kHz converter that feeds the speech model (exact lengths, chunk invariance,
+anti-aliasing); without CMake: `g++ -std=c++20 -Iapp/src/main/cpp app/src/main/cpp/tests/captions_host_tests.cpp app/src/main/cpp/captions/mono16k.cpp -o /tmp/cap_tests && /tmp/cap_tests`.
 `uv_audio_host_tests` covers the audio core (time math, clock mapping, resampler, mixer, decode worker with a fake decoder).
 Audio on device: `AudioPlaybackInstrumentedTest` (offline tone/gain/resample/seek checks plus a ~60 s Oboe clock-drift and
 latency run logged under tag `UVAudioTest`). Its assets are ffmpeg-generated tones in `src/androidTest/assets`. The app and test
