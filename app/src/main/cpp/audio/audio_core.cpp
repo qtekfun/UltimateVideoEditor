@@ -6,6 +6,13 @@
 
 #include "audio/audio_mixer.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#define UV_AUDIO_LOGW(...) __android_log_print(ANDROID_LOG_WARN, "uv_audio_core", __VA_ARGS__)
+#else
+#define UV_AUDIO_LOGW(...) ((void)0)
+#endif
+
 namespace uv::audio {
 
 namespace {
@@ -14,6 +21,10 @@ using core::Status;
 using Clock = std::chrono::steady_clock;
 
 constexpr auto kRetryCooldown = std::chrono::seconds(1);
+// An offline render (the export) retries a failing clip this many times before giving up on it:
+// decoders can be reclaimed or hiccup under load, and a retry is cheap next to a lost export.
+constexpr int32_t kMaxOfflineFailures = 4;
+constexpr auto kOfflineWait = std::chrono::seconds(30);
 constexpr size_t kMaxQueuedFaults = 64;
 
 // Identity of a clip's retime: knots that differ in any frame or position give a different source.
@@ -274,23 +285,45 @@ void AudioCore::renderBlock(float* out, int32_t frames) {
 
 bool AudioCore::clipsReadyAt(int64_t pos, int64_t windowFrames) const {
     if (current_ == nullptr) return true;
+    const bool offline = offline_.load(std::memory_order_acquire);
     for (const PreparedClip& clip : current_->clips) {
         const int64_t a = std::max(pos, clip.startSample);
         const int64_t b = std::min(pos + windowFrames, clip.endSample);
         if (a >= b) continue;
-        if (!clip.source->ready(a - clip.startSample, static_cast<int32_t>(b - a))) return false;
+        if (!clip.source->ready(a - clip.startSample, static_cast<int32_t>(b - a), offline, kMaxOfflineFailures)) return false;
     }
     return true;
 }
 
 void AudioCore::waitUntilReady(int64_t pos, int32_t frames) {
     // Offline only (the caller is not a real-time thread, so sleeping is fine).
-    constexpr auto kTimeout = std::chrono::seconds(5);
-    const auto deadline = Clock::now() + kTimeout;
+    const auto deadline = Clock::now() + kOfflineWait;
     while (!clipsReadyAt(pos, frames) && Clock::now() < deadline) {
         wake();
         std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
+    if (clipsReadyAt(pos, frames)) return;
+    // Mixing on would export silence where a clip should be: report which clip it was instead.
+    int64_t stuck = -1;
+    if (current_ != nullptr) {
+        for (const PreparedClip& clip : current_->clips) {
+            const int64_t a = std::max(pos, clip.startSample);
+            const int64_t b = std::min(pos + frames, clip.endSample);
+            if (a < b && !clip.source->ready(a - clip.startSample, static_cast<int32_t>(b - a), true, kMaxOfflineFailures)) {
+                stuck = clip.source->clipKey;
+                break;
+            }
+        }
+    }
+    UV_AUDIO_LOGW("offline render gave up waiting for clip %lld at sample %lld", static_cast<long long>(stuck),
+                  static_cast<long long>(pos));
+    std::lock_guard<std::mutex> lock(faultMutex_);
+    if (faults_.size() >= kMaxQueuedFaults) return;
+    AudioFault f;
+    f.kind = AudioFault::Kind::OfflineStall;
+    f.clipKey = stuck;
+    f.status = Status::CodecError;
+    faults_.push_back(f);
 }
 
 void AudioCore::publishAnchor(int64_t streamFrame, int64_t timelineSample, bool playing) {
@@ -421,6 +454,7 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
             if (produced > 0) {
                 src.buffer.append(src.outScratch.data(), static_cast<int32_t>(produced));
                 src.decodedEnd += produced;
+                src.failures.store(0, std::memory_order_release);
             }
             if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to decode
         }
@@ -461,6 +495,7 @@ void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, in
         if (r == RetimedReader::Result::NotReady) break;  // nothing decoded yet; try again next pass
         src.buffer.append(src.outScratch.data(), n);
         src.decodedEnd += n;
+        src.failures.store(0, std::memory_order_release);
     }
     if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to render
 }
@@ -499,6 +534,9 @@ void AudioCore::releaseClip(ClipSource& src) {
 }
 
 void AudioCore::failClip(ClipSource& src, Status status) {
+    const int32_t failures = src.failures.fetch_add(1, std::memory_order_acq_rel) + 1;
+    UV_AUDIO_LOGW("clip %lld failed (status %d, failure %d)", static_cast<long long>(src.clipKey), static_cast<int>(status),
+                  failures);
     src.failed.store(true, std::memory_order_release);
     src.retryAfter = Clock::now() + kRetryCooldown;
     src.retimed.reset();
@@ -506,6 +544,8 @@ void AudioCore::failClip(ClipSource& src, Status status) {
     src.resampler.reset();
     src.hitEof = false;
 
+    // An offline render waits for the retry; only a clip that keeps failing is reported.
+    if (offline_.load(std::memory_order_acquire) && failures <= kMaxOfflineFailures) return;
     std::lock_guard<std::mutex> lock(faultMutex_);
     if (faults_.size() >= kMaxQueuedFaults) return;
     AudioFault f;

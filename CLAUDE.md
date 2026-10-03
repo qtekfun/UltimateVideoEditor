@@ -83,7 +83,9 @@ Retiming: `scripts/run-retime-export-test.sh <serial> [runs]` exports a timeline
 from a synthetic source (every frame carries its own number in binary squares, plus a 440 Hz tone), then
 `scripts/check-retime-export.py` reads the frame numbers and the pitch back from the MP4 and compares them with what the domain
 mapping (`domain/Retime.kt`, SPECS.md 5.13) says. Needs the app and androidTest APKs installed (`adb install -r` / `-r -t`); the test
-APK's instrumentation does not clear app data when run with `am instrument`. Do not run it while another session installs builds.
+APK's instrumentation does not clear app data when run with `am instrument`, but it does restart the app's process, so the script
+refuses to run while the app is in the foreground on the device (FORCE=1 overrides). Do not run it while another session installs
+builds. It also checks a plain 1x clip frame for frame (`plain_*` outputs) and prints substitutions/retries from the native log.
 
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests

@@ -62,21 +62,29 @@ class RetimeExportInstrumentedTest {
     }
 
     @Test
-    fun exportsRetimedClipsWithTheFramesAndPitchTheDomainSays() {
+    fun exportsRetimedClipsWithTheFramesAndPitchTheDomainSays() = export(timeline(), "retime")
+
+    /** One untouched 1x clip: every exported frame must be the source frame it should be, with no retiming involved. */
+    @Test
+    fun exportsAPlainClipFrameForFrame() {
+        val clip = Clip("P", "a", FrameIndex(0), FrameIndex(0), FrameIndex(250))
+        export(Timeline(listOf(Track("v1", TrackType.VIDEO, listOf(clip)))), "plain")
+    }
+
+    private fun export(tl: Timeline, prefix: String) {
         val dir = checkNotNull(context.getExternalFilesDir(null))
         val source = File(dir, "retime_src.mp4")
         assertTrue("push retime_src.mp4 to ${dir.path} first", source.exists())
-        val output = File(dir, "retime_out.mp4").also { it.delete() }
+        val output = File(dir, "${prefix}_out.mp4").also { it.delete() }
 
         val fps = FrameRate(30, 1)
-        val tl = timeline()
         val assets = listOf(MediaAssetDto("a", source.toURI().toString(), 300, 30, 1, "Rec709-SDR", hasVideo = true, hasAudio = true))
         val plan = checkNotNull(buildExportPlan(tl, assets, fps))
 
         // What every output frame must show: the source frame of the topmost clip under it.
         val render = tl.renderClips()
         val expected = (0 until plan.projectFrames).map { frame -> visualClipsAt(render, frame).last().sourceFrameAt(frame) }
-        File(dir, "retime_expected.txt").writeText(expected.joinToString("\n"))
+        File(dir, "${prefix}_expected.txt").writeText(expected.joinToString("\n"))
         // Clips with a steady pitch: id, first frame, last frame (exclusive), expected Hz (0 = silent, -1 = varies).
         val segments = tl.tracks.flatMap { it.clips }.joinToString("\n") { c ->
             val hz = when {
@@ -86,7 +94,7 @@ class RetimeExportInstrumentedTest {
             }
             "${c.id} ${c.timelineStart.value} ${c.timelineEnd.value} $hz"
         }
-        File(dir, "retime_segments.txt").writeText(segments)
+        File(dir, "${prefix}_segments.txt").writeText(segments)
 
         val sourceFd = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).detachFd()
         val outputFd = ParcelFileDescriptor.open(
