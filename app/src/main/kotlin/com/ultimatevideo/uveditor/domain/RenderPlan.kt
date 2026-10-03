@@ -1,0 +1,114 @@
+package com.ultimatevideo.uveditor.domain
+
+enum class RenderKind { VIDEO, TITLE, AUDIO }
+
+/**
+ * One clip as the renderers see it. The preview, the exporter and the audio mixer all start from
+ * this list, so a transition looks and sounds the same everywhere (SPECS.md 5.7).
+ *
+ * A transition is expressed by extending the two clips around the cut: the outgoing clip keeps
+ * playing past its out point, the incoming clip starts early, and the incoming one fades in over
+ * [crossfadeInFrames] on top of the other. Times are project frames; [sourceInFrame] is the source
+ * frame shown at [startFrame] (it may be before the clip's in point for an incoming clip).
+ */
+data class RenderClip(
+    val clipId: String,
+    val trackId: String,
+    val kind: RenderKind,
+    /** 0 is the topmost visual track; audio-only clips have -1. */
+    val layer: Int,
+    /**
+     * Decoder slot within a layer. Two clips of the same media that show at the same time (a
+     * transition between cuts of one file) need separate decoders, so the incoming one gets lane 1.
+     */
+    val lane: Int,
+    val assetId: String?,
+    val title: TitleContent?,
+    val startFrame: Long,
+    val durationFrames: Long,
+    val sourceInFrame: Long,
+    val transform: ClipTransform,
+    val gainDb: Double,
+    /** Length of the fade-in of the incoming clip of a transition (0 when there is none). */
+    val crossfadeInFrames: Long,
+    /** Length of the fade-out of the outgoing clip's audio (0 when there is none). */
+    val crossfadeOutFrames: Long,
+) {
+    val endFrame: Long get() = startFrame + durationFrames
+
+    fun covers(frame: Long): Boolean = frame >= startFrame && frame < endFrame
+
+    /** Layer opacity at [frame]: the clip's own opacity times the crossfade ramp. */
+    fun opacityAt(frame: Long): Double = transform.opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)
+
+    /** Source frame shown at [frame] (unclamped; renderers clamp to the media). */
+    fun sourceFrameAt(frame: Long): Long = sourceInFrame + (frame - startFrame)
+}
+
+/**
+ * Shapes of a crossfade over `d` frames. Progress at frame `k` of the fade is `(k + 0.5) / d`, so it
+ * never starts at exactly 0 or ends at exactly 1 and is symmetric around the middle. Video uses it
+ * as opacity of the incoming clip; audio uses equal-power gains `sin`/`cos` of it. The native
+ * exporter and mixer implement the same formulas (`render/crossfade_math.h`).
+ */
+object CrossfadeCurve {
+    fun progress(k: Long, d: Long): Double = if (d <= 0L || k >= d) 1.0 else (k.coerceAtLeast(0L) + 0.5) / d
+
+    fun fadeInGain(k: Long, d: Long): Double = kotlin.math.sin(progress(k, d) * Math.PI / 2.0)
+
+    fun fadeOutGain(k: Long, d: Long): Double = kotlin.math.cos(progress(k, d) * Math.PI / 2.0)
+}
+
+/** Every clip of the timeline, with transitions folded in. Order is track order, then start. */
+fun Timeline.renderClips(): List<RenderClip> {
+    // Visual tracks count from the top; the first one drawn last, so it ends up on top.
+    var nextLayer = 0
+    val result = ArrayList<RenderClip>()
+    for (track in tracks) {
+        val layer = if (track.type == TrackType.AUDIO) -1 else nextLayer++
+        val lanes = HashMap<String, Int>()
+        for (clip in track.clips) {
+            val incoming = transitions.firstOrNull { it.toClipId == clip.id }
+            val outgoing = transitions.firstOrNull { it.fromClipId == clip.id }
+            val pre = incoming?.preFrames ?: 0L
+            val post = outgoing?.postFrames ?: 0L
+            val previous = incoming?.let { track.clip(it.fromClipId) }
+            val lane = if (previous != null && previous.assetId != null && previous.assetId == clip.assetId) {
+                1 - (lanes[previous.id] ?: 0)
+            } else {
+                0
+            }
+            lanes[clip.id] = lane
+            result += RenderClip(
+                clipId = clip.id,
+                trackId = track.id,
+                kind = when (track.type) {
+                    TrackType.VIDEO -> RenderKind.VIDEO
+                    TrackType.TITLE -> RenderKind.TITLE
+                    TrackType.AUDIO -> RenderKind.AUDIO
+                },
+                layer = layer,
+                lane = lane,
+                assetId = clip.assetId,
+                title = clip.title,
+                startFrame = clip.timelineStart.value - pre,
+                durationFrames = clip.durationFrames + pre + post,
+                sourceInFrame = if (clip.title != null) 0L else clip.sourceIn.value - pre,
+                transform = clip.transform,
+                gainDb = clip.gainDb,
+                crossfadeInFrames = incoming?.durationFrames ?: 0L,
+                crossfadeOutFrames = outgoing?.durationFrames ?: 0L,
+            )
+        }
+    }
+    return result
+}
+
+/**
+ * The visual clips (video and titles) showing at [frame], bottom first, so drawing them in order
+ * leaves the topmost track on top. Within a track the later-starting clip is above the earlier one,
+ * which is what puts the incoming clip of a transition over the outgoing one.
+ */
+fun visualClipsAt(clips: List<RenderClip>, frame: Long): List<RenderClip> =
+    clips.filter { it.kind != RenderKind.AUDIO && it.covers(frame) }
+        .sortedWith(compareByDescending<RenderClip> { it.layer }.thenBy { it.startFrame })

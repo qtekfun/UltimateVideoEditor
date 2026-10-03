@@ -32,7 +32,8 @@ struct Buf {
     }
 };
 
-static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& clips) {
+static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& clips,
+                        const std::vector<timeline::TransitionSnapshot>& transitions = {}) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
     w.put<uint32_t>(timeline::kSnapshotVersion);
@@ -52,6 +53,14 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         w.put<int32_t>(c.sourceFpsDen);
         w.put<int32_t>(c.selected ? 1 : 0);
     }
+    w.put<int32_t>(static_cast<int32_t>(transitions.size()));
+    for (const auto& t : transitions) {
+        w.put<int32_t>(t.trackIndex);
+        w.put<int32_t>(0);
+        w.put<int64_t>(t.cutFrame);
+        w.put<int64_t>(t.preFrames);
+        w.put<int64_t>(t.postFrames);
+    }
     return w;
 }
 
@@ -61,13 +70,36 @@ static timeline::ClipSnapshot clip(int64_t key, int track, int64_t start, int64_
 
 static void testSnapshotRoundTrip() {
     auto buf = makeSnapshot(2, {clip(7, 0, 0, 100), clip(8, 1, 50, 25)});
-    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes);
+    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4);
     timeline::TimelineSnapshot s;
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
     CHECK(s.tracks.size() == 2 && s.clips.size() == 2);
     CHECK(s.clips[1].clipKey == 8 && s.clips[1].startFrame == 50);
     CHECK(s.fpsNum == 30000 && s.fpsDen == 1001);
     CHECK(s.endFrame() == 100);
+}
+
+static void testSnapshotTransitions() {
+    timeline::TimelineSnapshot s;
+    auto buf = makeSnapshot(2, {clip(1, 0, 0, 100), clip(2, 0, 100, 100)}, {{0, 100, 5, 5}, {1, 40, 2, 3}});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.transitions.size() == 2);
+    CHECK(s.transitions[0].trackIndex == 0 && s.transitions[0].cutFrame == 100 && s.transitions[0].preFrames == 5 &&
+          s.transitions[0].postFrames == 5);
+    CHECK(s.transitions[1].trackIndex == 1 && s.transitions[1].postFrames == 3);
+
+    // A count that disagrees with the bytes, a bad track and negative lengths are rejected.
+    auto missing = buf.b;
+    missing.resize(missing.size() - 1);
+    CHECK(timeline::parseSnapshot(missing.data(), missing.size(), &s) == core::Status::BadSnapshot);
+    auto badTrack = makeSnapshot(1, {clip(1, 0, 0, 10)}, {{3, 5, 1, 1}});
+    CHECK(timeline::parseSnapshot(badTrack.b.data(), badTrack.b.size(), &s) == core::Status::BadSnapshot);
+    auto negative = makeSnapshot(1, {clip(1, 0, 0, 10)}, {{0, 5, -1, 1}});
+    CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
+    auto huge = makeSnapshot(1, {clip(1, 0, 0, 10)});
+    huge.b[huge.b.size() - 4] = 0x7F;  // claims far more transitions than there are bytes
+    huge.b[huge.b.size() - 1] = 0x7F;
+    CHECK(timeline::parseSnapshot(huge.b.data(), huge.b.size(), &s) == core::Status::BadSnapshot);
 }
 
 static void testSnapshotRejectsBadInput() {
@@ -291,6 +323,7 @@ static void testPeaksFile() {
 
 int main() {
     testSnapshotRoundTrip();
+    testSnapshotTransitions();
     testSnapshotRejectsBadInput();
     testViewport();
     testHitTest();

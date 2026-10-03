@@ -37,6 +37,8 @@ constexpr Color kTick{0.55f, 0.58f, 0.65f, 1.0f};
 constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
 constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
+constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
+constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
 
 constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
 constexpr size_t kUploadsPerFrame = 6;                     // keeps a frame cheap while tiles stream in
@@ -839,6 +841,21 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             g.rect(fx0, top, fx0 + b, bottom, kSelection);
             g.rect(fx1 - b, top, fx1, bottom, kSelection);
         }
+    }
+
+    // Transitions: a translucent band over the span both clips cross-fade in, with a bright line at the cut.
+    g.setClip(0, layout.rulerHeight, W, H);
+    for (const TransitionSnapshot& t : snap->transitions) {
+        const float top = layout.trackTop(t.trackIndex) - static_cast<float>(vp.scrollY);
+        const float bottom = top + layout.trackHeight;
+        if (bottom < layout.rulerHeight || top > H) continue;
+        const float x0 = static_cast<float>(vp.frameToX(t.cutFrame - t.preFrames));
+        const float x1 = static_cast<float>(vp.frameToX(t.cutFrame + t.postFrames));
+        const float xc = static_cast<float>(vp.frameToX(t.cutFrame));
+        if (x1 < 0 || x0 > W) continue;
+        const float lineW = std::max(1.0f, 1.5f * density);
+        g.rect(x0, top, std::max(x1, x0 + 2.0f * lineW), bottom, kTransitionBand);
+        g.rect(xc - lineW * 0.5f, top, xc + lineW * 0.5f, bottom, kTransitionCut);
     }
 
     // Tell the service what is missing now; an empty set also drops requests the user scrolled past.

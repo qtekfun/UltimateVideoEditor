@@ -207,7 +207,7 @@ void PreviewEngine::closeAsset(uint32_t assetId) {
     thread_->post([this, assetId] {
         cache_.eraseIf([assetId](const FrameKey& k) { return k.asset == assetId; });
         if (pipeline_) pipeline_->clearSourceCache();  // the reader's buffers are gone with the decoder
-        const auto gone = std::remove_if(scene_.begin(), scene_.end(), [assetId](const SceneLayer& l) { return l.asset == assetId; });
+        const auto gone = std::remove_if(scene_.begin(), scene_.end(), [assetId](const SceneLayer& l) { return l.title == 0 && l.asset == assetId; });
         if (gone != scene_.end()) {
             scene_.erase(gone, scene_.end());
             drawnValid_ = false;
@@ -243,6 +243,23 @@ void PreviewEngine::applyWindowForBudget() {
     }
 }
 
+void PreviewEngine::uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba) {
+    thread_->post([this, key, width, height, rgba = std::move(rgba)] {
+        Error error{Status::Ok, ""};
+        if (pipeline_->uploadTitle(key, width, height, rgba.data(), &error) != Status::Ok) {
+            report(error);
+            return;
+        }
+        drawnValid_ = false;  // a changed texture under a drawn key must show up
+    });
+}
+
+void PreviewEngine::releaseTitle(uint32_t key) {
+    thread_->post([this, key] {
+        if (pipeline_) pipeline_->releaseTitle(key);
+    });
+}
+
 void PreviewEngine::setCacheBudget(size_t bytes) {
     cache_.setBudget(bytes);  // the cache is internally synchronised; evicted frames drop here
     applyWindowForBudget();
@@ -262,6 +279,11 @@ bool PreviewEngine::applyScene(int canvasW, int canvasH, std::vector<SceneLayer>
     std::vector<SceneLayer> kept;
     kept.reserve(layers.size());
     for (SceneLayer& layer : layers) {
+        if (layer.title != 0) {  // a rasterised title needs no decoder
+            layer.transform.opacity = clampOpacity(layer.transform.opacity);
+            kept.push_back(layer);
+            continue;
+        }
         auto decoder = decoderFor(layer.asset);
         if (!decoder) {
             report(Error{Status::NotFound, "asset " + std::to_string(layer.asset) + " is not open"});
@@ -308,6 +330,7 @@ void PreviewEngine::tickScene(uint64_t generation) {
     const int64_t advanced = static_cast<int64_t>(static_cast<__int128>(elapsedNs) * sceneFps_.num /
                                                   (static_cast<__int128>(sceneFps_.den) * 1000000000));
     for (SceneLayer& layer : scene_) {
+        if (layer.title != 0) continue;  // a title is a still: nothing to advance
         auto decoder = decoderFor(layer.asset);
         if (!decoder) continue;
         const int64_t last = std::min<int64_t>(std::max<int64_t>(decoder->info().durationFrames - 1, 0), layer.limitFrame - 1);
@@ -482,6 +505,15 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
     {
         std::lock_guard<std::mutex> lock(assetMu_);
         for (const SceneLayer& layer : scene_) {
+            if (layer.title != 0) {
+                LayerDraw draw;
+                draw.titleKey = layer.title;
+                draw.transform = layer.transform;
+                frames.push_back(nullptr);  // keeps `frames` and `layers` index-aligned for the canvas size below
+                layers.push_back(draw);
+                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title});
+                continue;
+            }
             auto asset = assets_.find(layer.asset);
             if (asset == assets_.end()) continue;  // closed meanwhile; closeAsset() prunes the scene
             std::shared_ptr<GpuFrame> frame;

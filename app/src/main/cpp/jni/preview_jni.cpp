@@ -155,6 +155,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 namespace {
 // `ids` holds `idStride` longs per layer ({assetId, frame} and, for playback, the exclusive limit
 // frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity}, both bottom to top.
+// A negative assetId -k is the title uploaded under key k (frame is ignored).
 // Returns false after throwing if the arrays do not agree.
 bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jsize idStride, std::vector<uv::render::SceneLayer>* out) {
     const jsize layerCount = env->GetArrayLength(ids) / idStride;
@@ -172,7 +173,11 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jsize idStride,
     for (jsize i = 0; i < layerCount; ++i) {
         uv::render::SceneLayer layer;
         const jlong* id = &idValues[static_cast<size_t>(i) * static_cast<size_t>(idStride)];
-        layer.asset = static_cast<uint32_t>(id[0]);
+        if (id[0] < 0) {
+            layer.title = static_cast<uint32_t>(-id[0]);
+        } else {
+            layer.asset = static_cast<uint32_t>(id[0]);
+        }
         layer.frame = id[1];
         if (idStride > 2) layer.limitFrame = id[2];
         const jfloat* p = &paramValues[static_cast<size_t>(i) * 6];
@@ -196,6 +201,26 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     std::vector<uv::render::SceneLayer> layers;
     if (!parseScene(env, ids, params, 3, &layers)) return;
     fromHandle(handle)->engine->playScene(canvasW, canvasH, std::move(layers), uv::decode::Rational{fpsNum, fpsDen});
+}
+
+// `pixels` is a direct buffer of width * height * 4 bytes (premultiplied RGBA, top row first); it is copied.
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadTitle(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint width, jint height, jobject pixels) {
+    const void* data = pixels == nullptr ? nullptr : env->GetDirectBufferAddress(pixels);
+    const jlong capacity = pixels == nullptr ? 0 : env->GetDirectBufferCapacity(pixels);
+    const int64_t needed = static_cast<int64_t>(width) * height * 4;
+    if (key <= 0 || width <= 0 || height <= 0 || data == nullptr || capacity < needed) {
+        throwPreview(env, Status::InvalidArgument, "title pixels do not match the given size");
+        return;
+    }
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    fromHandle(handle)->engine->uploadTitle(static_cast<uint32_t>(key), width, height,
+                                            std::vector<uint8_t>(bytes, bytes + needed));
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseTitle(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
+    fromHandle(handle)->engine->releaseTitle(static_cast<uint32_t>(key));
 }
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSeek(

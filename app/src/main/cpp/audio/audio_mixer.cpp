@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "core/crossfade_math.h"
+
 namespace uv::audio {
 
 float dbToLinear(float db) { return std::pow(10.0f, db / 20.0f); }
@@ -35,7 +37,22 @@ MixResult mixBlock(const PreparedSnapshot& snapshot, int64_t startSample, int32_
         }
         float* dst = out + static_cast<size_t>(a - startSample) * 2;
         const float g = clip.gain;
-        for (int32_t i = 0; i < n * 2; ++i) dst[i] += scratch[i] * g;
+        const int64_t length = clip.endSample - clip.startSample;
+        const int64_t fadeOutFrom = length - clip.fadeOutSamples;
+        if (clip.fadeInSamples <= 0 && clip.fadeOutSamples <= 0) {
+            for (int32_t i = 0; i < n * 2; ++i) dst[i] += scratch[i] * g;
+        } else {
+            for (int32_t i = 0; i < n; ++i) {
+                const int64_t s = local + i;
+                float gain = g;
+                if (s < clip.fadeInSamples) gain *= core::crossfadeFadeInGain(s, clip.fadeInSamples);
+                if (clip.fadeOutSamples > 0 && s >= fadeOutFrom) {
+                    gain *= core::crossfadeFadeOutGain(s - fadeOutFrom, clip.fadeOutSamples);
+                }
+                dst[2 * i] += scratch[2 * i] * gain;
+                dst[2 * i + 1] += scratch[2 * i + 1] * gain;
+            }
+        }
     }
 
     for (int32_t i = 0; i < frames * 2; ++i) out[i] = std::clamp(out[i], -1.0f, 1.0f);

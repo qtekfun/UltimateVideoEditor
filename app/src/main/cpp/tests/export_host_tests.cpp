@@ -1,4 +1,5 @@
 // Host tests for encode/export_math.h (no Android dependencies).
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -154,6 +155,63 @@ void sourceFrameMapsAndClamps() {
     CHECK_EQ(totalFramesOf({clip}, 400), 400);
 }
 
+// Mirrors domain/RenderPlanTest.kt: the same clips, frames and expected values, so the preview
+// (Kotlin) and the exporter (here) agree on how a transition looks.
+void transitionOverlapMatchesTheKotlinPlan() {
+    VideoClip outgoing = makeClip(0, 105, 0, 7, 0);         // A extended 5 frames past its cut at 100
+    VideoClip incoming = makeClip(95, 105, 45, 7, 0);       // B starts 5 frames early, reading earlier media
+    incoming.fadeInFrames = 10;
+    incoming.lane = 1;
+    const std::vector<VideoClip> clips{outgoing, incoming};
+
+    CHECK_EQ(layersAt(clips, 90).size(), 1);
+    const auto during = layersAt(clips, 100);
+    CHECK_EQ(during.size(), 2);
+    CHECK_EQ(during[0]->startFrame, 0);   // outgoing underneath
+    CHECK_EQ(during[1]->startFrame, 95);  // incoming on top
+    CHECK_EQ(layersAt(clips, 105).size(), 1);
+
+    auto micro = [](double v) { return static_cast<long long>(std::llround(v * 1e6)); };
+    CHECK_EQ(micro(opacityAt(outgoing, 100)), 1000000);
+    CHECK_EQ(micro(opacityAt(incoming, 95)), 50000);
+    CHECK_EQ(micro(opacityAt(incoming, 100)), 550000);
+    CHECK_EQ(micro(opacityAt(incoming, 104)), 950000);
+    CHECK_EQ(micro(opacityAt(incoming, 105)), 1000000);
+    CHECK_EQ(micro(opacityAt(incoming, 150)), 1000000);
+    incoming.opacity = 0.5;
+    CHECK_EQ(micro(opacityAt(incoming, 100)), 275000);
+
+    // The picture at the cut is the one without the transition.
+    CHECK_EQ(sourceFrameFor(outgoing, 100, 1000), 100);
+    CHECK_EQ(sourceFrameFor(incoming, 100, 1000), 50);
+    CHECK_EQ(sourceFrameFor(incoming, 95, 1000), 45);
+    // Before the media starts the first frame is held.
+    VideoClip early = makeClip(0, 20, 0, 7, 0);
+    early.startFrame = -5;
+    CHECK_EQ(sourceFrameFor(early, 0, 1000), 5);
+    CHECK_EQ(sourceFrameFor(makeClip(10, 20, -5, 7, 0), 10, 1000), 0);
+}
+
+void sameLayerClipsStackByStartFrame() {
+    // Several clips of one layer ordered by start whatever order they come in.
+    std::vector<VideoClip> clips;
+    clips.push_back(makeClip(40, 100, 0, 3, 1));
+    clips.push_back(makeClip(0, 100, 0, 2, 1));
+    clips.push_back(makeClip(20, 100, 0, 4, 1));
+    const auto out = layersAt(clips, 50);
+    CHECK_EQ(out.size(), 3);
+    CHECK_EQ(out[0]->assetKey, 2);
+    CHECK_EQ(out[1]->assetKey, 4);
+    CHECK_EQ(out[2]->assetKey, 3);
+}
+
+void titleClipsCarryTheirKey() {
+    VideoClip title = makeClip(10, 30, 0, 0, 0);
+    title.titleKey = 5;
+    CHECK_EQ(layersAt({title}, 20).size(), 1);
+    CHECK_EQ(layersAt({title}, 20)[0]->titleKey, 5);
+}
+
 }  // namespace
 
 int main() {
@@ -165,6 +223,9 @@ int main() {
     topLayerWinsAndGapsAreEmpty();
     outputFramesMapToProjectFrames();
     sourceFrameMapsAndClamps();
+    transitionOverlapMatchesTheKotlinPlan();
+    sameLayerClipsStackByStartFrame();
+    titleClipsCarryTheirKey();
     if (failures == 0) std::printf("export host tests: all passed\n");
     return failures == 0 ? 0 : 1;
 }
