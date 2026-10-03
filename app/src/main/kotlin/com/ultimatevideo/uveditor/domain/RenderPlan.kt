@@ -43,6 +43,8 @@ data class RenderClip(
     val fx: ClipFx = ClipFx.NONE,
     /** Set for a photo or sticker: a picture without a decoder, drawn like a title ([assetId] says which). */
     val still: StillKind? = null,
+    /** The clip's colour space override, or null to use the asset's detected one. */
+    val colorOverride: SourceColorSpace? = null,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -126,6 +128,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 keyframeOriginFrame = clip.timelineStart.value,
                 retime = if (clip.hasMedia && clip.isRetimed) clip.retime else null,
                 fx = clip.fx,
+                colorOverride = clip.colorOverride,
                 still = clip.still,
             )
         }

@@ -136,7 +136,7 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
                     assetKey = key,
                     // What the source is; the engine converts it to the colour space the export renders in
                     // (HLG sources are tone-mapped for an SDR export, kept for an HLG one).
-                    colorMode = SourceColorSpace.fromId(asset.colorSpace).nativeModeValue,
+                    colorMode = (clip.colorOverride ?: SourceColorSpace.fromId(asset.colorSpace)).nativeModeValue,
                 )
             }
             RenderKind.TITLE -> {
