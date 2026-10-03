@@ -617,3 +617,17 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - **WP-R crash reporting is local logs only; no reporting service.** The privacy note points to `docs/PRIVACY.md`.
 - **WP-V5 content packs: "bring your own" music and sounds, no bundled commercial library, no downloads.**
 - **`docs/PRIVACY.md` states the guarantees and how to verify them**; the README links to it and PRD gains a privacy section.
+
+## New-project sheet: selectors, quick presets and "match first clip" (WP-U1)
+
+**Decision:** the sheet has four dropdowns (aspect ratio, resolution as the short side, frame rate, colour space) plus a quick-start chip row; the pixel size is computed (short side x shape, both sides rounded to even) and written under the selector, with Custom size / Custom short side as typed fields validated to even values 128..8192. "Match first clip" reads a picked clip with a new `ClipPeeker` (no persistable permission, no import), copies size (as a Custom size), frame rate (a listed rate or a one-off) and colour space (PQ maps to the HLG project space); a photo only gives its size. The last selector choices are saved in a small SharedPreferences store; a format taken from a clip is not saved. The sheet is a bottom sheet below 600 dp and a dialog above.
+**Why:** the old dialog showed ~25 chips at once; dropdowns show one value each and presets cover the common cases in one tap. Reading a clip without taking a permission avoids spending one of Android's 512 persisted grants on a clip that is not in the project.
+**Alternative:** keep chips (cluttered), or make "match" import the clip into the media library (spends a permission and adds media the user did not ask for). Photo EXIF orientation is not applied when reading a photo's size (a rotated photo may report its sensor orientation); the user can edit the size afterwards.
+
+## Hub cards: thumbnail, length, search and sort (WP-U1)
+
+**Decision:** cards show a 320 px first frame of the earliest video/photo clip (via `MediaMetadataRetriever` or a bounded bitmap decode), cached as JPEG in the app cache keyed by a hash of source and time (older files of that project are removed), the project length (end of the last clip, from `project.json` in the summary) and a short format line. Search and sort (Recent / Name) appear only above six projects. Import moved to the top-bar overflow menu.
+**Why:** a card should identify the project at a glance; the cache directory may be cleared by the system and is regenerated, so there is nothing to migrate or clean up, and nothing leaves the device.
+**Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).
+
+**Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.

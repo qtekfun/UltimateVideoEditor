@@ -130,7 +130,7 @@ Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; t
 waves of SPECS 9.20.
 
 ### Wave 0 — usability first
-- [ ] WP-U1 New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
+- [x] WP-U1 (JVM-tested; not yet seen on the device) New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
 - [ ] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
 
 ### Wave 1

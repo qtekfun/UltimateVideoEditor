@@ -19,6 +19,10 @@ data class ProjectSummary(
     val name: String,
     val settings: ProjectSettingsDto,
     val lastModifiedMillis: Long,
+    /** End of the last clip in project frames; 0 for an empty project. */
+    val durationFrames: Long = 0L,
+    /** Where the card picture comes from; null for a project with no video or photo yet. */
+    val thumbnail: ThumbnailSource? = null,
 )
 
 /** A project folder whose file cannot be read. [recoverable] means a leftover temp or backup file holds a usable copy. */
@@ -213,7 +217,14 @@ class ProjectRepository(
     private fun readText(file: File): String = readBytes(file).toString(Charsets.UTF_8)
 
     private fun summaryOf(project: ProjectDto, file: File) =
-        ProjectSummary(project.id, project.name, project.settings, file.lastModified())
+        ProjectSummary(
+            id = project.id,
+            name = project.name,
+            settings = project.settings,
+            lastModifiedMillis = file.lastModified(),
+            durationFrames = ProjectOverview.durationFrames(project),
+            thumbnail = ProjectOverview.thumbnailSource(project),
+        )
 
     private fun projectDir(id: String): File {
         if (!isValidId(id)) throw ProjectError.InvalidId(id)
