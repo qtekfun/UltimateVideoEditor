@@ -1,0 +1,48 @@
+#pragma once
+
+#include <GLES3/gl3.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+#include "thumbnail/slot_lru.h"
+#include "thumbnail/tile_math.h"
+
+namespace uv::thumb {
+
+// One RGB565 texture holding thumbnail tiles in fixed slots, with LRU slot reuse. Render thread
+// only, with the timeline's GL context current. The budget is a hard ceiling on texture memory.
+class ThumbAtlas {
+public:
+    ~ThumbAtlas() { release(); }
+
+    // Creates the texture (at most `budgetBytes`). False when GL refuses it.
+    bool init(size_t budgetBytes);
+    void release();
+    bool ready() const { return texture_ != 0; }
+    GLuint texture() const { return texture_; }
+    size_t textureBytes() const { return layout_.bytes(); }
+    int slotCount() const { return layout_.slots(); }
+
+    void beginFrame() {
+        if (lru_) lru_->beginFrame();
+    }
+
+    // Uploads a tile into its slot, evicting the least recently used slot if needed. Returns false
+    // when every slot is in use this frame (the tile stays on disk and is requested again).
+    bool upload(const TileKey& key, const uint16_t* pixels);
+
+    bool contains(const TileKey& key) const { return lru_ && lru_->contains(key); }
+
+    // UV rectangle {u0, v0, u1, v1} of a resident tile, marking it used this frame.
+    bool find(const TileKey& key, float uv[4]);
+
+private:
+    AtlasLayout layout_;
+    GLuint texture_ = 0;
+    std::unique_ptr<SlotLru> lru_;
+    unsigned evictions_ = 0;  // debug logging only
+};
+
+}  // namespace uv::thumb
