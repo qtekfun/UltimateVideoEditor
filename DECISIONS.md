@@ -352,3 +352,14 @@ or end edge. **Deferred:** inserting (shifting later clips) on overlay and audio
 **Chosen:** up/down buttons for the selected lane; overlay video lanes swap with each other (their order is the stacking
 order), audio lanes with audio lanes, and the base never moves or gets passed. **Why:** cheap and unambiguous on a touch
 screen; long-press dragging of lane headers can come later. **Alternative:** long-press a lane header and drag it.
+
+## 2026-10-03 · CI: two jobs, host tests separate from the Android build
+**Chosen:** `.github/workflows/ci.yml` runs on pushes to master and on pull requests with two parallel jobs. `native-host-tests`
+(no SDK, no submodule) runs `scripts/run-native-tests.sh` and the CMake/ctest host tests; `android` checks out the whisper.cpp
+submodule, installs platform 37 / NDK 29.0.14206865 / CMake 3.31.6 with `sdkmanager` (the runner image already provides the SDK and sdkmanager; `android-actions/setup-android@v3` failed on a removed `tools` package), then runs
+`:app:testDebugUnitTest :app:assembleDebug` and uploads the debug APK. Superseded runs are cancelled. Actions are pinned to major tags.
+**Why:** the host tests are seconds long and must not wait for the slow first arm64 build of ggml/whisper. **Alternatives:**
+one job; caching the NDK build output (skipped until the build time proves it matters); a release/signing job (needs secrets,
+not wanted yet). Instrumented tests are deliberately not in CI (no device, and they wipe app data).
+Housekeeping in the same PR: `scripts/run-native-tests.sh` was not executable in git (CI would have failed), a committed
+`.pyc` was removed and `__pycache__` ignored, and CLAUDE.md now calls the test phone an OPPO (CPH2841).
