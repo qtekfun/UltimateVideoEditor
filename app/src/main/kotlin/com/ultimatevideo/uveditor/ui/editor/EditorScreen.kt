@@ -81,14 +81,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.EngineException
-import com.ultimatevideo.uveditor.engine.captions.CaptionModelStore
-import com.ultimatevideo.uveditor.engine.captions.HttpModelSource
-import com.ultimatevideo.uveditor.engine.captions.WhisperTranscriber
 import com.ultimatevideo.uveditor.domain.captions.captionCount
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsViewModel
-import com.ultimatevideo.uveditor.ui.editor.captions.captionTarget
+import com.ultimatevideo.uveditor.ui.editor.captions.ContentResolverSubtitleSource
 import com.ultimatevideo.uveditor.domain.DropKind
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.engine.timeline.DropIndicator
@@ -177,16 +174,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     val captionsViewModel: CaptionsViewModel = viewModel(
         key = "captions-$projectId",
         factory = viewModelFactory {
-            initializer {
-                val appContext = context.applicationContext
-                val models = CaptionModelStore(File(appContext.filesDir, "caption-models"), HttpModelSource())
-                CaptionsViewModel(models, WhisperTranscriber(appContext, models))
-            }
+            initializer { CaptionsViewModel(ContentResolverSubtitleSource(context.applicationContext.contentResolver)) }
         },
     )
     CaptionsHost(
         captionsViewModel,
-        onClips = { viewModel.onIntent(EditorIntent.AddCaptionClips(it)) },
+        onClips = { clips, intoExistingTrack -> viewModel.onIntent(EditorIntent.AddCaptionClips(clips, intoExistingTrack)) },
         onRestyle = { style, canvasHeight -> viewModel.onIntent(EditorIntent.RestyleCaptions(style, canvasHeight)) },
         onMessage = { text ->
             snackbar.currentSnackbarData?.dismiss()
@@ -195,17 +188,9 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     )
     val openCaptions: () -> Unit = {
         val live = holder.value
-        val target = live.captionTarget()
-        val existing = live.timeline.captionCount()
-        if (target != null) {
-            captionsViewModel.onIntent(CaptionsIntent.Open(target, existing))
-        } else if (existing > 0) {
-            // No clip to transcribe, but there are captions to put in another style.
-            captionsViewModel.onIntent(CaptionsIntent.OpenRestyle(existing, live.canvasHeight))
-        } else {
-            snackbar.currentSnackbarData?.dismiss()
-            scope.launch { snackbar.showSnackbar("Select a clip with audio to caption") }
-        }
+        captionsViewModel.onIntent(
+            CaptionsIntent.Open(live.fps, live.canvasHeight, live.playhead.value, live.timeline.captionCount()),
+        )
     }
     val openExport = {
         // The dialog works from what the editor holds right now; the autosave is not involved.
@@ -551,7 +536,7 @@ private fun EditorMain(
                 viewModel.onIntent(EditorIntent.RippleAppendSelected)
             }
             ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
-            ToolButton(EditorIcons.Captions, "Auto captions for the selected clip", onClick = onCaptions)
+            ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file", onClick = onCaptions)
             ToolButton(EditorIcons.Sticker, "Add a sticker at the playhead") { stickersOpen = true }
             ToolButton(EditorIcons.TextTemplate, "Add an animated text template at the playhead") { templatesOpen = true }
             MarkerMenu(state, viewModel::onIntent)
