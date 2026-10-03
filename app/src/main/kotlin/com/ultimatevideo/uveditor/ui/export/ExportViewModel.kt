@@ -12,6 +12,8 @@ import com.ultimatevideo.uveditor.engine.export.ExportRunner
 import com.ultimatevideo.uveditor.engine.export.ExportSettings
 import com.ultimatevideo.uveditor.engine.export.ExportTitle
 import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
+import com.ultimatevideo.uveditor.engine.still.StillRasterException
+import com.ultimatevideo.uveditor.engine.still.StillRasterizer
 import com.ultimatevideo.uveditor.engine.title.TitleRasterException
 import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
 import com.ultimatevideo.uveditor.mvi.MviViewModel
@@ -34,6 +36,9 @@ class ExportViewModel(
         throw TitleRasterException("This build cannot draw titles")
     },
     private val hdrSupport: HdrExportSupport = HdrExportSupport.NONE,
+    private val stillRasterizer: StillRasterizer = StillRasterizer { _, _, _ ->
+        throw StillRasterException("This build cannot draw pictures")
+    },
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
 
     private var input: ExportInput? = null
@@ -193,6 +198,15 @@ class ExportViewModel(
             }
             ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
         }
+        // Photos and stickers reach the engine as pictures too, drawn by the same path as in the preview.
+        val stillImages = plan.stills.map { (key, still) ->
+            val bitmap = try {
+                stillRasterizer.rasterize(still, source.projectWidth, source.projectHeight)
+            } catch (e: StillRasterException) {
+                throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A picture could not be drawn: ${e.message}")
+            }
+            ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
+        }
         val uriByAsset = source.assets.associate { it.id to it.uri }
         val opened = LinkedHashMap<Long, Int>()
         var outputFd = -1
@@ -228,7 +242,7 @@ class ExportViewModel(
             videoClips = plan.videoClips,
             audioSnapshot = plan.audio?.encode(),
             outputFd = outputFd,
-            titles = titleImages,
+            titles = titleImages + stillImages,
         )
         val started = runner.start(
             request,

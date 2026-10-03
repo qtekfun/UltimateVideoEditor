@@ -244,7 +244,7 @@ object SpeedLimits {
 /** True when the clip is not a plain 1x forward span. */
 val Clip.isRetimed: Boolean get() = retimedFrames != null || reverse || speedRamp.isNotEmpty()
 
-/** The clip's frame mapping; see [ClipRetime]. Titles are never retimed. */
+/** The clip's frame mapping; see [ClipRetime]. Titles, photos and stickers are never retimed. */
 val Clip.retime: ClipRetime get() = ClipRetime(sourceIn.value, sourceOut.value, durationFrames, reverse, speedRamp)
 
 /** Length of the source range the clip plays, in source frames. */
@@ -254,7 +254,7 @@ val Clip.sourceSpan: Long get() = sourceOut - sourceIn
 val Clip.speed: Double get() = sourceSpan.toDouble() / durationFrames.toDouble()
 
 /** A single source frame held for the clip's whole length (never true for titles). */
-val Clip.isFreeze: Boolean get() = title == null && sourceSpan == 1L && durationFrames > 1
+val Clip.isFreeze: Boolean get() = hasMedia && sourceSpan == 1L && durationFrames > 1
 
 /** The source frame the clip shows at project frame [frame] (which must be near the clip). */
 fun Clip.sourceFrameAtProjectFrame(frame: FrameIndex): Long = retime.sourceFrameAt(frame - timelineStart)
@@ -269,6 +269,8 @@ fun Clip.sourceFrameAtProjectFrame(frame: FrameIndex): Long = retime.sourceFrame
 fun Clip.cropped(from: Long, to: Long): Clip {
     val keys = Keyframes.cropped(keyframes, from, to, transform)
     val length = to - from
+    // Titles, photos and stickers have no source to read: their range is just their length.
+    if (!hasMedia) return copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(length), keyframes = keys)
     if (!isRetimed) return copy(sourceIn = sourceIn + from, sourceOut = sourceIn + to, keyframes = keys)
     val r = retime
     if (r.isFreeze) return copy(retimedFrames = length.takeIf { it != 1L }, speedRamp = emptyList(), keyframes = keys)
