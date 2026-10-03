@@ -56,6 +56,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -78,6 +83,7 @@ import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsViewModel
 import com.ultimatevideo.uveditor.ui.editor.captions.captionTarget
 import com.ultimatevideo.uveditor.domain.DropKind
+import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.engine.timeline.DropIndicator
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
@@ -99,6 +105,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ultimatevideo.uveditor.ui.preview.PreviewSurface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -109,7 +117,12 @@ private val ExpandedWidth = 840.dp
 
 @Composable
 fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> Unit) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
+    // The playhead changes every 16 ms while playing. It is kept out of what the chrome (toolbar,
+    // banners, dialogs, inspector shell) reads, so those recompose only when something they show changes;
+    // the effects below and the timecode read the live state through [holder] instead.
+    val holder = viewModel.state.collectAsStateWithLifecycle()
+    val chrome by remember(holder) { derivedStateOf { chromeOf(holder.value) } }
+    val state = chrome.state
     val context = LocalContext.current
     val density = LocalDensity.current.density
     val snackbar = remember { SnackbarHostState() }
@@ -151,13 +164,14 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         },
     )
     val openCaptions: () -> Unit = {
-        val target = state.captionTarget()
-        val existing = state.timeline.captionCount()
+        val live = holder.value
+        val target = live.captionTarget()
+        val existing = live.timeline.captionCount()
         if (target != null) {
             captionsViewModel.onIntent(CaptionsIntent.Open(target, existing))
         } else if (existing > 0) {
             // No clip to transcribe, but there are captions to put in another style.
-            captionsViewModel.onIntent(CaptionsIntent.OpenRestyle(existing, state.canvasHeight))
+            captionsViewModel.onIntent(CaptionsIntent.OpenRestyle(existing, live.canvasHeight))
         } else {
             snackbar.currentSnackbarData?.dismiss()
             scope.launch { snackbar.showSnackbar("Select a clip with audio to caption") }
@@ -165,11 +179,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     val openExport = {
         // The dialog works from what the editor holds right now; the autosave is not involved.
+        val live = holder.value
         exportViewModel.onIntent(
             ExportIntent.Open(
                 ExportInput(
-                    state.projectName, state.canvasWidth, state.canvasHeight, state.fps, state.timeline, state.assets, state.colorSpace,
-                    missingAssetIds = state.missingMedia.keys,
+                    live.projectName, live.canvasWidth, live.canvasHeight, live.fps, live.timeline, live.assets, live.colorSpace,
+                    missingAssetIds = live.missingMedia.keys,
                 ),
             ),
         )
@@ -209,12 +224,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     // Keep the mixer in step with the committed timeline (not with a drag in progress).
-    LaunchedEffect(state.timeline, state.assets, state.missingMedia, state.fps, state.isLoading) {
-        if (state.isLoading) return@LaunchedEffect
+    StateEffect(holder, { listOf(it.timeline, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
+        if (s.isLoading) return@StateEffect
         // Files that cannot be read are left out: the mixer would only fail on them.
         audio.update(
-            audioSnapshotOf(state.timeline, state.playableAssets, state.fps, viewModel::clipKey, viewModel::assetKey),
-            state.playableAssets,
+            audioSnapshotOf(s.timeline, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
+            s.playableAssets,
             viewModel::assetKey,
         )
     }
@@ -223,12 +238,15 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     // shows a still frame. Playing, the playhead is the audio clock: the native preview runs by
     // itself and is only re-anchored when the composition changes or drifts from it, never seeked
     // per tick. It follows the visible timeline, so a transform being dragged shows live.
-    LaunchedEffect(state.playhead, state.isPlaying, state.visibleTimeline, state.assets, state.missingMedia, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
-        if (state.isLoading) return@LaunchedEffect
-        val layers = previewRequestsAt(state.visibleTimeline, state.playableAssets, state.fps, state.playhead) { viewModel.assetKey(it).toInt() }
-        val scene = PreviewScene(state.canvasWidth, state.canvasHeight, layers)
+    StateEffect(
+        holder,
+        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading) },
+    ) { s ->
+        if (s.isLoading) return@StateEffect
+        val layers = previewRequestsAt(s.visibleTimeline, s.playableAssets, s.fps, s.playhead) { viewModel.assetKey(it).toInt() }
+        val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)
         when {
-            state.isPlaying -> preview.follow(scene, state.playhead.value, state.fps)
+            s.isPlaying -> preview.follow(scene, s.playhead.value, s.fps)
             layers.isNotEmpty() -> preview.show(scene)
             // In a gap, or at the end after playing, the preview keeps its last frame.
             else -> preview.stopFollowing()
@@ -274,19 +292,19 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     // Publish what the canvas should draw; drags show a provisional timeline until released.
-    LaunchedEffect(state.visibleTimeline, state.selectedClipId, state.missingMedia, state.fps, state.isLoading) {
-        if (state.isLoading) return@LaunchedEffect
+    StateEffect(holder, { listOf(it.visibleTimeline, it.selectedClipId, it.missingMedia, it.fps, it.isLoading) }) { s ->
+        if (s.isLoading) return@StateEffect
         try {
-            engine.setSnapshot(viewModel.snapshotOf(state))
+            engine.setSnapshot(viewModel.snapshotOf(s))
         } catch (e: EngineException) {
             viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
         }
     }
     // The indicator of what releasing a dragged clip would do. After the snapshot effect, so the lane
     // index it names refers to the timeline the engine already has.
-    LaunchedEffect(state.dropHint, state.visibleTimeline) {
-        val hint = state.dropHint
-        val lane = hint?.trackId?.let { id -> state.visibleTimeline.tracks.indexOfFirst { it.id == id } } ?: -1
+    StateEffect(holder, { listOf(it.dropHint, it.visibleTimeline) }) { s ->
+        val hint = s.dropHint
+        val lane = hint?.trackId?.let { id -> s.visibleTimeline.tracks.indexOfFirst { it.id == id } } ?: -1
         val indicator = when (hint?.kind) {
             DropKind.INSERT -> DropIndicator.INSERT
             DropKind.OVERWRITE -> DropIndicator.OVERWRITE
@@ -303,28 +321,27 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     // Follow the whole project's length until the user zooms by hand. Keyed on the committed
     // timeline, so a clip being dragged does not make the zoom jump. Declared after the snapshot
     // effect so the engine already has the new timeline when it fits.
-    val committedEnd = state.timeline.tracks.maxOfOrNull { it.end.value } ?: 0L
-    LaunchedEffect(committedEnd, state.isLoading) {
-        if (!state.isLoading && engine.isAutoFit()) engine.fitToContent()
+    StateEffect(holder, { listOf(it.timeline.tracks.maxOfOrNull { track -> track.end.value } ?: 0L, it.isLoading) }) { s ->
+        if (!s.isLoading && engine.isAutoFit()) engine.fitToContent()
     }
-    LaunchedEffect(state.playhead) {
-        engine.setPlayhead(state.playhead.value)
+    StateEffect(holder, { it.playhead }) { s ->
+        engine.setPlayhead(s.playhead.value)
         // Playing, or jumping to the next/previous edit, can take the playhead off screen.
-        engine.ensureVisible(state.playhead.value)
+        engine.ensureVisible(s.playhead.value)
     }
 
     val requestedWaveforms = remember { mutableSetOf<String>() }
-    LaunchedEffect(state.assets, state.missingMedia) {
-        for (asset in state.playableAssets) {
+    StateEffect(holder, { listOf(it.assets, it.missingMedia) }) { s ->
+        for (asset in s.playableAssets) {
             // Keyed by the file too, so a relinked asset is requested again from its new file.
             if (!asset.hasAudio || !requestedWaveforms.add("${asset.id}|${asset.uri}")) continue
             requestWaveform(context, engine, viewModel, projectId, asset)
         }
     }
     val requestedThumbnails = remember { mutableSetOf<String>() }
-    LaunchedEffect(state.assets, state.missingMedia) {
-        for (asset in state.playableAssets) {
-            if (!asset.hasVideo || !requestedThumbnails.add("${asset.id}|${asset.uri}")) continue
+    StateEffect(holder, { listOf(it.assets, it.missingMedia) }) { s ->
+        for (asset in s.playableAssets) {
+            if (!(asset.hasVideo || asset.isImage) || !requestedThumbnails.add("${asset.id}|${asset.uri}")) continue
             requestThumbnails(context, engine, viewModel, projectId, asset)
         }
     }
@@ -369,7 +386,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             modifier = Modifier.width(280.dp).fillMaxHeight(),
                         )
                     }
-                    EditorMain(state, viewModel, engine, preview, editing, launchImport, openExport, openCaptions, Modifier.weight(1f).fillMaxHeight())
+                    EditorMain(state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, launchImport, openExport, openCaptions, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -379,6 +396,8 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
 @Composable
 private fun EditorMain(
     state: EditorState,
+    selectedClipVisible: Boolean,
+    holder: State<EditorState>,
     viewModel: EditorViewModel,
     engine: TimelineEngine,
     preview: EditorPreview,
@@ -453,7 +472,7 @@ private fun EditorMain(
                 state.safeZone?.let { SafeZoneOverlay(it, state.canvasWidth, state.canvasHeight) }
                 // Drag, pinch and twist edit the selected clip while it is under the playhead.
                 PreviewGestureLayer(
-                    enabled = state.selectedClipVisible,
+                    enabled = selectedClipVisible,
                     canvasWidth = state.canvasWidth,
                     canvasHeight = state.canvasHeight,
                     onStep = { panX, panY, zoom, rotation ->
@@ -469,11 +488,7 @@ private fun EditorMain(
 
         // Transport: timecode on the left, previous / play / next centred.
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            Text(
-                text = formatTimecode(state.playhead.value, state.fps),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
+            Timecode(holder, Modifier.align(Alignment.CenterStart))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
                 ToolButton(
@@ -549,6 +564,37 @@ private fun EditorMain(
                 }
             }
         }
+    }
+}
+
+/** What the chrome reads: the editor state without its per-tick playhead, plus what the playhead decides. */
+@Immutable
+internal data class Chrome(val state: EditorState, val selectedClipVisible: Boolean)
+
+/**
+ * The inspector shows the pose and keyframes under the playhead, so while it is open it gets the live
+ * state; otherwise the playhead is zeroed and a tick leaves the chrome equal to what it was.
+ */
+internal fun chromeOf(live: EditorState): Chrome =
+    Chrome(if (live.inspectorOpen) live else live.copy(playhead = FrameIndex.ZERO), live.selectedClipVisible)
+
+/** The timecode is the only chrome that follows every tick, so it reads the live state in its own scope. */
+@Composable
+private fun Timecode(holder: State<EditorState>, modifier: Modifier = Modifier) {
+    val text by remember(holder) { derivedStateOf { holder.value.let { formatTimecode(it.playhead.value, it.fps) } } }
+    Text(text = text, style = MaterialTheme.typography.labelLarge, modifier = modifier)
+}
+
+/**
+ * Runs [block] with the live state each time what [key] picks from it changes, cancelling the previous
+ * run, like a LaunchedEffect keyed on those values but without recomposing the screen for them.
+ */
+@Composable
+private fun <K> StateEffect(holder: State<EditorState>, key: (EditorState) -> K, block: suspend (EditorState) -> Unit) {
+    val currentKey by rememberUpdatedState(key)
+    val currentBlock by rememberUpdatedState(block)
+    LaunchedEffect(holder) {
+        snapshotFlow { currentKey(holder.value) }.distinctUntilChanged().collectLatest { currentBlock(holder.value) }
     }
 }
 
