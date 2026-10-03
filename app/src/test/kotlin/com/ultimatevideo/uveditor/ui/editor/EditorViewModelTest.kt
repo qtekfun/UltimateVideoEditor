@@ -541,6 +541,105 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a new video track goes on top and an audio track at the bottom, both undoable`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+        assertEquals(listOf(TrackType.VIDEO, TrackType.VIDEO, TrackType.AUDIO), h.state.timeline.tracks.map { it.type })
+        assertEquals("track-v1", h.state.timeline.tracks.first().id)
+        assertEquals("track-v1", h.state.selectedTrackId)
+        assertEquals("V2", h.state.selectedTrackLabel)
+
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.AUDIO))
+        assertEquals("track-a1", h.state.timeline.tracks.last().id)
+        assertEquals("A2", h.state.selectedTrackLabel)
+
+        h.vm.onIntent(EditorIntent.Undo)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("v1", "a1"), h.state.timeline.tracks.map { it.id })
+        assertEquals("v1", h.state.selectedTrackId)
+    }
+
+    @Test
+    fun `tapping a clip or an empty lane selects its track`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+        assertEquals("track-v1", h.state.selectedTrackId)
+
+        h.select("c1")
+        assertEquals("v1", h.state.selectedTrackId)
+
+        h.vm.onIntent(EditorIntent.TapTimeline(TimelineHit(HitKind.EMPTY_TRACK, trackIndex = 0, clipKey = -1, frame = 10)))
+        assertEquals("track-v1", h.state.selectedTrackId)
+        assertNull(h.state.selectedClipId)
+    }
+
+    @Test
+    fun `imports land on the selected track when its type fits`() = runTest(dispatcher) {
+        val h = harness(importer = FakeImporter(mapOf("content://new" to video5s)))
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://new")))
+        advanceUntilIdle()
+
+        assertEquals(1, h.clips("track-v1").size)
+        assertEquals(2, h.clips("v1").size)
+    }
+
+    @Test
+    fun `media of the other type ignores the selected track and uses the first track of its type`() = runTest(dispatcher) {
+        val h = harness(importer = FakeImporter(mapOf("content://song" to audio2s)))
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://song")))
+        advanceUntilIdle()
+
+        assertEquals(1, h.clips("a1").size)
+    }
+
+    @Test
+    fun `an empty track can be removed but a track with clips and the last of its type cannot`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+
+        h.vm.onIntent(EditorIntent.RemoveSelectedTrack)
+        assertEquals(listOf("v1", "a1"), h.state.timeline.tracks.map { it.id })
+
+        // v1 is now the only video track, and it has clips.
+        h.vm.onIntent(EditorIntent.RemoveSelectedTrack)
+        runCurrent()
+        assertEquals(listOf("v1", "a1"), h.state.timeline.tracks.map { it.id })
+        assertTrue(h.effects.last() is EditorEffect.ShowMessage)
+    }
+
+    @Test
+    fun `removing a track that still has clips is refused with an explanation`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+        h.select("c1")
+
+        h.vm.onIntent(EditorIntent.RemoveSelectedTrack)
+        runCurrent()
+
+        assertEquals(3, h.state.timeline.tracks.count { it.type == TrackType.VIDEO } + 0)
+        assertTrue(h.effects.last() is EditorEffect.ShowMessage)
+    }
+
+    @Test
+    fun `tracks survive a save`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.AddTrack(TrackType.VIDEO))
+        advanceTimeBy(600)
+
+        val saved = h.store.saved.single()
+
+        assertEquals(listOf("track-v1", "v1", "a1"), saved.tracks.map { it.id })
+        assertEquals(listOf(0, 1, 2), saved.tracks.map { it.order })
+    }
+
+    @Test
     fun `snapshot reflects the visible timeline selection and stable keys`() = runTest(dispatcher) {
         val h = harness()
         h.select("c2")

@@ -4,6 +4,7 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
@@ -21,6 +22,8 @@ data class EditorState(
     val assets: List<MediaAssetDto> = emptyList(),
     val playhead: FrameIndex = FrameIndex.ZERO,
     val selectedClipId: String? = null,
+    /** Where imports land and what Remove track acts on. Kept in step with clip selection. */
+    val selectedTrackId: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val isImporting: Boolean = false,
@@ -28,6 +31,21 @@ data class EditorState(
 ) : UiState {
     /** What the canvas should draw right now. */
     val visibleTimeline: Timeline get() = dragPreview ?: timeline
+
+    /** "V1", "A2": the position of the selected track among tracks of its type, top to bottom. */
+    val selectedTrackLabel: String?
+        get() {
+            val track = timeline.tracks.firstOrNull { it.id == selectedTrackId } ?: return null
+            val ofType = timeline.tracks.filter { it.type == track.type }
+            val prefix = when (track.type) {
+                TrackType.VIDEO -> "V"
+                TrackType.AUDIO -> "A"
+                TrackType.TITLE -> "T"
+            }
+            // Video stacks upward like a mixer: the top lane is the highest number.
+            val number = if (track.type == TrackType.VIDEO) ofType.size - ofType.indexOf(track) else ofType.indexOf(track) + 1
+            return "$prefix$number"
+        }
 }
 
 sealed interface EditorIntent : UiIntent {
@@ -42,6 +60,9 @@ sealed interface EditorIntent : UiIntent {
     data object RippleDeleteSelected : EditorIntent
     data object RippleAppendSelected : EditorIntent
     data object TogglePlay : EditorIntent
+
+    data class AddTrack(val type: TrackType) : EditorIntent
+    data object RemoveSelectedTrack : EditorIntent
 
     /** Jump to the previous / next clip boundary (start or end of a clip), or the timeline start. */
     data object SeekPrevious : EditorIntent
