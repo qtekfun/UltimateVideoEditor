@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "decode/log.h"
 #include "render/preview_engine.h"
@@ -149,6 +150,34 @@ JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_Nati
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeCloseAsset(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint assetId) {
     fromHandle(handle)->engine->closeAsset(static_cast<uint32_t>(assetId));
+}
+
+// `ids` holds {assetId, frame} per layer and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity},
+// both bottom to top.
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScene(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params) {
+    const jsize layerCount = env->GetArrayLength(ids) / 2;
+    if (env->GetArrayLength(params) != layerCount * 6) {
+        throwPreview(env, Status::InvalidArgument, "scene arrays do not match");
+        return;
+    }
+    std::vector<jlong> idValues(static_cast<size_t>(layerCount) * 2);
+    std::vector<jfloat> paramValues(static_cast<size_t>(layerCount) * 6);
+    if (layerCount > 0) {
+        env->GetLongArrayRegion(ids, 0, layerCount * 2, idValues.data());
+        env->GetFloatArrayRegion(params, 0, layerCount * 6, paramValues.data());
+    }
+    std::vector<uv::render::SceneLayer> layers;
+    layers.reserve(static_cast<size_t>(layerCount));
+    for (jsize i = 0; i < layerCount; ++i) {
+        uv::render::SceneLayer layer;
+        layer.asset = static_cast<uint32_t>(idValues[static_cast<size_t>(i) * 2]);
+        layer.frame = idValues[static_cast<size_t>(i) * 2 + 1];
+        const jfloat* p = &paramValues[static_cast<size_t>(i) * 6];
+        layer.transform = uv::render::LayerTransform{p[0], p[1], p[2], p[3], p[4], p[5]};
+        layers.push_back(layer);
+    }
+    fromHandle(handle)->engine->setScene(canvasW, canvasH, std::move(layers));
 }
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSeek(

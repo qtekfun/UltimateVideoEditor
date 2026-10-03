@@ -63,11 +63,18 @@ data class ClipDto(
     val colorOverride: String? = null,
 )
 
+/**
+ * Per-clip 2D transform. [position] is the offset of the clip centre from the canvas centre in
+ * project pixels (+x right, +y down); [rotation] is clockwise degrees; [opacity] is 0..1.
+ * The clip is first fitted into the canvas, then scaled/rotated/moved (see SPECS.md section 4).
+ */
 @Serializable
 data class TransformDto(
     val scale: List<Double> = listOf(1.0, 1.0),
     val rotation: Double = 0.0,
     val position: List<Double> = listOf(0.0, 0.0),
+    /** Defaults keep projects written before this field existed valid. */
+    val opacity: Double = 1.0,
 )
 
 @Serializable

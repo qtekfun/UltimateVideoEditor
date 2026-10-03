@@ -27,6 +27,31 @@ object TimelineOps {
         return success(Timeline(timeline.tracks.filter { it.id != trackId }))
     }
 
+    /** Replaces the 2D transform of a clip. The clip keeps its place and source range. */
+    fun setTransform(timeline: Timeline, clipId: String, transform: ClipTransform): EditResult<Timeline> {
+        transform.problem()?.let { return failure(EditError.InvalidAppearance(it)) }
+        return updateClip(timeline, clipId) { it.copy(transform = transform) }
+    }
+
+    /** Sets the audio gain of a clip in dB. */
+    fun setGain(timeline: Timeline, clipId: String, gainDb: Double): EditResult<Timeline> {
+        ClipGain.problem(gainDb)?.let { return failure(EditError.InvalidAppearance(it)) }
+        return updateClip(timeline, clipId) { it.copy(gainDb = gainDb) }
+    }
+
+    /** Sets transform and gain together, so one edit changes both or neither. */
+    fun setAppearance(timeline: Timeline, clipId: String, transform: ClipTransform, gainDb: Double): EditResult<Timeline> {
+        transform.problem()?.let { return failure(EditError.InvalidAppearance(it)) }
+        ClipGain.problem(gainDb)?.let { return failure(EditError.InvalidAppearance(it)) }
+        return updateClip(timeline, clipId) { it.copy(transform = transform, gainDb = gainDb) }
+    }
+
+    private fun updateClip(timeline: Timeline, clipId: String, change: (Clip) -> Clip): EditResult<Timeline> {
+        val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        return success(timeline.withTrack(track.withClips(track.clips.map { if (it.id == clip.id) change(it) else it })))
+    }
+
     /** Splits the clip on [trackId] that strictly contains [at]; the right half gets [newClipId]. */
     fun split(timeline: Timeline, trackId: String, at: FrameIndex, newClipId: String): EditResult<Timeline> {
         val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))
@@ -110,6 +135,8 @@ object TimelineOps {
         if (clip.timelineStart < FrameIndex.ZERO || clip.sourceIn < FrameIndex.ZERO) {
             return failure(EditError.InvalidClip("negative start"))
         }
+        clip.transform.problem()?.let { return failure(EditError.InvalidClip(it)) }
+        ClipGain.problem(clip.gainDb)?.let { return failure(EditError.InvalidClip(it)) }
         val start = clip.timelineStart
         val end = clip.timelineEnd
         val result = mutableListOf<Clip>()

@@ -37,6 +37,31 @@ enum class ColorMode(val value: Int) {
     Hlg2020ToSdr709(1),
 }
 
+/**
+ * Where a layer sits on the project canvas; mirrors `uv::render::LayerTransform`. The frame is first
+ * fitted into the canvas, then scaled and rotated (clockwise) about its centre and moved by
+ * ([positionX], [positionY]) canvas pixels (+x right, +y down). [opacity] is 0..1.
+ */
+data class LayerPlacement(
+    val positionX: Float = 0f,
+    val positionY: Float = 0f,
+    val scaleX: Float = 1f,
+    val scaleY: Float = 1f,
+    val rotationDegrees: Float = 0f,
+    val opacity: Float = 1f,
+) {
+    companion object {
+        val IDENTITY = LayerPlacement()
+    }
+}
+
+/** One layer of the preview scene: [frame] of an open asset, in the frame rate the asset was opened with. */
+data class PreviewLayer(
+    val assetId: Int,
+    val frame: Long,
+    val placement: LayerPlacement = LayerPlacement.IDENTITY,
+)
+
 data class AssetInfo(
     val width: Int,
     val height: Int,

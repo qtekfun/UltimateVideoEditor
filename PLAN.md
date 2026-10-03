@@ -43,9 +43,9 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] LRU frame cache with look-ahead; scrubbing
 - [x] Oboe audio playback + mixer (per-clip gain in the mixer); audio device as master clock (`AudioPlaybackEngine.positionFrame()`)
 - [ ] A/V sync: drive the preview from the audio clock (the clock is exposed; wiring it to the video pipeline is not done)
-- [ ] Per-clip transform (position/scale/rotation) with on-preview gestures; gain control UI
+- [x] Per-clip transform (position/scale/rotation/opacity) with on-preview gestures; gain control UI — inspector sliders and one-finger drag verified on the reference device; pinch and twist are unit-tested maths only (adb cannot inject multi-touch)
 - [x] Colour shaders: HLG/Rec.2020 → SDR Rec.709; per-clip override
-- [ ] Multi-layer compositing (video tracks above one another) — tracks can be added/removed in the editor; the preview still shows only the topmost clip, no blending of layers yet
+- [x] Multi-layer compositing (video tracks above one another): one decoder per layer within the device's hardware-decoder limit (top layers win), per-layer transform and opacity, source-over blending in track order; `GlPipeline::drawScene` is reusable offscreen for export. Not yet measured: playback performance with several 4K layers.
 - _Status (4a, after preview-perf):_ synthetic 4K60 HEVC (480 frames) and 1080p30 H.264 (300 frames) play on the reference device with every frame decoded once and shown (0 seeks, 0 dropped decodes in steady state); render thread spends ~0.2 ms blit + ~0.15 ms draw + ~0.5 ms swap per frame. The 4K60 criterion is met on synthetic clips only (not real footage). The A/V drift criterion cannot be measured until audio lands, so the gate stays open.
 - _Status (audio):_ on the reference device the Oboe stream (AAudio, shared mode, 192-frame burst, 384-frame buffer) holds the master clock to within 0.4 ms over 55 s with zero underruns; estimated output latency ~30 ms. Linear resampling, no downmix beyond the first two channels, no fades at clip edges yet.
 - **Gate:** 4K60 single-layer playback without drops; no measurable A/V drift on a long timeline.

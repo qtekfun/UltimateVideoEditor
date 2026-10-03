@@ -23,6 +23,9 @@ sealed interface EditError {
     data object SplitOutsideClip : EditError
     data class InvalidTrim(val reason: String) : EditError
     data object SourceOutOfRange : EditError
+
+    /** A transform or gain value that cannot be rendered or mixed. */
+    data class InvalidAppearance(val reason: String) : EditError
 }
 
 internal fun failure(error: EditError): EditResult.Failure = EditResult.Failure(error)
