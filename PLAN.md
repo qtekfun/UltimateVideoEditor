@@ -114,6 +114,13 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - Profile on the reference device at the end of each phase (frame time, memory, battery).
 - Keep CLAUDE.md and SPECS.md updated when decisions change.
 
+## Media relink and resilience
+- [x] Detect unreadable media at load; mark its clips on the canvas; skip it in preview, audio and thumbnails; block export with a clear message
+- [x] Relink flow (picker, compatibility check with warnings, caches invalidated, saved, not an undo step)
+- [x] Persisted-permission housekeeping near Android's limit
+- [x] Autosave failures surfaced (banner, bounded retries, refuse to leave); `.bak` of the last good save; Recover/Delete for unreadable projects; "reopen after an interrupted session"
+- [ ] Seen working on the OPPO (the app was in use on the device while this was built, so nothing was installed)
+
 ## Lane layout and drops (added after the first on-device review)
 - [x] Video stack anchored to the bottom of the timeline panel (overlays above, base below, audio under it)
 - [x] Drop zones decided by position with a live native indicator: insert (base), overwrite, new lane, cancel

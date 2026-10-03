@@ -5,6 +5,7 @@ import com.ultimatevideo.uveditor.data.ProjectError
 import com.ultimatevideo.uveditor.data.ProjectNames
 import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.data.ProjectSummary
+import com.ultimatevideo.uveditor.data.SessionStore
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.engine.EngineClient
 import com.ultimatevideo.uveditor.engine.EngineException
@@ -18,7 +19,14 @@ class HubViewModel(
     private val engine: EngineClient,
     private val projects: ProjectRepository,
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val session: SessionStore? = null,
 ) : MviViewModel<HubState, HubIntent, HubEffect>(HubState()) {
+
+    /** Read once, before this process marks anything: what the previous run left open. */
+    private val unfinishedProjectId: String? = session?.unfinishedProjectId()
+
+    /** Set once the user has opened a project or dismissed the offer, so a refresh never offers it again. */
+    private var resumeHandled = false
 
     init {
         onIntent(HubIntent.LoadEngineInfo)
@@ -37,7 +45,11 @@ class HubViewModel(
             is HubIntent.DraftColorSpaceSelected -> reduceDraft { copy(colorSpace = intent.preset) }
             HubIntent.ConfirmCreate -> confirmCreate()
 
-            is HubIntent.OpenProject -> emit(HubEffect.OpenEditor(intent.projectId))
+            is HubIntent.OpenProject -> {
+                resumeHandled = true
+                reduce { copy(resumeProject = null) }
+                emit(HubEffect.OpenEditor(intent.projectId))
+            }
             is HubIntent.Clone -> launchProjectOp { projects.clone(intent.projectId); refreshNow() }
 
             is HubIntent.RequestRename ->
@@ -58,6 +70,27 @@ class HubViewModel(
                 val imported = projects.importFrom(intent.uri)
                 refreshNow()
                 emit(HubEffect.ShowMessage("Imported \"${imported.name}\""))
+            }
+
+            is HubIntent.RecoverProject -> launchProjectOp {
+                val project = projects.recover(intent.projectId)
+                refreshNow()
+                emit(HubEffect.ShowMessage("Recovered \"${project.name}\" from its last good copy"))
+            }
+            is HubIntent.DeleteUnreadable -> launchProjectOp {
+                projects.delete(intent.projectId)
+                refreshNow()
+                emit(HubEffect.ShowMessage("Removed the unreadable project"))
+            }
+            HubIntent.ResumeSession -> state.value.resumeProject?.let {
+                resumeHandled = true
+                reduce { copy(resumeProject = null) }
+                emit(HubEffect.OpenEditor(it.id))
+            }
+            HubIntent.DismissResume -> {
+                resumeHandled = true
+                session?.markClosed()
+                reduce { copy(resumeProject = null) }
             }
 
             HubIntent.DismissDialogs ->
@@ -90,7 +123,13 @@ class HubViewModel(
     private suspend fun refreshNow() {
         val listing = projects.list()
         reduce {
-            copy(isLoading = false, projects = listing.projects, unreadableCount = listing.unreadable.size)
+            copy(
+                isLoading = false,
+                projects = listing.projects,
+                unreadable = listing.unreadable,
+                // Only offered while it still exists and the editor is not already open on it.
+                resumeProject = resumeProject ?: listing.projects.firstOrNull { it.id == unfinishedProjectId }?.takeIf { !resumeHandled },
+            )
         }
     }
 

@@ -97,6 +97,7 @@ builds. It also checks a plain 1x clip frame for frame (`plain_*` outputs) and p
 - Kotlin DSL for Gradle, version catalog in `gradle/libs.versions.toml`.
 - Package layout and module roles: see `SPECS.md` section 2.
 - Project files are JSON under app-private storage; media are referenced by `content://` URIs, never copied.
+  Next to `project.json` live `project.json.tmp` (interrupted write), `.bak` (last good save) and `.corrupt` (a damaged file kept by Recover); see SPECS 4.1.
 - Match surrounding code style; keep comments sparse and explain *why*.
 - Follow `PLAN.md` phase gates. Update `PLAN.md` checkboxes and these docs when decisions change.
 - For library/API syntax (Compose, AGP, Oboe, Media3, NDK APIs) check current docs rather than memory.

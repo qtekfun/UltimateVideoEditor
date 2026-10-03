@@ -1,5 +1,8 @@
 package com.ultimatevideo.uveditor.ui.editor
 
+import com.ultimatevideo.uveditor.data.MediaProblem
+import com.ultimatevideo.uveditor.data.MissingAsset
+import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
@@ -58,11 +61,25 @@ data class EditorState(
     val safeZone: SafeZonePlatform? = null,
     /** The "change canvas" dialog is open. */
     val canvasDialogOpen: Boolean = false,
+    /** Library files that cannot be read right now, by asset id. Their clips stay on the timeline, marked. */
+    val missingMedia: Map<String, MediaProblem> = emptyMap(),
+    /** The relink list is open. */
+    val relinkOpen: Boolean = false,
+    /** The last autosave failed with this message; the project on disk is older than what is on screen. */
+    val saveError: String? = null,
+    /** Leaving was refused because the last save failed; the user chooses between retrying and discarding. */
+    val leaveBlockedBySave: Boolean = false,
     /** Moving, trimming and dropping clips snaps to ruler markers (manual and beat) as well as to clip edges. */
     val snapToMarkers: Boolean = true,
     /** Beat detection is running for the selected clip. */
     val isAnalyzingBeats: Boolean = false,
 ) : UiState {
+    /** The unreadable files, with how many clips depend on each. */
+    val missingAssets: List<MissingAsset> get() = MissingMedia.summarize(timeline, assets, missingMedia)
+
+    /** The library without the unreadable files: what the preview, the mixer and the thumbnails may open. */
+    val playableAssets: List<MediaAssetDto> get() = if (missingMedia.isEmpty()) assets else assets.filter { it.id !in missingMedia }
+
     /**
      * The selected clip's own frame under the playhead (0 is its first frame), or null when the
      * playhead is outside it. Keyframes are placed and read at this frame.
@@ -322,6 +339,22 @@ sealed interface EditorIntent : UiIntent {
     data class ImportMedia(val uris: List<String>) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent
 
+    /** Show or hide the list of unreadable media with a Relink button for each. */
+    data object ShowRelink : EditorIntent
+    data object HideRelink : EditorIntent
+
+    /** The user chose Relink for [assetId]: ask the screen to open the file picker. */
+    data class RequestRelink(val assetId: String) : EditorIntent
+
+    /** The picker returned [uri] as the replacement for [assetId]. */
+    data class RelinkAsset(val assetId: String, val uri: String) : EditorIntent
+
+    /** Try saving again after a failed autosave. */
+    data object RetrySave : EditorIntent
+
+    /** Leave the editor even though the last save failed; the unsaved changes are lost. */
+    data object LeaveWithoutSaving : EditorIntent
+
     /** Save now (app going to background). */
     data object Flush : EditorIntent
 
@@ -334,4 +367,7 @@ sealed interface EditorIntent : UiIntent {
 sealed interface EditorEffect : UiEffect {
     data class ShowMessage(val text: String) : EditorEffect
     data object Close : EditorEffect
+
+    /** Open the document picker to choose a replacement for [assetId]. */
+    data class LaunchRelinkPicker(val assetId: String) : EditorEffect
 }

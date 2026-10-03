@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.ui.export
 
 import androidx.lifecycle.viewModelScope
+import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
 import com.ultimatevideo.uveditor.engine.export.ExportErrorCode
@@ -147,7 +148,22 @@ class ExportViewModel(
     private fun chooseLocation() {
         val current = state.value
         if (current.isRunning || current.resolution == null || current.frameRate == null) return
+        // Refuse before asking where to save: a movie with holes where the clips should be is not what anyone wants.
+        missingMediaProblem()?.let { reason ->
+            reduce { copy(phase = ExportPhase.Failed(reason)) }
+            return
+        }
         emit(ExportEffect.LaunchCreateDocument(suggestedFileName(current.projectName)))
+    }
+
+    /** Names the clips that need unreadable media, or null when every file can be opened. */
+    private fun missingMediaProblem(): String? {
+        val source = input ?: return null
+        val clips = MissingMedia.clipsUsing(source.timeline, source.missingAssetIds, source.fps)
+        if (clips.isEmpty()) return null
+        val shown = clips.take(MAX_NAMED_CLIPS).joinToString(", ") { it.where }
+        val more = if (clips.size > MAX_NAMED_CLIPS) " and ${clips.size - MAX_NAMED_CLIPS} more" else ""
+        return "Cannot export: the media for ${clips.size} clip(s) is missing ($shown$more). Relink it in the editor first."
     }
 
     private fun share() {
@@ -161,6 +177,10 @@ class ExportViewModel(
         val resolution = current.resolution ?: return
         val rate = current.frameRate ?: return
         if (current.isRunning) return
+        missingMediaProblem()?.let { reason ->
+            reduce { copy(phase = ExportPhase.Failed(reason)) }
+            return
+        }
         if (current.hdr && !hdrSupport.supportsHlgExport(resolution.width, resolution.height, rate.num, rate.den)) {
             reduce { copy(phase = ExportPhase.Failed("This device cannot export HDR at ${resolution.label}. Choose SDR or a lower resolution.")) }
             return
@@ -293,6 +313,7 @@ class ExportViewModel(
     }
 
     private companion object {
+        const val MAX_NAMED_CLIPS = 3
         const val BITS_PER_MEGABIT = 1_000_000
     }
 }
