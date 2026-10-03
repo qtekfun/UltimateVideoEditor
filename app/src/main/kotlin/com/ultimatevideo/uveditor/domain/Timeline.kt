@@ -59,6 +59,8 @@ data class TitleContent(
     val colorArgb: Int = DEFAULT_COLOR_ARGB,
     val alignment: TitleAlignment = TitleAlignment.CENTER,
     val bold: Boolean = false,
+    /** A dark outline around the glyphs so the text stays readable over any footage (captions use it). */
+    val outline: Boolean = false,
 ) {
     fun problem(): String? = when {
         text.isBlank() -> "title text must not be blank"

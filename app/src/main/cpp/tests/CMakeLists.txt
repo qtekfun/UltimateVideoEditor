@@ -47,7 +47,16 @@ add_executable(uv_thumbnail_host_tests
 target_include_directories(uv_thumbnail_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_thumbnail_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# Stereo -> mono 16 kHz conversion feeding the captions model.
+add_executable(uv_captions_host_tests
+    captions_host_tests.cpp
+    ${ENGINE_DIR}/captions/mono16k.cpp
+)
+target_include_directories(uv_captions_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_captions_host_tests PRIVATE -Wall -Wextra -Werror)
+
 enable_testing()
+add_test(NAME uv_captions_host_tests COMMAND uv_captions_host_tests)
 add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
