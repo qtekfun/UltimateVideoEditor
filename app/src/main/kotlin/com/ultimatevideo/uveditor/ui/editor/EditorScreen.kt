@@ -910,8 +910,8 @@ internal fun ToolButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    // The caller's modifier goes on an outer Box that is the direct child of the caller's parent: an `align`
-    // or `weight` only works there, not on something nested inside the tooltip box.
+    // The wrapper Box is the direct child of the caller's layout, so scope modifiers such as Box.align()
+    // in [modifier] keep working (TooltipBox does not forward them to its root node).
     Box(modifier = modifier) {
         TooltipBox(
             positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
