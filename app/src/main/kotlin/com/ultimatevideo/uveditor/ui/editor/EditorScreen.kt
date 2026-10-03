@@ -910,13 +910,17 @@ internal fun ToolButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-        tooltip = { PlainTooltip { Text(description) } },
-        state = rememberTooltipState(),
-    ) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
-            Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
+    // The caller's modifier goes on an outer Box that is the direct child of the caller's parent: an `align`
+    // or `weight` only works there, not on something nested inside the tooltip box.
+    Box(modifier = modifier) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+            tooltip = { PlainTooltip { Text(description) } },
+            state = rememberTooltipState(),
+        ) {
+            IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+                Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
+            }
         }
     }
 }
