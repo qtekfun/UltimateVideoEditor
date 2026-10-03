@@ -94,6 +94,27 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     DisposableEffect(preview) { onDispose { preview.close() } }
 
+    val audio = remember {
+        EditorAudio(context, scope) { viewModel.onIntent(EditorIntent.ReportError(it)) }
+    }
+    DisposableEffect(audio, viewModel) {
+        viewModel.playbackOutput = audio
+        onDispose {
+            viewModel.playbackOutput = null
+            audio.close()
+        }
+    }
+
+    // Keep the mixer in step with the committed timeline (not with a drag in progress).
+    LaunchedEffect(state.timeline, state.assets, state.fps, state.isLoading) {
+        if (state.isLoading) return@LaunchedEffect
+        audio.update(
+            audioSnapshotOf(state.timeline, state.assets, state.fps, viewModel::clipKey, viewModel::assetKey),
+            state.assets,
+            viewModel::assetKey,
+        )
+    }
+
     // Show the frame under the playhead; while playing this runs on every tick.
     LaunchedEffect(state.playhead, state.timeline, state.assets, state.fps, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
