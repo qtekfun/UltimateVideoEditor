@@ -38,13 +38,14 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank.
 
 ## Phase 4 — Decode, preview and audio playback
-- [ ] EGL/GLES 3.2 preview compositor on a `SurfaceView`
-- [ ] AMediaExtractor/AMediaCodec decode (H.264/HEVC) to AHardwareBuffer
-- [ ] LRU frame cache with look-ahead; scrubbing
+- [x] EGL/GLES 3.2 preview compositor on a `SurfaceView`
+- [x] AMediaExtractor/AMediaCodec decode (H.264/HEVC) to AHardwareBuffer
+- [x] LRU frame cache with look-ahead; scrubbing
 - [ ] Oboe audio playback + mixer; audio master clock, A/V sync
 - [ ] Per-clip transform (position/scale/rotation) with on-preview gestures; gain control
-- [ ] Colour shaders: HLG/Rec.2020 → SDR Rec.709; per-clip override
+- [x] Colour shaders: HLG/Rec.2020 → SDR Rec.709; per-clip override
 - [ ] Multi-layer compositing (video tracks above one another)
+- _Status (4a):_ 1080p30 H.264 plays at ~92% of frames on the reference device; 4K60 HEVC shows ~70% (decode/blit pipeline is not yet at real-time with headroom). Gate still open.
 - **Gate:** 4K60 single-layer playback without drops; no measurable A/V drift on a long timeline.
 
 ## Phase 5 — Titles and transitions
