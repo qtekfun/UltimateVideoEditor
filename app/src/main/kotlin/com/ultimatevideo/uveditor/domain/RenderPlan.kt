@@ -45,6 +45,8 @@ data class RenderClip(
     val still: StillKind? = null,
     /** The clip's colour space override, or null to use the asset's detected one. */
     val colorOverride: SourceColorSpace? = null,
+    /** Pan, fade handles, EQ, noise suppression and normalisation of the clip's sound. */
+    val audio: ClipAudio = ClipAudio.NONE,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -130,6 +132,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 fx = clip.fx,
                 colorOverride = clip.colorOverride,
                 still = clip.still,
+                audio = clip.audio,
             )
         }
     }

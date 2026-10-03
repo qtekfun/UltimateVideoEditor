@@ -269,11 +269,12 @@ fun Clip.sourceFrameAtProjectFrame(frame: FrameIndex): Long = retime.sourceFrame
 fun Clip.cropped(from: Long, to: Long): Clip {
     val keys = Keyframes.cropped(keyframes, from, to, transform)
     val length = to - from
+    val audioPart = audio.cropped(from, to, durationFrames)
     // Titles, photos and stickers have no source to read: their range is just their length.
-    if (!hasMedia) return copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(length), keyframes = keys, title = title?.shiftedBy(from))
-    if (!isRetimed) return copy(sourceIn = sourceIn + from, sourceOut = sourceIn + to, keyframes = keys)
+    if (!hasMedia) return copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(length), keyframes = keys, title = title?.shiftedBy(from), audio = audioPart)
+    if (!isRetimed) return copy(sourceIn = sourceIn + from, sourceOut = sourceIn + to, keyframes = keys, audio = audioPart)
     val r = retime
-    if (r.isFreeze) return copy(retimedFrames = length.takeIf { it != 1L }, speedRamp = emptyList(), keyframes = keys)
+    if (r.isFreeze) return copy(retimedFrames = length.takeIf { it != 1L }, speedRamp = emptyList(), keyframes = keys, audio = audioPart)
     val a = r.offsetAt(from)
     val b = r.offsetAt(to)
     var newIn = if (reverse) sourceOut.value - b else sourceIn.value + a
@@ -289,5 +290,6 @@ fun Clip.cropped(from: Long, to: Long): Clip {
         retimedFrames = length.takeIf { it != span },
         speedRamp = SpeedRamps.cropped(speedRamp, from, to),
         keyframes = keys,
+        audio = audioPart,
     )
 }
