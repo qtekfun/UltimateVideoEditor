@@ -151,6 +151,8 @@ class EditorViewModel(
                         isLoading = false,
                         projectName = project.name,
                         fps = FrameRate(project.settings.fpsNum, project.settings.fpsDen),
+                        width = project.settings.width,
+                        height = project.settings.height,
                         timeline = timeline,
                         selectedTrackId = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
                         assets = project.mediaLibrary,

@@ -33,6 +33,12 @@ target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
 find_package(Threads REQUIRED)
 target_link_libraries(uv_audio_host_tests PRIVATE Threads::Threads)
 
+# Export maths (PTS, audio sample tiling, progress, clip selection).
+add_executable(uv_export_host_tests export_host_tests.cpp)
+target_include_directories(uv_export_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_export_host_tests PRIVATE -Wall -Wextra -Werror)
+
 enable_testing()
+add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)

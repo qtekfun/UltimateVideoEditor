@@ -19,7 +19,8 @@ public:
     EglContext(const EglContext&) = delete;
     EglContext& operator=(const EglContext&) = delete;
 
-    decode::Status init(decode::Error* error);
+    // `recordable` asks for a config usable with MediaCodec input surfaces (export).
+    decode::Status init(decode::Error* error, bool recordable = false);
 
     // The window is retained (acquired) until detachWindow().
     decode::Status attachWindow(ANativeWindow* window, decode::Error* error);
@@ -43,8 +44,12 @@ public:
     int createReleaseFence() const;
     bool supportsFences() const { return createSync_ != nullptr; }
 
+    bool supportsPresentationTime() const { return presentationTime_ != nullptr; }
+
     // Requests that the next swapped buffer is shown no earlier than `ns` (CLOCK_MONOTONIC); 0 = now.
     void setPresentationTime(int64_t ns) const;
+    // Like setPresentationTime but 0 means exactly 0 (export timestamps), not "now".
+    void setPresentationTimeExact(int64_t ns) const;
 
 private:
     EGLDisplay display_ = EGL_NO_DISPLAY;
