@@ -22,11 +22,11 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** projects survive app restarts; JSON validates against the SPECS schema.
 
 ## Phase 2 — Domain timeline and operations (pure Kotlin, TDD)
-- [ ] `FrameIndex`, rational fps, time conversion helpers
-- [ ] Track/Clip model with invariants
-- [ ] Split, move, overwrite, ripple delete, ripple append, trim, snapping
-- [ ] Undo/redo command stack
-- [ ] Exhaustive unit tests for collisions and gaps
+- [x] `FrameIndex`, rational fps, time conversion helpers
+- [x] Track/Clip model with invariants
+- [x] Split, move, overwrite, ripple delete, ripple append, trim, snapping
+- [x] Undo/redo command stack
+- [x] Exhaustive unit tests for collisions and gaps
 - **Gate:** all operation tests green; invariants fuzz-tested.
 
 ## Phase 3 — Timeline canvas and waveforms
