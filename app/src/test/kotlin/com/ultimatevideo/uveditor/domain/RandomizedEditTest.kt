@@ -57,4 +57,66 @@ class RandomizedEditTest {
             }
         }
     }
+
+    private fun randomBaseAwareCommand(random: Random, timeline: Timeline, nextId: () -> String): EditCommand {
+        val base = checkNotNull(ClipDeletion.baseTrack(timeline))
+        val overlays = timeline.tracks.filter { it.id != base.id }
+        val clips = timeline.tracks.flatMap { it.clips }
+        val overlayClips = overlays.flatMap { it.clips }
+        val anyClip = clips.randomOrNull(random)?.id ?: "missing"
+        val frame = f(random.nextLong(-5, 400))
+        val trackId = timeline.tracks.random(random).id
+        return when (random.nextInt(8)) {
+            0 -> EditCommand.InsertBase(clip(nextId(), 0, random.nextLong(1, 60), srcIn = random.nextLong(0, 40)), frame)
+            1 -> EditCommand.MoveClip(anyClip, frame, toTrackId = if (random.nextBoolean()) timeline.tracks.random(random).id else null)
+            2 -> EditCommand.TrimClip(anyClip, TrimEdge.START, frame)
+            3 -> EditCommand.TrimClip(anyClip, TrimEdge.END, frame)
+            4 -> EditCommand.DeleteClip(anyClip)
+            5 -> EditCommand.Split(trackId, frame, nextId())
+            6 -> overlays.randomOrNull(random)?.let {
+                EditCommand.Overwrite(it.id, clip(nextId(), random.nextLong(0, 350), random.nextLong(1, 70), srcIn = random.nextLong(0, 40)))
+            } ?: EditCommand.DeleteClip(anyClip)
+            else -> EditCommand.RippleAppend(overlayClips.randomOrNull(random)?.id ?: "missing")
+        }
+    }
+
+    @Test
+    fun `random base-aware edits keep the base gap-free, overlays valid and undo exact`() {
+        var applied = 0
+        for (seed in 1..80) {
+            val random = Random(seed)
+            var counter = 0
+            val nextId = { "m${counter++}" }
+            var history = EditHistory(
+                timeline(
+                    track("v3", clip("p", 10, 30), clip("q", 120, 40)),
+                    track("a1", clip("m", 0, 200), type = TrackType.AUDIO),
+                    track("v2", clip("c", 20, 40)),
+                    track("v1", clip("a", 0, 100), clip("b", 100, 60), clip("d", 160, 80)),
+                ),
+                limit = 1000,
+            )
+            assertEquals(emptyList<String>(), MagneticBase.baseViolations(history.timeline))
+            val snapshots = mutableListOf(history.timeline)
+            repeat(150) {
+                val result = history.execute(randomBaseAwareCommand(random, history.timeline, nextId))
+                if (result is EditResult.Success) {
+                    history = result.value
+                    snapshots += history.timeline
+                    applied++
+                }
+                val timeline = history.timeline
+                assertTrue("seed $seed: ${timeline.invariantViolations()}", timeline.invariantViolations().isEmpty())
+                // Split and overwrite on the base itself are the only ways to touch it without a magnetic op,
+                // and neither can open a gap, so the base must stay contiguous from frame 0.
+                assertTrue("seed $seed base: ${MagneticBase.baseViolations(timeline)}", MagneticBase.baseViolations(timeline).isEmpty())
+            }
+            var undone = history
+            for (expected in snapshots.asReversed()) {
+                assertEquals("seed $seed undo", expected, undone.timeline)
+                undone = undone.undo()
+            }
+        }
+        assertTrue("only $applied edits applied", applied > 1000)
+    }
 }

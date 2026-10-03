@@ -377,6 +377,30 @@ cover collisions, gaps, and boundaries:
 
 Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
 
+### 6.1 Base track and overlays (LumaFusion model)
+
+The **base track** is the lowest video track (the last video track in display order). It is the guide and
+is **magnetic**: it is contiguous from frame 0, and no editor operation can open a gap in it
+(`MagneticBase.baseViolations` must be empty after every op, and the randomized tests assert it). Every other
+track (overlay video, audio, titles) is free-form and follows the base's time. Overlay edits never touch the base.
+`ClipDeletion` (delete) and `MagneticBase` (insert, move, trim) are the base-aware operations; the plain
+`TimelineOps` primitives stay free-form and are what overlays use. Commands: `DeleteClip`, `InsertBase`,
+`MoveClip`, `TrimClip` (each one undo step).
+
+| Edit on the base | Base | Overlays |
+|---|---|---|
+| Delete a clip | Gap closes, later clips shift left | Frames of the deleted range are removed: clips inside vanish, edge overlaps are trimmed, a spanning clip is cut in two and rejoined; later clips shift left |
+| Insert / import at a frame | New clip goes at the nearest clip boundary (ties go to the end; past the end appends); later clips shift right | Overlays starting at or after that boundary shift right; overlays crossing it stay |
+| Reorder (drag within the base) | The clip takes the slot its centre is over; the base is repacked from 0 | Overlays follow the footage they sit over: they are cut where the footage under them moves by different amounts and each piece travels with its footage |
+| Trim an edge (shorten) | Clip keeps its start, followers shift left | Removed frames are removed from overlays like a deletion; later overlays shift by the same delta |
+| Trim an edge (lengthen, needs source handle) | Clip keeps its start, followers shift right | Overlays at or after the trim point (the old end, or the clip start for the front edge) shift right |
+| Split | Nothing moves | Nothing moves |
+
+Dragging an overlay onto the base inserts it there (its old lane keeps a gap); a base clip cannot be dragged
+to another track (`BaseClipCannotLeave`). A base that already has gaps (older projects) is repaired on the first
+magnetic edit: gaps are closed like deletions. Deleting from an overlay removes the clip and leaves its gap.
+Transitions that no longer hold after an edit are dropped.
+
 Editor constants: snapping to clip edges, the playhead and frame 0 uses a **fixed 8-frame threshold**
 (`EditorViewModel.SNAP_THRESHOLD_FRAMES`; the zoom is not exposed to Kotlin, so the threshold is not in
 pixels). Dragging near the left or right edge of the timeline auto-scrolls it (up to 14 dp per frame inside

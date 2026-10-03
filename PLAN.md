@@ -34,6 +34,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Scroll and pinch-zoom at 60/120 fps; gesture forwarding; hit-testing (scroll, fling and tap seen working on device; frame rate not measured; pinch-zoom only host-tested)
 - [x] Media import (SAF picker, persisted URI permission), media library panel (probe verified on device and picker opens; the picker-to-timeline path was not seen end to end)
 - [x] Background waveform extraction and on-disk peak cache
+- [x] Magnetic base track with overlays that follow it (delete, insert/import, reorder, trim; `MagneticBase`, `ClipDeletion`), unit-tested incl. randomized invariants; not yet verified on device
 - [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; play/seek transport and playhead drag verified on device; clip drag/trim, split and delete implemented and unit-tested but not yet verified on device; thumbnail filmstrip drawn from a disk-cached, atlas-LRU tile pipeline and verified on device with a synthetic clip)
 - **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank. (Waveforms are now normalised per media and use the whole clip body; zoom fits the whole project until the user zooms by hand. Both are host-tested only: not yet seen on the device.)
 
