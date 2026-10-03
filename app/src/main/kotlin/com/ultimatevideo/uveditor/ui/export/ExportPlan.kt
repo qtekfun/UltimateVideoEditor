@@ -8,6 +8,7 @@ import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
+import com.ultimatevideo.uveditor.engine.export.ExportKeyframe
 import com.ultimatevideo.uveditor.engine.export.VideoClipSpec
 import com.ultimatevideo.uveditor.ui.editor.KeyRegistry
 import com.ultimatevideo.uveditor.ui.editor.audioSnapshotOf
@@ -42,6 +43,19 @@ private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0)
     crossfadeInFrames = crossfadeInFrames,
     lane = lane,
     titleKey = titleKey,
+    keyframes = keyframes.map {
+        ExportKeyframe(
+            frame = it.frame,
+            positionX = it.transform.positionX,
+            positionY = it.transform.positionY,
+            scaleX = it.transform.scaleX,
+            scaleY = it.transform.scaleY,
+            rotationDegrees = it.transform.rotationDegrees,
+            opacity = it.transform.opacity,
+            interpolation = it.interpolation.code,
+        )
+    },
+    keyframeOriginFrame = keyframeOriginFrame,
 )
 
 private const val HLG_TO_SDR = 1

@@ -46,6 +46,73 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(transform = transform, gainDb = gainDb) }
     }
 
+    /** Adds a keyframe at [keyframe].frame (clip frames), or replaces the one already there. */
+    fun setKeyframe(timeline: Timeline, clipId: String, keyframe: Keyframe): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (timeline.trackOfClip(clipId)?.type == TrackType.AUDIO) return failure(EditError.InvalidKeyframe("audio clips have nothing to animate"))
+        if (keyframe.frame < 0 || keyframe.frame >= clip.durationFrames) {
+            return failure(EditError.InvalidKeyframe("the keyframe is outside the clip"))
+        }
+        keyframe.transform.problem()?.let { return failure(EditError.InvalidKeyframe(it)) }
+        return updateClip(timeline, clipId) { it.copy(keyframes = Keyframes.set(it.keyframes, keyframe)) }
+    }
+
+    /**
+     * Removes the keyframe at [frame]. When it was the last one the clip stops being animated and
+     * keeps that keyframe's pose as its fixed transform, so nothing jumps.
+     */
+    fun removeKeyframe(timeline: Timeline, clipId: String, frame: Long): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        val removed = Keyframes.at(clip.keyframes, frame) ?: return failure(EditError.KeyframeNotFound(frame))
+        return updateClip(timeline, clipId) { c ->
+            val rest = c.keyframes.filter { it.frame != frame }
+            c.copy(keyframes = rest, transform = if (rest.isEmpty()) removed.transform else c.transform)
+        }
+    }
+
+    /** Moves a keyframe in time; a keyframe already at [toFrame] is replaced. */
+    fun moveKeyframe(timeline: Timeline, clipId: String, fromFrame: Long, toFrame: Long): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        val key = Keyframes.at(clip.keyframes, fromFrame) ?: return failure(EditError.KeyframeNotFound(fromFrame))
+        if (toFrame < 0 || toFrame >= clip.durationFrames) return failure(EditError.InvalidKeyframe("the keyframe is outside the clip"))
+        return updateClip(timeline, clipId) {
+            it.copy(keyframes = Keyframes.set(it.keyframes.filter { k -> k.frame != fromFrame }, key.copy(frame = toFrame)))
+        }
+    }
+
+    /** Removes every keyframe. The clip keeps its current fixed [Clip.transform]. */
+    fun clearKeyframes(timeline: Timeline, clipId: String): EditResult<Timeline> {
+        if (timeline.trackOfClip(clipId)?.clip(clipId) == null) return failure(EditError.ClipNotFound(clipId))
+        return updateClip(timeline, clipId) { it.copy(keyframes = emptyList()) }
+    }
+
+    /** Changes how the animation moves from the keyframe at [frame] to the next one. */
+    fun setKeyframeInterpolation(timeline: Timeline, clipId: String, frame: Long, interpolation: Interpolation): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        val key = Keyframes.at(clip.keyframes, frame) ?: return failure(EditError.KeyframeNotFound(frame))
+        return updateClip(timeline, clipId) { it.copy(keyframes = Keyframes.set(it.keyframes, key.copy(interpolation = interpolation))) }
+    }
+
+    /**
+     * Rescales every clip position (and keyframe position) for a canvas that changed from
+     * [oldWidth]x[oldHeight] to [newWidth]x[newHeight], so clips keep their relative place.
+     */
+    fun remapCanvas(timeline: Timeline, oldWidth: Int, oldHeight: Int, newWidth: Int, newHeight: Int): EditResult<Timeline> {
+        if (oldWidth <= 0 || oldHeight <= 0 || newWidth <= 0 || newHeight <= 0) {
+            return failure(EditError.InvalidAppearance("canvas sizes must be positive"))
+        }
+        val xRatio = newWidth.toDouble() / oldWidth
+        val yRatio = newHeight.toDouble() / oldHeight
+        val tracks = timeline.tracks.map { track ->
+            track.copy(
+                clips = track.clips.map {
+                    it.copy(transform = it.transform.remapped(xRatio, yRatio), keyframes = Keyframes.remapped(it.keyframes, xRatio, yRatio))
+                },
+            )
+        }
+        return success(timeline.copy(tracks = tracks))
+    }
+
     private fun updateClip(timeline: Timeline, clipId: String, change: (Clip) -> Clip): EditResult<Timeline> {
         val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
@@ -59,8 +126,13 @@ object TimelineOps {
         val clip = track.clips.firstOrNull { at > it.timelineStart && at < it.timelineEnd }
             ?: return failure(EditError.SplitOutsideClip)
         val offset = at - clip.timelineStart
-        val left = clip.copy(sourceOut = clip.sourceIn + offset)
-        val rightRaw = clip.copy(id = newClipId, timelineStart = at, sourceIn = clip.sourceIn + offset)
+        val left = clip.copy(sourceOut = clip.sourceIn + offset, keyframes = Keyframes.cropped(clip.keyframes, 0, offset, clip.transform))
+        val rightRaw = clip.copy(
+            id = newClipId,
+            timelineStart = at,
+            sourceIn = clip.sourceIn + offset,
+            keyframes = Keyframes.cropped(clip.keyframes, offset, clip.durationFrames, clip.transform),
+        )
         // A title has no media, so both halves keep a source range starting at 0.
         val right = if (clip.title != null) rightRaw.copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(rightRaw.durationFrames)) else rightRaw
         // The right half is the one now adjacent to whatever followed the clip, so it inherits the
@@ -142,6 +214,7 @@ object TimelineOps {
         }
         clip.transform.problem()?.let { return failure(EditError.InvalidClip(it)) }
         ClipGain.problem(clip.gainDb)?.let { return failure(EditError.InvalidClip(it)) }
+        Keyframes.problem(clip.keyframes, clip.durationFrames)?.let { return failure(EditError.InvalidClip(it)) }
         if (track.type == TrackType.TITLE && clip.title == null) return failure(EditError.InvalidClip("a title track only holds titles"))
         if (track.type != TrackType.TITLE && clip.title != null) return failure(EditError.InvalidClip("titles belong on a title track"))
         clip.title?.problem()?.let { return failure(EditError.InvalidClip(it)) }
@@ -154,13 +227,19 @@ object TimelineOps {
                 continue
             }
             if (existing.timelineStart < start) {
-                result += existing.copy(sourceOut = existing.sourceIn + (start - existing.timelineStart))
+                val keptFrames = start - existing.timelineStart
+                result += existing.copy(
+                    sourceOut = existing.sourceIn + keptFrames,
+                    keyframes = Keyframes.cropped(existing.keyframes, 0, keptFrames, existing.transform),
+                )
             }
             if (existing.timelineEnd > end) {
+                val cutFrames = end - existing.timelineStart
                 result += existing.copy(
                     id = "${existing.id}~${clip.id}",
                     timelineStart = end,
-                    sourceIn = existing.sourceIn + (end - existing.timelineStart),
+                    sourceIn = existing.sourceIn + cutFrames,
+                    keyframes = Keyframes.cropped(existing.keyframes, cutFrames, existing.durationFrames, existing.transform),
                 )
             }
         }
@@ -209,9 +288,19 @@ object TimelineOps {
         val trimmed = when (edge) {
             TrimEdge.START -> {
                 val delta = frame - clip.timelineStart
-                clip.copy(timelineStart = frame, sourceIn = clip.sourceIn + delta)
+                clip.copy(
+                    timelineStart = frame,
+                    sourceIn = clip.sourceIn + delta,
+                    keyframes = Keyframes.cropped(clip.keyframes, delta, clip.durationFrames, clip.transform),
+                )
             }
-            TrimEdge.END -> clip.copy(sourceOut = clip.sourceOut + (frame - clip.timelineEnd))
+            TrimEdge.END -> {
+                val newDuration = clip.durationFrames + (frame - clip.timelineEnd)
+                clip.copy(
+                    sourceOut = clip.sourceOut + (frame - clip.timelineEnd),
+                    keyframes = if (newDuration > 0) Keyframes.cropped(clip.keyframes, 0, newDuration, clip.transform) else clip.keyframes,
+                )
+            }
         }
         if (trimmed.durationFrames <= 0) return failure(EditError.InvalidTrim("clip would be empty"))
         if (trimmed.timelineStart < FrameIndex.ZERO) return failure(EditError.NegativeStart)

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "core/error.h"
@@ -35,6 +36,12 @@ struct TransitionSnapshot {
     int64_t postFrames;
 };
 
+// A keyframe marker `frame` frames after the start of the clip with key `clipKey`.
+struct KeyframeSnapshot {
+    int64_t clipKey;
+    int64_t frame;
+};
+
 // Immutable view of the timeline handed from Kotlin. All time values are integer frames.
 struct TimelineSnapshot {
     int32_t fpsNum = 30;
@@ -42,22 +49,29 @@ struct TimelineSnapshot {
     std::vector<TrackSnapshot> tracks;
     std::vector<ClipSnapshot> clips;
     std::vector<TransitionSnapshot> transitions;
+    // Sorted by clipKey then frame, so a clip's markers are one contiguous run (see keyframesOf).
+    std::vector<KeyframeSnapshot> keyframes;
 
     int64_t endFrame() const;
+    // The markers of one clip, as a [first, last) range into `keyframes`.
+    std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> keyframesOf(int64_t clipKey) const;
 };
 
-// Wire layout (little endian), version 2:
+// Wire layout (little endian), version 3 (version 2 is the same without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
 //   tracks: i32 type * trackCount
 //   clips : i64 clipKey, i32 trackIndex, i64 assetKey, i64 start, i64 duration, i64 sourceIn,
 //           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected)   (56 bytes each)
 //   trailer: i32 transitionCount, then per transition:
 //           i32 trackIndex, i32 reserved, i64 cutFrame, i64 preFrames, i64 postFrames   (32 bytes each)
+//   keyframes (v3): i32 keyframeCount, then per keyframe: i64 clipKey, i64 frame           (16 bytes each)
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
-constexpr uint32_t kSnapshotVersion = 2;
+constexpr uint32_t kSnapshotVersion = 3;
+constexpr uint32_t kSnapshotMinVersion = 2;
 constexpr size_t kSnapshotHeaderBytes = 24;
 constexpr size_t kSnapshotClipBytes = 56;
 constexpr size_t kSnapshotTransitionBytes = 32;
+constexpr size_t kSnapshotKeyframeBytes = 16;
 
 core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* out);
 

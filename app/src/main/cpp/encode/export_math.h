@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/crossfade_math.h"
+#include "core/keyframe_math.h"
 
 namespace uv::encode {
 
@@ -43,6 +44,10 @@ struct VideoClip {
     int32_t lane = 0;
     // != 0: a rasterised title (ExportParams::titles) instead of video media; assetKey is unused.
     uint32_t titleKey = 0;
+    // Animated pose (clip frames counted from keyOriginFrame). When non-empty it replaces the fixed
+    // pose above; mirrors domain/Keyframes.kt.
+    std::vector<core::Keyframe> keyframes;
+    int64_t keyOriginFrame = 0;
 };
 
 // Frame index -> nanoseconds, rounded half up. Monotonic and exact for any realistic length.
@@ -97,9 +102,16 @@ inline std::vector<const VideoClip*> layersAt(const std::vector<VideoClip>& clip
     return out;
 }
 
-// Opacity of `clip` at project frame `frame`: its own opacity times the crossfade ramp.
+// The pose of `clip` at project frame `frame`: its keyframes if it has any, else the fixed pose.
+// The opacity is the clip's own, before the crossfade.
+inline core::Pose poseAt(const VideoClip& clip, int64_t frame) {
+    const core::Pose base{clip.posX, clip.posY, clip.scaleX, clip.scaleY, clip.rotationDeg, clip.opacity};
+    return core::evaluateKeyframes(clip.keyframes, frame - clip.keyOriginFrame, base);
+}
+
+// Opacity of `clip` at project frame `frame`: its own (animated) opacity times the crossfade ramp.
 inline double opacityAt(const VideoClip& clip, int64_t frame) {
-    return clip.opacity * core::crossfadeProgress(frame - clip.startFrame, clip.fadeInFrames);
+    return poseAt(clip, frame).opacity * core::crossfadeProgress(frame - clip.startFrame, clip.fadeInFrames);
 }
 
 // Output frame (at the export rate) -> the project frame shown at that instant: the last project

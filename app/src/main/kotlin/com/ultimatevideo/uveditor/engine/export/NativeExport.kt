@@ -32,6 +32,9 @@ internal object NativeExport {
         assetFds: IntArray,
         clips: LongArray,
         transforms: DoubleArray,
+        keyClips: LongArray,
+        keyFrames: LongArray,
+        keyValues: DoubleArray,
         titleMeta: IntArray,
         titlePixels: Array<ByteBuffer>,
         audioSnapshot: ByteBuffer?,
@@ -75,6 +78,26 @@ class NativeExportRunner : ExportRunner {
             transforms[t + 4] = c.rotationDegrees
             transforms[t + 5] = c.opacity
         }
+        // Keyframes, flattened: per clip {origin frame, count}, per key {frame, interpolation} and six pose values.
+        val allKeys = request.videoClips.flatMap { it.keyframes }
+        val keyClips = LongArray(request.videoClips.size * KEY_CLIP_LONGS)
+        request.videoClips.forEachIndexed { i, c ->
+            keyClips[i * KEY_CLIP_LONGS] = c.keyframeOriginFrame
+            keyClips[i * KEY_CLIP_LONGS + 1] = c.keyframes.size.toLong()
+        }
+        val keyFrames = LongArray(allKeys.size * KEY_LONGS)
+        val keyValues = DoubleArray(allKeys.size * KEY_DOUBLES)
+        allKeys.forEachIndexed { i, k ->
+            keyFrames[i * KEY_LONGS] = k.frame
+            keyFrames[i * KEY_LONGS + 1] = k.interpolation.toLong()
+            val v = i * KEY_DOUBLES
+            keyValues[v] = k.positionX
+            keyValues[v + 1] = k.positionY
+            keyValues[v + 2] = k.scaleX
+            keyValues[v + 3] = k.scaleY
+            keyValues[v + 4] = k.rotationDegrees
+            keyValues[v + 5] = k.opacity
+        }
         val titleMeta = IntArray(request.titles.size * TITLE_INTS)
         request.titles.forEachIndexed { i, title ->
             titleMeta[i * TITLE_INTS] = title.key
@@ -87,7 +110,7 @@ class NativeExportRunner : ExportRunner {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
                 request.canvasWidth, request.canvasHeight, s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
-                keys, fds, clips, transforms, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
+                keys, fds, clips, transforms, keyClips, keyFrames, keyValues, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
@@ -115,6 +138,9 @@ class NativeExportRunner : ExportRunner {
     private companion object {
         const val CLIP_LONGS = 9
         const val CLIP_DOUBLES = 6
+        const val KEY_CLIP_LONGS = 2
+        const val KEY_LONGS = 2
+        const val KEY_DOUBLES = 6
         const val TITLE_INTS = 3
     }
 }
