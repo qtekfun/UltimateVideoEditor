@@ -78,6 +78,15 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 ```
 
 - Track types: `video`, `audio`, `title` (title clips carry text/style payload instead of `assetId`).
+- Clip appearance (`transform`, `gainDb`) lives in the domain `Clip` and is saved as is:
+  - The clip's frame is first fitted ("contain") into the project canvas, then `scale` (`[x, y]`,
+    each > 0) is applied about its centre, then `rotation` (degrees, **clockwise**), then the centre is
+    moved by `position` (`[x, y]` in **project canvas pixels**, +x right, +y down, from the canvas centre).
+  - `opacity` (0 to 1, default 1) is an addition to the study schema; files without it load as opaque.
+  - `gainDb` is limited to -96..+24 dB. Values outside these ranges are rejected as invalid edits
+    (`EditError.InvalidAppearance`) and, when found in a file, reported as a corrupt project.
+  - Splits and overwrites copy the appearance to every part of the original clip.
+- Video tracks stack in display order: the first video track is the top layer.
 - Clip duration = `sourceOutFrame - sourceInFrame` (out exclusive). Clips on one track never overlap
   except via explicit transitions.
 - Persistence: one directory per project in app-private `filesDir/projects/<id>/` (`project.json`,
@@ -107,6 +116,20 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 - Touch gestures (scroll, pinch-zoom, drag, trim) on the timeline surface are handled by a Kotlin
   `View` and forwarded as intents/commands; hit-testing against the snapshot is native.
 - Dedicated render thread per surface with its own EGL context (shared context for textures).
+- **Multilayer compositor.** The preview shows a *scene*: the project canvas (project resolution) plus layers
+  bottom to top, each `{asset, frame, transform, opacity}`. Kotlin sends it with `PreviewEngine.setScene`
+  (JNI `nativeSetScene`) on every playhead tick; the render thread draws it once every layer's frame is in
+  the cache (never a half-updated composite). Each layer is a quad: `layerQuadMap()` in
+  `render/layout_math.h` turns canvas size, displayed frame size and `LayerTransform` into a 2x3 map to clip
+  space (host-tested; semantics in section 4), the vertex shader applies it, the fragment shader does colour
+  conversion and outputs `alpha = opacity`, and layers are blended source-over. The canvas is letterboxed
+  into the surface and layers are clipped to it.
+- **Offscreen use (export).** `GlPipeline::drawScene(layers, canvasW, canvasH, targetW, targetH)` composites into
+  whatever framebuffer is bound, without binding, swapping or waiting. To render a frame for the encoder:
+  bind an FBO of the export size, build `LayerDraw`s from cached frames (`GpuFrame` + `ColorMode` + container
+  turns + `LayerTransform`), call `drawScene` with the canvas size equal to the target size, then read or
+  hand the FBO to the encoder. `GlPipeline::draw()` and `PreviewEngine::seek/play` keep their old
+  single-asset behaviour.
 - Target frame pacing: Choreographer/`ASurfaceTransaction` vsync; 60 fps minimum, 120 fps where supported.
 
 ### 5.4 Decode and cache
@@ -120,8 +143,12 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 - Per-frame GL work avoids stalls: EGLImages/textures are created once per `AHardwareBuffer` and
   cached; decoder buffers are returned with a native release fence (`AImage_deleteAsync`) instead of
   `glFinish`; frames are presented with `eglPresentationTimeANDROID` for even pacing.
-- Decoders run on worker threads; never on the UI or render thread. Decoder pool respects the
-  device's concurrent hardware-decoder limit.
+- Decoders run on worker threads; never on the UI or render thread. Every open video asset owns one
+  hardware decoder. `DecoderLimits` reads the device's `maxSupportedInstances` for H.264 and HEVC (capped at 4
+  for the preview) and `DecoderPlanner` decides which assets to keep open: the layers under the playhead,
+  topmost first, win; least recently shown assets are closed to make room; layers that do not fit are
+  left out of the preview and the user is told. The cache budget is shared equally between open assets
+  and each asset's look-behind/ahead window is sized to its share, so several layers never evict each other.
 
 ### 5.5 Colour
 - Project colour space (MVP: Rec.709 SDR). Per-clip source colour space with optional override.
