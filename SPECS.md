@@ -1,13 +1,13 @@
 # ultimateVE — Technical Specifications
 
-Status: Draft v1 · Date: 2026-10-03
+Status: v1, reconciled with the code after phases 1-4 and 6 · Date: 2026-10-03
 
 ## 1. Build and environment
 
 - App name: ultimateVE · Application ID / namespace: `com.ultimatevideo.uveditor`
 - Native library: `uveditor_engine` (C++20, CMake, NDK). JNI package prefix `com.ultimatevideo.uveditor.engine`.
 - Gradle Kotlin DSL (`*.gradle.kts`) with a version catalog (`gradle/libs.versions.toml`).
-- minSdk 33 · targetSdk/compileSdk 36 · ABIs: `arm64-v8a` (plus `x86_64` optional for emulator UI work).
+- minSdk 33 · targetSdk 36 · compileSdk 37 (current AndroidX requires it) · ABIs: `arm64-v8a` (plus `x86_64` optional for emulator UI work).
 - Dev host: Fedora Linux, no Android Studio. Command-line only: JDK 21, `$ANDROID_HOME=~/Android/Sdk`,
   `sdkmanager`, `adb`. Needed extras: NDK, CMake, Gradle wrapper.
 - Test device: physical, wireless adb (more than one adb transport may be listed; use `adb -s <serial>`).
@@ -15,22 +15,27 @@ Status: Draft v1 · Date: 2026-10-03
 ## 2. Module layout
 
 ```
-app/                        Android app module (Compose UI, MVI, navigation, DI)
+app/                        Android app module (Compose UI, MVI, navigation)
   src/main/kotlin/com/ultimatevideo/uveditor/
-    ui/            Compose screens (hub, editor shell, dialogs)
+    ui/hub/        Project hub (list, new project dialog, clone/rename/delete/import/export)
+    ui/editor/     Editor: EditorViewModel (MVI), timeline host, inspector, transport, EditorPreview/EditorAudio
+    ui/preview/    Preview SurfaceView host
+    ui/export/     Export dialog and ViewModel
     mvi/           Contracts: State, Intent, Effect, base ViewModel
-    domain/        Pure Kotlin: Project, Track, Clip, FrameIndex, TimelineOps, UndoStack
-    data/          Project repository, JSON serialization, SAF/media access
-    engine/        Kotlin JNI facade to the native engine (no logic)
-  src/main/cpp/    C++ engine (CMake root)
-    core/          Timeline snapshot, time base, command queue
-    decode/        AMediaCodec/AMediaExtractor wrappers
-    cache/         AHardwareBuffer frame cache (LRU)
-    render/        EGL context, GLES 3.2 compositor, shaders (GLSL)
-    timeline_view/ SurfaceView renderer for timeline canvas
-    audio/         Oboe playback, mixer, waveform extractor
-    encode/        MediaCodec encoder + muxer (AMediaMuxer)
+    domain/        Pure Kotlin: FrameIndex, FrameRate, Clip, Track, Timeline, edit operations, EditHistory (undo/redo)
+    data/          ProjectRepository/Store, JSON DTOs (`data/model`), TimelineMapper (DTO <-> domain), media probing
+    engine/        Kotlin facades over JNI, no logic: preview/, audio/, timeline/, export/
+  src/main/cpp/    C++ engine (CMake root; each area adds its sources through `cmake/<area>.cmake`)
+    core/          Error codes and shared helpers
+    decode/        AMediaExtractor/AMediaCodec wrappers (VideoDecoder, GpuFrame)
+    cache/         Frame cache (LRU with playback-window aware eviction)
+    render/        EGL context, GLES 3.2 compositor (PreviewEngine, GlPipeline), shaders, layout/colour math
+    timeline_view/ SurfaceView renderer for the timeline canvas (blocks, waveforms, thumbnails, playhead)
+    thumbnail/     Thumbnail tile generation, atlas, disk store
+    audio/         Oboe playback, mixer, master clock, PCM decoder, waveform extractor
+    encode/        Export: offline render loop, MediaCodec encoder, AAC, muxer
     jni/           JNI bindings only
+    tests/         Host-built tests (no GoogleTest; see section 8)
 ```
 
 `domain/` has no Android dependencies so clip operations are plain JVM unit tests.
@@ -43,8 +48,15 @@ Splitting into Gradle modules (`:domain`, `:engine`, `:app`) is allowed once bou
   is replaced with this rational to avoid drift (schema version bump rules in section 4).
 - Conversions to presentation time use integer math: `ptsUs = frame * 1_000_000 * fpsDen / fpsNum`
   (128-bit/rounded safely). Audio uses sample frames at the sample rate; the audio device is the master clock during playback.
-- Source ranges (`sourceInFrame`/`sourceOutFrame`) are in the asset's native frame units;
-  the engine maps between asset and project time with rational arithmetic.
+- **Source ranges (`sourceInFrame`/`sourceOutFrame`) are in project frames**, not in the asset's native
+  frames: a clip plays its source at 1x on the project's frame grid, so its timeline duration equals its
+  source duration and no per-frame rate conversion is needed. Assets are opened with the project fps as
+  their frame rate (`fpsOverride`), which is how decoders map project frames to media time. (The first draft
+  of this spec had native frames; the code and the saved files use project frames.) `nativeFpsNum/Den` in
+  the media library records the real rate of the file for information.
+- Playback clock: while playing, the **audio device is the master clock** (`AudioPlaybackEngine.positionFrame()`,
+  latency compensated, in project frames). The editor's playhead follows it; the preview follows the
+  playhead without seeking (section 5.3). Without audio output the system monotonic clock is the fallback.
 
 ## 4. Project data model (`project.json`)
 
@@ -64,20 +76,23 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   "mediaLibrary": [
     { "id": "asset-1", "uri": "content://media/external/video/media/105",
       "durationFrames": 1800, "nativeFpsNum": 60000, "nativeFpsDen": 1001,
-      "colorSpace": "Rec2020-HLG" }
+      "colorSpace": "Rec2020-HLG", "hasVideo": true, "hasAudio": true }
   ],
   "tracks": [
     { "id": "track-v1", "type": "video", "order": 0, "clips": [
       { "id": "clip-101", "assetId": "asset-1",
         "timelineStartFrame": 0, "sourceInFrame": 120, "sourceOutFrame": 420,
-        "transform": { "scale": [1.0, 1.0], "rotation": 0.0, "position": [0, 0] },
+        "transform": { "scale": [1.0, 1.0], "rotation": 0.0, "position": [0, 0], "opacity": 1.0 },
         "gainDb": 0.0, "colorOverride": null } ] }
   ],
   "transitions": []
 }
 ```
 
-- Track types: `video`, `audio`, `title` (title clips carry text/style payload instead of `assetId`).
+- Track types: `video`, `audio`, `title` (title clips carry text/style payload instead of `assetId`; not
+  implemented yet, see PLAN.md phase 5).
+- `hasVideo`/`hasAudio` on an asset default to true so older files stay valid; the editor re-probes each
+  medium once on load and corrects a wrong flag (a file without an audio track must never reach the mixer).
 - Clip appearance (`transform`, `gainDb`) lives in the domain `Clip` and is saved as is:
   - The clip's frame is first fitted ("contain") into the project canvas, then `scale` (`[x, y]`,
     each > 0) is applied about its centre, then `rotation` (degrees, **clockwise**), then the centre is
@@ -124,6 +139,19 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   space (host-tested; semantics in section 4), the vertex shader applies it, the fragment shader does colour
   conversion and outputs `alpha = opacity`, and layers are blended source-over. The canvas is letterboxed
   into the surface and layers are clipped to it.
+- **Playback (`playScene`).** Seeking on every tick is what made 4K60 playback stutter, so during playback the
+  editor does not drive frames. `PreviewEngine.playScene(canvas, layers, fps)` (JNI `nativePlayScene`) installs
+  the scene like `setScene` and then advances **every layer in step on a native monotonic clock**
+  (`CLOCK_MONOTONIC`) at the project frame rate, each from its own start frame and never past its
+  `endFrame` (the clip's out point, so trimmed-away media is never shown). Between calls the native side runs
+  by itself, with the decoders' look-behind/ahead windows as look-ahead. `EditorPreview.follow()` is called on
+  every playhead tick (the playhead *is* the heard audio frame) and calls `playScene` again only when
+  (a) the composition changed (a layer's clip, source offset, out point or transform, or the set of layers
+  that finished opening), or (b) the heard frame differs from where the native clock should be by more than
+  `DRIFT_THRESHOLD_FRAMES` (2 frames; `PreviewAnchor`, JVM-tested). Where no clip is under the playhead (a gap
+  or the end) the native clock is paused and the last frame stays up. `setScene` (paused, scrubbing, editing)
+  stops native playback. Known limit: the first frames of an incoming clip at a cut are not pre-rolled, so a
+  cut may stall for a frame or two while its decoder seeks.
 - **Offscreen use (export).** `GlPipeline::drawScene(layers, canvasW, canvasH, targetW, targetH)` composites into
   whatever framebuffer is bound, without binding, swapping or waiting. To render a frame for the encoder:
   bind an FBO of the export size, build `LayerDraw`s from cached frames (`GpuFrame` + `ColorMode` + container
@@ -156,7 +184,13 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   linearisation (HLG OETF⁻¹), gamut matrix Rec.2020→Rec.709, tone-mapping, re-encode. No 3D LUTs.
 
 ### 5.6 Audio
-- Oboe (AAudio backend) low-latency output; mixer sums audio tracks with per-clip gain.
+- Oboe (AAudio backend) low-latency output; mixer sums audio tracks and the embedded audio of video
+  clips with per-clip gain (`gainDb`, -96..+24), clipped to ±1. The device clock, compensated with the
+  hardware timestamp, is exposed as the master clock in project frames.
+- **Device lifecycle.** The output stream is open only while it is needed: `EditorAudio` opens it on play,
+  closes it 1.5 s after a pause (so a quick pause/resume does not reopen the device) and immediately when
+  the app goes to the background (`ON_STOP`). The mixer state (assets, snapshot, position) survives a closed
+  stream and scrubbing while paused never needs the device.
 - Waveform worker decodes PCM from clips in the background, computes min/max peak pyramids at several
   zoom levels, and caches them on disk (`waveforms/<assetId>.peaks`). Timeline renderer reads the cache.
 
@@ -166,12 +200,16 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   evaluated in the compositor.
 
 ### 5.8 Undo/redo
-- Command pattern in `domain/`: every edit is an invertible command applied to the timeline state;
-  a bounded undo/redo stack lives in the editor ViewModel.
+- `EditHistory` in `domain/`: a bounded stack of immutable timeline snapshots (exact restore), driven by
+  the editor ViewModel. Drags are previewed provisionally and enter the history only when released; clip
+  appearance edits (inspector, preview gestures) are one undo step per gesture (`SetAppearance`).
 
 ### 5.9 Export
-- Offline render loop: frame N → compositor → MediaCodec encoder input surface → `AMediaMuxer`.
-  Audio mixed offline and encoded to AAC. Progress and cancellation via MVI state.
+- Offline render loop: frame N → compositor (`drawScene` into the encoder's input surface) → MediaCodec
+  encoder (H.264 or HEVC) → `AMediaMuxer` to MP4; audio from the offline mixer, encoded to AAC. PTS are exact
+  integer grid values. The AAC encoder delay (2048 samples) is compensated, so the first 42.7 ms of the mix are
+  not heard. Progress, cancel and share through the export ViewModel; a failed or cancelled export deletes
+  the partial file. Output is written through SAF (`CreateDocument`).
 - FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec.
 
 ## 6. Timeline operations (specification for tests)
@@ -190,6 +228,12 @@ cover collisions, gaps, and boundaries:
 
 Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
 
+Editor constants: snapping to clip edges, the playhead and frame 0 uses a **fixed 8-frame threshold**
+(`EditorViewModel.SNAP_THRESHOLD_FRAMES`; the zoom is not exposed to Kotlin, so the threshold is not in
+pixels). Dragging near the left or right edge of the timeline auto-scrolls it (up to 14 dp per frame inside
+the outer 56 dp). The timeline pages to keep the playhead on screen (it jumps so the playhead sits 10% from
+the left when it leaves the 10%–90% band).
+
 ## 7. Error handling
 
 - Native code returns `Result`-style error codes with context (codec, URI, MediaStatus); JNI converts to
@@ -199,7 +243,11 @@ Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 
 ## 8. Testing
 
 - JVM unit tests for `domain/` (operations, undo, serialization round-trips, time math).
-- Native unit tests (GoogleTest, host build) for time conversions, cache LRU, snapshot parsing.
-- Instrumented tests on device for JNI smoke tests and decode/render sanity.
+- Native unit tests are host-built executables without GoogleTest (`app/src/main/cpp/tests`, run with CMake +
+  ctest, see CLAUDE.md): viewport, hit-testing, snapshot parsing, peaks, tile math and atlas LRU, audio core,
+  export maths, colour and layout maths.
+- Instrumented tests on device for JNI smoke tests, media probing and audio (`AudioPlaybackInstrumentedTest`).
+- `scripts/av-drift-test.sh <serial> [minutes]` logs, every 5 s, the drift between the audio clock and the
+  native preview clock over a long synthetic timeline (tag `UVSync`).
 - Verification commands (CLI): `./gradlew :app:testDebugUnitTest`, `./gradlew :app:assembleDebug`,
   `./gradlew :app:connectedDebugAndroidTest`.
