@@ -41,6 +41,7 @@ Status compile(GLenum type, const char* source, GLuint* shader, Error* error) {
 GlPipeline::~GlPipeline() {
     for (auto& entry : frameTextures_) destroy(entry.second);
     for (auto& entry : sourceTextures_) destroy(entry.second);
+    for (auto& entry : titleTextures_) glDeleteTextures(1, &entry.second.texture);
     if (blitProgram_ != 0) glDeleteProgram(blitProgram_);
     if (compositeProgram_ != 0) glDeleteProgram(compositeProgram_);
     if (vao_ != 0) glDeleteVertexArrays(1, &vao_);
@@ -92,6 +93,7 @@ Status GlPipeline::init(Error* error) {
     compositeTurnsLoc_ = glGetUniformLocation(compositeProgram_, "uTurns");
     compositeXformLoc_ = glGetUniformLocation(compositeProgram_, "uXform");
     compositeOpacityLoc_ = glGetUniformLocation(compositeProgram_, "uOpacity");
+    compositePremulLoc_ = glGetUniformLocation(compositeProgram_, "uPremul");
     glGenVertexArrays(1, &vao_);
     glGenFramebuffers(1, &fbo_);
     return Status::Ok;
@@ -104,6 +106,44 @@ void GlPipeline::releaseRetired() {
         destroy(it->second);
         frameTextures_.erase(it);
     }
+}
+
+Status GlPipeline::uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, Error* error) {
+    if (key == 0 || width <= 0 || height <= 0 || rgba == nullptr) {
+        if (error != nullptr) *error = Error{Status::InvalidArgument, "invalid title texture"};
+        return Status::InvalidArgument;
+    }
+    GLint maxSize = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
+    if (width > maxSize || height > maxSize) {
+        if (error != nullptr) *error = Error{Status::InvalidArgument, "title texture is larger than the GPU supports"};
+        return Status::InvalidArgument;
+    }
+    releaseTitle(key);
+    TitleTexture entry;
+    entry.width = width;
+    entry.height = height;
+    glGenTextures(1, &entry.texture);
+    glBindTexture(GL_TEXTURE_2D, entry.texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, &entry.texture);
+        return glFail(error, "title texture upload failed");
+    }
+    titleTextures_[key] = entry;
+    return Status::Ok;
+}
+
+void GlPipeline::releaseTitle(uint32_t key) {
+    auto it = titleTextures_.find(key);
+    if (it == titleTextures_.end()) return;
+    glDeleteTextures(1, &it->second.texture);
+    titleTextures_.erase(it);
 }
 
 void GlPipeline::clearSourceCache() {
@@ -226,6 +266,15 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
     for (const LayerDraw& layer : layers) {
         unsigned texture = 0;
         bool created = false;
+        if (layer.titleKey != 0) {
+            auto title = titleTextures_.find(layer.titleKey);
+            if (title == titleTextures_.end()) {
+                if (error != nullptr) *error = Error{Status::NotFound, "title texture " + std::to_string(layer.titleKey) + " is missing"};
+                return Status::NotFound;
+            }
+            textures.push_back(title->second.texture);
+            continue;
+        }
         if (layer.frame == nullptr) {
             if (error != nullptr) *error = Error{Status::InvalidArgument, "layer without a frame"};
             return Status::InvalidArgument;
@@ -247,18 +296,25 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     for (size_t i = 0; i < layers.size(); ++i) {
         const LayerDraw& layer = layers[i];
-        int displayW = 0;
-        int displayH = 0;
-        displaySize(static_cast<int>(layer.frame->width()), static_cast<int>(layer.frame->height()), layer.turns,
-                    &displayW, &displayH);
-        const QuadMap map = layerQuadMap(canvasWidth, canvasHeight, displayW, displayH, layer.transform);
+        QuadMap map;
+        if (layer.titleKey != 0) {
+            const TitleTexture& title = titleTextures_.at(layer.titleKey);
+            map = titleQuadMap(canvasWidth, canvasHeight, title.width, title.height, layer.transform);
+        } else {
+            int displayW = 0;
+            int displayH = 0;
+            displaySize(static_cast<int>(layer.frame->width()), static_cast<int>(layer.frame->height()), layer.turns,
+                        &displayW, &displayH);
+            map = layerQuadMap(canvasWidth, canvasHeight, displayW, displayH, layer.transform);
+        }
         float matrix[9];
         quadMapToMat3(map, matrix);
         glBindTexture(GL_TEXTURE_2D, textures[i]);
         glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, matrix);
         glUniform1f(compositeOpacityLoc_, clampOpacity(layer.transform.opacity));
-        glUniform1i(compositeModeLoc_, static_cast<int>(layer.mode));
-        glUniform1i(compositeTurnsLoc_, layer.turns);
+        glUniform1i(compositeModeLoc_, layer.titleKey != 0 ? 0 : static_cast<int>(layer.mode));
+        glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
+        glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
     glDisable(GL_BLEND);

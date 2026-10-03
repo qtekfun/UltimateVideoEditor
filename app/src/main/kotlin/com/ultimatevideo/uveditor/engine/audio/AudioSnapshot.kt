@@ -17,6 +17,10 @@ data class AudioClipSpec(
     val sourceFpsNum: Int,
     val sourceFpsDen: Int,
     val gainDb: Float = 0f,
+    /** Equal-power fade-in over the first frames of the clip (a transition's incoming side); 0 = none. */
+    val fadeInFrames: Long = 0,
+    /** Equal-power fade-out over the last frames of the clip (a transition's outgoing side); 0 = none. */
+    val fadeOutFrames: Long = 0,
 ) {
     init {
         require(startFrame in 0..MAX_FRAME) { "clip $clipKey has an invalid start $startFrame" }
@@ -24,6 +28,8 @@ data class AudioClipSpec(
         require(sourceInFrame in 0..MAX_FRAME) { "clip $clipKey has an invalid source in-point $sourceInFrame" }
         require(sourceFpsNum > 0 && sourceFpsDen > 0) { "clip $clipKey has an invalid source fps" }
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB) { "clip $clipKey gain $gainDb dB is out of range" }
+        require(fadeInFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-in $fadeInFrames" }
+        require(fadeOutFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-out $fadeOutFrames" }
     }
 
     companion object {
@@ -64,6 +70,8 @@ data class AudioSnapshot(
             buffer.putInt(clip.sourceFpsNum)
             buffer.putInt(clip.sourceFpsDen)
             buffer.putFloat(clip.gainDb)
+            buffer.putInt(clip.fadeInFrames.toInt())
+            buffer.putInt(clip.fadeOutFrames.toInt())
             buffer.putInt(0)
         }
         buffer.flip()
@@ -72,8 +80,8 @@ data class AudioSnapshot(
 
     companion object {
         const val MAGIC = 0x53415655 // "UVAS"
-        const val VERSION = 1
+        const val VERSION = 2
         const val HEADER_BYTES = 20
-        const val CLIP_BYTES = 56
+        const val CLIP_BYTES = 64
     }
 }

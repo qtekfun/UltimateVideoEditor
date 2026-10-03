@@ -28,7 +28,8 @@ class TimelineSnapshotTest {
         assertTrue(buffer.isDirect)
         assertEquals(ByteOrder.LITTLE_ENDIAN, buffer.order())
         assertEquals(
-            TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES,
+            TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
+                TimelineSnapshot.TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -64,7 +65,40 @@ class TimelineSnapshotTest {
     @Test
     fun `empty timeline encodes to a header only`() {
         val buffer = TimelineSnapshot(30, 1, emptyList(), emptyList()).encode()
-        assertEquals(TimelineSnapshot.HEADER_BYTES, buffer.remaining())
+        assertEquals(TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES, buffer.remaining())
+    }
+
+    @Test
+    fun `transitions follow the clips with their own count`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO, SnapshotTrackType.VIDEO),
+            listOf(clip(1), clip(2, track = 1)),
+            listOf(SnapshotTransition(0, 100, 5, 6), SnapshotTransition(1, 40, 2, 3)),
+        )
+
+        val b = snapshot.encode()
+
+        val trailer = TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES
+        assertEquals(trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES, b.remaining())
+        assertEquals(2, b.getInt(trailer))
+        assertEquals(0, b.getInt(trailer + 4))
+        assertEquals(100L, b.getLong(trailer + 12))
+        assertEquals(5L, b.getLong(trailer + 20))
+        assertEquals(6L, b.getLong(trailer + 28))
+        assertEquals(1, b.getInt(trailer + 36))
+        assertEquals(3L, b.getLong(trailer + 60))
+    }
+
+    @Test
+    fun `invalid transitions are rejected before reaching native code`() {
+        val tracks = listOf(SnapshotTrackType.VIDEO)
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, emptyList(), listOf(SnapshotTransition(1, 0, 1, 1)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, emptyList(), listOf(SnapshotTransition(0, 10, -1, 1)))
+        }
     }
 
     @Test

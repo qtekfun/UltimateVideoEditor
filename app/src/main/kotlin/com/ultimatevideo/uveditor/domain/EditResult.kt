@@ -26,6 +26,13 @@ sealed interface EditError {
 
     /** A transform or gain value that cannot be rendered or mixed. */
     data class InvalidAppearance(val reason: String) : EditError
+
+    data class NotATitle(val clipId: String) : EditError
+    data class TransitionNotFound(val transitionId: String) : EditError
+    data class DuplicateTransitionId(val transitionId: String) : EditError
+
+    /** A transition that cannot hold between its clips (not adjacent, too long, no handle). */
+    data class InvalidTransition(val reason: String) : EditError
 }
 
 internal fun failure(error: EditError): EditResult.Failure = EditResult.Failure(error)

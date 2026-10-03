@@ -6,7 +6,9 @@ import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
@@ -50,9 +52,34 @@ data class EditorState(
     /** The selected clip as currently shown, whatever its track type. */
     val selectedClip: Clip? get() = selectedClipId?.let { visibleTimeline.trackOfClip(it)?.clip(it) }
 
-    /** True when the selected video clip is under the playhead, so a gesture on the preview edits what is visible. */
+    /** The selected clip if it is something drawn on the canvas: a video clip or a title. */
+    val selectedVisualClip: Clip?
+        get() {
+            val id = selectedClipId ?: return null
+            val track = visibleTimeline.trackOfClip(id)?.takeIf { it.type != TrackType.AUDIO } ?: return null
+            return track.clip(id)
+        }
+
+    /** The text and style of the selected clip when it is a title. */
+    val selectedTitle: TitleContent? get() = selectedClip?.title
+
+    /** The clip that starts exactly where the selected one ends on its track: the other side of a cut. */
+    val clipAfterSelected: Clip?
+        get() {
+            val clip = selectedClip ?: return null
+            return visibleTimeline.trackOfClip(clip.id)?.clips?.firstOrNull { it.timelineStart == clip.timelineEnd }
+        }
+
+    /** The transition from the selected clip into the next one, if there is one. */
+    val selectedTransition: Transition?
+        get() {
+            val id = selectedClipId ?: return null
+            return visibleTimeline.transitions.firstOrNull { it.fromClipId == id }
+        }
+
+    /** True when the selected clip is under the playhead, so a gesture on the preview edits what is visible. */
     val selectedClipVisible: Boolean
-        get() = selectedVideoClip?.let { playhead >= it.timelineStart && playhead < it.timelineEnd } ?: false
+        get() = selectedVisualClip?.let { playhead >= it.timelineStart && playhead < it.timelineEnd } ?: false
 
     /** "V1", "A2": the position of the selected track among tracks of its type, top to bottom. */
     val selectedTrackLabel: String?
@@ -93,6 +120,21 @@ sealed interface EditorIntent : UiIntent {
     data object Redo : EditorIntent
 
     data object ToggleInspector : EditorIntent
+
+    /** Puts a new title on the title track (made if needed) at the playhead, selects it and opens the inspector. */
+    data object AddTitle : EditorIntent
+
+    /**
+     * Edits of the selected title's text and style: shown live, committed as one undo step by
+     * [EndTitleEdit] (or by the next intent of any other kind).
+     */
+    data class UpdateTitle(val content: TitleContent) : EditorIntent
+    data class EndTitleEdit(val commit: Boolean) : EditorIntent
+
+    /** A crossfade across the cut between the selected clip and the one right after it. */
+    data object AddTransition : EditorIntent
+    data class SetTransitionDuration(val frames: Long) : EditorIntent
+    data object RemoveTransition : EditorIntent
 
     /**
      * Edits of the selected clip's look and sound. A session is Begin, any number of Update/Gesture

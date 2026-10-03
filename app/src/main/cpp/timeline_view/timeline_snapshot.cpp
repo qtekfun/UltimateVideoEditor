@@ -24,6 +24,7 @@ public:
         return true;
     }
     bool atEnd() const { return off_ == n_; }
+    size_t remaining() const { return n_ - off_; }
 
 private:
     const uint8_t* p_;
@@ -45,10 +46,11 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     }
     if (magic != kSnapshotMagic || version != kSnapshotVersion) return Status::BadSnapshot;
     if (fpsNum <= 0 || fpsDen <= 0 || trackCount < 0 || clipCount < 0) return Status::BadSnapshot;
-    // Reject sizes that cannot fit in the buffer before allocating.
-    const size_t expected = kSnapshotHeaderBytes + static_cast<size_t>(trackCount) * 4 +
-                            static_cast<size_t>(clipCount) * kSnapshotClipBytes;
-    if (expected != size) return Status::BadSnapshot;
+    // Reject sizes that cannot fit in the buffer before allocating. The transition count follows
+    // the clips, so here only the part up to it must fit.
+    const size_t fixed = kSnapshotHeaderBytes + static_cast<size_t>(trackCount) * 4 +
+                         static_cast<size_t>(clipCount) * kSnapshotClipBytes + 4;
+    if (fixed > size) return Status::BadSnapshot;
 
     TimelineSnapshot snap;
     snap.fpsNum = fpsNum;
@@ -74,6 +76,22 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         }
         c.selected = (flags & 1) != 0;
         snap.clips.push_back(c);
+    }
+    int32_t transitionCount = 0;
+    if (!r.read(&transitionCount) || transitionCount < 0) return Status::BadSnapshot;
+    if (r.remaining() != static_cast<size_t>(transitionCount) * kSnapshotTransitionBytes) return Status::BadSnapshot;
+    snap.transitions.reserve(static_cast<size_t>(transitionCount));
+    for (int32_t i = 0; i < transitionCount; ++i) {
+        TransitionSnapshot t{};
+        int32_t reserved = 0;
+        if (!r.read(&t.trackIndex) || !r.read(&reserved) || !r.read(&t.cutFrame) || !r.read(&t.preFrames) ||
+            !r.read(&t.postFrames)) {
+            return Status::BadSnapshot;
+        }
+        if (t.trackIndex < 0 || t.trackIndex >= trackCount || t.cutFrame < 0 || t.preFrames < 0 || t.postFrames < 0) {
+            return Status::BadSnapshot;
+        }
+        snap.transitions.push_back(t);
     }
     if (!r.atEnd()) return Status::BadSnapshot;
     *out = std::move(snap);

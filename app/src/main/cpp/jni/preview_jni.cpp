@@ -153,7 +153,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 }
 
 // `ids` holds {assetId, frame} per layer and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity},
-// both bottom to top.
+// both bottom to top. A negative assetId -k is the title uploaded under key k (frame is ignored).
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScene(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params) {
     const jsize layerCount = env->GetArrayLength(ids) / 2;
@@ -171,13 +171,38 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     layers.reserve(static_cast<size_t>(layerCount));
     for (jsize i = 0; i < layerCount; ++i) {
         uv::render::SceneLayer layer;
-        layer.asset = static_cast<uint32_t>(idValues[static_cast<size_t>(i) * 2]);
+        const jlong id = idValues[static_cast<size_t>(i) * 2];
+        if (id < 0) {
+            layer.title = static_cast<uint32_t>(-id);
+        } else {
+            layer.asset = static_cast<uint32_t>(id);
+        }
         layer.frame = idValues[static_cast<size_t>(i) * 2 + 1];
         const jfloat* p = &paramValues[static_cast<size_t>(i) * 6];
         layer.transform = uv::render::LayerTransform{p[0], p[1], p[2], p[3], p[4], p[5]};
         layers.push_back(layer);
     }
     fromHandle(handle)->engine->setScene(canvasW, canvasH, std::move(layers));
+}
+
+// `pixels` is a direct buffer of width * height * 4 bytes (premultiplied RGBA, top row first); it is copied.
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadTitle(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint width, jint height, jobject pixels) {
+    const void* data = pixels == nullptr ? nullptr : env->GetDirectBufferAddress(pixels);
+    const jlong capacity = pixels == nullptr ? 0 : env->GetDirectBufferCapacity(pixels);
+    const int64_t needed = static_cast<int64_t>(width) * height * 4;
+    if (key <= 0 || width <= 0 || height <= 0 || data == nullptr || capacity < needed) {
+        throwPreview(env, Status::InvalidArgument, "title pixels do not match the given size");
+        return;
+    }
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    fromHandle(handle)->engine->uploadTitle(static_cast<uint32_t>(key), width, height,
+                                            std::vector<uint8_t>(bytes, bytes + needed));
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseTitle(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
+    fromHandle(handle)->engine->releaseTitle(static_cast<uint32_t>(key));
 }
 
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSeek(

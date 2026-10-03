@@ -46,6 +46,7 @@ uniform sampler2D uTex;
 uniform int uMode;   // 0 = SDR Rec.709 pass-through, 1 = HLG Rec.2020 -> SDR Rec.709
 uniform int uTurns;  // clockwise quarter turns applied for display (layout_math.h rotateUv)
 uniform float uOpacity;  // layer opacity, applied through alpha blending
+uniform int uPremul;     // 1 = premultiplied RGBA title texture (alpha comes from the texture)
 out vec4 outColor;
 
 const float A = 0.17883277;
@@ -103,9 +104,15 @@ vec2 rotateUv(vec2 o) {
 void main() {
     // Cache buffers are stored top row first; screen y grows upwards, so flip.
     vec2 uv = rotateUv(vec2(vPos.x * 0.5 + 0.5, 0.5 - vPos.y * 0.5));
-    vec3 rgb = texture(uTex, uv).rgb;
+    vec4 texel = texture(uTex, uv);
+    vec3 rgb = texel.rgb;
+    float alpha = 1.0;
+    if (uPremul == 1) {
+        alpha = texel.a;
+        rgb = alpha > 0.0 ? rgb / alpha : vec3(0.0);
+    }
     if (uMode == 1) rgb = hlg2020ToSdr709(rgb);
-    outColor = vec4(rgb, uOpacity);
+    outColor = vec4(rgb, uOpacity * alpha);
 }
 )";
 

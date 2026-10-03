@@ -32,6 +32,8 @@ internal object NativeExport {
         assetFds: IntArray,
         clips: LongArray,
         transforms: DoubleArray,
+        titleMeta: IntArray,
+        titlePixels: Array<ByteBuffer>,
         audioSnapshot: ByteBuffer?,
         outputFd: Int,
     ): Long
@@ -62,6 +64,9 @@ class NativeExportRunner : ExportRunner {
             clips[o + 3] = c.assetKey
             clips[o + 4] = c.layer.toLong()
             clips[o + 5] = c.colorMode.toLong()
+            clips[o + 6] = c.lane.toLong()
+            clips[o + 7] = c.crossfadeInFrames
+            clips[o + 8] = c.titleKey.toLong()
             val t = i * CLIP_DOUBLES
             transforms[t] = c.positionX
             transforms[t + 1] = c.positionY
@@ -70,12 +75,19 @@ class NativeExportRunner : ExportRunner {
             transforms[t + 4] = c.rotationDegrees
             transforms[t + 5] = c.opacity
         }
+        val titleMeta = IntArray(request.titles.size * TITLE_INTS)
+        request.titles.forEachIndexed { i, title ->
+            titleMeta[i * TITLE_INTS] = title.key
+            titleMeta[i * TITLE_INTS + 1] = title.width
+            titleMeta[i * TITLE_INTS + 2] = title.height
+        }
+        val titlePixels = Array(request.titles.size) { request.titles[it].pixels }
         val s = request.settings
         val handle = try {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
                 request.canvasWidth, request.canvasHeight, s.codec.value, s.videoBitrate, s.audioBitrate, request.totalFrames,
-                keys, fds, clips, transforms, request.audioSnapshot, request.outputFd,
+                keys, fds, clips, transforms, titleMeta, titlePixels, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
@@ -101,7 +113,8 @@ class NativeExportRunner : ExportRunner {
     }
 
     private companion object {
-        const val CLIP_LONGS = 6
+        const val CLIP_LONGS = 9
         const val CLIP_DOUBLES = 6
+        const val TITLE_INTS = 3
     }
 }

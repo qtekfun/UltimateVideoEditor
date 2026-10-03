@@ -88,14 +88,12 @@ struct QuadMap {
     float ty = 0.0f;
 };
 
-// `dispW` x `dispH` is the frame size as displayed. Degenerate sizes give the identity (full canvas).
-inline QuadMap layerQuadMap(int canvasW, int canvasH, int dispW, int dispH, const LayerTransform& t) {
+// `dispW` x `dispH` is the frame size as displayed and `fit` the factor that maps it to canvas
+// pixels. Degenerate sizes give the identity (full canvas).
+inline QuadMap layerQuadMapAtFit(int canvasW, int canvasH, int dispW, int dispH, const LayerTransform& t, double fit) {
     if (canvasW <= 0 || canvasH <= 0 || dispW <= 0 || dispH <= 0) return QuadMap{};
     const double cw = canvasW;
     const double ch = canvasH;
-    const double fitX = cw / dispW;
-    const double fitY = ch / dispH;
-    const double fit = fitX < fitY ? fitX : fitY;
     const double hx = dispW * fit * t.scaleX * 0.5;
     const double hy = dispH * fit * t.scaleY * 0.5;
     const double rad = static_cast<double>(t.rotationDeg) * 3.14159265358979323846 / 180.0;
@@ -109,6 +107,19 @@ inline QuadMap layerQuadMap(int canvasW, int canvasH, int dispW, int dispH, cons
     m.d = static_cast<float>(2.0 * cs * hy / ch);
     m.ty = static_cast<float>(-2.0 * t.posY / ch);
     return m;
+}
+
+// Video frames are fitted "contain" into the canvas before the transform.
+inline QuadMap layerQuadMap(int canvasW, int canvasH, int dispW, int dispH, const LayerTransform& t) {
+    if (canvasW <= 0 || canvasH <= 0 || dispW <= 0 || dispH <= 0) return QuadMap{};
+    const double fitX = static_cast<double>(canvasW) / dispW;
+    const double fitY = static_cast<double>(canvasH) / dispH;
+    return layerQuadMapAtFit(canvasW, canvasH, dispW, dispH, t, fitX < fitY ? fitX : fitY);
+}
+
+// Rasterised titles are already in canvas pixels: drawn 1:1, not fitted, then transformed.
+inline QuadMap titleQuadMap(int canvasW, int canvasH, int texW, int texH, const LayerTransform& t) {
+    return layerQuadMapAtFit(canvasW, canvasH, texW, texH, t, 1.0);
 }
 
 inline Uv applyQuadMap(const QuadMap& m, Uv p) {

@@ -37,6 +37,12 @@ Read `PRD.md` (what), `SPECS.md` (how), `PLAN.md` (order of work) before writing
 7. **Strict typing.** Kotlin: no `!!`, minimise nullable types, `explicitApi` for library-like modules.
    C++: RAII, no raw owning pointers, `-Wall -Wextra -Werror` for engine code.
 
+## Titles and transitions
+Both flow through one plan, `domain/RenderPlan.kt` (`renderClips()`): a transition extends the clips around the
+cut and fades the incoming one in, so the compositor only draws layers with an opacity. Preview, export and
+audio must keep using it; do not special-case transitions in native code. Titles are rasterised in Kotlin
+(`engine/title`) and uploaded as textures. Details: SPECS.md 5.7.
+
 ## Native host tests
 Pure-logic C++ (snapshot parsing, viewport, hit-testing, waveform peaks) is tested on the desktop without GoogleTest:
 `cmake -S app/src/main/cpp/tests -B /tmp/uv-host -G Ninja && cmake --build /tmp/uv-host && ctest --test-dir /tmp/uv-host`
