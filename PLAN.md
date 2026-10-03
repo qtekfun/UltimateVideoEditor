@@ -51,8 +51,10 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate (open):** 4K60 single-layer playback without drops (met on synthetic clips only); no measurable A/V drift on a long timeline (NOT measured yet: run `scripts/av-drift-test.sh <serial> 5` on the device; both clocks are CLOCK_MONOTONIC based and the audio clock was seen to hold within 0.4 ms over 55 s, which predicts well under one frame over 5 minutes, but that is an inference, not a measurement).
 
 ## Phase 5 — Titles and transitions
-- [ ] Title clips (text, font, colour, position) and composition
-- [ ] Crossfade transition between adjacent clips
+- [x] Title clips (text, size, colour, alignment, bold, position/scale/rotation/opacity) and composition
+- [x] Crossfade transition between adjacent clips (video opacity ramp, equal-power audio, handles-aware limits)
+- _Status:_ domain, JSON, preview, export, audio and editor UI are implemented and unit-tested (see the PR for
+  what was and was not verified on the device). Not done: other transition types, title animations, custom fonts.
 - **Gate:** titles and transitions render in preview and match export.
 
 ## Phase 6 — Export

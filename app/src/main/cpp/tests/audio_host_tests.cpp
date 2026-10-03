@@ -17,6 +17,7 @@
 #include "audio/clip_buffer.h"
 #include "audio/clock_mapper.h"
 #include "audio/resampler.h"
+#include "core/crossfade_math.h"
 
 using namespace uv;
 using namespace uv::audio;
@@ -181,6 +182,8 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
         w.put<int32_t>(c.sourceFps.num);
         w.put<int32_t>(c.sourceFps.den);
         w.put<float>(c.gainDb);
+        w.put<int32_t>(static_cast<int32_t>(c.fadeInFrames));
+        w.put<int32_t>(static_cast<int32_t>(c.fadeOutFrames));
         w.put<int32_t>(0);
     }
     return w;
@@ -225,6 +228,24 @@ static void testSnapshotParsing() {
     CHECK(parseAudioSnapshot(loud.b.data(), loud.b.size(), &out) == Status::BadSnapshot);
     Buf nan = makeAudioSnapshot(30, 1, {clipDesc(1, 0, 5, 0, std::nanf(""))});
     CHECK(parseAudioSnapshot(nan.b.data(), nan.b.size(), &out) == Status::BadSnapshot);
+
+    // Crossfade lengths: carried through, and they must fit inside the clip.
+    AudioClipDesc faded = clipDesc(1, 0, 20);
+    faded.fadeInFrames = 10;
+    faded.fadeOutFrames = 20;
+    Buf fades = makeAudioSnapshot(30, 1, {faded});
+    CHECK(parseAudioSnapshot(fades.b.data(), fades.b.size(), &out) == Status::Ok);
+    CHECK(out.clips[0].fadeInFrames == 10 && out.clips[0].fadeOutFrames == 20);
+    faded.fadeInFrames = 21;
+    Buf tooLong = makeAudioSnapshot(30, 1, {faded});
+    CHECK(parseAudioSnapshot(tooLong.b.data(), tooLong.b.size(), &out) == Status::BadSnapshot);
+    faded.fadeInFrames = -1;
+    Buf negative = makeAudioSnapshot(30, 1, {faded});
+    CHECK(parseAudioSnapshot(negative.b.data(), negative.b.size(), &out) == Status::BadSnapshot);
+    // A version 1 snapshot (56-byte clips) is rejected rather than misread.
+    Buf old = makeAudioSnapshot(30, 1, {});
+    old.b[4] = 1;
+    CHECK(parseAudioSnapshot(old.b.data(), old.b.size(), &out) == Status::BadSnapshot);
 }
 
 // ------------------------------------------------------------------ fake decoder + core
@@ -361,6 +382,46 @@ static void testOverlapSumsAndClips() {
     bool allOne = true;
     for (float v : out) allOne = allOne && v == 1.0f;
     CHECK(allOne);
+    core.streamStopped();
+}
+
+// Outgoing clip fades out over its last 20 frames while the incoming one fades in over its first
+// 20 (the same samples): equal-power gains, untouched outside the overlap.
+static void testCrossfadeGains() {
+    g_spec = FakeSpec{};
+    g_spec.constant = 0.5f;
+    AudioCore core(fakeFactory());
+    core.configure(48000);
+    core.streamStarting();
+    AudioClipDesc a = clipDesc(1, 0, 60);
+    a.fadeOutFrames = 20;
+    AudioClipDesc b = clipDesc(2, 40, 60);
+    b.fadeInFrames = 20;
+    CHECK(core.setSnapshot(snap30({a, b})) == Status::Ok);
+    core.play();
+    std::vector<float> out;
+    CHECK(renderUntilPlaying(core, &out));
+    while (out.size() / 2 < 160000) step(core, &out);
+
+    const int64_t regionStart = 40 * 1600;
+    const int64_t regionLen = 20 * 1600;
+    int bad = 0;
+    for (int64_t k = 0; k < 160000; ++k) {
+        float expect = 0.5f;
+        if (k >= regionStart && k < regionStart + regionLen) {
+            const int64_t i = k - regionStart;
+            expect = 0.5f * (uv::core::crossfadeFadeOutGain(i, regionLen) + uv::core::crossfadeFadeInGain(i, regionLen));
+        }
+        if (std::fabs(out[2 * k] - expect) > 1e-4f) ++bad;
+    }
+    CHECK(bad == 0);
+    // Power is preserved for uncorrelated material: gains squared sum to one everywhere in the fade.
+    for (int64_t i = 0; i < regionLen; i += 997) {
+        const float go = uv::core::crossfadeFadeOutGain(i, regionLen);
+        const float gi = uv::core::crossfadeFadeInGain(i, regionLen);
+        CHECK_NEAR(go * go + gi * gi, 1.0, 1e-5);
+    }
+    CHECK(core.underrunBlocks() == 0);
     core.streamStopped();
 }
 
@@ -628,6 +689,7 @@ int main() {
     testSnapshotParsing();
     testMixerPlacementAndGain();
     testOverlapSumsAndClips();
+    testCrossfadeGains();
     testSilenceOutsideClipsAndEof();
     testResamplingPath();
     testSeekPauseAndClock();

@@ -18,11 +18,13 @@ enum class ColorMode : int {
 };
 
 // One layer of a composited frame. `frame` must stay alive for the duration of the draw call.
+// A title layer has no frame: `titleKey` names a texture from uploadTitle().
 struct LayerDraw {
     const decode::GpuFrame* frame = nullptr;
     ColorMode mode = ColorMode::Sdr709;
     int turns = 0;  // clockwise quarter turns for display, from the container rotation
     LayerTransform transform;
+    uint32_t titleKey = 0;  // != 0: draw this title texture instead of `frame`
 };
 
 // GLES programs used by the preview. Render thread only, with the EGL context current.
@@ -54,6 +56,11 @@ public:
     decode::Status drawScene(const std::vector<LayerDraw>& layers, int canvasWidth, int canvasHeight,
                              int surfaceWidth, int surfaceHeight, decode::Error* error);
 
+    // Stores a rasterised title: premultiplied RGBA8, `width` x `height` canvas pixels, top row
+    // first. Replaces any texture under `key`. Keys are chosen by the caller and are never 0.
+    decode::Status uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, decode::Error* error);
+    void releaseTitle(uint32_t key);
+
     // Drops GL objects cached for decoder buffers (call when a decoder goes away).
     void clearSourceCache();
 
@@ -84,6 +91,13 @@ private:
     int compositeTurnsLoc_ = -1;
     int compositeXformLoc_ = -1;
     int compositeOpacityLoc_ = -1;
+    int compositePremulLoc_ = -1;
+    struct TitleTexture {
+        unsigned texture = 0;
+        int width = 0;
+        int height = 0;
+    };
+    std::unordered_map<uint32_t, TitleTexture> titleTextures_;
     std::unordered_map<uint64_t, ImageTexture> frameTextures_;       // GpuFrame::id -> GL_TEXTURE_2D
     std::unordered_map<AHardwareBuffer*, ImageTexture> sourceTextures_;  // decoder buffer -> external texture
 };

@@ -69,6 +69,7 @@ struct SceneLayer {
     uint32_t asset = 0;
     int64_t frame = 0;
     LayerTransform transform;
+    uint32_t title = 0;  // != 0: a rasterised title (see uploadTitle); `asset` and `frame` are unused
     // playScene() only: `frame` is where playback starts, `baseFrame` is kept as the anchor and the
     // layer never advances past `limitFrame` (exclusive; the clip's out point), so a trimmed clip
     // holds its last frame instead of showing media the editor cut away.
@@ -110,6 +111,11 @@ public:
     // reported and dropped. Stops native playback. Cheap enough to call on every playhead tick.
     void setScene(int canvasW, int canvasH, std::vector<SceneLayer> layers);
 
+    // Titles are rasterised by the caller (premultiplied RGBA8, canvas pixels, top row first). The
+    // pixels are copied; the texture is created on the render thread before the next scene is
+    // applied, so upload first and then reference `key` from setScene(). `key` must not be 0.
+    void uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba);
+    void releaseTitle(uint32_t key);
     // Like setScene(), then plays: every layer advances at `fps` (project frames per second) from
     // now on the monotonic clock, each from its own start frame. Calling it again re-anchors.
     void playScene(int canvasW, int canvasH, std::vector<SceneLayer> layers, decode::Rational fps);
@@ -136,8 +142,9 @@ private:
         uint32_t asset;
         int64_t frame;
         LayerTransform transform;
+        uint32_t title = 0;
         bool operator==(const DrawnLayer& o) const {
-            return asset == o.asset && frame == o.frame && transform.posX == o.transform.posX &&
+            return asset == o.asset && frame == o.frame && title == o.title && transform.posX == o.transform.posX &&
                    transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
                    transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&
                    transform.opacity == o.transform.opacity;

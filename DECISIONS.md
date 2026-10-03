@@ -51,3 +51,12 @@ camera or a loopback rig. The Phase 4 gate stays open until the script is run.
 and the real module layout. **Why:** the code is tested and shipped; changing it back to native-frame source
 ranges would need a data migration for no user benefit. **Alternative:** keep native-frame source ranges and
 convert at the boundaries (matches the first draft, adds rational conversions everywhere).
+
+## 2026-10-03 · During a crossfade the preview re-anchors every tick
+**Chosen:** a crossfade changes the incoming layer's opacity on every frame, and opacity is part of the
+composition key in `EditorPreview.follow`, so the native clock is re-anchored each tick for the length of the
+fade (typically under a second). Titles are treated as stills with a fixed offset, so they do not cause
+re-anchors on their own. **Why:** the scene API takes static opacity per call and the decoders already
+continue sequentially, so a re-anchor costs no seek. **Alternative:** give `playScene` per-layer opacity ramps
+so the native side animates the fade itself (fewer JNI calls, more native code and a second implementation of
+the crossfade curve).

@@ -19,12 +19,16 @@ import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Snap
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.TimelineOps
+import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.domain.TrimEdge
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
 import com.ultimatevideo.uveditor.mvi.MviViewModel
@@ -62,6 +66,9 @@ class EditorViewModel(
         var gainDb: Double,
     )
 
+    /** A title text/style edit in progress: shown live, committed as one undo step. */
+    private class TitleSession(val clipId: String, val base: TitleContent, var content: TitleContent)
+
     private val clipKeys = KeyRegistry()
     private val assetKeys = KeyRegistry()
 
@@ -70,6 +77,7 @@ class EditorViewModel(
     private var drag: DragSession? = null
     private var pendingDragCommand: EditCommand? = null
     private var appearance: AppearanceSession? = null
+    private var titleEdit: TitleSession? = null
     private var saveJob: Job? = null
     private var playJob: Job? = null
 
@@ -82,6 +90,8 @@ class EditorViewModel(
     }
 
     override fun onIntent(intent: EditorIntent) {
+        // Typing in the title field is only provisional: any other action first makes it final.
+        if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
         when (intent) {
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
@@ -99,6 +109,12 @@ class EditorViewModel(
             EditorIntent.Undo -> undo()
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
+            EditorIntent.AddTitle -> addTitle()
+            is EditorIntent.UpdateTitle -> updateTitle(intent.content)
+            is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
+            EditorIntent.AddTransition -> addTransition()
+            is EditorIntent.SetTransitionDuration -> setTransitionDuration(intent.frames)
+            EditorIntent.RemoveTransition -> removeTransition()
             EditorIntent.BeginAppearanceEdit -> beginAppearance()
             is EditorIntent.UpdateTransform -> updateAppearance(transform = intent.transform)
             is EditorIntent.UpdateGain -> updateAppearance(gainDb = intent.gainDb)
@@ -120,6 +136,12 @@ class EditorViewModel(
         val selected = state.value.selectedClipId ?: return false
         val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
         return onClip && clipKeys.idFor(hit.clipKey) == selected
+    }
+
+    /** The longest transition that fits across [transition]'s cut now; the upper end of the duration control. */
+    fun transitionLimit(transition: Transition): Long {
+        val from = history.timeline.trackOfClip(transition.fromClipId)?.clip(transition.fromClipId) ?: return 0
+        return TimelineOps.maxTransitionFrames(history.timeline, transition.fromClipId, transition.toClipId, assetLengthFrames(from.assetId))
     }
 
     /** Stable native key for [clipId]; the same key the timeline canvas uses. */
@@ -153,7 +175,16 @@ class EditorViewModel(
                 )
             }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips)
+        val transitions = timeline.transitions.mapNotNull { transition ->
+            val trackIndex = timeline.tracks.indexOfFirst { it.clip(transition.toClipId) != null }
+            val cut = timeline.cutOf(transition)
+            if (trackIndex < 0 || cut == null) {
+                null
+            } else {
+                SnapshotTransition(trackIndex, cut.value, transition.preFrames, transition.postFrames)
+            }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions)
     }
 
     // region loading and saving
@@ -249,7 +280,7 @@ class EditorViewModel(
         var tracks = timeline.tracks
         if (tracks.none { it.type == TrackType.VIDEO }) tracks = listOf(Track(uniqueTrackId(tracks, "track-v"), TrackType.VIDEO)) + tracks
         if (tracks.none { it.type == TrackType.AUDIO }) tracks = tracks + Track(uniqueTrackId(tracks, "track-a"), TrackType.AUDIO)
-        return Timeline(tracks)
+        return timeline.copy(tracks = tracks)
     }
 
     private fun uniqueTrackId(tracks: List<Track>, prefix: String): String =
@@ -369,6 +400,7 @@ class EditorViewModel(
 
     private fun syncFromHistory() {
         appearance = null  // the timeline changed under any edit in progress
+        titleEdit = null
         val committed = history.timeline
         val canUndo = history.canUndo
         val canRedo = history.canRedo
@@ -432,7 +464,7 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("Tap a track to select it first"))
             return
         }
-        if (history.timeline.tracks.count { it.type == track.type } <= 1) {
+        if (track.type != TrackType.TITLE && history.timeline.tracks.count { it.type == track.type } <= 1) {
             emit(EditorEffect.ShowMessage("Keep at least one ${track.type.name.lowercase()} track"))
             return
         }
@@ -604,6 +636,89 @@ class EditorViewModel(
 
     // endregion
 
+    // region titles and transitions
+
+    private fun addTitle() {
+        val timeline = history.timeline
+        val trackId = timeline.tracks.firstOrNull { it.type == TrackType.TITLE }?.id ?: run {
+            val track = Track(uniqueTrackId(timeline.tracks, "track-t"), TrackType.TITLE)
+            // Titles go above everything, like the top layer of a mixer.
+            if (!execute(EditCommand.AddTrack(track, 0))) return
+            track.id
+        }
+        val fps = state.value.fps
+        val frames = (fps.microsToFrames(TITLE_DEFAULT_MICROS)).coerceAtLeast(1)
+        val clip = Clip(
+            id = "title-${idGenerator()}",
+            assetId = null,
+            timelineStart = state.value.playhead,
+            sourceIn = FrameIndex.ZERO,
+            sourceOut = FrameIndex(frames),
+            title = TitleContent(DEFAULT_TITLE_TEXT),
+        )
+        if (!execute(EditCommand.Overwrite(trackId, clip))) return
+        reduce { copy(selectedClipId = clip.id, selectedTrackId = trackId, inspectorOpen = true) }
+    }
+
+    private fun updateTitle(content: TitleContent) {
+        val clipId = state.value.selectedClipId ?: return
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
+        val base = clip.title ?: return
+        // An invalid value (an empty text while typing) is not shown; the last valid one stays.
+        if (content.problem() != null) return
+        val session = titleEdit?.takeIf { it.clipId == clipId } ?: TitleSession(clipId, base, base).also { titleEdit = it }
+        session.content = content
+        val result = EditCommand.SetTitle(clipId, content).apply(history.timeline)
+        if (result is EditResult.Success) reduce { copy(dragPreview = result.value) }
+    }
+
+    private fun endTitleEdit(commit: Boolean) {
+        val session = titleEdit ?: return
+        titleEdit = null
+        if (commit && session.content != session.base && execute(EditCommand.SetTitle(session.clipId, session.content))) return
+        reduce { copy(dragPreview = null) }
+    }
+
+    private fun addTransition() = withSelection { clipId ->
+        val timeline = history.timeline
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        val next = timeline.trackOfClip(clipId)?.clips?.firstOrNull { it.timelineStart == clip.timelineEnd }
+        if (next == null) {
+            emit(EditorEffect.ShowMessage("Place another clip right after this one to add a transition"))
+            return@withSelection
+        }
+        if (timeline.transitionBetween(clip.id, next.id) != null) {
+            emit(EditorEffect.ShowMessage("These clips already have a transition"))
+            return@withSelection
+        }
+        val sourceLength = assetLengthFrames(clip.assetId)
+        val room = TimelineOps.maxTransitionFrames(timeline, clip.id, next.id, sourceLength)
+        if (room < Transition.MIN_DURATION_FRAMES) {
+            emit(EditorEffect.ShowMessage("There is not enough extra footage around the cut for a transition"))
+            return@withSelection
+        }
+        val wanted = state.value.fps.microsToFrames(TRANSITION_DEFAULT_MICROS).coerceAtLeast(Transition.MIN_DURATION_FRAMES)
+        execute(EditCommand.AddTransition(Transition("transition-${idGenerator()}", clip.id, next.id, minOf(wanted, room)), sourceLength))
+    }
+
+    private fun setTransitionDuration(frames: Long) = withSelection { clipId ->
+        val transition = history.timeline.transitions.firstOrNull { it.fromClipId == clipId }
+        if (transition == null) {
+            emit(EditorEffect.ShowMessage("This clip has no transition to its next clip"))
+            return@withSelection
+        }
+        if (frames == transition.durationFrames) return@withSelection
+        val from = history.timeline.trackOfClip(clipId)?.clip(clipId)
+        execute(EditCommand.SetTransitionDuration(transition.id, frames, assetLengthFrames(from?.assetId)))
+    }
+
+    private fun removeTransition() = withSelection { clipId ->
+        val transition = history.timeline.transitions.firstOrNull { it.fromClipId == clipId } ?: return@withSelection
+        execute(EditCommand.RemoveTransition(transition.id))
+    }
+
+    // endregion
+
     // region media
 
     private fun importMedia(uris: List<String>) {
@@ -691,7 +806,11 @@ class EditorViewModel(
         is EditError.InvalidAppearance -> "That value is not allowed: ${error.reason}"
         is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
         is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
-        is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
+        is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
+        is EditError.TransitionNotFound -> "The transition no longer exists"
+        is EditError.NotATitle -> "That clip is not a title"
+        is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
+        is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
 
     private companion object {
@@ -699,6 +818,9 @@ class EditorViewModel(
         const val DEFAULT_SAVE_DEBOUNCE_MILLIS = 500L
         const val SNAP_THRESHOLD_FRAMES = 8L
         const val NO_ASSET_KEY = -1L
+        const val DEFAULT_TITLE_TEXT = "Title"
+        const val TITLE_DEFAULT_MICROS = 3_000_000L
+        const val TRANSITION_DEFAULT_MICROS = 1_000_000L
         const val PLAY_TICK_MILLIS = 16L
         const val NANOS_PER_MICRO = 1_000L
     }
