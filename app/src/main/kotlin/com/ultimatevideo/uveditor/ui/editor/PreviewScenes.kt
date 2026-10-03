@@ -79,6 +79,7 @@ internal fun previewRequestsAt(
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
                         fx = clip.fx,
+                        sourceOverride = clip.colorOverride?.transferIndex ?: -1,
                     )
                 }
             }

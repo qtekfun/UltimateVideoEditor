@@ -318,6 +318,12 @@ private fun NewProjectDialog(draft: NewProjectDraft, nameTaken: Boolean, onInten
                         )
                     }
                 }
+                Text(
+                    "The project colour space is the working and export space. Each clip is converted to it individually, so " +
+                        "SDR and HLG clips can be mixed; set a clip's source colour in its inspector.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {

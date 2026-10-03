@@ -10,6 +10,7 @@ import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
 import com.ultimatevideo.uveditor.data.model.TitleWordDto
+import com.ultimatevideo.uveditor.domain.SourceColorSpace
 import com.ultimatevideo.uveditor.domain.TitleAnimation
 import com.ultimatevideo.uveditor.domain.TitleWord
 import com.ultimatevideo.uveditor.data.model.TrackDto
@@ -115,6 +116,7 @@ object TimelineMapper {
         speedRamp = dto.speedRamp.map { SpeedKey(it.frame, it.weightPermille) },
         fx = toFx(dto),
         still = dto.still?.let { toStill(dto.id, it) },
+        colorOverride = SourceColorSpace.fromIdOrNull(dto.colorOverride),
     )
 
     private fun toStill(clipId: String, name: String): StillKind =
@@ -274,6 +276,7 @@ object TimelineMapper {
             blendMode = clip.fx.blendMode.name.lowercase(),
             mask = clip.fx.mask?.let(::toMaskDto),
             still = clip.still?.name?.lowercase(),
+            colorOverride = clip.colorOverride?.id,
         )
 
     private const val COLOR_HEX_LENGTH = 8
