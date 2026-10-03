@@ -431,6 +431,13 @@ thumbnail needs a native upload path into the thumbnail atlas, which could not b
 was not reachable), so it is deferred rather than shipped blind. **Alternative:** pre-seed the on-disk tile cache from Kotlin
 (couples to the tile file format). Animated GIF/WebP are also deferred: `ImageDecoder` returns the first frame, which is what shows.
 
+
+## Base clips can be lifted onto an overlay
+
+**Decision:** dragging a base clip onto an overlay lane (or above the lanes, which creates a new lane) lifts it off the base: the base closes the gap it leaves and the overlays follow, exactly like a delete, and the clip lands at the dropped frame on the overlay, overwriting what it covers there. Dragging within the base still reorders. Command `LiftFromBase` (one undo step), decided by `DropPlan` so the indicator matches.
+**Why:** the user reported that after dropping an overlay clip onto the base it could not be dragged back up; the earlier "a base clip never leaves the base" rule was too strict and unlike LumaFusion.
+**Alternative:** leave a gap on the base where the clip was (breaks the gap-free base invariant), or keep the overlays where they were (they would lose their footage alignment).
+
 ## 2026-10-04 · Beat detection: Kotlin, on the waveform peak cache, amplitude only
 **Chosen:** beats come from a pure-Kotlin detector (`domain.beat.BeatDetector`) fed with the loudness envelope of the existing
 waveform peak cache (`waveforms/<assetId>.peaks`, finest level, ~750 bins/s): onset curve = positive rise of log energy, tempo =
