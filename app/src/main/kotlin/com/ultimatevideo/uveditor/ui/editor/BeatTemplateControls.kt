@@ -69,30 +69,24 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
 /**
  * Lists the animated text templates. A template lands at the playhead with the text typed here (or
  * its own sample text when the field is empty); its text is then selected for editing in the inspector.
+ * Shown as the Titles tab of the media tray.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TextTemplateSheet(onApply: (templateId: String, text: String) -> Unit, onDismiss: () -> Unit) {
+internal fun TextTemplateChooser(onApply: (templateId: String, text: String) -> Unit, modifier: Modifier = Modifier) {
     var text by remember { mutableStateOf("") }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    Column(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Text templates", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("Text (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            for (template in TextTemplates.all) {
-                TemplateRow(template) { onApply(template.id, text) }
-            }
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            label = { Text("Text (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        for (template in TextTemplates.all) {
+            TemplateRow(template) { onApply(template.id, text) }
         }
     }
 }

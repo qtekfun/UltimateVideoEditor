@@ -583,6 +583,53 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Why:** a creative LUT is expected on display-referred pixels and the effect chain already works there; a per-clip effect reuses ordering, undo, keyframable-parameter plumbing, JSON and preview/export parity. A global hash key avoids copying LUT data into every project.
 **Alternative:** LUTs stored inside the project (portable but bloats `project.json` or needs a project folder format); an adjustment/grade track that applies one LUT to everything below (a natural follow-up using the same shader); colour-space-aware LUTs (e.g. Rec.2020 log to HLG) which need transform metadata the .cube format does not carry.
 
+## Media tray and drag and drop (WP-U2)
+
+**Decisions**
+- **Drops are planned by `DropPlan.decideNew`**, a sibling of `decide` for clips that are not on the timeline yet, with the same zones (base: insert near a cut / overwrite over a clip / append at the end; other lanes: overwrite or free placement; above the top lane: new lane; far outside or a lane of the wrong kind: cancel). The indicator and the release use the same decision.
+- **Tray drags show the indicator only, no ghost clip on the canvas.** The platform drag shadow (the thumbnail) is the ghost. Free space is drawn like an overwrite (a tinted range) because the canvas has no "plain move" indicator; the new-lane placeholder needs a lane in the shown timeline, so the preview timeline gets one empty provisional lane (`track-v-new`). Alternative: a native "place" indicator (C++ change), not worth it for this package.
+- **Reordering the tray reorders `mediaLibrary` itself**, so no new JSON field and old files load unchanged. Alternative: a separate order list, which would need syncing with imports and deletions.
+- **Stickers and templates are tap-to-add, not draggable**, to keep the first version small; dragging them would need clip creation for stickers in the drop path. Alternative: payloads with a sticker/template id handled by `decideNew` too.
+- **Files from other apps**: hovering uses a 3 s stand-in clip (their length is unknown until probed) so the indicator can show where they land; on drop they are imported, then the first is placed where it was dropped and the rest follow it. Read access is requested with `requestDragAndDropPermissions` (it lasts for the activity) and a persistable grant is attempted; if the provider refuses, the files still work this session and may need relinking after a restart. No copy of the file is made (privacy and size).
+- **Thumbnails** come from `MediaMetadataRetriever` (first frame) and `ImageDecoder`, in a 12 MB in-memory LRU; no disk cache and nothing leaves the device.
+- **The bottom tray starts collapsed** (a thin tab strip) with half and full heights; sticker and template toolbar buttons now open its tabs instead of modal sheets.
+- **Audio on a video lane cancels** instead of jumping to the nearest audio lane, so what the indicator shows is always what happens.
+
+## Privacy (user rule: no AI, no third-party services, no network)
+
+The user ruled out AI features and any dependence on third-party services ("la privacidad es algo importantisimo"). These
+choices were made autonomously to implement that rule strictly; confirm or change them.
+
+- **Remove on-device speech recognition entirely (whisper.cpp), not just make it opt-in.** Why: it is an AI feature, it needed a
+  model downloaded from a third-party host (Hugging Face) and therefore the INTERNET permission, and it added ~2 minutes to
+  every native build. Alternative: keep it as an opt-in feature with the model sideloaded from a local file (no network). The
+  rule says no AI, so it was dropped; the submodule, native pipeline, JNI, model store, download code and notices are gone.
+- **Replace it with manual and file-based captions.** Typed captions (text, start, length, stepped by frames/seconds) and
+  `.srt` / `.vtt` import (`Subtitles`), both feeding the existing caption styles, including the animated ones, through evenly
+  timed words. Alternative considered: also `.lrc` (word-timed lyrics) and `.ass`; deferred, the parser is isolated and easy
+  to extend.
+- **The manifest declares no permissions at all, and cleartext traffic is disabled.** `OfflineGuaranteeTest` fails the build if a
+  network permission, a networking API (HTTP, sockets, WebView, download manager), an analytics / crash-reporting / ads
+  dependency or a socket header in the engine appears. `allowBackup` was already false and stays so (test-enforced), so
+  nothing is uploaded by Android auto-backup. Alternative: only a manifest check; the source scan is cheap and catches the
+  case where someone adds a library that brings the permission in through manifest merging only at build time (the scan
+  also covers dependencies by name).
+- **`CaptionPlanner` / `Transcript*` types are kept** even though nothing produces word-timed transcripts now: the planner is pure,
+  tested, and a word-timed source (lyrics files) could use it. Alternative: delete as dead code.
+- **Typed captions share one caption track, imported files get one track each.** Why: one-at-a-time typing would otherwise create
+  a track per caption; a file per track keeps languages apart and makes undo of an import one step. Alternative: always one track.
+- **WP-V1 smart cutout (ML segmentation) removed; motion tracking kept (classical Lucas-Kanade).** Chroma/luma key and masks
+  stay the keying tools.
+- **WP-V2 auto reframe by subject detection removed; silence-based auto cut kept and a manual start/end reframe helper added.**
+  Speech-based editing (delete words in a transcript) removed with the transcript.
+- **WP-V3 text to speech, vocal isolation and speaker-aware captions removed; voice effects (classical DSP) kept.** The Android
+  system `TextToSpeech` service is not used: some engines synthesize on a server, and the app cannot tell which. Alternative:
+  offer system TTS only when the engine reports it works offline (`Voice.isNetworkConnectionRequired`); dropped for strictness.
+- **WP-A noise suppression uses spectral gating / Wiener filtering, not RNNoise or any neural denoiser.**
+- **WP-R crash reporting is local logs only; no reporting service.** The privacy note points to `docs/PRIVACY.md`.
+- **WP-V5 content packs: "bring your own" music and sounds, no bundled commercial library, no downloads.**
+- **`docs/PRIVACY.md` states the guarantees and how to verify them**; the README links to it and PRD gains a privacy section.
+
 ## New-project sheet: selectors, quick presets and "match first clip" (WP-U1)
 
 **Decision:** the sheet has four dropdowns (aspect ratio, resolution as the short side, frame rate, colour space) plus a quick-start chip row; the pixel size is computed (short side x shape, both sides rounded to even) and written under the selector, with Custom size / Custom short side as typed fields validated to even values 128..8192. "Match first clip" reads a picked clip with a new `ClipPeeker` (no persistable permission, no import), copies size (as a Custom size), frame rate (a listed rate or a one-off) and colour space (PQ maps to the HLG project space); a photo only gives its size. The last selector choices are saved in a small SharedPreferences store; a format taken from a clip is not saved. The sheet is a bottom sheet below 600 dp and a dialog above.
@@ -624,3 +671,5 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Decision:** the secondary HSL qualifiers of the spec are not part of this package; the primary grade, curves, looks and scopes are.
 **Why:** they need a mask or key output channel in the effect chain, which is a larger change than the rest together.
 **Alternative:** approximate with the chroma-key effect (not the same tool).
+
+**Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.
