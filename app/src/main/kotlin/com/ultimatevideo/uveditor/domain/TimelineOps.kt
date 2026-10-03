@@ -113,6 +113,115 @@ object TimelineOps {
         return success(timeline.copy(tracks = tracks))
     }
 
+    /**
+     * Plays the clip at [num]/[den] times normal speed (0.1x to 8x): the clip keeps its source range
+     * and its length becomes `range / speed`, rounded to whole frames. Animation keyframes and the
+     * speed ramp are stretched with it. Getting longer must not run into the next clip unless
+     * [ripple] is set, which moves every later clip on the track by the change (closing the gap when
+     * the clip gets shorter).
+     */
+    fun setSpeed(timeline: Timeline, clipId: String, num: Long, den: Long, ripple: Boolean = false): EditResult<Timeline> {
+        SpeedLimits.problem(num, den)?.let { return failure(EditError.InvalidSpeed(it)) }
+        val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (clip.title != null) return failure(EditError.InvalidSpeed("a title has no media to speed up or slow down"))
+        val span = clip.sourceSpan
+        if (span == 1L) return failure(EditError.InvalidSpeed("a one-frame clip has no speed; change its length instead"))
+        val newDuration = maxOf(1L, Math.floorDiv(span * den + num / 2, num))
+        if (newDuration == clip.durationFrames) return success(timeline)
+        val delta = newDuration - clip.durationFrames
+        val updated = clip.copy(
+            retimedFrames = newDuration.takeIf { it != span },
+            keyframes = Keyframes.scaled(clip.keyframes, clip.durationFrames, newDuration),
+            speedRamp = SpeedRamps.scaled(clip.speedRamp, clip.durationFrames, newDuration),
+        )
+        val others = track.clips.filter { it.id != clipId }
+        val result = if (ripple) {
+            others.map { if (it.timelineStart >= clip.timelineEnd) it.copy(timelineStart = it.timelineStart + delta) else it } + updated
+        } else {
+            others.firstOrNull { it.overlaps(updated) }?.let { return failure(EditError.Overlap(it.id)) }
+            others + updated
+        }
+        return success(timeline.withTrack(track.withClips(result)).pruned())
+    }
+
+    /** Plays the clip's source range backwards (or forwards again). Position, length and animation stay. */
+    fun setReverse(timeline: Timeline, clipId: String, reverse: Boolean): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (clip.title != null) return failure(EditError.InvalidSpeed("a title has no media to reverse"))
+        return success(updateTimeline(timeline, clipId) { it.copy(reverse = reverse) }.pruned())
+    }
+
+    /**
+     * Shapes the speed over the clip with [ramp] (empty removes it). The clip keeps its range and
+     * length: only how the speed is spread over them changes.
+     */
+    fun setSpeedRamp(timeline: Timeline, clipId: String, ramp: List<SpeedKey>): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (clip.title != null) return failure(EditError.InvalidSpeed("a title has no media to ramp"))
+        if (ramp.isNotEmpty() && clip.sourceSpan == 1L) return failure(EditError.InvalidSpeed("a one-frame clip has no speed to ramp"))
+        SpeedRamps.problem(ramp, clip.durationFrames)?.let { return failure(EditError.InvalidSpeed(it)) }
+        return success(updateTimeline(timeline, clipId) { it.copy(speedRamp = ramp) }.pruned())
+    }
+
+    /**
+     * Holds the frame under [at] for [durationFrames]: the video clip there is split at [at] (unless
+     * that is its first frame) and a still of that frame is put in between, as clip [freezeClipId]
+     * (silent, since a single frame has no sound). The second half becomes [rightClipId] and it and
+     * every later clip on the track move later by [durationFrames].
+     */
+    fun freezeFrame(
+        timeline: Timeline,
+        trackId: String,
+        at: FrameIndex,
+        durationFrames: Long,
+        freezeClipId: String,
+        rightClipId: String,
+    ): EditResult<Timeline> {
+        val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))
+        if (track.type != TrackType.VIDEO) return failure(EditError.InvalidClip("only video clips can be frozen"))
+        if (durationFrames <= 0) return failure(EditError.InvalidClip("a freeze frame needs a positive length"))
+        if (timeline.trackOfClip(freezeClipId) != null) return failure(EditError.DuplicateClipId(freezeClipId))
+        val clip = track.clips.firstOrNull { at >= it.timelineStart && at < it.timelineEnd } ?: return failure(EditError.SplitOutsideClip)
+        if (clip.assetId == null) return failure(EditError.InvalidClip("only clips with media can be frozen"))
+        val offset = at - clip.timelineStart
+        val splitting = offset > 0
+        if (splitting && (freezeClipId == rightClipId || timeline.trackOfClip(rightClipId) != null)) {
+            return failure(EditError.DuplicateClipId(rightClipId))
+        }
+        val frame = clip.retime.sourceFrameAt(offset)
+        val still = Clip(
+            id = freezeClipId,
+            assetId = clip.assetId,
+            timelineStart = at,
+            sourceIn = FrameIndex(frame),
+            sourceOut = FrameIndex(frame + 1),
+            transform = clip.transformAt(offset),
+            gainDb = clip.gainDb,
+            retimedFrames = durationFrames.takeIf { it != 1L },
+        )
+        val later = clip.cropped(offset, clip.durationFrames).copy(timelineStart = at + durationFrames)
+        val right = if (splitting) later.copy(id = rightClipId) else later
+        val kept = track.clips.mapNotNull { other ->
+            when {
+                other.id == clip.id -> if (splitting) clip.cropped(0, offset) else null
+                other.timelineStart >= clip.timelineEnd -> other.copy(timelineStart = other.timelineStart + durationFrames)
+                else -> other
+            }
+        }
+        val carried = if (splitting) {
+            timeline.transitions.map { if (it.fromClipId == clip.id) it.copy(fromClipId = rightClipId) else it }
+        } else {
+            timeline.transitions
+        }
+        return success(timeline.copy(transitions = carried).withTrack(track.withClips(kept + still + right)).pruned())
+    }
+
+    private fun updateTimeline(timeline: Timeline, clipId: String, change: (Clip) -> Clip): Timeline {
+        val track = checkNotNull(timeline.trackOfClip(clipId))
+        return timeline.withTrack(track.withClips(track.clips.map { if (it.id == clipId) change(it) else it }))
+    }
+
     private fun updateClip(timeline: Timeline, clipId: String, change: (Clip) -> Clip): EditResult<Timeline> {
         val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
@@ -126,13 +235,8 @@ object TimelineOps {
         val clip = track.clips.firstOrNull { at > it.timelineStart && at < it.timelineEnd }
             ?: return failure(EditError.SplitOutsideClip)
         val offset = at - clip.timelineStart
-        val left = clip.copy(sourceOut = clip.sourceIn + offset, keyframes = Keyframes.cropped(clip.keyframes, 0, offset, clip.transform))
-        val rightRaw = clip.copy(
-            id = newClipId,
-            timelineStart = at,
-            sourceIn = clip.sourceIn + offset,
-            keyframes = Keyframes.cropped(clip.keyframes, offset, clip.durationFrames, clip.transform),
-        )
+        val left = clip.cropped(0, offset)
+        val rightRaw = clip.cropped(offset, clip.durationFrames).copy(id = newClipId, timelineStart = at)
         // A title has no media, so both halves keep a source range starting at 0.
         val right = if (clip.title != null) rightRaw.copy(sourceIn = FrameIndex.ZERO, sourceOut = FrameIndex(rightRaw.durationFrames)) else rightRaw
         // The right half is the one now adjacent to whatever followed the clip, so it inherits the
@@ -215,6 +319,9 @@ object TimelineOps {
         clip.transform.problem()?.let { return failure(EditError.InvalidClip(it)) }
         ClipGain.problem(clip.gainDb)?.let { return failure(EditError.InvalidClip(it)) }
         Keyframes.problem(clip.keyframes, clip.durationFrames)?.let { return failure(EditError.InvalidClip(it)) }
+        if (clip.sourceOut <= clip.sourceIn) return failure(EditError.InvalidClip("empty source range"))
+        if (clip.retimedFrames != null && clip.retimedFrames == clip.sourceSpan) return failure(EditError.InvalidClip("a clip that is as long as its range is not retimed"))
+        SpeedRamps.problem(clip.speedRamp, clip.durationFrames)?.let { return failure(EditError.InvalidClip(it)) }
         if (track.type == TrackType.TITLE && clip.title == null) return failure(EditError.InvalidClip("a title track only holds titles"))
         if (track.type != TrackType.TITLE && clip.title != null) return failure(EditError.InvalidClip("titles belong on a title track"))
         clip.title?.problem()?.let { return failure(EditError.InvalidClip(it)) }
@@ -228,19 +335,11 @@ object TimelineOps {
             }
             if (existing.timelineStart < start) {
                 val keptFrames = start - existing.timelineStart
-                result += existing.copy(
-                    sourceOut = existing.sourceIn + keptFrames,
-                    keyframes = Keyframes.cropped(existing.keyframes, 0, keptFrames, existing.transform),
-                )
+                result += existing.cropped(0, keptFrames)
             }
             if (existing.timelineEnd > end) {
                 val cutFrames = end - existing.timelineStart
-                result += existing.copy(
-                    id = "${existing.id}~${clip.id}",
-                    timelineStart = end,
-                    sourceIn = existing.sourceIn + cutFrames,
-                    keyframes = Keyframes.cropped(existing.keyframes, cutFrames, existing.durationFrames, existing.transform),
-                )
+                result += existing.cropped(cutFrames, existing.durationFrames).copy(id = "${existing.id}~${clip.id}", timelineStart = end)
             }
         }
         result += clip
@@ -285,22 +384,14 @@ object TimelineOps {
         val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val clip = track.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val others = track.clips.filter { it.id != clipId }
+        val newDuration = when (edge) {
+            TrimEdge.START -> clip.durationFrames - (frame - clip.timelineStart)
+            TrimEdge.END -> clip.durationFrames + (frame - clip.timelineEnd)
+        }
+        if (newDuration <= 0) return failure(EditError.InvalidTrim("clip would be empty"))
         val trimmed = when (edge) {
-            TrimEdge.START -> {
-                val delta = frame - clip.timelineStart
-                clip.copy(
-                    timelineStart = frame,
-                    sourceIn = clip.sourceIn + delta,
-                    keyframes = Keyframes.cropped(clip.keyframes, delta, clip.durationFrames, clip.transform),
-                )
-            }
-            TrimEdge.END -> {
-                val newDuration = clip.durationFrames + (frame - clip.timelineEnd)
-                clip.copy(
-                    sourceOut = clip.sourceOut + (frame - clip.timelineEnd),
-                    keyframes = if (newDuration > 0) Keyframes.cropped(clip.keyframes, 0, newDuration, clip.transform) else clip.keyframes,
-                )
-            }
+            TrimEdge.START -> clip.cropped(frame - clip.timelineStart, clip.durationFrames).copy(timelineStart = frame)
+            TrimEdge.END -> clip.cropped(0, newDuration)
         }
         if (trimmed.durationFrames <= 0) return failure(EditError.InvalidTrim("clip would be empty"))
         if (trimmed.timelineStart < FrameIndex.ZERO) return failure(EditError.NegativeStart)
@@ -384,6 +475,7 @@ object TimelineOps {
         if (sourceLength == null) return null
         val from = timeline.trackOfClip(transition.fromClipId)?.clip(transition.fromClipId) ?: return null
         if (from.title != null) return null
-        return if (from.sourceOut.value + transition.postFrames > sourceLength) "outgoing clip has no media after its out point" else null
+        val lastNeeded = from.retime.sourceFrameAt(from.durationFrames - 1 + transition.postFrames)
+        return if (lastNeeded >= sourceLength || lastNeeded < 0) "outgoing clip has no media after its out point" else null
     }
 }
