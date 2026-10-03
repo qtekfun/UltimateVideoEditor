@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application>
+        <!-- Debug-only harness to play a video through the native preview pipeline. -->
+        <activity
+            android:name=".debug.DebugPreviewActivity"
+            android:exported="true"
+            android:label="Preview debug"
+            android:theme="@style/Theme.UVEditor" />
         <!-- Debug-only harness for the native timeline canvas; start with:
              adb shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity -->
         <activity
