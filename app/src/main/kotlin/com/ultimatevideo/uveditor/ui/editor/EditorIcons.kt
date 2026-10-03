@@ -71,6 +71,13 @@ internal object EditorIcons {
     /** A capital T: add a title. */
     val Title = icon("Title", "M5,4v3h5.5v12h3V7H19V4z")
 
+    /** A caption box with "CC": automatic captions. */
+    val Captions = icon(
+        "Captions",
+        "M19,4H5c-1.11,0 -2,0.9 -2,2v12c0,1.1 0.89,2 2,2h14c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM11,11H9.5v-0.5h-2v3h2V13H11v1c0,0.55 -0.45,1 -1,1H7c-0.55,0 -1,-0.45 -1,-1v-4c0,-0.55 0.45,-1 1,-1h3c0.55,0 1,0.45 1,1v1z" +
+            "M18,11h-1.5v-0.5h-2v3h2V13H18v1c0,0.55 -0.45,1 -1,1h-3c-0.55,0 -1,-0.45 -1,-1v-4c0,-0.55 0.45,-1 1,-1h3c0.55,0 1,0.45 1,1v1z",
+    )
+
     /** Two opposed arrows: a transition across the cut between two clips. */
     val Transition = icon("Transition", "M6.99,11L3,15l3.99,4v-3H14v-2H6.99v-3zM21,9l-3.99,-4v3H10v2h7.01v3L21,9z")
 

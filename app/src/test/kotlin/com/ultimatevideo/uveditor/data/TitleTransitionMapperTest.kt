@@ -12,8 +12,10 @@ import com.ultimatevideo.uveditor.domain.Transition
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TitleTransitionMapperTest {
@@ -54,6 +56,21 @@ class TitleTransitionMapperTest {
 
         assertEquals(TitleContent("Hello", 0.12, 0x80FF0000.toInt(), TitleAlignment.RIGHT, true), content)
         assertEquals(dto.tracks, TimelineMapper.toDto(dto, timeline, dto.mediaLibrary).tracks)
+    }
+
+    @Test
+    fun `the title outline flag round trips and defaults to off`() {
+        val outlined = TitleDto("Caption", outline = true)
+        val plain = TitleDto("Plain")
+        val dto = project(listOf(videoTrack, TrackDto("t", "title", 1, listOf(titleClip("T1", 0, outlined), titleClip("T2", 50, plain)))))
+
+        val timeline = TimelineMapper.toTimeline(dto)
+
+        assertTrue(timeline.track("t")!!.clip("T1")!!.title!!.outline)
+        assertFalse(timeline.track("t")!!.clip("T2")!!.title!!.outline)
+        assertEquals(dto.tracks, TimelineMapper.toDto(dto, timeline, dto.mediaLibrary).tracks)
+        // Projects written before the flag existed still load.
+        assertFalse(Json.decodeFromString<TitleDto>("""{"text":"Old"}""").outline)
     }
 
     @Test

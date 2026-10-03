@@ -61,6 +61,38 @@ continue sequentially, so a re-anchor costs no seek. **Alternative:** give `play
 so the native side animates the fade itself (fewer JNI calls, more native code and a second implementation of
 the crossfade curve).
 
+## 2026-10-03 · Auto captions: whisper.cpp, vendored as a pinned submodule
+**Chosen:** whisper.cpp `v1.9.4` as a git submodule built statically into `uveditor_engine` (CPU only, ggml built for
+`armv8.2-a+dotprod+fp16`), models downloaded on demand. **Why:** it is MIT (compatible with GPL-3.0), has a plain C API
+with word timestamps, runs offline and builds with the NDK we already use; a submodule keeps the repo small and the
+version exact. **Alternative:** FetchContent at configure time (needs network on every fresh build) or copying the
+sources into the tree (adds tens of MB). Contributors must run `git submodule update --init --depth 1`.
+
+## 2026-10-03 · Auto captions: the first use of the INTERNET permission
+**Chosen:** the manifest now declares `INTERNET`, used only to download the speech model once when the user asks for
+captions. The app otherwise stays offline. **Why:** bundling a 31-57 MB model would bloat every install for a feature
+many projects will not use, and a model must come from somewhere. **Alternative:** a side-loaded model picked through
+the document picker (no permission, but a clumsy first run), or bundling the tiny model in the APK.
+
+## 2026-10-03 · Auto captions: two quantised multilingual models, base as default
+**Chosen:** "Balanced" = Whisper base `q5_1` (57 MB, default) and "Fast" = tiny `q5_1` (31 MB), both multilingual,
+pinned by SHA-256. **Why:** q5_1 loses little accuracy at roughly a third of the size, and multilingual models let
+"detect automatically" work for creators who post in several languages. **Alternative:** English-only `.en` models
+(a little more accurate in English), or `small` (better, ~190 MB and several times slower on a phone).
+
+## 2026-10-03 · Auto captions: static styles now, animated styles after keyframes
+**Chosen:** four static styles (Classic, Bold, Pop, Impact) that set size, colour, position and chunking of ordinary
+title clips, plus a dark text outline (`TitleContent.outline`, stored in the project JSON, default off) so captions read
+over any footage. Word-highlight and pop-in animation are not in this PR. **Why:** animation needs the keyframe system
+that another branch is adding; faking it with one title clip per word would bloat the timeline. **Alternative:** one title
+clip per word with a highlight colour (works today, but hundreds of clips and awkward to edit).
+
+## 2026-10-03 · Auto captions: always on a new title track, for the selected clip
+**Chosen:** captions are added to a new title track on top (never merged into an existing title track) by a single
+`AddCaptions` edit, for the selected clip's whole source range (not a time range). **Why:** a new track cannot clash with
+existing titles, and one Undo removes the lot. **Alternative:** reuse the first title track and overwrite (cuts existing
+titles), or let the user pick a range on the timeline (there is no range selection yet).
+
 ## 2026-10-03 · Keyframes are in clip frames and cover video clips and titles; gain is not animated
 **Chosen:** a keyframe's time counts from the clip's own first frame, and both video clips and titles can be
 animated (position, scale, rotation, opacity); audio gain stays one value per clip. **Why:** clip-relative time
