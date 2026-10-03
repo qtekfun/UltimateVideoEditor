@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.rememberTooltipState
@@ -37,6 +38,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
+import com.ultimatevideo.uveditor.ui.editor.tray.MediaTray
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayState
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayTab
+import com.ultimatevideo.uveditor.ui.editor.tray.trayItems
+import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
 import com.ultimatevideo.uveditor.ui.hub.ProjectPresets
 import com.ultimatevideo.uveditor.ui.hub.aspectLabelOf
 import androidx.compose.material3.FilledTonalButton
@@ -282,6 +289,49 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     val launchImport = { importPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }
 
+    // The media tray: how it is shown is local UI state; what it lists comes from the editor state.
+    var tray by remember { mutableStateOf(TrayState()) }
+    val trayUsage = remember(state.timeline) { usageCounts(state.timeline) }
+    val trayItems = remember(state.assets, trayUsage, state.missingMedia, tray.tab, tray.filter, tray.query) {
+        trayItems(state.assets, trayUsage, state.missingMedia.keys, tray.tab, tray.filter, tray.query)
+    }
+    val trayImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        viewModel.onIntent(EditorIntent.ImportToTray(uris.map(Uri::toString)))
+    }
+    val launchTrayImport = { trayImportPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }
+    val dropTarget = remember(viewModel) {
+        object : TimelineDropTarget {
+            override fun onExternalEnter(kinds: List<AssetKind>) = viewModel.onIntent(EditorIntent.ExternalDragStart(kinds))
+            override fun onHover(hit: TimelineHit) = viewModel.onIntent(EditorIntent.TrayDragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
+            override fun onLeave() = viewModel.onIntent(EditorIntent.TrayDragLeave)
+            override fun onTrayDrop(hit: TimelineHit) {
+                viewModel.onIntent(EditorIntent.TrayDragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
+                viewModel.onIntent(EditorIntent.TrayDragEnd(commit = true))
+            }
+            override fun onExternalDrop(uris: List<String>, hit: TimelineHit) =
+                viewModel.onIntent(EditorIntent.ExternalDrop(uris, hit.frame, hit.trackIndex, dragZoneOf(hit)))
+            override fun onEnd() = viewModel.onIntent(EditorIntent.TrayDragEnd(commit = false))
+        }
+    }
+    val trayPanel: @Composable (Boolean, Modifier) -> Unit = { bottom, panelModifier ->
+        MediaTray(
+            state = tray,
+            onState = { tray = it },
+            assets = state.assets,
+            items = trayItems,
+            isImporting = state.isImporting,
+            bottomPanel = bottom,
+            onImport = launchTrayImport,
+            onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
+            onAssetDragStart = { viewModel.onIntent(EditorIntent.TrayDragStart(it)) },
+            onReorder = { id, index -> viewModel.onIntent(EditorIntent.ReorderAsset(id, index)) },
+            onExternalFiles = { viewModel.onIntent(EditorIntent.ImportToTray(it)) },
+            onPickSticker = { viewModel.onIntent(EditorIntent.AddSticker(it)) },
+            onApplyTemplate = { id, text -> viewModel.onIntent(EditorIntent.ApplyTextTemplate(id, text)) },
+            modifier = panelModifier,
+        )
+    }
+
     // The replacement for a missing file: which asset it is for is remembered while the picker is open.
     var relinkTarget by remember { mutableStateOf<String?>(null) }
     val relinkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -393,16 +443,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 // of the old view tears down the surface of the new one.
                 val wide = maxWidth >= ExpandedWidth
                 Row(modifier = Modifier.fillMaxSize()) {
-                    if (wide) {
-                        MediaPanel(
-                            assets = state.assets,
-                            isImporting = state.isImporting,
-                            onImport = launchImport,
-                            onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
-                            modifier = Modifier.width(280.dp).fillMaxHeight(),
-                        )
-                    }
-                    EditorMain(state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, launchImport, openExport, openCaptions, Modifier.weight(1f).fillMaxHeight())
+                    if (wide) trayPanel(false, Modifier.width(320.dp).fillMaxHeight())
+                    EditorMain(
+                        state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, dropTarget, launchImport, openExport, openCaptions,
+                        onOpenTray = { tray = tray.open(it) },
+                        bottomTray = { if (!wide) trayPanel(true, Modifier.fillMaxWidth().wrapContentHeight()) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                 }
             }
         }
@@ -419,34 +466,17 @@ private fun EditorMain(
     engine: TimelineEngine,
     preview: EditorPreview,
     editing: TimelineEditing,
+    dropTarget: TimelineDropTarget,
     onImport: () -> Unit,
     onExport: () -> Unit,
     onCaptions: () -> Unit,
+    onOpenTray: (TrayTab) -> Unit,
+    bottomTray: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasSelection = state.selectedClipId != null
-    var stickersOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
-    var templatesOpen by remember { mutableStateOf(false) }
-    if (templatesOpen) {
-        TextTemplateSheet(
-            onApply = { id, text ->
-                viewModel.onIntent(EditorIntent.ApplyTextTemplate(id, text))
-                templatesOpen = false
-            },
-            onDismiss = { templatesOpen = false },
-        )
-    }
-    if (stickersOpen) {
-        StickerSheet(
-            onPick = {
-                viewModel.onIntent(EditorIntent.AddSticker(it))
-                stickersOpen = false
-            },
-            onDismiss = { stickersOpen = false },
-        )
-    }
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -537,8 +567,8 @@ private fun EditorMain(
             }
             ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
             ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file", onClick = onCaptions)
-            ToolButton(EditorIcons.Sticker, "Add a sticker at the playhead") { stickersOpen = true }
-            ToolButton(EditorIcons.TextTemplate, "Add an animated text template at the playhead") { templatesOpen = true }
+            ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
+            ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
             MarkerMenu(state, viewModel::onIntent)
             ToolButton(
                 EditorIcons.Transition,
@@ -569,6 +599,7 @@ private fun EditorMain(
                 engine = engine,
                 onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
                 editing = editing,
+                dropTarget = dropTarget,
                 modifier = Modifier.fillMaxSize(),
             )
             if (state.inspectorOpen) {
@@ -581,6 +612,7 @@ private fun EditorMain(
                 }
             }
         }
+        bottomTray()
     }
 }
 
@@ -732,36 +764,6 @@ internal fun ToolButton(
     ) {
         IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
             Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
-        }
-    }
-}
-
-@Composable
-private fun MediaPanel(
-    assets: List<MediaAssetDto>,
-    isImporting: Boolean,
-    onImport: () -> Unit,
-    onAdd: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Media", style = MaterialTheme.typography.titleMedium)
-        Button(onClick = onImport, enabled = !isImporting, modifier = Modifier.fillMaxWidth()) {
-            Text(if (isImporting) "Importing…" else "Import media")
-        }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(assets, key = { it.id }) { asset ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = displayName(asset), maxLines = 1, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            text = formatTimecode(asset.durationFrames, FrameRate(asset.nativeFpsNum, asset.nativeFpsDen)),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    TextButton(onClick = { onAdd(asset.id) }) { Text("Add") }
-                }
-            }
         }
     }
 }
