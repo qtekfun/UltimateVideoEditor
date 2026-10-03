@@ -97,6 +97,7 @@ class DebugPreviewActivity : ComponentActivity() {
                     val st = s.stats()
                     statsText = "cache ${st.cacheEntries} frames, ${st.cacheUsedBytes shr 20}/${st.cacheBudgetBytes shr 20} MiB, " +
                         "drawn ${st.framesDrawn}, decoded ${st.framesDecoded}, stalls ${st.stalls}"
+                    Log.i(TAG, "stats $statsText")
                 }
                 delay(500)
             }

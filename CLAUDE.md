@@ -19,7 +19,7 @@ Read `PRD.md` (what), `SPECS.md` (how), `PLAN.md` (order of work) before writing
   - `./gradlew :app:connectedDebugAndroidTest`
   - `scripts/run-native-tests.sh` (host-built C++ tests for cache/time/colour math, needs only g++)
 - Reference device is physical over wireless adb. Several adb transports can appear for the same
-  device, so always pass `adb -s <serial>`; for Gradle use `ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest` (otherwise the install fails). The screen must be unlocked to view the UI. Device: OnePlus CPH2841, SM8850, Android 16, 11 GB RAM.
+  device, so always pass `adb -s <serial>`; for Gradle use `ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest` (otherwise the install fails). The screen must be unlocked to view the UI. Parallel agents share the same phone and the same package, so installs overwrite each other; check `dumpsys window | grep mCurrentFocus` before any `input tap`. Device: OnePlus CPH2841, SM8850, Android 16, 11 GB RAM.
 
 ## Engineering principles
 1. **UI/engine isolation.** Compose never draws timeline clips and never touches decode. Only

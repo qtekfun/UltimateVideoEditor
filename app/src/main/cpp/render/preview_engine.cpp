@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "decode/log.h"
+#include "render/layout_math.h"
 
 namespace uv::render {
 
@@ -23,6 +24,8 @@ namespace {
 constexpr int32_t kDefaultLookBehind = 30;
 constexpr int32_t kDefaultLookAhead = 60;
 constexpr size_t kPoolSize = 6;
+// Ticks fire this long before a frame is due so it is drawn and queued before the vsync that shows it.
+constexpr auto kPresentLead = std::chrono::milliseconds(4);
 
 }  // namespace
 
@@ -146,6 +149,19 @@ void PreviewEngine::detachSurface() {
     thread_->postAndWait([this] { egl_->detachWindow(); });
 }
 
+void PreviewEngine::surfaceChanged() {
+    // The window surface adopts its new size at the next swap and a layout pass can resize it
+    // several times, so redraw now and again shortly after; maybeDraw() also redraws by itself
+    // whenever a swap changed the surface size.
+    const auto redraw = [this] {
+        if (egl_->hasWindow()) maybeDraw(true);
+    };
+    const auto now = Clock::now();
+    thread_->postAt(redraw, now);
+    thread_->postAt(redraw, now + std::chrono::milliseconds(40));
+    thread_->postAt(redraw, now + std::chrono::milliseconds(120));
+}
+
 std::shared_ptr<VideoDecoder> PreviewEngine::decoderFor(uint32_t assetId) {
     std::lock_guard<std::mutex> lock(assetMu_);
     auto it = assets_.find(assetId);
@@ -171,7 +187,8 @@ Result<AssetInfo> PreviewEngine::openAsset(uint32_t assetId, int fd, decode::Rat
     const AssetInfo info = decoder->info();
     {
         std::lock_guard<std::mutex> lock(assetMu_);
-        assets_[assetId] = Asset{decoder, info.colorTransfer == 7 /* HLG */ ? ColorMode::Hlg2020ToSdr709 : ColorMode::Sdr709};
+        assets_[assetId] = Asset{decoder, info.colorTransfer == 7 /* HLG */ ? ColorMode::Hlg2020ToSdr709 : ColorMode::Sdr709,
+                                 quarterTurns(info.rotationDegrees)};
     }
     applyWindowForBudget();
     return info;
@@ -189,6 +206,7 @@ void PreviewEngine::closeAsset(uint32_t assetId) {
     decoder->shutdown();  // render thread keeps draining until the codec is quiet
     thread_->post([this, assetId] {
         cache_.eraseIf([assetId](const FrameKey& k) { return k.asset == assetId; });
+        if (pipeline_) pipeline_->clearSourceCache();  // the reader's buffers are gone with the decoder
         if (hasCurrent_ && curAsset_ == assetId) {
             hasCurrent_ = false;
             playing_ = false;
@@ -210,6 +228,8 @@ void PreviewEngine::applyWindowForBudget() {
         const int64_t capacity = static_cast<int64_t>(budget / frameBytes);
         const int32_t ahead = static_cast<int32_t>(std::clamp<int64_t>(capacity * 2 / 3, 1, kDefaultLookAhead));
         const int32_t behind = static_cast<int32_t>(std::clamp<int64_t>(capacity / 4, 0, kDefaultLookBehind));
+        windowBehind_.store(behind);
+        windowAhead_.store(ahead);
         d->setWindow(behind, ahead);
     }
 }
@@ -281,7 +301,8 @@ void PreviewEngine::tick(uint64_t generation) {
         return;
     }
     const decode::Rational fps = decoder->info().fps;
-    const int64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - playStart_).count();
+    const int64_t elapsedNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() + kPresentLead - playStart_).count();
     const int64_t advanced = static_cast<int64_t>(static_cast<__int128>(elapsedNs) * fps.num /
                                                   (static_cast<__int128>(fps.den) * 1000000000));
     const int64_t last = std::max<int64_t>(decoder->info().durationFrames - 1, 0);
@@ -294,10 +315,14 @@ void PreviewEngine::tick(uint64_t generation) {
         curFrame_ = frame;
         decoder->setTarget(frame);
     }
-    maybeDraw(false);
+    const auto frameDueNs = [&](int64_t framesFromStart) {
+        return static_cast<int64_t>(static_cast<__int128>(framesFromStart) * fps.den * 1000000000 / fps.num);
+    };
+    const auto due = playStart_ + std::chrono::nanoseconds(frameDueNs(frame - playStartFrame_));
+    maybeDraw(false, std::chrono::duration_cast<std::chrono::nanoseconds>(due.time_since_epoch()).count());
     if (playing_) {
-        const int64_t nextNs = static_cast<int64_t>(static_cast<__int128>(advanced + 1) * fps.den * 1000000000 / fps.num);
-        thread_->postAt([this, generation] { tick(generation); }, playStart_ + std::chrono::nanoseconds(nextNs));
+        thread_->postAt([this, generation] { tick(generation); },
+                        playStart_ + std::chrono::nanoseconds(frameDueNs(advanced + 1)) - kPresentLead);
     }
 }
 
@@ -305,7 +330,8 @@ void PreviewEngine::drain(uint32_t assetId) {
     auto decoder = decoderFor(assetId);
     if (!decoder) return;
     const AssetInfo info = decoder->info();
-    decoder->drainImages([&](int64_t frame, AHardwareBuffer* buffer) {
+    decoder->drainImages([&](int64_t frame, AHardwareBuffer* buffer) -> int {
+        int releaseFence = -1;
         const FrameKey key{assetId, frame};
         if (!cache_.contains(key)) {
             std::shared_ptr<GpuFrame> gpuFrame;
@@ -323,27 +349,38 @@ void PreviewEngine::drain(uint32_t assetId) {
                 if (!allocated.ok()) {
                     report(allocated.error());
                     decoder->markResolved(frame);
-                    return;
+                    return -1;
                 }
                 gpuFrame = allocated.value();
             }
             Error error{Status::Ok, ""};
-            if (pipeline_->blitToFrame(buffer, *gpuFrame, &error) != Status::Ok) {
+            const auto blitStart = Clock::now();
+            const Status blitStatus = pipeline_->blitToFrame(buffer, *gpuFrame, &releaseFence, &error);
+            times_.blitNs += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - blitStart).count();
+            ++times_.blits;
+            if (blitStatus != Status::Ok) {
                 report(error);
                 decoder->markResolved(frame);
-                return;
+                return -1;
             }
             const size_t bytes = gpuFrame->bytes();
-            for (auto& old : cache_.put(key, std::move(gpuFrame), bytes)) {
+            // Evict outside the playback window first; see LruCache::put.
+            const int64_t behind = windowBehind_.load();
+            const int64_t ahead = windowAhead_.load();
+            const auto inWindow = [&](const FrameKey& k) {
+                return hasCurrent_ && k.asset == curAsset_ && k.frame >= curFrame_ - behind && k.frame <= curFrame_ + ahead;
+            };
+            for (auto& old : cache_.put(key, std::move(gpuFrame), bytes, inWindow)) {
                 if (old.use_count() == 1 && pool_.size() < kPoolSize) pool_.push_back(std::move(old));
             }
         }
         decoder->markResolved(frame);
+        return releaseFence;
     });
     maybeDraw(false);
 }
 
-void PreviewEngine::maybeDraw(bool force) {
+void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
     if (!egl_ || !egl_->hasWindow() || !hasCurrent_) return;
     const FrameKey key{curAsset_, curFrame_};
     if (!force && drawnValid_ && drawnKey_ == key) return;
@@ -353,20 +390,53 @@ void PreviewEngine::maybeDraw(bool force) {
         return;
     }
     ColorMode mode = ColorMode::Sdr709;
+    int turns = 0;
     {
         std::lock_guard<std::mutex> lock(assetMu_);
         auto it = assets_.find(curAsset_);
-        if (it != assets_.end()) mode = it->second.mode;
+        if (it != assets_.end()) {
+            mode = it->second.mode;
+            turns = it->second.turns;
+        }
     }
     Error error{Status::Ok, ""};
-    if (pipeline_->draw(*frame, mode, egl_->windowWidth(), egl_->windowHeight(), &error) != Status::Ok ||
-        egl_->swap(&error) != Status::Ok) {
+    const auto drawStart = Clock::now();
+    const int drawW = egl_->windowWidth();
+    const int drawH = egl_->windowHeight();
+    const Status drawStatus = pipeline_->draw(*frame, mode, turns, drawW, drawH, &error);
+    const auto swapStart = Clock::now();
+    if (drawStatus == Status::Ok) egl_->setPresentationTime(presentNs);
+    const Status swapStatus = drawStatus == Status::Ok ? egl_->swap(&error) : drawStatus;
+    const auto drawEnd = Clock::now();
+    times_.drawNs += std::chrono::duration_cast<std::chrono::nanoseconds>(swapStart - drawStart).count();
+    times_.swapNs += std::chrono::duration_cast<std::chrono::nanoseconds>(drawEnd - swapStart).count();
+    ++times_.draws;
+    if (swapStatus != Status::Ok) {
         report(error);
         return;
+    }
+    if (playing_) logStageTimes();
+    // Swapping dequeues the next buffer, which is where a resize shows up: draw again at that size.
+    if (egl_->windowWidth() != drawW || egl_->windowHeight() != drawH) {
+        thread_->post([this] {
+            if (egl_->hasWindow()) maybeDraw(true);
+        });
     }
     drawnKey_ = key;
     drawnValid_ = true;
     framesDrawn_.fetch_add(1);
+}
+
+void PreviewEngine::logStageTimes() {
+    const auto now = Clock::now();
+    if (times_.lastLog.time_since_epoch().count() == 0) times_.lastLog = now;
+    if (now - times_.lastLog < std::chrono::seconds(1)) return;
+    const auto ms = [](int64_t ns, int64_t n) { return n > 0 ? static_cast<double>(ns) / 1e6 / static_cast<double>(n) : 0.0; };
+    UV_LOGI("stage ms/frame: blit %.2f (%lld) draw %.2f swap %.2f (%lld draws) stalls %lld", ms(times_.blitNs, times_.blits),
+            static_cast<long long>(times_.blits), ms(times_.drawNs, times_.draws), ms(times_.swapNs, times_.draws),
+            static_cast<long long>(times_.draws), static_cast<long long>(stalls_.load()));
+    times_ = StageTimes{};
+    times_.lastLog = now;
 }
 
 PreviewStats PreviewEngine::stats() const {
