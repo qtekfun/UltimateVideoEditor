@@ -1,14 +1,19 @@
 #include "timeline_view/hit_test.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace uv::timeline {
 
-HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x, float y) {
+HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x, float y,
+                  int64_t playheadFrame) {
     HitResult res;
     res.frame = std::max<int64_t>(0, vp.xToFrame(x));
     if (y < layout.rulerHeight) {
         res.kind = HitKind::Ruler;
+        if (playheadFrame >= 0 && std::abs(x - vp.frameToX(playheadFrame)) <= layout.handleWidth * 1.5) {
+            res.kind = HitKind::Playhead;
+        }
         return res;
     }
     const double yy = y + vp.scrollY - layout.rulerHeight;  // y inside the scrolled track area

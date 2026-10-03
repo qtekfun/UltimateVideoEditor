@@ -14,7 +14,8 @@ enum class EngineStatus(val code: Int) {
     }
 }
 
-enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK }
+/** Order mirrors uv::timeline::HitKind; PLAYHEAD is the playhead handle inside the ruler. */
+enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD }
 
 data class TimelineHit(val kind: HitKind, val trackIndex: Int, val clipKey: Long, val frame: Long)
 

@@ -134,9 +134,56 @@ class ProjectRepositoryTest {
         val imported = repo.importFrom("mem://out")
 
         assertNotEquals(original.id, imported.id)
-        assertEquals(original.copy(id = imported.id), imported)
+        assertEquals(original.copy(id = imported.id, name = "Film (2)"), imported)
         assertEquals(2, repo.list().projects.size)
     }
+
+    @Test
+    fun `creating a project with a taken name is rejected ignoring case and spaces`() = runTest {
+        val repo = repo()
+        repo.create("Film", settings)
+
+        assertThrows(ProjectError.DuplicateName::class.java) { runBlockingCreate(repo, "film") }
+        assertThrows(ProjectError.DuplicateName::class.java) { runBlockingCreate(repo, "  FILM  ") }
+        assertEquals(1, repo.list().projects.size)
+    }
+
+    @Test
+    fun `renaming onto another project's name is rejected but keeping or recasing your own is fine`() = runTest {
+        val repo = repo()
+        val a = repo.create("Alpha", settings)
+        repo.create("Beta", settings)
+
+        assertThrows(ProjectError.DuplicateName::class.java) { runBlockingRename(repo, a.id, "beta") }
+        assertEquals("Alpha", repo.rename(a.id, "Alpha").name)
+        assertEquals("ALPHA", repo.rename(a.id, "ALPHA").name)
+    }
+
+    @Test
+    fun `clones get a free name`() = runTest {
+        val repo = repo()
+        val a = repo.create("Film", settings)
+
+        assertEquals("Film copy", repo.clone(a.id).name)
+        assertEquals("Film copy 2", repo.clone(a.id).name)
+    }
+
+    @Test
+    fun `an explicit clone name that is taken is rejected`() = runTest {
+        val repo = repo()
+        val a = repo.create("Film", settings)
+
+        assertThrows(ProjectError.DuplicateName::class.java) { runBlockingClone(repo, a.id, "FILM") }
+    }
+
+    private fun runBlockingCreate(repo: ProjectRepository, name: String) =
+        kotlinx.coroutines.runBlocking { repo.create(name, settings) }
+
+    private fun runBlockingRename(repo: ProjectRepository, id: String, name: String) =
+        kotlinx.coroutines.runBlocking { repo.rename(id, name) }
+
+    private fun runBlockingClone(repo: ProjectRepository, id: String, name: String) =
+        kotlinx.coroutines.runBlocking { repo.clone(id, name) }
 
     @Test
     fun `import keeps its id when free`() = runTest {

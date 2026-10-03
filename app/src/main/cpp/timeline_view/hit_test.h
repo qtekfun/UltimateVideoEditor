@@ -15,6 +15,7 @@ enum class HitKind : int32_t {
     ClipLeftEdge = 3,
     ClipRightEdge = 4,
     EmptyTrack = 5,
+    Playhead = 6,  // the playhead handle in the ruler
 };
 
 struct HitResult {
@@ -24,6 +25,10 @@ struct HitResult {
     int64_t frame = 0;  // timeline frame under the touch point
 };
 
-HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x, float y);
+// `playheadFrame` < 0 means there is no playhead to grab. The playhead is only grabbable in the
+// ruler: below it, a playhead sitting on a clip edge (common after a split) must not steal the
+// clip's trim handle.
+HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x, float y,
+                  int64_t playheadFrame = -1);
 
 }  // namespace uv::timeline

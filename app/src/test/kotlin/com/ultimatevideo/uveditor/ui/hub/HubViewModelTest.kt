@@ -185,6 +185,52 @@ class HubViewModelTest {
         assertEquals("25", formatFps(25, 1))
     }
 
+    @Test
+    fun `the suggested name is free and a taken name blocks creation`() {
+        val vm = viewModel()
+
+        vm.onIntent(HubIntent.ShowNewProject)
+        assertEquals("New project", vm.state.value.newProjectDraft?.name)
+        vm.onIntent(HubIntent.ConfirmCreate)
+        assertEquals(1, vm.state.value.projects.size)
+
+        vm.onIntent(HubIntent.ShowNewProject)
+        assertEquals("New project 2", vm.state.value.newProjectDraft?.name)
+
+        vm.onIntent(HubIntent.DraftNameChanged("  NEW PROJECT "))
+        assertTrue(vm.state.value.newNameTaken)
+        vm.onIntent(HubIntent.ConfirmCreate)
+        assertEquals(1, vm.state.value.projects.size)
+        assertNotNull(vm.state.value.newProjectDraft)
+
+        vm.onIntent(HubIntent.DraftNameChanged("Another"))
+        assertFalse(vm.state.value.newNameTaken)
+        vm.onIntent(HubIntent.ConfirmCreate)
+        assertEquals(2, vm.state.value.projects.size)
+    }
+
+    @Test
+    fun `renaming is blocked only by other projects' names`() {
+        val vm = viewModel()
+        vm.onIntent(HubIntent.ShowNewProject)
+        vm.onIntent(HubIntent.DraftNameChanged("Alpha"))
+        vm.onIntent(HubIntent.ConfirmCreate)
+        vm.onIntent(HubIntent.ShowNewProject)
+        vm.onIntent(HubIntent.DraftNameChanged("Beta"))
+        vm.onIntent(HubIntent.ConfirmCreate)
+        val alpha = vm.state.value.projects.first { it.name == "Alpha" }
+
+        vm.onIntent(HubIntent.RequestRename(alpha))
+        assertFalse(vm.state.value.renameNameTaken)
+        vm.onIntent(HubIntent.RenameNameChanged("beta"))
+        assertTrue(vm.state.value.renameNameTaken)
+        vm.onIntent(HubIntent.ConfirmRename)
+        assertEquals("Alpha", vm.state.value.projects.first { it.id == alpha.id }.name)
+
+        vm.onIntent(HubIntent.RenameNameChanged("ALPHA"))
+        assertFalse(vm.state.value.renameNameTaken)
+    }
+
     private class FakeEngine(
         private val version: String = "0",
         private val failure: EngineException? = null,

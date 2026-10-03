@@ -6,6 +6,8 @@ sealed class ProjectError(message: String, cause: Throwable? = null) : Exception
 
     class InvalidName(reason: String) : ProjectError(reason)
 
+    class DuplicateName(val name: String) : ProjectError("A project named \"$name\" already exists")
+
     class InvalidId(val projectId: String) : ProjectError("'$projectId' is not a valid project id")
 
     class Corrupt(detail: String, cause: Throwable? = null) :

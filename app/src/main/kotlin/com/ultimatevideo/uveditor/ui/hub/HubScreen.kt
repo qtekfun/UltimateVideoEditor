@@ -124,11 +124,12 @@ internal fun HubContent(
         }
     }
 
-    state.newProjectDraft?.let { NewProjectDialog(it, onIntent) }
+    state.newProjectDraft?.let { NewProjectDialog(it, nameTaken = state.newNameTaken, onIntent = onIntent) }
     state.renameDraft?.let { draft ->
         TextDialog(
             title = "Rename project",
             value = draft.name,
+            nameTaken = state.renameNameTaken,
             confirmLabel = "Rename",
             onValueChange = { onIntent(HubIntent.RenameNameChanged(it)) },
             onConfirm = { onIntent(HubIntent.ConfirmRename) },
@@ -231,7 +232,7 @@ private fun MenuItem(label: String, onClick: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NewProjectDialog(draft: NewProjectDraft, onIntent: (HubIntent) -> Unit) {
+private fun NewProjectDialog(draft: NewProjectDraft, nameTaken: Boolean, onIntent: (HubIntent) -> Unit) {
     AlertDialog(
         onDismissRequest = { onIntent(HubIntent.DismissDialogs) },
         title = { Text("New project") },
@@ -242,6 +243,8 @@ private fun NewProjectDialog(draft: NewProjectDraft, onIntent: (HubIntent) -> Un
                     onValueChange = { onIntent(HubIntent.DraftNameChanged(it)) },
                     label = { Text("Name") },
                     singleLine = true,
+                    isError = nameTaken,
+                    supportingText = if (nameTaken) ({ Text(NAME_TAKEN_MESSAGE) }) else null,
                 )
                 Text("Resolution", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -276,7 +279,7 @@ private fun NewProjectDialog(draft: NewProjectDraft, onIntent: (HubIntent) -> Un
             }
         },
         confirmButton = {
-            TextButton(onClick = { onIntent(HubIntent.ConfirmCreate) }, enabled = draft.canCreate) {
+            TextButton(onClick = { onIntent(HubIntent.ConfirmCreate) }, enabled = draft.canCreate && !nameTaken) {
                 Text("Create")
             }
         },
@@ -288,6 +291,7 @@ private fun NewProjectDialog(draft: NewProjectDraft, onIntent: (HubIntent) -> Un
 private fun TextDialog(
     title: String,
     value: String,
+    nameTaken: Boolean,
     confirmLabel: String,
     onValueChange: (String) -> Unit,
     onConfirm: () -> Unit,
@@ -296,8 +300,18 @@ private fun TextDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { OutlinedTextField(value = value, onValueChange = onValueChange, singleLine = true) },
-        confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank()) { Text(confirmLabel) } },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                isError = nameTaken,
+                supportingText = if (nameTaken) ({ Text(NAME_TAKEN_MESSAGE) }) else null,
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank() && !nameTaken) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+private const val NAME_TAKEN_MESSAGE = "A project with this name already exists"
