@@ -62,7 +62,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
 - [x] Audio offline mix and AAC encode
 - [x] Export UI: resolution/fps/bitrate, progress, cancel, share
-- [ ] Optional: static FFmpeg fallback behind a feature flag
+- [ ] Optional: static FFmpeg fallback behind a feature flag — **designed, not built**: see `docs/ffmpeg-fallback.md` (options, sizes, CI recipe, decoder seam); trigger is a real file MediaCodec cannot open
 - _Status:_ exports the full timeline (all video layers composited with their transform and opacity through the preview's
   `drawScene`, clip gain in the audio mix, gaps black, HLG sources tone-mapped to SDR Rec.709) at the project
   or a lower frame rate, H.264 or HEVC + AAC in MP4, saved through SAF. On the reference device a 4K60 HEVC export runs at ~90 fps
@@ -107,7 +107,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       beyond keyframes
 - [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
 - [ ] 3D LUTs
-- [ ] Vulkan renderer evaluation
+- [x] Vulkan renderer evaluation — `docs/vulkan-evaluation.md`: recommendation is **not to migrate now** (render thread costs ~0.85 ms of a 16.6 ms frame at 4K60); prepare a `Compositor` seam, revisit when a feature needs compute
 
 ## Cross-cutting
 - Every clip-manipulation feature ships with unit tests for collisions and gaps.
