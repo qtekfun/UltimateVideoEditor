@@ -37,7 +37,7 @@ class ProjectRepository(
     private val transferIO: ProjectTransferIO,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
-) {
+) : ProjectStore {
     private val mutex = Mutex()
 
     suspend fun list(): ProjectListing = withContext(ioDispatcher) {
@@ -62,11 +62,11 @@ class ProjectRepository(
         project
     }
 
-    suspend fun load(id: String): ProjectDto = withContext(ioDispatcher) {
+    override suspend fun load(id: String): ProjectDto = withContext(ioDispatcher) {
         ProjectJson.decode(readText(projectFile(id)))
     }
 
-    suspend fun save(project: ProjectDto) = mutate { writeProject(project) }
+    override suspend fun save(project: ProjectDto) = mutate { writeProject(project) }
 
     suspend fun rename(id: String, name: String): ProjectDto = mutate {
         val renamed = ProjectJson.decode(readText(projectFile(id))).copy(name = validName(name))

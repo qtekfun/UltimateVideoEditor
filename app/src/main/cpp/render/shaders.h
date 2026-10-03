@@ -30,7 +30,8 @@ inline constexpr const char* kCompositeFragment = R"(#version 320 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uTex;
-uniform int uMode;  // 0 = SDR Rec.709 pass-through, 1 = HLG Rec.2020 -> SDR Rec.709
+uniform int uMode;   // 0 = SDR Rec.709 pass-through, 1 = HLG Rec.2020 -> SDR Rec.709
+uniform int uTurns;  // clockwise quarter turns applied for display (layout_math.h rotateUv)
 out vec4 outColor;
 
 const float A = 0.17883277;
@@ -78,9 +79,16 @@ vec3 hlg2020ToSdr709(vec3 hlg) {
     return bt709Oetf(clamp(lin, 0.0, 1.0));
 }
 
+vec2 rotateUv(vec2 o) {
+    if (uTurns == 1) return vec2(o.y, 1.0 - o.x);
+    if (uTurns == 2) return vec2(1.0 - o.x, 1.0 - o.y);
+    if (uTurns == 3) return vec2(1.0 - o.y, o.x);
+    return o;
+}
+
 void main() {
     // Cache buffers are stored top row first; screen y grows upwards, so flip.
-    vec2 uv = vec2(vPos.x * 0.5 + 0.5, 0.5 - vPos.y * 0.5);
+    vec2 uv = rotateUv(vec2(vPos.x * 0.5 + 0.5, 0.5 - vPos.y * 0.5));
     vec3 rgb = texture(uTex, uv).rgb;
     if (uMode == 1) rgb = hlg2020ToSdr709(rgb);
     outColor = vec4(rgb, 1.0);
