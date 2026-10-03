@@ -121,11 +121,33 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.gestures.Orientation
+import com.ultimatevideo.uveditor.ui.editor.layout.CollapsedBottomBar
+import com.ultimatevideo.uveditor.ui.editor.layout.CollapsedStrip
+import com.ultimatevideo.uveditor.ui.editor.layout.DockLayout
+import com.ultimatevideo.uveditor.ui.editor.layout.DragHandle
+import com.ultimatevideo.uveditor.ui.editor.layout.EditorLayoutController
+import com.ultimatevideo.uveditor.ui.editor.layout.LayoutAction
+import com.ultimatevideo.uveditor.ui.editor.layout.LayoutSheet
+import com.ultimatevideo.uveditor.ui.editor.layout.LayoutState
+import com.ultimatevideo.uveditor.ui.editor.layout.Dock
+import com.ultimatevideo.uveditor.ui.editor.layout.Panel
+import com.ultimatevideo.uveditor.ui.editor.layout.PreviewTimelineLayout
+import com.ultimatevideo.uveditor.ui.editor.layout.PrefsLayoutStore
+import com.ultimatevideo.uveditor.ui.editor.layout.Side
+import com.ultimatevideo.uveditor.ui.editor.layout.SideRequest
+import com.ultimatevideo.uveditor.ui.editor.layout.SidePanelFrame
+import com.ultimatevideo.uveditor.ui.editor.layout.SplitMetrics
+import com.ultimatevideo.uveditor.ui.editor.layout.WindowMetrics
+import com.ultimatevideo.uveditor.ui.editor.layout.handleThickness
+import com.ultimatevideo.uveditor.ui.editor.layout.label
+import com.ultimatevideo.uveditor.ui.editor.layout.rememberTicker
+import com.ultimatevideo.uveditor.ui.editor.layout.sideCollapsed
+import com.ultimatevideo.uveditor.ui.editor.layout.visiblePanels
+import kotlin.math.roundToInt
+import android.content.Context
 import java.io.File
 import java.io.FileNotFoundException
-
-/** Width from which the media panel is shown beside the editor instead of being left out. */
-private val ExpandedWidth = 840.dp
 
 @Composable
 fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> Unit) {
@@ -437,18 +459,108 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             }
 
             else -> BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
-                // Window size classes without a new dependency: the media panel appears on wide windows.
-                // One Row in both layouts, with EditorMain as a stable child: switching between
-                // layouts must not recreate the native timeline view, or a late surfaceDestroyed
-                // of the old view tears down the surface of the new one.
-                val wide = maxWidth >= ExpandedWidth
-                Row(modifier = Modifier.fillMaxSize()) {
-                    if (wide) trayPanel(false, Modifier.width(320.dp).fillMaxHeight())
+                val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat())
+                val layout = remember {
+                    EditorLayoutController(
+                        PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE)),
+                        window,
+                    )
+                }
+                LaunchedEffect(window) { layout.onWindow(window) }
+                // Lane heights are the native timeline's business: it scales its lanes and what is drawn in them.
+                LaunchedEffect(engine, layout) { snapshotFlow { layout.laneHeight }.collect { engine.setLaneScale(it.scale) } }
+                var layoutSheetOpen by remember { mutableStateOf(false) }
+                if (layoutSheetOpen) LayoutSheet(layout) { layoutSheetOpen = false }
+
+                // Which panels each side column holds. Derived, so composition only reacts when a dock or the
+                // inspector changes, never to the steps of a divider drag.
+                val inspectorOpen = state.inspectorOpen
+                val leftPanels by remember(layout, inspectorOpen) { derivedStateOf { visiblePanels(layout.state, Side.LEFT, inspectorOpen) } }
+                val rightPanels by remember(layout, inspectorOpen) { derivedStateOf { visiblePanels(layout.state, Side.RIGHT, inspectorOpen) } }
+                val leftCollapsed by remember(layout) { derivedStateOf { sideCollapsed(layout.state, leftPanels) } }
+                val rightCollapsed by remember(layout) { derivedStateOf { sideCollapsed(layout.state, rightPanels) } }
+
+                val sideColumn: @Composable (Side, List<Panel>, Boolean) -> Unit = { side, panels, collapsed ->
+                    if (panels.isNotEmpty()) {
+                        if (collapsed) {
+                            CollapsedStrip(
+                                side = side,
+                                label = panels.joinToString(" and ") { it.label().lowercase() },
+                                onExpand = { panels.forEach { layout.dispatch(LayoutAction.SetCollapsed(it, false)) } },
+                            )
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                for (panel in panels) {
+                                    SidePanelFrame(
+                                        panel = panel,
+                                        side = side,
+                                        customising = layout.customising,
+                                        sideDocksAllowed = layout.sideDocksAllowed,
+                                        onCollapse = { layout.dispatch(LayoutAction.SetCollapsed(panel, true)) },
+                                        onDock = { layout.dispatch(LayoutAction.SetDock(panel, it)) },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        if (panel == Panel.TRAY) {
+                                            trayPanel(false, Modifier.fillMaxSize())
+                                        } else {
+                                            Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+                                                InspectorPanel(state = state, onIntent = viewModel::onIntent, transitionLimit = viewModel::transitionLimit)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                val ticker = rememberTicker()
+                val sideHandle: @Composable (Side) -> Unit = { side ->
+                    DragHandle(
+                        orientation = Orientation.Horizontal,
+                        customising = layout.customising,
+                        description = "Resize the ${if (side == Side.LEFT) "left" else "right"} panel. Double tap to reset.",
+                        onDelta = { dx ->
+                            val current = if (side == Side.LEFT) layout.state.leftWidthDp else layout.state.rightWidthDp
+                            val next = current + (if (side == Side.LEFT) dx else -dx) / density
+                            ticker(current, next, LayoutState.DEFAULT_SIDE_WIDTH_DP, 6f)
+                            layout.dispatch(LayoutAction.SetSideWidth(side, next), persist = false)
+                        },
+                        onEnd = layout::commit,
+                        onReset = { layout.dispatch(LayoutAction.ResetSideDivider(side)) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                // One layout for every window: EditorMain is composed at the same place whatever the docks are,
+                // so changing them never recreates the native timeline view (a late surfaceDestroyed of an old
+                // view would tear down the surface of the new one).
+                DockLayout(
+                    left = { SideRequest(leftPanels.isNotEmpty(), layout.state.leftWidthDp, leftCollapsed) },
+                    right = { SideRequest(rightPanels.isNotEmpty(), layout.state.rightWidthDp, rightCollapsed) },
+                    handleThickness = { handleThickness(layout.state.customising) },
+                    modifier = Modifier.fillMaxSize(),
+                    leftPanel = { sideColumn(Side.LEFT, leftPanels, leftCollapsed) },
+                    leftHandle = { sideHandle(Side.LEFT) },
+                    rightPanel = { sideColumn(Side.RIGHT, rightPanels, rightCollapsed) },
+                    rightHandle = { sideHandle(Side.RIGHT) },
+                ) {
                     EditorMain(
                         state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, dropTarget, launchImport, openExport, openCaptions,
+                        layout = layout,
+                        inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
+                        onOpenLayout = { layoutSheetOpen = true },
                         onOpenTray = { tray = tray.open(it) },
-                        bottomTray = { if (!wide) trayPanel(true, Modifier.fillMaxWidth().wrapContentHeight()) },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        bottomTray = {
+                            val trayDock = layout.tray
+                            if (trayDock.dock == Dock.BOTTOM) {
+                                if (trayDock.collapsed) {
+                                    CollapsedBottomBar("media tray", onExpand = { layout.dispatch(LayoutAction.SetCollapsed(Panel.TRAY, false)) })
+                                } else {
+                                    trayPanel(true, Modifier.fillMaxWidth().wrapContentHeight())
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -471,6 +583,9 @@ private fun EditorMain(
     onExport: () -> Unit,
     onCaptions: () -> Unit,
     onOpenTray: (TrayTab) -> Unit,
+    layout: EditorLayoutController,
+    inspectorOverlay: Boolean,
+    onOpenLayout: () -> Unit,
     bottomTray: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -489,129 +604,167 @@ private fun EditorMain(
                 maxLines = 1,
                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
+            ToolButton(EditorIcons.LayoutPanes, "Layout: presets, panels, track height and dividers", onClick = onOpenLayout)
             ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
             ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
         }
         MediaBanners(state) { viewModel.onIntent(it) }
 
-        // No background here: the preview is a SurfaceView, and an opaque parent would hide it.
-        Box(modifier = Modifier.fillMaxWidth().weight(PREVIEW_WEIGHT), contentAlignment = Alignment.Center) {
-            val previewEngine = preview.engine
-            if (previewEngine != null) {
-                // HLG project: render the preview as HDR when the screen shows it, else tone-mapped SDR.
-                val hdrContext = LocalContext.current
-                val displayHlg = remember { DisplayHdr.supportsHlg(hdrContext) }
-                val wanted = wantedOutputSpace(state.colorSpace.isHdr, displayHlg)
-                var granted by remember { mutableStateOf(OutputSpace.SDR_709) }
-                DisposableEffect(granted) {
-                    DisplayHdr.setWindowHdr(hdrContext, granted == OutputSpace.HLG_2020)
-                    onDispose { DisplayHdr.setWindowHdr(hdrContext, false) }
+        val splitMetrics = remember { SplitMetrics() }
+        val ticker = rememberTicker()
+        // The preview and the timeline share what the controls leave; the share is read while measuring, so
+        // dragging the handle between them re-measures the block instead of recomposing the editor.
+        PreviewTimelineLayout(
+            fraction = { layout.state.previewFraction },
+            metrics = splitMetrics,
+            handleThickness = { handleThickness(layout.state.customising) },
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            preview = {
+                // No background here: the preview is a SurfaceView, and an opaque parent would hide it.
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    val previewEngine = preview.engine
+                    if (previewEngine != null) {
+                        // HLG project: render the preview as HDR when the screen shows it, else tone-mapped SDR.
+                        val hdrContext = LocalContext.current
+                        val displayHlg = remember { DisplayHdr.supportsHlg(hdrContext) }
+                        val wanted = wantedOutputSpace(state.colorSpace.isHdr, displayHlg)
+                        var granted by remember { mutableStateOf(OutputSpace.SDR_709) }
+                        DisposableEffect(granted) {
+                            DisplayHdr.setWindowHdr(hdrContext, granted == OutputSpace.HLG_2020)
+                            onDispose { DisplayHdr.setWindowHdr(hdrContext, false) }
+                        }
+                        PreviewSurface(previewEngine, Modifier.fillMaxSize(), wanted = wanted, onOutputSpace = { granted = it })
+                        if (state.colorSpace.isHdr) {
+                            Text(
+                                if (granted == OutputSpace.HLG_2020) "HDR HLG" else "HDR project, SDR preview",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                            )
+                        }
+                        state.safeZone?.let { SafeZoneOverlay(it, state.canvasWidth, state.canvasHeight) }
+                        // Drag, pinch and twist edit the selected clip while it is under the playhead.
+                        PreviewGestureLayer(
+                            enabled = selectedClipVisible,
+                            canvasWidth = state.canvasWidth,
+                            canvasHeight = state.canvasHeight,
+                            onStep = { panX, panY, zoom, rotation ->
+                                viewModel.onIntent(EditorIntent.TransformGesture(panX, panY, zoom, rotation))
+                            },
+                            onEnd = { viewModel.onIntent(EditorIntent.EndAppearanceEdit(commit = true)) },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-                PreviewSurface(previewEngine, Modifier.fillMaxSize(), wanted = wanted, onOutputSpace = { granted = it })
-                if (state.colorSpace.isHdr) {
-                    Text(
-                        if (granted == OutputSpace.HLG_2020) "HDR HLG" else "HDR project, SDR preview",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                    )
-                }
-                state.safeZone?.let { SafeZoneOverlay(it, state.canvasWidth, state.canvasHeight) }
-                // Drag, pinch and twist edit the selected clip while it is under the playhead.
-                PreviewGestureLayer(
-                    enabled = selectedClipVisible,
-                    canvasWidth = state.canvasWidth,
-                    canvasHeight = state.canvasHeight,
-                    onStep = { panX, panY, zoom, rotation ->
-                        viewModel.onIntent(EditorIntent.TransformGesture(panX, panY, zoom, rotation))
+
+            },
+            handle = {
+                DragHandle(
+                    orientation = Orientation.Vertical,
+                    customising = layout.customising,
+                    description = "Resize the preview and the timeline. Double tap to reset.",
+                    onDelta = { dy ->
+                        val total = splitMetrics.flexiblePx
+                        if (total > 0) {
+                            val current = layout.state.previewFraction
+                            val next = current + dy / total
+                            ticker(current, next, LayoutState.DEFAULT_PREVIEW_FRACTION, 0.01f)
+                            layout.dispatch(LayoutAction.SetPreviewFraction(next), persist = false)
+                        }
                     },
-                    onEnd = { viewModel.onIntent(EditorIntent.EndAppearanceEdit(commit = true)) },
+                    onEnd = layout::commit,
+                    onReset = { layout.dispatch(LayoutAction.ResetPreviewDivider) },
                     modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-                Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
-            }
-        }
-
-        // Transport: timecode on the left, previous / play / next centred.
-        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            Timecode(holder, Modifier.align(Alignment.CenterStart))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
-                ToolButton(
-                    icon = if (state.isPlaying) EditorIcons.Pause else EditorIcons.Play,
-                    description = if (state.isPlaying) "Pause" else "Play",
-                ) { viewModel.onIntent(EditorIntent.TogglePlay) }
-                ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
-            }
-            ToolButton(EditorIcons.Fit, "Fit the whole project", modifier = Modifier.align(Alignment.CenterEnd)) {
-                engine.fitToContent()
-            }
-        }
-
-        // Scrolls sideways when the buttons do not fit a narrow window.
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ToolButton(EditorIcons.Add, "Import media", enabled = !state.isImporting, onClick = onImport)
-            ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
-                viewModel.onIntent(EditorIntent.SplitAtPlayhead)
-            }
-            ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
-                viewModel.onIntent(EditorIntent.RippleDeleteSelected)
-            }
-            ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
-                viewModel.onIntent(EditorIntent.RippleAppendSelected)
-            }
-            ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
-            ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file", onClick = onCaptions)
-            ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
-            ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
-            MarkerMenu(state, viewModel::onIntent)
-            ToolButton(
-                EditorIcons.Transition,
-                "Add a crossfade between the selected clip and the next",
-                enabled = state.clipAfterSelected != null && state.selectedTransition == null,
-            ) { viewModel.onIntent(EditorIntent.AddTransition) }
-            ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
-                viewModel.onIntent(EditorIntent.ToggleInspector)
-            }
-            TrackControls(
-                state.selectedTrackLabel,
-                onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) },
-                onMove = { viewModel.onIntent(EditorIntent.MoveSelectedTrack(it)) },
-            ) {
-                viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
-            }
-            ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
-                viewModel.onIntent(EditorIntent.ShowCanvasDialog)
-            }
-            SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
-        }
-        if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
-
-        // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
-        // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
-        Box(modifier = Modifier.fillMaxWidth().weight(TIMELINE_WEIGHT)) {
-            TimelineHost(
-                engine = engine,
-                onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
-                editing = editing,
-                dropTarget = dropTarget,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (state.inspectorOpen) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    // Swallow touches so they never reach the timeline underneath.
-                    modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } },
-                ) {
-                    InspectorPanel(state = state, onIntent = viewModel::onIntent, transitionLimit = viewModel::transitionLimit)
+            },
+            chrome = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                // Transport: timecode on the left, previous / play / next centred.
+                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                    Timecode(holder, Modifier.align(Alignment.CenterStart))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
+                        ToolButton(
+                            icon = if (state.isPlaying) EditorIcons.Pause else EditorIcons.Play,
+                            description = if (state.isPlaying) "Pause" else "Play",
+                        ) { viewModel.onIntent(EditorIntent.TogglePlay) }
+                        ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
+                    }
+                    ToolButton(EditorIcons.Fit, "Fit the whole project", modifier = Modifier.align(Alignment.CenterEnd)) {
+                        engine.fitToContent()
+                    }
                 }
-            }
-        }
+
+                // Scrolls sideways when the buttons do not fit a narrow window.
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToolButton(EditorIcons.Add, "Import media", enabled = !state.isImporting, onClick = onImport)
+                    ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
+                        viewModel.onIntent(EditorIntent.SplitAtPlayhead)
+                    }
+                    ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
+                        viewModel.onIntent(EditorIntent.RippleDeleteSelected)
+                    }
+                    ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
+                        viewModel.onIntent(EditorIntent.RippleAppendSelected)
+                    }
+                    ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
+                    ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file", onClick = onCaptions)
+                    ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
+                    ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
+                    MarkerMenu(state, viewModel::onIntent)
+                    ToolButton(
+                        EditorIcons.Transition,
+                        "Add a crossfade between the selected clip and the next",
+                        enabled = state.clipAfterSelected != null && state.selectedTransition == null,
+                    ) { viewModel.onIntent(EditorIntent.AddTransition) }
+                    ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
+                        viewModel.onIntent(EditorIntent.ToggleInspector)
+                    }
+                    TrackControls(
+                        state.selectedTrackLabel,
+                        onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) },
+                        onMove = { viewModel.onIntent(EditorIntent.MoveSelectedTrack(it)) },
+                    ) {
+                        viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
+                    }
+                    ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
+                        viewModel.onIntent(EditorIntent.ShowCanvasDialog)
+                    }
+                    SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
+                }
+                if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
+
+                }
+            },
+            timeline = {
+                // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
+                // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
+                Box(modifier = Modifier.fillMaxSize()) {
+                    TimelineHost(
+                        engine = engine,
+                        onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
+                        editing = editing,
+                        dropTarget = dropTarget,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (state.inspectorOpen && inspectorOverlay) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            // Swallow touches so they never reach the timeline underneath.
+                            modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } },
+                        ) {
+                            InspectorPanel(state = state, onIntent = viewModel::onIntent, transitionLimit = viewModel::transitionLimit)
+                        }
+                    }
+                }
+            },
+        )
         bottomTray()
     }
 }
@@ -830,5 +983,3 @@ private suspend fun requestThumbnails(
     }
 }
 
-private const val PREVIEW_WEIGHT = 0.4f
-private const val TIMELINE_WEIGHT = 0.6f
