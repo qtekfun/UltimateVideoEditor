@@ -270,7 +270,7 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   Four static styles (Classic, Bold, Pop, Impact) set size, colour, position and chunking. Animated and
   word-highlight styles need keyframes and are a follow-up.
 
-### 5.10 Keyframes, canvas formats and upload presets
+### 5.11 Keyframes, canvas formats and upload presets
 - **Keyframes.** A clip (video or title) may carry `keyframes`: poses (position, scale, rotation, opacity) at
   integer *clip* frames (0 is the clip's first frame, so they travel with the clip when it moves). Before the first
   keyframe the first pose holds, after the last the last one holds; between two the earlier keyframe's mode
