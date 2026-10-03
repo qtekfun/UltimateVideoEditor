@@ -51,6 +51,10 @@ video file, the thumbnail filmstrip). `--ef zoom <factor>` zooms in at start (ad
 `adb shell setprop debug.uveditor.atlas_bytes <n>` shrinks the thumbnail atlas to exercise slot eviction (logged under tag `uv_thumb`).
 `uv_thumbnail_host_tests` covers thumbnail tile math, the atlas slot LRU, the on-disk tile store and YUV conversion; without CMake:
 `g++ -std=c++20 -Iapp/src/main/cpp app/src/main/cpp/tests/thumbnail_host_tests.cpp app/src/main/cpp/core/error.cpp app/src/main/cpp/thumbnail/thumb_store.cpp -o /tmp/thumb_tests && /tmp/thumb_tests`.
+Export: `uv_export_host_tests` covers `encode/export_math.h` (PTS, audio sample tiling, progress, clip selection). A debug-only
+harness exports a file without UI: `am start -n com.ultimatevideo.uveditor/.debug.ExportDemoActivity --es video <in.mp4> --es out <out.mp4>
+[--es codec avc|hevc] [--ei w 1280 --ei h 720 --ei fps 30] [--es layout single|split|layers]`, then `ffprobe` the pulled file; the outcome is
+written to `<out>.result.txt` (see the class comment). Exported audio is shifted earlier by the AAC encoder delay (`kAacDelaySamples`).
 
 ## Testing rules
 - Every clip-manipulation feature (split, move, overwrite, ripple delete/append, trim) needs unit tests

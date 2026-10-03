@@ -1,0 +1,679 @@
+#include "encode/export_engine.h"
+
+#include <android/native_window.h>
+#include <media/NdkMediaCodec.h>
+#include <media/NdkMediaFormat.h>
+#include <media/NdkMediaMuxer.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+
+#include "audio/audio_engine.h"
+#include "decode/gpu_frame.h"
+#include "decode/log.h"
+#include "decode/video_decoder.h"
+#include "render/gl_context.h"
+#include "render/gl_pipeline.h"
+
+namespace uv::encode {
+
+namespace {
+
+using core::Status;
+using Clock = std::chrono::steady_clock;
+
+constexpr int32_t kColorFormatSurface = 0x7F000789;  // MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+constexpr int32_t kAudioSampleRate = 48000;
+constexpr int32_t kAudioChannels = 2;
+constexpr int32_t kAudioChunkFrames = 1024;
+// The AAC encoder delays its output: decoding the file yields each input sample this many samples
+// late, and the MP4 muxer writes no edit list to say so. Measured on the reference device (FDK AAC)
+// with 1 ms clicks every 500 ms: they decode exactly 2048 samples (42.7 ms) late. The mix is shifted
+// earlier by that much so sound lines up with picture in players that ignore the delay; the first
+// 42.7 ms of the mix are therefore not heard.
+constexpr int64_t kAacDelaySamples = 2048;
+constexpr int64_t kIdleCheckFrames = 30;
+constexpr int32_t kDecodeAhead = 4;  // frames the decoder may run ahead of the frame being drawn
+constexpr auto kDecodeStall = std::chrono::seconds(15);
+
+struct ExportFailure {
+    Status status;
+    std::string message;
+};
+
+[[noreturn]] void fail(Status status, std::string message) { throw ExportFailure{status, std::move(message)}; }
+
+Status fromDecode(decode::Status s) {
+    switch (s) {
+        case decode::Status::Ok: return Status::Ok;
+        case decode::Status::InvalidArgument: return Status::InvalidArgument;
+        case decode::Status::UnsupportedFormat: return Status::UnsupportedFormat;
+        case decode::Status::CodecError: return Status::CodecError;
+        case decode::Status::EglError:
+        case decode::Status::GlError: return Status::GlError;
+        case decode::Status::InvalidState: return Status::NotInitialized;
+        default: return Status::IoError;
+    }
+}
+
+[[noreturn]] void failDecode(const decode::Error& e, const char* what) {
+    fail(fromDecode(e.code), std::string(what) + ": " + e.message);
+}
+
+// Copies of encoded samples that arrive before every track has its format (the muxer cannot start
+// earlier). Both encoders keep producing meanwhile, so this stays small.
+struct Packet {
+    int track;
+    std::vector<uint8_t> data;
+    AMediaCodecBufferInfo info;
+};
+
+class Muxer {
+public:
+    Muxer(int fd, int expectedTracks) : expected_(expectedTracks) {
+        muxer_ = AMediaMuxer_new(fd, AMEDIAMUXER_OUTPUT_FORMAT_MPEG_4);
+        if (muxer_ == nullptr) fail(Status::IoError, "cannot create the MP4 muxer (is the output seekable?)");
+    }
+    ~Muxer() {
+        if (muxer_ != nullptr) AMediaMuxer_delete(muxer_);
+    }
+    Muxer(const Muxer&) = delete;
+    Muxer& operator=(const Muxer&) = delete;
+
+    int addTrack(AMediaFormat* format) {
+        const ssize_t index = AMediaMuxer_addTrack(muxer_, format);
+        if (index < 0) fail(Status::IoError, "muxer rejected a track format");
+        if (++added_ == expected_) {
+            if (AMediaMuxer_start(muxer_) != AMEDIA_OK) fail(Status::IoError, "muxer failed to start");
+            started_ = true;
+            for (Packet& p : pending_) write(p.track, p.data.data(), p.info);
+            pending_.clear();
+        }
+        return static_cast<int>(index);
+    }
+
+    void write(int track, const uint8_t* data, const AMediaCodecBufferInfo& info) {
+        if (!started_) {
+            Packet p{track, std::vector<uint8_t>(data + info.offset, data + info.offset + info.size), info};
+            p.info.offset = 0;
+            pending_.push_back(std::move(p));
+            return;
+        }
+        if (AMediaMuxer_writeSampleData(muxer_, static_cast<size_t>(track), data, &info) != AMEDIA_OK) {
+            fail(Status::IoError, "writing to the output file failed (disk full?)");
+        }
+    }
+
+    void finish() {
+        if (!started_) fail(Status::CodecError, "the encoders produced no output");
+        if (AMediaMuxer_stop(muxer_) != AMEDIA_OK) fail(Status::IoError, "finalising the MP4 failed");
+        AMediaMuxer_delete(muxer_);
+        muxer_ = nullptr;
+    }
+
+private:
+    AMediaMuxer* muxer_ = nullptr;
+    int expected_;
+    int added_ = 0;
+    bool started_ = false;
+    std::vector<Packet> pending_;
+};
+
+class Encoder {
+public:
+    explicit Encoder(Muxer& muxer) : muxer_(muxer) {}
+    ~Encoder() {
+        if (codec_ != nullptr) {
+            AMediaCodec_stop(codec_);
+            AMediaCodec_delete(codec_);
+        }
+    }
+    Encoder(const Encoder&) = delete;
+    Encoder& operator=(const Encoder&) = delete;
+
+    // Creates and configures the codec for `mime`; the caller fills `format` before this call.
+    void create(const char* mime, AMediaFormat* format, ANativeWindow** inputSurface) {
+        codec_ = AMediaCodec_createEncoderByType(mime);
+        if (codec_ == nullptr) fail(Status::UnsupportedFormat, std::string("no encoder for ") + mime);
+        if (AMediaCodec_configure(codec_, format, nullptr, nullptr, AMEDIACODEC_CONFIGURE_FLAG_ENCODE) != AMEDIA_OK) {
+            fail(Status::UnsupportedFormat, std::string("the encoder rejected the settings for ") + mime);
+        }
+        if (inputSurface != nullptr &&
+            AMediaCodec_createInputSurface(codec_, inputSurface) != AMEDIA_OK) {
+            fail(Status::CodecError, "cannot create the encoder input surface");
+        }
+        if (AMediaCodec_start(codec_) != AMEDIA_OK) fail(Status::CodecError, "the encoder failed to start");
+    }
+
+    AMediaCodec* codec() const { return codec_; }
+    bool ended() const { return eos_; }
+
+    // Moves every encoded buffer that is ready into the muxer. With `untilEos` it waits for the
+    // end-of-stream marker.
+    void drain(bool untilEos) {
+        const auto start = Clock::now();
+        for (;;) {
+            AMediaCodecBufferInfo info{};
+            const ssize_t index = AMediaCodec_dequeueOutputBuffer(codec_, &info, untilEos ? 10000 : 0);
+            if (index == AMEDIACODEC_INFO_TRY_AGAIN_LATER) {
+                if (!untilEos) return;
+                if (Clock::now() - start > std::chrono::seconds(30)) fail(Status::CodecError, "the encoder never finished");
+                continue;
+            }
+            if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
+                AMediaFormat* format = AMediaCodec_getOutputFormat(codec_);
+                track_ = muxer_.addTrack(format);
+                AMediaFormat_delete(format);
+                continue;
+            }
+            if (index < 0) continue;  // output buffers changed: nothing to do on modern API levels
+            size_t size = 0;
+            uint8_t* data = AMediaCodec_getOutputBuffer(codec_, static_cast<size_t>(index), &size);
+            const bool config = (info.flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG) != 0;
+            if (data != nullptr && info.size > 0 && !config) {
+                if (track_ < 0) fail(Status::CodecError, "encoded data arrived before the output format");
+                muxer_.write(track_, data, info);
+            }
+            AMediaCodec_releaseOutputBuffer(codec_, static_cast<size_t>(index), false);
+            if ((info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0) {
+                eos_ = true;
+                return;
+            }
+        }
+    }
+
+private:
+    Muxer& muxer_;
+    AMediaCodec* codec_ = nullptr;
+    int track_ = -1;
+    bool eos_ = false;
+};
+
+// Audio: offline mix -> AAC.
+class AudioPump {
+public:
+    AudioPump(Muxer& muxer, const ExportParams& params) : encoder_(muxer), params_(params) {}
+
+    void start(const std::vector<std::pair<int64_t, int>>& assetFds) {
+        AMediaFormat* format = AMediaFormat_new();
+        AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "audio/mp4a-latm");
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, kAudioSampleRate);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, kAudioChannels);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, params_.audioBitrate);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_AAC_PROFILE, 2);  // AAC-LC
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE, 16384);
+        try {
+            encoder_.create("audio/mp4a-latm", format, nullptr);
+        } catch (...) {
+            AMediaFormat_delete(format);
+            throw;
+        }
+        AMediaFormat_delete(format);
+
+        if (const int32_t s = engine_.start(true); s != 0) {
+            fail(static_cast<Status>(s), "cannot start the offline audio mixer");
+        }
+        for (const auto& entry : assetFds) {
+            if (const int32_t s = engine_.setAssetFd(entry.first, entry.second); s != 0) {
+                fail(static_cast<Status>(s), "cannot register a media file with the audio mixer");
+            }
+        }
+        if (const int32_t s = engine_.setSnapshot(params_.audioSnapshot.data(), params_.audioSnapshot.size()); s != 0) {
+            fail(static_cast<Status>(s), "the audio snapshot was rejected");
+        }
+        engine_.seekFrame(0);
+        engine_.play();
+        pcm_.resize(static_cast<size_t>(kAudioChunkFrames) * kAudioChannels);
+        // Throw away the first kAacDelaySamples of the mix (see above).
+        for (int64_t skipped = 0; skipped < kAacDelaySamples;) {
+            const int32_t n = static_cast<int32_t>(std::min<int64_t>(kAudioChunkFrames, kAacDelaySamples - skipped));
+            engine_.renderOffline(pcm_.data(), n);
+            skipped += n;
+        }
+    }
+
+    ~AudioPump() { engine_.stop(); }
+
+    // Mixes and encodes until `targetSamples` samples have been written in total.
+    void pumpTo(int64_t targetSamples) {
+        while (written_ < targetSamples) {
+            const int32_t n = static_cast<int32_t>(std::min<int64_t>(kAudioChunkFrames, targetSamples - written_));
+            engine_.renderOffline(pcm_.data(), n);
+            feed(n, 0);
+        }
+    }
+
+    void finish() {
+        feed(0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+        encoder_.drain(true);
+    }
+
+    void drain() { encoder_.drain(false); }
+
+    void checkFaults() {
+        std::vector<audio::AudioFault> faults;
+        engine_.pollFaults(&faults);
+        for (const audio::AudioFault& f : faults) {
+            if (f.kind == audio::AudioFault::Kind::Decode) {
+                fail(f.status == Status::Ok ? Status::CodecError : f.status,
+                     "an audio clip could not be decoded for the export");
+            }
+        }
+    }
+
+    int64_t written() const { return written_; }
+
+private:
+    // Queues `frames` interleaved stereo frames from pcm_ (or an empty end-of-stream buffer).
+    void feed(int32_t frames, uint32_t flags) {
+        int32_t done = 0;
+        do {
+            ssize_t index = -1;
+            const auto start = Clock::now();
+            for (;;) {
+                index = AMediaCodec_dequeueInputBuffer(encoder_.codec(), 2000);
+                if (index >= 0) break;
+                encoder_.drain(false);  // free output buffers so the encoder can take more input
+                if (Clock::now() - start > std::chrono::seconds(10)) fail(Status::CodecError, "the audio encoder stalled");
+            }
+            size_t capacity = 0;
+            uint8_t* in = AMediaCodec_getInputBuffer(encoder_.codec(), static_cast<size_t>(index), &capacity);
+            if (in == nullptr) fail(Status::CodecError, "the audio encoder gave no input buffer");
+            const int32_t fit = static_cast<int32_t>(capacity / (sizeof(int16_t) * kAudioChannels));
+            const int32_t chunk = std::min(frames - done, fit);
+            int16_t* out = reinterpret_cast<int16_t*>(in);
+            for (int32_t i = 0; i < chunk * kAudioChannels; ++i) {
+                const float v = std::clamp(pcm_[static_cast<size_t>(done) * kAudioChannels + static_cast<size_t>(i)], -1.0f, 1.0f);
+                out[i] = static_cast<int16_t>(std::lrintf(v * 32767.0f));
+            }
+            const int64_t ptsUs = samplesToUs(written_, kAudioSampleRate);
+            const bool last = (done + chunk >= frames);
+            const uint32_t f = last ? flags : 0;
+            if (AMediaCodec_queueInputBuffer(encoder_.codec(), static_cast<size_t>(index), 0,
+                                             static_cast<size_t>(chunk) * sizeof(int16_t) * kAudioChannels,
+                                             static_cast<uint64_t>(ptsUs), f) != AMEDIA_OK) {
+                fail(Status::CodecError, "the audio encoder rejected input");
+            }
+            written_ += chunk;
+            done += chunk;
+        } while (done < frames);
+    }
+
+    Encoder encoder_;
+    const ExportParams& params_;
+    audio::AudioEngine engine_;
+    std::vector<float> pcm_;
+    int64_t written_ = 0;
+};
+
+// Decoded frames of one asset, shared between the decoder thread (isCached) and the export thread.
+struct AssetState {
+    std::unique_ptr<decode::VideoDecoder> decoder;
+    int64_t lastUsedFrame = 0;  // output frame that last needed this decoder
+    decode::AssetInfo info;
+    int turns = 0;
+    std::mutex mu;
+    std::map<int64_t, std::shared_ptr<decode::GpuFrame>> frames;
+};
+
+class Renderer {
+public:
+    Renderer(const ExportParams& params, ANativeWindow* window) : params_(params) {
+        decode::Error e{decode::Status::Ok, ""};
+        if (egl_.init(&e, true) != decode::Status::Ok) failDecode(e, "EGL setup failed");
+        if (!egl_.supportsPresentationTime()) {
+            fail(Status::GlError, "this device lacks EGL_ANDROID_presentation_time, needed for exact timestamps");
+        }
+        if (egl_.attachWindow(window, &e) != decode::Status::Ok) failDecode(e, "cannot attach the encoder surface");
+        if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
+        pipeline_ = std::make_unique<render::GlPipeline>(egl_);
+        if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
+        for (const auto& entry : params.assetFds) fds_[entry.first] = entry.second;
+    }
+
+    ~Renderer() {
+        for (auto& entry : assets_) entry.second->decoder->shutdown();
+        if (pipeline_) pipeline_->clearSourceCache();
+        assets_.clear();
+        pool_.clear();
+        pipeline_.reset();
+    }
+
+    void renderFrame(int64_t frame) {
+        decode::Error e{decode::Status::Ok, ""};
+        const int w = egl_.windowWidth();
+        const int h = egl_.windowHeight();
+        const int64_t projectFrame = outputToProjectFrame(frame, params_.fps, params_.projectFps);
+
+        // Every clip under the playhead, bottom layer first. `held` keeps the frames alive until the draw.
+        struct Used {
+            AssetState* asset;
+            int64_t source;
+        };
+        std::vector<std::shared_ptr<decode::GpuFrame>> held;
+        std::vector<render::LayerDraw> layers;
+        std::vector<Used> used;
+        for (const VideoClip* clip : layersAt(params_.clips, projectFrame)) {
+            AssetState& asset = assetFor(clip->assetKey, clip->layer);
+            asset.lastUsedFrame = frame;
+            const int64_t source = sourceFrameFor(*clip, projectFrame, asset.info.durationFrames);
+            held.push_back(fetch(asset, source));
+            render::LayerDraw layer;
+            layer.frame = held.back().get();
+            layer.mode = static_cast<render::ColorMode>(clip->colorMode);
+            layer.turns = asset.turns;
+            layer.transform = render::LayerTransform{
+                static_cast<float>(clip->posX),   static_cast<float>(clip->posY),     static_cast<float>(clip->scaleX),
+                static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), static_cast<float>(clip->opacity)};
+            layers.push_back(layer);
+            used.push_back({&asset, source});
+        }
+        // No layers draws black: a gap in the timeline.
+        if (pipeline_->drawScene(layers, params_.canvasWidth, params_.canvasHeight, w, h, &e) != decode::Status::Ok) {
+            failDecode(e, "drawing a frame failed");
+        }
+        for (const Used& u : used) evictBefore(*u.asset, u.source);
+        if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
+
+        egl_.setPresentationTimeExact(frameToNs(frame, params_.fps));
+        if (egl_.swap(&e) != decode::Status::Ok) failDecode(e, "presenting a frame to the encoder failed");
+    }
+
+    void checkDecoderError() {
+        std::lock_guard<std::mutex> lock(errorMu_);
+        if (decoderError_) fail(fromDecode(decoderError_->code), "decoding failed: " + decoderError_->message);
+    }
+
+private:
+    // One decoder per (media, layer): two layers showing the same file at different source frames
+    // must not fight over a single decoder's position.
+    AssetState& assetFor(int64_t key, int32_t layer) {
+        const auto slot = std::make_pair(key, layer);
+        auto it = assets_.find(slot);
+        if (it != assets_.end()) return *it->second;
+        auto fdIt = fds_.find(key);
+        if (fdIt == fds_.end() || fdIt->second < 0) fail(Status::InvalidArgument, "a clip refers to media that was not provided");
+        // The decoder takes ownership of its descriptor, even when opening fails; the job keeps the original.
+        const int fd = ::dup(fdIt->second);
+        if (fd < 0) fail(Status::IoError, "cannot duplicate a media file descriptor");
+
+        auto state = std::make_unique<AssetState>();
+        AssetState* raw = state.get();
+        decode::VideoDecoder::Callbacks callbacks;
+        callbacks.onImageAvailable = [this] { wake(); };
+        callbacks.isCached = [raw](int64_t frame) {
+            std::lock_guard<std::mutex> lock(raw->mu);
+            return raw->frames.count(frame) != 0;
+        };
+        callbacks.onError = [this](const decode::Error& error) {
+            {
+                std::lock_guard<std::mutex> lock(errorMu_);
+                if (!decoderError_) decoderError_ = error;
+            }
+            wake();
+        };
+        auto opened = decode::VideoDecoder::open(fd, decode::Rational{params_.projectFps.num, params_.projectFps.den}, std::move(callbacks));
+        if (!opened.ok()) failDecode(opened.error(), "cannot open a video clip");
+        state->decoder = std::move(opened.value());
+        state->info = state->decoder->info();
+        state->turns = ((state->info.rotationDegrees / 90) % 4 + 4) % 4;
+        state->decoder->setWindow(0, kDecodeAhead);
+        return *assets_.emplace(slot, std::move(state)).first->second;
+    }
+
+    // Returns the decoded frame for `source`, waiting for the decoder. If the stream never
+    // produces that exact frame, the nearest earlier decoded one is used.
+    std::shared_ptr<decode::GpuFrame> fetch(AssetState& asset, int64_t source) {
+        asset.decoder->setTarget(source);
+        auto lastProgress = Clock::now();
+        size_t seen = 0;
+        for (;;) {
+            checkDecoderError();
+            drain(asset);
+            {
+                std::lock_guard<std::mutex> lock(asset.mu);
+                auto exact = asset.frames.find(source);
+                if (exact != asset.frames.end()) return exact->second;
+                auto later = asset.frames.upper_bound(source);
+                if (later != asset.frames.end() && later != asset.frames.begin()) return std::prev(later)->second;
+                if (asset.frames.size() != seen) {
+                    seen = asset.frames.size();
+                    lastProgress = Clock::now();
+                }
+            }
+            if (Clock::now() - lastProgress > kDecodeStall) {
+                fail(Status::CodecError, "the decoder stalled at source frame " + std::to_string(source));
+            }
+            std::unique_lock<std::mutex> lock(wakeMu_);
+            wakeCv_.wait_for(lock, std::chrono::milliseconds(20));
+        }
+    }
+
+    void drain(AssetState& asset) {
+        asset.decoder->drainImages([&](int64_t frame, AHardwareBuffer* buffer) -> int {
+            {
+                std::lock_guard<std::mutex> lock(asset.mu);
+                if (asset.frames.count(frame) != 0) {
+                    asset.decoder->markResolved(frame);
+                    return -1;
+                }
+            }
+            decode::Error e{decode::Status::Ok, ""};
+            std::shared_ptr<decode::GpuFrame> gpu = takeFromPool(asset.info.width, asset.info.height);
+            if (!gpu) {
+                auto allocated = decode::allocateGpuFrame(static_cast<uint32_t>(asset.info.width),
+                                                          static_cast<uint32_t>(asset.info.height));
+                if (!allocated.ok()) {
+                    asset.decoder->markResolved(frame);
+                    failDecode(allocated.error(), "cannot allocate a frame buffer");
+                }
+                gpu = allocated.value();
+            }
+            int releaseFence = -1;
+            if (pipeline_->blitToFrame(buffer, *gpu, &releaseFence, &e) != decode::Status::Ok) {
+                asset.decoder->markResolved(frame);
+                failDecode(e, "converting a decoded frame failed");
+            }
+            {
+                std::lock_guard<std::mutex> lock(asset.mu);
+                asset.frames[frame] = std::move(gpu);
+            }
+            asset.decoder->markResolved(frame);
+            return releaseFence;
+        });
+    }
+
+    std::shared_ptr<decode::GpuFrame> takeFromPool(int32_t width, int32_t height) {
+        for (auto it = pool_.begin(); it != pool_.end(); ++it) {
+            if ((*it)->width() == static_cast<uint32_t>(width) && (*it)->height() == static_cast<uint32_t>(height)) {
+                auto frame = std::move(*it);
+                pool_.erase(it);
+                return frame;
+            }
+        }
+        return nullptr;
+    }
+
+    // Frames before `source` are never needed again (output only moves forward); recycle them.
+    void evictBefore(AssetState& asset, int64_t source) {
+        std::lock_guard<std::mutex> lock(asset.mu);
+        auto end = asset.frames.lower_bound(source);
+        for (auto it = asset.frames.begin(); it != end;) {
+            if (it->second.use_count() == 1 && pool_.size() < 8) pool_.push_back(std::move(it->second));
+            it = asset.frames.erase(it);
+        }
+    }
+
+    // Hardware decoders are scarce: close the ones no clip has needed for a couple of seconds.
+    void releaseIdleDecoders(int64_t frame) {
+        const int64_t idle = std::max<int64_t>(60, static_cast<int64_t>(2) * params_.fps.num / params_.fps.den);
+        bool released = false;
+        for (auto it = assets_.begin(); it != assets_.end();) {
+            if (frame - it->second->lastUsedFrame > idle) {
+                it->second->decoder->shutdown();
+                it = assets_.erase(it);
+                released = true;
+            } else {
+                ++it;
+            }
+        }
+        if (released) pipeline_->clearSourceCache();
+    }
+
+    void wake() {
+        std::lock_guard<std::mutex> lock(wakeMu_);
+        wakeCv_.notify_all();
+    }
+
+    const ExportParams& params_;
+    render::EglContext egl_;
+    std::unique_ptr<render::GlPipeline> pipeline_;
+    std::map<int64_t, int> fds_;
+    std::map<std::pair<int64_t, int32_t>, std::unique_ptr<AssetState>> assets_;
+    std::vector<std::shared_ptr<decode::GpuFrame>> pool_;
+
+    std::mutex wakeMu_;
+    std::condition_variable wakeCv_;
+    std::mutex errorMu_;
+    std::optional<decode::Error> decoderError_;
+};
+
+void setVideoFormat(AMediaFormat* format, const ExportParams& p) {
+    const char* mime = p.codec == VideoCodec::Hevc ? "video/hevc" : "video/avc";
+    AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, p.width);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, p.height);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, kColorFormatSurface);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, p.videoBitrate);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE,
+                          static_cast<int32_t>(std::lround(static_cast<double>(p.fps.num) / p.fps.den)));
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BITRATE_MODE, 1);  // VBR
+    // Tag the stream as BT.709 limited-range SDR, which is what the compositor outputs.
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_STANDARD, 1);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_RANGE, 2);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_TRANSFER, 3);
+}
+
+}  // namespace
+
+ExportJob::ExportJob(ExportParams params, ProgressSink progress, DoneSink done)
+    : params_(std::move(params)), progress_(std::move(progress)), done_(std::move(done)) {}
+
+ExportJob::~ExportJob() {
+    cancel();
+    if (thread_.joinable()) thread_.join();
+    closeDescriptors();  // only does anything when the job was never started
+}
+
+void ExportJob::closeDescriptors() {
+    if (params_.outputFd >= 0) ::close(params_.outputFd);
+    params_.outputFd = -1;
+    for (auto& entry : params_.assetFds) {
+        if (entry.second >= 0) ::close(entry.second);
+        entry.second = -1;
+    }
+}
+
+void ExportJob::start() {
+    thread_ = std::thread([this] { run(); });
+}
+
+void ExportJob::cancel() { cancelled_.store(true); }
+
+void ExportJob::run() {
+    Status status = Status::Ok;
+    std::string message;
+    try {
+        execute();
+    } catch (const ExportFailure& f) {
+        status = f.status;
+        message = f.message;
+    } catch (const std::exception& e) {
+        status = Status::CodecError;
+        message = std::string("unexpected error: ") + e.what();
+    }
+    closeDescriptors();
+    if (status != Status::Ok) UV_LOGE("export failed (%s): %s", core::statusName(status), message.c_str());
+    done_(status, message);
+}
+
+void ExportJob::execute() {
+    if (params_.width <= 0 || params_.height <= 0 || params_.fps.num <= 0 || params_.fps.den <= 0 ||
+        params_.projectFps.num <= 0 || params_.projectFps.den <= 0 || params_.totalFrames <= 0 ||
+        params_.videoBitrate <= 0) {
+        fail(Status::InvalidArgument, "invalid export settings");
+    }
+    if (params_.canvasWidth <= 0 || params_.canvasHeight <= 0) {  // no project size given: use the output's
+        params_.canvasWidth = params_.width;
+        params_.canvasHeight = params_.height;
+    }
+    const bool hasAudio = !params_.audioSnapshot.empty();
+    const auto begin = Clock::now();
+
+    Muxer muxer(params_.outputFd, hasAudio ? 2 : 1);
+
+    Encoder video(muxer);
+    ANativeWindow* surface = nullptr;
+    {
+        AMediaFormat* format = AMediaFormat_new();
+        setVideoFormat(format, params_);
+        try {
+            video.create(params_.codec == VideoCodec::Hevc ? "video/hevc" : "video/avc", format, &surface);
+        } catch (...) {
+            AMediaFormat_delete(format);
+            throw;
+        }
+        AMediaFormat_delete(format);
+    }
+    std::unique_ptr<ANativeWindow, void (*)(ANativeWindow*)> surfaceGuard(surface, ANativeWindow_release);
+
+    std::unique_ptr<AudioPump> audioPump;
+    if (hasAudio) {
+        audioPump = std::make_unique<AudioPump>(muxer, params_);
+        audioPump->start(params_.assetFds);
+    }
+
+    {
+        Renderer renderer(params_, surface);
+
+        int64_t lastReport = -1;
+        for (int64_t frame = 0; frame < params_.totalFrames; ++frame) {
+            if (cancelled_.load()) fail(Status::Cancelled, "export cancelled");
+            renderer.renderFrame(frame);
+            video.drain(false);
+            if (audioPump) {
+                audioPump->pumpTo(framesToSamples(frame + 1, params_.fps, kAudioSampleRate));
+                audioPump->drain();
+                if (frame % 30 == 0) audioPump->checkFaults();
+            }
+            const int32_t permille = progressPermille(frame + 1, params_.totalFrames);
+            if (permille != lastReport) {
+                lastReport = permille;
+                progress_(permille);
+            }
+        }
+        renderer.checkDecoderError();
+        if (AMediaCodec_signalEndOfInputStream(video.codec()) != AMEDIA_OK) {
+            fail(Status::CodecError, "cannot end the video stream");
+        }
+    }
+
+    video.drain(true);
+    if (audioPump) {
+        audioPump->checkFaults();
+        audioPump->finish();
+    }
+    muxer.finish();
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
+    UV_LOGI("export done: %lld frames in %lld ms", static_cast<long long>(params_.totalFrames), static_cast<long long>(ms));
+}
+
+}  // namespace uv::encode
