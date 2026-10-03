@@ -66,6 +66,52 @@ object LaneOps {
     }
 
     /**
+     * Puts a clip that is not on the timeline yet on a brand-new overlay lane above every video lane,
+     * starting at [start]. Used when media is dragged in from the tray above the top lane.
+     */
+    fun addClipOnNewLane(timeline: Timeline, clip: Clip, start: FrameIndex): EditResult<Timeline> {
+        if (start < FrameIndex.ZERO) return failure(EditError.NegativeStart)
+        if (timeline.trackOfClip(clip.id) != null) return failure(EditError.DuplicateClipId(clip.id))
+        val newId = freshTrackId(timeline, "track-v")
+        val top = timeline.tracks.indexOfFirst { it.type == TrackType.VIDEO }.takeIf { it >= 0 } ?: 0
+        val withLane = when (val added = TimelineOps.addTrack(timeline, Track(newId, TrackType.VIDEO), top)) {
+            is EditResult.Success -> added.value
+            is EditResult.Failure -> return added
+        }
+        return TimelineOps.overwrite(withLane, newId, clip.copy(timelineStart = start))
+    }
+
+    /**
+     * Drops a clip that is not on the timeline yet onto [toTrackId], replacing whatever it covers.
+     * On the base the footage under it is replaced (the base only grows if the clip runs past its end,
+     * and a drop past the end is placed at the end, so it never gets a gap) and overlays above the
+     * replaced part are cleared like a deleted range, without closing it. Elsewhere it is
+     * [TimelineOps.overwrite].
+     */
+    fun overwriteNewClip(timeline: Timeline, clip: Clip, toTrackId: String, start: FrameIndex): EditResult<Timeline> {
+        val dest = timeline.track(toTrackId) ?: return failure(EditError.TrackNotFound(toTrackId))
+        if (start < FrameIndex.ZERO) return failure(EditError.NegativeStart)
+        if (timeline.trackOfClip(clip.id) != null) return failure(EditError.DuplicateClipId(clip.id))
+        val base = ClipDeletion.baseTrack(timeline)
+        val onBase = base != null && dest.id == base.id
+        val at = if (onBase) minOf(start, dest.end) else start
+        val placed = clip.copy(timelineStart = at)
+        var current = when (val result = TimelineOps.overwrite(timeline, dest.id, placed)) {
+            is EditResult.Success -> result.value
+            is EditResult.Failure -> return result
+        }
+        if (onBase) {
+            for (overlay in current.tracks.filter { it.id != dest.id }) {
+                current = when (val cut = ClipDeletion.removeRange(current, overlay.id, at, placed.timelineEnd, closeGap = false)) {
+                    is EditResult.Success -> cut.value
+                    is EditResult.Failure -> return cut
+                }
+            }
+        }
+        return EditResult.Success(current)
+    }
+
+    /**
      * Takes a clip off the base and puts it on an overlay lane ([toTrackId]) or on a brand new lane above
      * the others (null). It is a move: the base closes the gap the clip leaves, but no overlay is deleted
      * or shifted; the clip lands at [newStart] replacing whatever it covers on the overlay lane.

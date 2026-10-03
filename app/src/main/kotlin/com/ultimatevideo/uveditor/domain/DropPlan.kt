@@ -87,6 +87,100 @@ object DropPlan {
         }
     }
 
+    /**
+     * What dropping a clip that is not on the timeline yet (dragged from the media tray or from another
+     * app) would do. Same rules as [decide], from the user's side: on the base, near a cut (or the lane's
+     * start / end) it INSERTs, over the body of a clip it OVERWRITEs, past the end it appends; on any other
+     * lane it OVERWRITEs what it covers and otherwise just places the clip; above the top lane a video
+     * clip makes a NEW_LANE; far outside, or over a lane of the wrong kind (audio on a video lane and the
+     * other way round), the drop CANCELs.
+     *
+     * [clip] is the clip that would be created (its [Clip.timelineStart] is ignored) and [type] the kind of
+     * lane it needs. Snapping pulls the clip's start or end to the playhead, markers and clip edges.
+     */
+    fun decideNew(
+        timeline: Timeline,
+        clip: Clip,
+        type: TrackType,
+        requestedStart: FrameIndex,
+        target: DropTarget,
+        snap: Snap? = null,
+    ): DropDecision {
+        val length = clip.durationFrames
+        val cancel = DropDecision(DropKind.CANCEL, null, DropHint(DropKind.CANCEL, null, 0, 0))
+        val start = maxOf(requestedStart, FrameIndex.ZERO)
+        val base = ClipDeletion.baseTrack(timeline)
+        return when {
+            target == DropTarget.Outside -> cancel
+            target == DropTarget.AboveLanes -> {
+                if (type != TrackType.VIDEO) return cancel
+                val at = snapNew(timeline, start, length, snap)
+                DropDecision(
+                    DropKind.NEW_LANE,
+                    EditCommand.AddClipOnNewLane(clip, at),
+                    DropHint(DropKind.NEW_LANE, null, at.value, at.value + length),
+                )
+            }
+            else -> {
+                val lane = (target as DropTarget.Lane).trackId.let { timeline.track(it) } ?: return cancel
+                if (lane.type != type) return cancel
+                val onBase = base != null && lane.id == base.id
+                val laneEnd = lane.end.value
+                if (onBase) {
+                    val junction = when {
+                        lane.clips.isEmpty() -> 0L
+                        start.value >= laneEnd -> laneEnd
+                        else -> junctionNear(lane.clips, start.value)
+                    }
+                    if (junction != null) {
+                        return DropDecision(
+                            DropKind.INSERT,
+                            EditCommand.InsertBase(clip, FrameIndex(junction)),
+                            DropHint(DropKind.INSERT, lane.id, junction, junction),
+                        )
+                    }
+                    val at = snapNew(timeline, start, length, snap)
+                    return DropDecision(
+                        DropKind.OVERWRITE,
+                        EditCommand.OverwriteNewClip(clip, lane.id, at),
+                        DropHint(DropKind.OVERWRITE, lane.id, at.value, minOf(at.value + length, laneEnd).coerceAtLeast(at.value)),
+                    )
+                }
+                val at = snapNew(timeline, start, length, snap)
+                val covers = lane.clips.any { it.timelineStart < at + length && it.timelineEnd > at }
+                val kind = if (covers) DropKind.OVERWRITE else DropKind.MOVE
+                DropDecision(
+                    kind,
+                    EditCommand.OverwriteNewClip(clip, lane.id, at),
+                    DropHint(kind, lane.id, at.value, at.value + length),
+                )
+            }
+        }
+    }
+
+    /** Pulls a new clip's start or end onto the nearest snap target within the threshold (start wins ties). */
+    private fun snapNew(timeline: Timeline, start: FrameIndex, length: Long, snap: Snap?): FrameIndex {
+        if (snap == null) return start
+        val targets = buildList {
+            add(0L)
+            snap.playhead?.let { add(it.value) }
+            snap.extraTargets.forEach { add(it.value) }
+            for (track in timeline.tracks) for (other in track.clips) {
+                add(other.timelineStart.value)
+                add(other.timelineEnd.value)
+            }
+        }
+        var best = start.value
+        var bestDistance = snap.thresholdFrames + 1
+        for (t in targets) {
+            val byStart = kotlin.math.abs(t - start.value)
+            if (byStart < bestDistance) { bestDistance = byStart; best = t }
+            val byEnd = kotlin.math.abs(t - (start.value + length))
+            if (byEnd < bestDistance && t - length >= 0) { bestDistance = byEnd; best = t - length }
+        }
+        return FrameIndex(best)
+    }
+
     private fun onLane(
         timeline: Timeline,
         clipId: String,

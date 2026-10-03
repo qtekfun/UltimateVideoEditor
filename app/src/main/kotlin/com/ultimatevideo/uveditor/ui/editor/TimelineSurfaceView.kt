@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.editor
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
+import android.view.DragEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -10,6 +11,13 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
+import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
+import com.ultimatevideo.uveditor.ui.editor.tray.findActivity
+import com.ultimatevideo.uveditor.ui.editor.tray.isTrayAsset
+import com.ultimatevideo.uveditor.ui.editor.tray.kindsOfMimes
+import com.ultimatevideo.uveditor.ui.editor.tray.mimes
+import com.ultimatevideo.uveditor.ui.editor.tray.persistReadAccess
+import com.ultimatevideo.uveditor.ui.editor.tray.uris
 
 /**
  * Receives clip-editing drags from the timeline canvas. A drag only reaches these callbacks when
@@ -25,6 +33,31 @@ interface TimelineEditing {
 }
 
 /**
+ * Receives media dragged over the canvas with the platform drag-and-drop: assets from the media tray, or
+ * files from another app. The canvas turns the finger position into a hit-test; what a release would do is
+ * decided by the editor (see `DropPlan.decideNew`).
+ */
+interface TimelineDropTarget {
+    /** Files from another app entered the canvas; [kinds] come from their MIME types (they are not probed yet). */
+    fun onExternalEnter(kinds: List<AssetKind>)
+
+    /** The dragged media is over [hit] (also re-sent while the canvas auto-scrolls). */
+    fun onHover(hit: TimelineHit)
+
+    /** The dragged media left the canvas; it may come back. */
+    fun onLeave()
+
+    /** An asset from the tray was released over [hit]. */
+    fun onTrayDrop(hit: TimelineHit)
+
+    /** Files from another app were released over [hit]. */
+    fun onExternalDrop(uris: List<String>, hit: TimelineHit)
+
+    /** The drag is over for good (dropped elsewhere or cancelled): forget it. */
+    fun onEnd()
+}
+
+/**
  * Surface the native renderer draws into. This view only forwards touch gestures to the engine;
  * all drawing and hit-testing happen in C++ so scrolling never triggers Compose recomposition.
  */
@@ -34,7 +67,81 @@ class TimelineSurfaceView(
     private val engine: TimelineEngine,
     private val onTap: (TimelineHit) -> Unit,
     private val editing: () -> TimelineEditing? = { null },
+    private val dropTarget: () -> TimelineDropTarget? = { null },
 ) : SurfaceView(context), SurfaceHolder.Callback {
+
+    private var hovering = false
+    private var hoverIsTray = false
+
+    // Media dragged in from outside keeps the timeline scrolling near its side edges, like a clip drag.
+    private val hoverScroll = object : Runnable {
+        override fun run() {
+            if (!hovering) return
+            val dx = edgeScrollSpeed(dragX, width.toFloat(), resources.displayMetrics.density)
+            if (dx != 0f) {
+                engine.scrollBy(dx, 0f)
+                dropTarget()?.onHover(engine.hitTest(dragX, dragY))
+            }
+            postOnAnimation(this)
+        }
+    }
+
+    private fun stopHover() {
+        hovering = false
+        removeCallbacks(hoverScroll)
+    }
+
+    private fun handleDrag(event: DragEvent): Boolean {
+        val target = dropTarget() ?: return false
+        val description = event.clipDescription
+        return when (event.action) {
+            DragEvent.ACTION_DRAG_STARTED ->
+                description != null && (description.isTrayAsset() || kindsOfMimes(description.mimes()).isNotEmpty())
+            DragEvent.ACTION_DRAG_ENTERED -> {
+                hoverIsTray = description?.isTrayAsset() == true
+                if (!hoverIsTray && description != null) target.onExternalEnter(kindsOfMimes(description.mimes()))
+                hovering = true
+                postOnAnimation(hoverScroll)
+                true
+            }
+            DragEvent.ACTION_DRAG_LOCATION -> {
+                dragX = event.x
+                dragY = event.y
+                target.onHover(engine.hitTest(event.x, event.y))
+                true
+            }
+            DragEvent.ACTION_DRAG_EXITED -> {
+                stopHover()
+                target.onLeave()
+                true
+            }
+            DragEvent.ACTION_DROP -> {
+                stopHover()
+                val hit = engine.hitTest(event.x, event.y)
+                if (hoverIsTray) {
+                    target.onTrayDrop(hit)
+                } else {
+                    val data = event.clipData
+                    val uris = data?.uris().orEmpty()
+                    if (uris.isEmpty()) {
+                        target.onEnd()
+                    } else {
+                        // Access to the files lasts as long as the activity; keep it for later sessions when offered.
+                        context.findActivity()?.requestDragAndDropPermissions(event)
+                        uris.forEach { persistReadAccess(context, it) }
+                        target.onExternalDrop(uris, hit)
+                    }
+                }
+                true
+            }
+            DragEvent.ACTION_DRAG_ENDED -> {
+                stopHover()
+                target.onEnd()
+                true
+            }
+            else -> false
+        }
+    }
 
     private var downHit: TimelineHit? = null
     private var dragging = false
@@ -101,6 +208,7 @@ class TimelineSurfaceView(
 
     init {
         holder.addCallback(this)
+        setOnDragListener { _, event -> handleDrag(event) }
     }
 
     /**

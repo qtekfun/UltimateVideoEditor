@@ -73,6 +73,16 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.overwriteMove(timeline, clipId, toTrackId, newStart)
     }
 
+    /** Puts a clip that is not on the timeline yet on a new overlay lane above the others. */
+    data class AddClipOnNewLane(val clip: Clip, val start: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.addClipOnNewLane(timeline, clip, start)
+    }
+
+    /** Drops a new clip on a lane replacing what it covers (base: overlays above the replaced part are cleared). */
+    data class OverwriteNewClip(val clip: Clip, val trackId: String, val start: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.overwriteNewClip(timeline, clip, trackId, start)
+    }
+
     /** Lifts a base clip onto an overlay lane ([toTrackId]) or a new lane (null); the base closes the gap. */
     data class LiftFromBase(val clipId: String, val toTrackId: String?, val newStart: FrameIndex) : EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.liftFromBase(timeline, clipId, toTrackId, newStart)
