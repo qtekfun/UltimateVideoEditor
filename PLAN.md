@@ -106,7 +106,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       Follow-ups: spectral-flux onsets (the detector reads amplitude only), dragging markers on the ruler, text animations
       beyond keyframes
 - [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
-- [ ] 3D LUTs
+- [x] 3D LUTs (.cube 17/33/65): library import, per-clip LUT effect with intensity, preview/export parity — parser, store, wire format and the CPU reference have JVM/host tests; the GL 3D-texture path was not seen on the device
 - [x] Vulkan renderer evaluation — `docs/vulkan-evaluation.md`: recommendation is **not to migrate now** (render thread costs ~0.85 ms of a 16.6 ms frame at 4K60); prepare a `Compositor` seam, revisit when a feature needs compute
 
 ## Cross-cutting
@@ -127,3 +127,47 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Move lanes up/down (toolbar)
 - [ ] Verified on the OPPO (the device was unreachable when this was written)
 - [ ] Insert on overlay/audio lanes (deferred)
+
+## Phase 8 — Closing the gaps with LumaFusion and CapCut (queued work packages)
+Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; the research is in
+`docs/lumafusion-comparison.md` and `docs/capcut-comparison.md`. Run at most two packages at a time, in the
+waves of SPECS 9.20.
+
+### Wave 0 — usability first
+- [ ] WP-U1 New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
+- [ ] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+
+### Wave 1
+- [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
+- [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect; looks (after the 3D LUT and per-clip colour PRs)
+
+### Wave 2
+- [ ] WP-S Multiselect and bulk edits
+- [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness, track mixer, auto-ducking, meters
+
+### Wave 3
+- [ ] WP-T Multilayer titles and fonts
+- [ ] WP-K Generalised keyframes (after WP-C and WP-A)
+
+### Wave 4
+- [ ] WP-X Stabiliser (builds the shared tracker and smoother)
+- [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search
+
+### Wave 5 — CapCut-style creator tools
+- [ ] WP-V1 Smart cutout and motion tracking
+- [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker
+
+### Wave 6
+- [ ] WP-V2 Auto reframe and auto cut
+- [ ] WP-V3 Text to speech, voice effects, vocal isolation
+
+### Wave 7
+- [ ] WP-P Proxy media
+- [ ] WP-V5 Project templates, transition and filter packs
+
+### Wave 8
+- [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
+- [ ] WP-R Release preparation
+
+### Standing requirement for every package
+- [ ] Verified on the OPPO CPH2841 (list what was and was not seen in the PR body)

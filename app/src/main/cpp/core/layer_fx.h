@@ -32,6 +32,8 @@ enum class EffectType : int {
     Grayscale = 10,
     Sepia = 11,
     ChromaKey = 12,
+    // v[0] = library key of an uploaded 3D LUT (uploadLut), v[1] = intensity 0..1. A missing LUT is skipped.
+    Lut = 13,
 };
 
 inline constexpr int kMaxEffectValues = 6;
@@ -108,7 +110,7 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
         const int type = static_cast<int>(data[at]);
         const int n = static_cast<int>(data[at + 1]);
         at += 2;
-        if (type < 1 || type > 12 || n < 0 || n > kMaxEffectValues || size - at < static_cast<size_t>(n)) return false;
+        if (type < 1 || type > 13 || n < 0 || n > kMaxEffectValues || size - at < static_cast<size_t>(n)) return false;
         EffectOp op;
         op.type = static_cast<EffectType>(type);
         for (int k = 0; k < n; ++k) {

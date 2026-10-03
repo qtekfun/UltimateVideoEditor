@@ -268,6 +268,23 @@ void PreviewEngine::uploadTitle(uint32_t key, int width, int height, std::vector
     });
 }
 
+void PreviewEngine::uploadLut(uint32_t key, int size, std::vector<float> rgb) {
+    thread_->post([this, key, size, rgb = std::move(rgb)] {
+        Error error{Status::Ok, ""};
+        if (pipeline_->uploadLut(key, size, rgb.data(), &error) != Status::Ok) {
+            report(error);
+            return;
+        }
+        drawnValid_ = false;  // a changed LUT under a drawn key must show up
+    });
+}
+
+void PreviewEngine::releaseLut(uint32_t key) {
+    thread_->post([this, key] {
+        if (pipeline_) pipeline_->releaseLut(key);
+    });
+}
+
 void PreviewEngine::releaseTitle(uint32_t key) {
     thread_->post([this, key] {
         if (pipeline_) pipeline_->releaseTitle(key);
@@ -569,7 +586,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                 draw.fx = layer.fx;
                 frames.push_back(nullptr);  // keeps `frames` and `layers` index-aligned for the canvas size below
                 layers.push_back(draw);
-                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title, layer.fx});
+                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title, layer.fx, -1});
                 continue;
             }
             auto asset = assets_.find(layer.asset);
@@ -580,10 +597,14 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                 return;
             }
             frames.push_back(frame);
-            LayerDraw draw{frame.get(), asset->second.mode, asset->second.turns, layer.transform};
+            // A clip's colour override replaces what the file says; the mode then follows the output space.
+            const ColorMode mode = layer.source >= 0 ? colorModeFor(static_cast<SourceTransfer>(layer.source),
+                                                                    static_cast<OutputSpace>(effectiveSpace_.load()))
+                                                     : asset->second.mode;
+            LayerDraw draw{frame.get(), mode, asset->second.turns, layer.transform};
             draw.fx = layer.fx;
             layers.push_back(std::move(draw));
-            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx});
+            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source});
         }
     }
     if (layers.empty()) return;

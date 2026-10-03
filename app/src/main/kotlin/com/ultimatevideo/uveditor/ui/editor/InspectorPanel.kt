@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipGain
 import com.ultimatevideo.uveditor.domain.Interpolation
+import com.ultimatevideo.uveditor.domain.SourceColorSpace
 import com.ultimatevideo.uveditor.domain.SpeedLimits
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.TitleAlignment
@@ -123,6 +124,10 @@ fun InspectorPanel(
                 readout = "${(transform.opacity * PERCENT).roundToInt()}%",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(opacity = it.toDouble()))) }
+            if (clip.hasMedia) {
+                val detected = SourceColorSpace.fromId(state.assets.firstOrNull { it.id == clip.assetId }?.colorSpace)
+                ClipColorControls(detected, clip.colorOverride, state.colorSpace, onIntent)
+            }
             FxControls(clip.fx, onIntent)
         }
         if (clip.hasMedia) SpeedControls(state, clip, isVisual, onIntent)

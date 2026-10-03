@@ -66,7 +66,15 @@ private fun EffectsHeader(fx: ClipFx, onIntent: (EditorIntent) -> Unit) {
         Box {
             TextButton(onClick = { menuOpen = true }, enabled = fx.effects.size < ClipFx.MAX_EFFECTS) { Text("Add") }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                for (type in EffectType.entries) {
+                DropdownMenuItem(
+                    text = { Text("LUT…") },
+                    onClick = {
+                        menuOpen = false
+                        onIntent(EditorIntent.OpenLutPicker)
+                    },
+                )
+                // A LUT needs a library entry, so it has its own item above instead of a default-valued row.
+                for (type in EffectType.entries.filter { it != EffectType.LUT }) {
                     DropdownMenuItem(
                         text = { Text(type.label) },
                         onClick = {
@@ -84,7 +92,12 @@ private fun EffectsHeader(fx: ClipFx, onIntent: (EditorIntent) -> Unit) {
 @Composable
 private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorIntent) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text(text = effect.type.label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+        val lutName = if (effect.type == EffectType.LUT) LocalLutNames.current[effect.values[0].toInt()] ?: "missing" else null
+        Text(
+            text = if (effect.type == EffectType.LUT) "LUT · $lutName" else effect.type.label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.weight(1f),
+        )
         TextButton(
             onClick = { onIntent(EditorIntent.MoveEffect(effect.id, index - 1)) },
             enabled = index > 0,
@@ -101,6 +114,8 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
     effect.type.params.forEachIndexed { i, param ->
         // The key colour is picked from the swatches; its three channels have no sliders.
         if (effect.type == EffectType.CHROMA_KEY && i < KEY_CHANNELS) return@forEachIndexed
+        // The LUT is chosen in the picker; only its intensity is a slider.
+        if (effect.type == EffectType.LUT && i == 0) return@forEachIndexed
         InspectorSlider(
             label = param.name,
             value = effect.values[i].toFloat(),
