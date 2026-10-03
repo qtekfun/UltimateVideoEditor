@@ -77,6 +77,8 @@ import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
+import com.ultimatevideo.uveditor.ui.editor.tray.moveAsset
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -108,6 +110,15 @@ class EditorViewModel(
         var target: DropTarget? = null
     }
 
+    /**
+     * A drag of media that is not on the timeline yet: [clip] is the clip a release would create ([type] is
+     * the kind of lane it needs). [assetId] is null while files from another app are only hovering.
+     */
+    private class TrayDragSession(val assetId: String?, val clip: Clip, val type: TrackType) {
+        var target: DropTarget? = null
+        var command: EditCommand? = null
+    }
+
     /** An inspector or preview-gesture edit in progress: shown live, committed as one undo step on release. */
     private class AppearanceSession(
         val clipId: String,
@@ -131,6 +142,7 @@ class EditorViewModel(
     private var history = EditHistory(Timeline())
     private var baseProject: ProjectDto? = null
     private var drag: DragSession? = null
+    private var trayDrag: TrayDragSession? = null
     private var pendingDragCommand: EditCommand? = null
     private var appearance: AppearanceSession? = null
     private var titleEdit: TitleSession? = null
@@ -224,6 +236,14 @@ class EditorViewModel(
             is EditorIntent.ChangeColorSpace -> changeColorSpace(intent.space)
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
+            is EditorIntent.TrayDragStart -> trayDragStart(intent.assetId)
+            is EditorIntent.ExternalDragStart -> externalDragStart(intent.kinds)
+            is EditorIntent.TrayDragMove -> trayDragMove(intent.frame, intent.trackIndex, intent.zone)
+            EditorIntent.TrayDragLeave -> reduce { copy(dragPreview = null, dropHint = null) }
+            is EditorIntent.TrayDragEnd -> trayDragEnd(intent.commit)
+            is EditorIntent.ExternalDrop -> externalDrop(intent.uris, intent.frame, intent.trackIndex, intent.zone)
+            is EditorIntent.ImportToTray -> importToTray(intent.uris)
+            is EditorIntent.ReorderAsset -> reorderAsset(intent.assetId, intent.toIndex)
             EditorIntent.ShowRelink -> reduce { copy(relinkOpen = true) }
             EditorIntent.HideRelink -> reduce { copy(relinkOpen = false) }
             is EditorIntent.RequestRelink -> emit(EditorEffect.LaunchRelinkPicker(intent.assetId))
@@ -1383,6 +1403,144 @@ class EditorViewModel(
         }
     }
 
+    // region media tray
+
+    /** The clip that placing [asset] creates and the kind of lane it needs, or null if it has no usable length. */
+    private fun newClipFor(asset: MediaAssetDto): Pair<Clip, TrackType>? {
+        val type = if (asset.hasVideo || asset.isImage) TrackType.VIDEO else TrackType.AUDIO
+        val length = (if (asset.isImage) stillLengthFrames() else assetLengthFrames(asset.id)) ?: return null
+        val clip = Clip(
+            "clip-${idGenerator()}", asset.id, FrameIndex.ZERO, FrameIndex.ZERO, FrameIndex(length),
+            still = StillKind.PHOTO.takeIf { asset.isImage },
+        )
+        return clip to type
+    }
+
+    private fun trayDragStart(assetId: String) {
+        if (drag != null || trayDrag != null) return
+        val asset = state.value.assets.firstOrNull { it.id == assetId }
+        if (asset == null) {
+            emit(EditorEffect.ShowMessage("That media is no longer in the project"))
+            return
+        }
+        if (asset.id in state.value.missingMedia) {
+            emit(EditorEffect.ShowMessage("${MissingMedia.nameOf(asset)} is missing: relink it first"))
+            return
+        }
+        val (clip, type) = newClipFor(asset) ?: return
+        trayDrag = TrayDragSession(asset.id, clip, type)
+    }
+
+    /** Hovering files are only known by kind: a stand-in clip of a plausible length lets the indicator show where they would land. */
+    private fun externalDragStart(kinds: List<AssetKind>) {
+        if (drag != null || trayDrag != null) return
+        val kind = kinds.firstOrNull() ?: return
+        val type = if (kind == AssetKind.AUDIO) TrackType.AUDIO else TrackType.VIDEO
+        val length = if (kind == AssetKind.PHOTO) stillLengthFrames() else state.value.fps.microsToFrames(HOVER_MICROS).coerceAtLeast(1)
+        trayDrag = TrayDragSession(null, Clip("clip-hover", null, FrameIndex.ZERO, FrameIndex.ZERO, FrameIndex(length)), type)
+    }
+
+    /** The lane under the finger; across a gap between lanes the last one stays, and with none yet the drop cancels. */
+    private fun trayTarget(committed: Timeline, trackIndex: Int, zone: DragZone, previous: DropTarget?): DropTarget = when (zone) {
+        DragZone.OUTSIDE -> DropTarget.Outside
+        DragZone.ABOVE_LANES -> DropTarget.AboveLanes
+        DragZone.LANES -> committed.tracks.getOrNull(trackIndex)?.let { DropTarget.Lane(it.id) } ?: previous ?: DropTarget.Outside
+    }
+
+    private fun trayDragMove(frame: Long, trackIndex: Int, zone: DragZone) {
+        val session = trayDrag ?: return
+        val base = history.timeline
+        val target = trayTarget(base, trackIndex, zone, session.target)
+        session.target = target
+        val decision = DropPlan.decideNew(base, session.clip, session.type, FrameIndex(frame), target, snapWith(base, state.value.playhead))
+        session.command = decision.command
+        if (decision.kind == DropKind.NEW_LANE) {
+            // The canvas draws the new-lane placeholder on a lane of the timeline it shows, so show one (empty).
+            val top = base.tracks.indexOfFirst { it.type == TrackType.VIDEO }.coerceAtLeast(0)
+            val preview = (TimelineOps.addTrack(base, Track(DROP_LANE_ID, TrackType.VIDEO), top) as? EditResult.Success)?.value
+            reduce { copy(dragPreview = preview, dropHint = decision.hint.copy(trackId = DROP_LANE_ID)) }
+            return
+        }
+        // Free space is shown like an overwrite: the tinted range is where the clip will land.
+        val hint = if (decision.kind == DropKind.MOVE) decision.hint.copy(kind = DropKind.OVERWRITE) else decision.hint
+        reduce { copy(dragPreview = null, dropHint = hint) }
+    }
+
+    private fun trayDragEnd(commit: Boolean) {
+        val session = trayDrag
+        trayDrag = null
+        reduce { copy(dragPreview = null, dropHint = null) }
+        if (!commit || session == null || session.assetId == null) return
+        val command = session.command ?: return
+        if (execute(command)) selectPlaced(session.clip.id)
+    }
+
+    private fun selectPlaced(clipId: String) {
+        val track = history.timeline.trackOfClip(clipId) ?: return
+        reduce { copy(selectedClipId = clipId, selectedTrackId = track.id) }
+    }
+
+    /** Files dropped from another app: imported first (their length is unknown until probed), then placed where they landed. */
+    private fun externalDrop(uris: List<String>, frame: Long, trackIndex: Int, zone: DragZone) {
+        val previous = trayDrag?.target
+        trayDrag = null
+        reduce { copy(dragPreview = null, dropHint = null) }
+        if (uris.isEmpty()) return
+        val target = trayTarget(history.timeline, trackIndex, zone, previous)
+        viewModelScope.launch {
+            reduce { copy(isImporting = true) }
+            var cursor: FrameIndex? = null
+            for (uri in uris) {
+                try {
+                    val asset = assetFor(uri)
+                    cursor = if (cursor == null) placeDropped(asset, frame, target) else place(asset, cursor)
+                } catch (e: MediaImportException) {
+                    emit(EditorEffect.ShowMessage(e.message ?: "Could not import the file"))
+                }
+            }
+            reduce { copy(isImporting = false) }
+        }
+    }
+
+    /** Places [asset] the way a drop at [frame] over [target] would; returns where the clip ends, or null if nothing was placed. */
+    private fun placeDropped(asset: MediaAssetDto, frame: Long, target: DropTarget): FrameIndex? {
+        val (clip, type) = newClipFor(asset) ?: return null
+        val decision = DropPlan.decideNew(history.timeline, clip, type, FrameIndex(frame), target, snapWith(history.timeline, state.value.playhead))
+        val command = decision.command
+        if (command == null) {
+            emit(EditorEffect.ShowMessage("Drop ${MissingMedia.nameOf(asset)} on a ${type.name.lowercase()} lane"))
+            return null
+        }
+        if (!execute(command)) return null
+        selectPlaced(clip.id)
+        return history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.timelineEnd
+    }
+
+    private fun importToTray(uris: List<String>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            reduce { copy(isImporting = true) }
+            for (uri in uris) {
+                try {
+                    assetFor(uri)
+                } catch (e: MediaImportException) {
+                    emit(EditorEffect.ShowMessage(e.message ?: "Could not import the file"))
+                }
+            }
+            reduce { copy(isImporting = false) }
+        }
+    }
+
+    /** The library order is the order of `mediaLibrary` in the project file, so it saves with the project. */
+    private fun reorderAsset(assetId: String, toIndex: Int) {
+        val moved = moveAsset(state.value.assets, assetId, toIndex)
+        if (moved === state.value.assets) return
+        reduce { copy(assets = moved) }
+        scheduleSave()
+    }
+
+    // endregion
+
     private fun addAssetById(assetId: String) {
         val asset = state.value.assets.firstOrNull { it.id == assetId }
         if (asset == null) {
@@ -1515,6 +1673,8 @@ class EditorViewModel(
         const val TITLE_DEFAULT_MICROS = 3_000_000L
         const val STICKER_DEFAULT_MICROS = 3_000_000L
         const val PHOTO_DEFAULT_MICROS = 5_000_000L
+        private const val HOVER_MICROS = 3_000_000L
+        private const val DROP_LANE_ID = "track-v-new"
         const val TRANSITION_DEFAULT_MICROS = 1_000_000L
         const val FREEZE_DEFAULT_MICROS = 2_000_000L
         const val PLAY_TICK_MILLIS = 16L
