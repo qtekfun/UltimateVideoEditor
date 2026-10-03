@@ -1,7 +1,13 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.TimelineOps
+import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.Transition
+import com.ultimatevideo.uveditor.domain.getOrFail
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.domain.clip
@@ -59,6 +65,34 @@ class AudioSnapshotMappingTest {
         )
 
         assertTrue(snapshot(tl, asset("mute", false)).clips.isEmpty())
+    }
+
+    @Test
+    fun `a transition overlaps the clips and fades them`() {
+        val base = timeline(track("v1", clip("c1", 0, 100, asset = "a"), clip("c2", 100, 100, srcIn = 50, asset = "a")))
+        val tl = TimelineOps.addTransition(base, Transition("t", "c1", "c2", 10)).getOrFail()
+
+        val spec = snapshot(tl, asset("a", true))
+
+        val out = spec.clips.first { it.clipKey == keys.keyFor("c1") }
+        val incoming = spec.clips.first { it.clipKey == keys.keyFor("c2") }
+        assertEquals(0L to 105L, out.startFrame to (out.startFrame + out.durationFrames))
+        assertEquals(10L, out.fadeOutFrames)
+        assertEquals(0L, out.fadeInFrames)
+        assertEquals(95L to 200L, incoming.startFrame to (incoming.startFrame + incoming.durationFrames))
+        assertEquals(45L, incoming.sourceInFrame)
+        assertEquals(10L, incoming.fadeInFrames)
+        // Both fades cover the same frames: 95 until 105.
+        assertEquals(out.startFrame + out.durationFrames - out.fadeOutFrames, incoming.startFrame)
+        assertEquals(incoming.startFrame + incoming.fadeInFrames, out.startFrame + out.durationFrames)
+    }
+
+    @Test
+    fun `titles are never audible`() {
+        val title = Clip("T", null, FrameIndex(0), FrameIndex(0), FrameIndex(50), title = TitleContent("x"))
+        val tl = timeline(track("t1", title, type = TrackType.TITLE))
+
+        assertTrue(snapshot(tl).clips.isEmpty())
     }
 
     @Test

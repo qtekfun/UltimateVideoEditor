@@ -2,8 +2,11 @@ package com.ultimatevideo.uveditor.ui.export
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.RenderClip
+import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.Timeline
-import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
 import com.ultimatevideo.uveditor.engine.export.VideoClipSpec
 import com.ultimatevideo.uveditor.ui.editor.KeyRegistry
@@ -19,14 +22,36 @@ internal data class ExportPlan(
     val audio: AudioSnapshot?,
     /** Assets the render needs, by native key. */
     val assetKeys: Map<String, Long>,
+    /** Distinct titles to rasterise, by the key [VideoClipSpec.titleKey] refers to. */
+    val titles: Map<Int, TitleContent> = emptyMap(),
+)
+
+private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0) = VideoClipSpec(
+    startFrame = startFrame,
+    durationFrames = durationFrames,
+    sourceInFrame = sourceInFrame,
+    assetKey = assetKey,
+    layer = layer,
+    colorMode = colorMode,
+    positionX = transform.positionX,
+    positionY = transform.positionY,
+    scaleX = transform.scaleX,
+    scaleY = transform.scaleY,
+    rotationDegrees = transform.rotationDegrees,
+    opacity = transform.opacity,
+    crossfadeInFrames = crossfadeInFrames,
+    lane = lane,
+    titleKey = titleKey,
 )
 
 private const val HLG_TO_SDR = 1
 private const val SDR = 0
 
 /**
- * Plans an export of [timeline]. Returns null when it is empty. The first video track is the topmost
- * layer, matching the preview; clip transforms and opacity are carried over. Source ranges are in project frames, as everywhere in the editor.
+ * Plans an export of [timeline]. Returns null when it is empty. The first visual track (video or
+ * title) is the topmost layer, matching the preview; clip transforms and opacity are carried over,
+ * and transitions are folded in by [renderClips] (extended clips with a fade), the same list the
+ * preview and the audio mixer use. Source ranges are in project frames, as everywhere in the editor.
  */
 internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fps: FrameRate): ExportPlan? {
     val assetsById = assets.associateBy { it.id }
@@ -35,26 +60,25 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
     val used = LinkedHashMap<String, Long>()
 
     val videoClips = ArrayList<VideoClipSpec>()
-    timeline.tracks.filter { it.type == TrackType.VIDEO }.forEachIndexed { layer, track ->
-        for (clip in track.clips) {
-            val asset = clip.assetId?.let(assetsById::get) ?: continue
-            if (!asset.hasVideo) continue
-            val key = used.getOrPut(asset.id) { assetKeys.keyFor(asset.id) }
-            videoClips += VideoClipSpec(
-                startFrame = clip.timelineStart.value,
-                durationFrames = clip.durationFrames,
-                sourceInFrame = clip.sourceIn.value,
-                assetKey = key,
-                layer = layer,
-                // The export is SDR Rec.709: HLG sources are tone-mapped down to it.
-                colorMode = if (asset.colorSpace.contains("HLG", ignoreCase = true)) HLG_TO_SDR else SDR,
-                positionX = clip.transform.positionX,
-                positionY = clip.transform.positionY,
-                scaleX = clip.transform.scaleX,
-                scaleY = clip.transform.scaleY,
-                rotationDegrees = clip.transform.rotationDegrees,
-                opacity = clip.transform.opacity,
-            )
+    val titles = LinkedHashMap<TitleContent, Int>()
+    for (clip in timeline.renderClips()) {
+        when (clip.kind) {
+            RenderKind.AUDIO -> continue
+            RenderKind.VIDEO -> {
+                val asset = clip.assetId?.let(assetsById::get) ?: continue
+                if (!asset.hasVideo) continue
+                val key = used.getOrPut(asset.id) { assetKeys.keyFor(asset.id) }
+                videoClips += clip.toSpec(
+                    assetKey = key,
+                    // The export is SDR Rec.709: HLG sources are tone-mapped down to it.
+                    colorMode = if (asset.colorSpace.contains("HLG", ignoreCase = true)) HLG_TO_SDR else SDR,
+                )
+            }
+            RenderKind.TITLE -> {
+                val content = clip.title ?: continue
+                val titleKey = titles.getOrPut(content) { titles.size + 1 }
+                videoClips += clip.toSpec(assetKey = 0L, colorMode = SDR, titleKey = titleKey)
+            }
         }
     }
 
@@ -63,7 +87,7 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
 
     val end = timeline.tracks.flatMap { it.clips }.maxOfOrNull { it.timelineEnd.value } ?: 0L
     if (end <= 0L || (videoClips.isEmpty() && audio == null)) return null
-    return ExportPlan(end, videoClips, audio, used)
+    return ExportPlan(end, videoClips, audio, used, titles.entries.associate { it.value to it.key })
 }
 
 /** Output frames needed to cover [projectFrames] project frames, rounded up so no audio is cut off. */

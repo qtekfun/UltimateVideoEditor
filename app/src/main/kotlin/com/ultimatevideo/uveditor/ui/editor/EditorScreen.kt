@@ -60,6 +60,7 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
+import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.ThumbnailCache
@@ -94,7 +95,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     val exportViewModel: ExportViewModel = viewModel(
         key = "export-$projectId",
         factory = viewModelFactory {
-            initializer { ExportViewModel(ContentResolverExportIO(context.applicationContext), NativeExportRunner()) }
+            initializer {
+                ExportViewModel(
+                    ContentResolverExportIO(context.applicationContext),
+                    NativeExportRunner(),
+                    titleRasterizer = AndroidTitleRasterizer(),
+                )
+            }
         },
     )
     ExportHost(exportViewModel)
@@ -154,18 +161,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     // on every tick. It follows the visible timeline, so a transform being dragged shows live.
     LaunchedEffect(state.playhead, state.visibleTimeline, state.assets, state.fps, state.canvasWidth, state.canvasHeight, state.isLoading) {
         if (state.isLoading) return@LaunchedEffect
-        val layers = previewLayersAt(state.visibleTimeline, state.playhead).mapNotNull { target ->
-            val asset = state.assets.firstOrNull { it.id == target.clip.assetId } ?: return@mapNotNull null
-            if (!asset.hasVideo) return@mapNotNull null
-            PreviewRequest(
-                assetKey = viewModel.assetKey(asset.id).toInt(),
-                uri = asset.uri,
-                sourceFrame = target.sourceFrame,
-                fpsNum = state.fps.num,
-                fpsDen = state.fps.den,
-                transform = target.clip.transform,
-            )
-        }
+        val layers = previewRequestsAt(state.visibleTimeline, state.assets, state.fps, state.playhead) { viewModel.assetKey(it).toInt() }
         // In a gap the preview keeps its last frame.
         if (layers.isNotEmpty()) preview.show(PreviewScene(state.canvasWidth, state.canvasHeight, layers))
     }

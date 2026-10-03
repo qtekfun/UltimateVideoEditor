@@ -5,12 +5,17 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import com.ultimatevideo.uveditor.domain.ClipTransform
+import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.engine.preview.DecoderLimits
 import com.ultimatevideo.uveditor.engine.preview.DecoderPlanner
 import com.ultimatevideo.uveditor.engine.preview.LayerPlacement
 import com.ultimatevideo.uveditor.engine.preview.PreviewEngine
 import com.ultimatevideo.uveditor.engine.preview.PreviewException
 import com.ultimatevideo.uveditor.engine.preview.PreviewLayer
+import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
+import com.ultimatevideo.uveditor.engine.title.TitleKeyCache
+import com.ultimatevideo.uveditor.engine.title.TitleRasterException
+import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,7 +24,8 @@ import java.io.FileNotFoundException
 
 /**
  * One layer of what the preview should show. Frames are in [fpsNum]/[fpsDen] units: the project
- * rate, since source ranges are kept in project frames.
+ * rate, since source ranges are kept in project frames. A layer with a [title] is text drawn on
+ * the canvas and has no media ([assetKey], [uri] and [sourceFrame] are unused).
  */
 data class PreviewRequest(
     val assetKey: Int,
@@ -28,6 +34,7 @@ data class PreviewRequest(
     val fpsNum: Int,
     val fpsDen: Int,
     val transform: ClipTransform = ClipTransform.IDENTITY,
+    val title: TitleContent? = null,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -56,6 +63,7 @@ class EditorPreview(
     private val context: Context,
     private val scope: CoroutineScope,
     private val maxDecoders: Int = DecoderLimits.maxPreviewDecoders(),
+    private val rasterizer: TitleRasterizer = AndroidTitleRasterizer(),
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -75,11 +83,14 @@ class EditorPreview(
     private val failed = HashSet<Int>()
     private var latest: PreviewScene? = null
     private var reportedSkipped: Set<Int> = emptySet()
+    private val titleKeys = TitleKeyCache()
+    private val brokenTitles = HashSet<Int>()
 
     fun show(scene: PreviewScene) {
         val engine = engine ?: return
         latest = scene
-        val neededTopFirst = scene.layers.asReversed().map { it.assetKey }.filter { it !in failed }
+        val media = scene.layers.filter { it.title == null }
+        val neededTopFirst = media.asReversed().map { it.assetKey }.filter { it !in failed }
         val plan = DecoderPlanner.plan(maxDecoders, neededTopFirst, open.toList())
 
         for (key in plan.toClose) {
@@ -87,18 +98,43 @@ class EditorPreview(
             engine.closeAsset(key)
         }
         reportSkipped(plan.skipped)
-        for (layer in scene.layers) {
+        for (layer in media) {
             val key = layer.assetKey
             if (key in plan.render && key !in open && key !in opening) openThen(engine, layer)
         }
         // Layers whose asset is still opening are left out for now; the scene is resent when they are ready.
-        val ready = scene.layers.filter { it.assetKey in open && it.assetKey in plan.render }
-        for (layer in ready) touch(layer.assetKey)
-        engine.setScene(
-            scene.canvasWidth,
-            scene.canvasHeight,
-            ready.map { PreviewLayer(it.assetKey, it.sourceFrame, it.transform.toPlacement()) },
-        )
+        val ready = scene.layers.filter { it.title != null || (it.assetKey in open && it.assetKey in plan.render) }
+        for (layer in ready) if (layer.title == null) touch(layer.assetKey)
+        val layers = ready.mapNotNull { layer ->
+            val title = layer.title
+            if (title == null) {
+                PreviewLayer(layer.assetKey, layer.sourceFrame, layer.transform.toPlacement())
+            } else {
+                titleKeyFor(engine, scene, title)?.let { key ->
+                    PreviewLayer(0, 0, layer.transform.toPlacement(), titleKey = key)
+                }
+            }
+        }
+        for (key in titleKeys.drain()) engine.releaseTitle(key)
+        engine.setScene(scene.canvasWidth, scene.canvasHeight, layers)
+    }
+
+    /** Key of the uploaded raster of [title] on this canvas, drawing and uploading it the first time. */
+    private fun titleKeyFor(engine: PreviewEngine, scene: PreviewScene, title: TitleContent): Int? {
+        val (key, fresh) = titleKeys.keyFor(title, scene.canvasWidth, scene.canvasHeight)
+        if (fresh) {
+            try {
+                val bitmap = rasterizer.rasterize(title, scene.canvasWidth, scene.canvasHeight)
+                engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
+            } catch (e: TitleRasterException) {
+                brokenTitles += key
+                onError("A title could not be drawn: ${e.message}")
+            } catch (e: PreviewException) {
+                brokenTitles += key
+                onError("A title could not be shown: ${e.message}")
+            }
+        }
+        return key.takeIf { it !in brokenTitles }
     }
 
     /** Marks [key] as the most recently shown asset. */

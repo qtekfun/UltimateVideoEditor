@@ -21,6 +21,8 @@ internal object NativePreview {
     external fun nativeOpenAsset(handle: Long, assetId: Int, fd: Int, fpsNum: Int, fpsDen: Int): LongArray
     external fun nativeCloseAsset(handle: Long, assetId: Int)
     external fun nativeSetScene(handle: Long, canvasWidth: Int, canvasHeight: Int, ids: LongArray, params: FloatArray)
+    external fun nativeUploadTitle(handle: Long, key: Int, width: Int, height: Int, pixels: java.nio.ByteBuffer)
+    external fun nativeReleaseTitle(handle: Long, key: Int)
     external fun nativeSeek(handle: Long, assetId: Int, frame: Long)
     external fun nativePlay(handle: Long, assetId: Int, startFrame: Long)
     external fun nativePause(handle: Long)
@@ -91,7 +93,7 @@ class PreviewEngine private constructor(
         val ids = LongArray(layers.size * 2)
         val params = FloatArray(layers.size * PARAMS_PER_LAYER)
         layers.forEachIndexed { i, layer ->
-            ids[i * 2] = layer.assetId.toLong()
+            ids[i * 2] = if (layer.titleKey != 0) -layer.titleKey.toLong() else layer.assetId.toLong()
             ids[i * 2 + 1] = layer.frame
             val p = layer.placement
             val base = i * PARAMS_PER_LAYER
@@ -104,6 +106,21 @@ class PreviewEngine private constructor(
         }
         NativePreview.nativeSetScene(requireHandle(), canvasWidth, canvasHeight, ids, params)
     }
+
+    /**
+     * Stores a rasterised title under [key] (positive, chosen by the caller): [width] x [height]
+     * premultiplied RGBA pixels in a direct buffer, top row first, in project canvas pixels (drawn
+     * 1:1). The pixels are copied. Upload before the scene that uses it; re-uploading a key replaces it.
+     */
+    fun uploadTitle(key: Int, width: Int, height: Int, pixels: java.nio.ByteBuffer) {
+        require(key > 0) { "title keys must be positive" }
+        require(width > 0 && height > 0 && pixels.isDirect && pixels.remaining() >= width * height * 4) {
+            "title pixels must be a direct buffer of ${width}x$height RGBA"
+        }
+        NativePreview.nativeUploadTitle(requireHandle(), key, width, height, pixels)
+    }
+
+    fun releaseTitle(key: Int) = NativePreview.nativeReleaseTitle(requireHandle(), key)
 
     /** Shows [frame] of the asset as soon as it is decoded; also moves the look-ahead window. */
     fun seek(assetId: Int, frame: Long) = NativePreview.nativeSeek(requireHandle(), assetId, frame)

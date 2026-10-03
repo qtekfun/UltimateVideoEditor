@@ -18,7 +18,8 @@ using uv::encode::ExportParams;
 using uv::encode::VideoClip;
 
 constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/export/ExportException";
-constexpr size_t kClipLongs = 6;     // start, duration, sourceIn, assetKey, layer, colorMode
+constexpr size_t kClipLongs = 9;     // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey
+constexpr size_t kTitleInts = 3;     // key, width, height per title
 constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
 
 void throwExport(JNIEnv* env, Status code, const std::string& message) {
@@ -95,7 +96,7 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
-    jobject audioSnapshot, jint outputFd) {
+    jintArray titleMeta, jobjectArray titlePixels, jobject audioSnapshot, jint outputFd) {
     ExportParams params;
     params.width = width;
     params.height = height;
@@ -153,7 +154,49 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
         c.scaleY = xf[t + 3];
         c.rotationDeg = xf[t + 4];
         c.opacity = xf[t + 5];
+        c.lane = static_cast<int32_t>(flat[i + 6]);
+        c.fadeInFrames = flat[i + 7];
+        c.titleKey = static_cast<uint32_t>(flat[i + 8]);
         params.clips.push_back(c);
+    }
+
+    // Titles: `titleMeta` holds {key, width, height} per title and `titlePixels` one direct
+    // premultiplied RGBA buffer each; the pixels are copied.
+    const jsize metaLength = titleMeta == nullptr ? 0 : env->GetArrayLength(titleMeta);
+    const jsize pixelCount = titlePixels == nullptr ? 0 : env->GetArrayLength(titlePixels);
+    if (static_cast<size_t>(metaLength) != static_cast<size_t>(pixelCount) * kTitleInts) {
+        throwExport(env, Status::InvalidArgument, "title descriptions do not match the title images");
+        closeAll(params.assetFds, outputFd);
+        return 0;
+    }
+    if (pixelCount > 0) {
+        std::vector<jint> meta(static_cast<size_t>(metaLength));
+        env->GetIntArrayRegion(titleMeta, 0, metaLength, meta.data());
+        for (jsize n = 0; n < pixelCount; ++n) {
+            const jint key = meta[static_cast<size_t>(n) * kTitleInts];
+            const jint w = meta[static_cast<size_t>(n) * kTitleInts + 1];
+            const jint h = meta[static_cast<size_t>(n) * kTitleInts + 2];
+            jobject buffer = env->GetObjectArrayElement(titlePixels, n);
+            const void* data = buffer == nullptr ? nullptr : env->GetDirectBufferAddress(buffer);
+            const jlong capacity = buffer == nullptr ? 0 : env->GetDirectBufferCapacity(buffer);
+            const int64_t needed = static_cast<int64_t>(w) * h * 4;
+            const bool valid = key > 0 && w > 0 && h > 0 && data != nullptr && capacity >= needed;
+            if (valid) {
+                uv::encode::TitleImage image;
+                image.key = static_cast<uint32_t>(key);
+                image.width = w;
+                image.height = h;
+                const auto* bytes = static_cast<const uint8_t*>(data);
+                image.rgba.assign(bytes, bytes + needed);
+                params.titles.push_back(std::move(image));
+            }
+            if (buffer != nullptr) env->DeleteLocalRef(buffer);
+            if (!valid) {
+                throwExport(env, Status::InvalidArgument, "a title image is not a direct RGBA buffer of the given size");
+                closeAll(params.assetFds, outputFd);
+                return 0;
+            }
+        }
     }
 
     if (audioSnapshot != nullptr) {

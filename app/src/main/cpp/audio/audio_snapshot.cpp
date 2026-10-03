@@ -45,12 +45,15 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         c.sourceFps.num = readLe<int32_t>(p + 40);
         c.sourceFps.den = readLe<int32_t>(p + 44);
         c.gainDb = readLe<float>(p + 48);
+        c.fadeInFrames = readLe<int32_t>(p + 52);
+        c.fadeOutFrames = readLe<int32_t>(p + 56);
         // Frames are bounded well below 2^40 so 128-bit time math can never overflow.
         constexpr int64_t kMaxFrame = int64_t{1} << 40;
         if (c.startFrame < 0 || c.startFrame > kMaxFrame || c.durationFrames <= 0 ||
             c.durationFrames > kMaxFrame || c.sourceInFrame < 0 || c.sourceInFrame > kMaxFrame ||
             c.sourceFps.num <= 0 || c.sourceFps.den <= 0 || !std::isfinite(c.gainDb) ||
-            c.gainDb < kMinGainDb || c.gainDb > kMaxGainDb) {
+            c.gainDb < kMinGainDb || c.gainDb > kMaxGainDb || c.fadeInFrames < 0 || c.fadeOutFrames < 0 ||
+            c.fadeInFrames > c.durationFrames || c.fadeOutFrames > c.durationFrames) {
             return Status::BadSnapshot;
         }
         result.clips.push_back(c);

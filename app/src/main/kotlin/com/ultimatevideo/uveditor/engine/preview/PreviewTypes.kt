@@ -55,11 +55,16 @@ data class LayerPlacement(
     }
 }
 
-/** One layer of the preview scene: [frame] of an open asset, in the frame rate the asset was opened with. */
+/**
+ * One layer of the preview scene: [frame] of an open asset, in the frame rate the asset was opened
+ * with, or - when [titleKey] is not 0 - a title uploaded with `PreviewEngine.uploadTitle` (then
+ * [assetId] and [frame] are unused).
+ */
 data class PreviewLayer(
     val assetId: Int,
     val frame: Long,
     val placement: LayerPlacement = LayerPlacement.IDENTITY,
+    val titleKey: Int = 0,
 )
 
 data class AssetInfo(

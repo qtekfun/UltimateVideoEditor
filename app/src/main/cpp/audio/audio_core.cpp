@@ -82,6 +82,14 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         pc.startSample = start;
         pc.endSample = end;
         pc.gain = dbToLinear(d.gainDb);
+        // Fade lengths are measured on the same sample grid as the clip edges, so a fade-out
+        // and the fade-in of the clip it hands over to cover exactly the same samples.
+        if (d.fadeInFrames > 0) {
+            pc.fadeInSamples = framesToSamples(d.startFrame + d.fadeInFrames, data.fps, rate) - start;
+        }
+        if (d.fadeOutFrames > 0) {
+            pc.fadeOutSamples = end - framesToSamples(d.startFrame + d.durationFrames - d.fadeOutFrames, data.fps, rate);
+        }
         pc.source = std::move(source);
         prepared->clips.push_back(std::move(pc));
     }

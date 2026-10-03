@@ -68,7 +68,16 @@ data class VideoClipSpec(
     val scaleY: Double = 1.0,
     val rotationDegrees: Double = 0.0,
     val opacity: Double = 1.0,
+    /** Frames over which the clip fades in (the incoming side of a transition); 0 = no fade. */
+    val crossfadeInFrames: Long = 0,
+    /** Decoder slot within [layer]: 1 for the incoming clip of a transition between cuts of one media. */
+    val lane: Int = 0,
+    /** Non-zero for a title: the key of its image in [ExportRequest.titles] (then [assetKey] is unused). */
+    val titleKey: Int = 0,
 )
+
+/** A rasterised title for the export: premultiplied RGBA in canvas pixels, see `TitleBitmap`. */
+class ExportTitle(val key: Int, val width: Int, val height: Int, val pixels: ByteBuffer)
 
 /**
  * Everything the native exporter needs. Descriptors are raw (already detached) and are owned by
@@ -89,6 +98,7 @@ class ExportRequest(
     val videoClips: List<VideoClipSpec>,
     val audioSnapshot: ByteBuffer?,
     val outputFd: Int,
+    val titles: List<ExportTitle> = emptyList(),
 )
 
 interface ExportListener {
