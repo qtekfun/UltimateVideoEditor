@@ -1,5 +1,8 @@
 package com.ultimatevideo.uveditor.domain
 
+/** The largest LUT library key, so that it is exact as a float on the native side. */
+const val MAX_LUT_KEY = 16_777_215.0
+
 /** One tunable value of an [EffectType]. [min]/[max] bound the slider and validation. */
 data class EffectParam(val name: String, val min: Double, val max: Double, val default: Double)
 
@@ -37,6 +40,15 @@ enum class EffectType(val code: Int, val label: String, val params: List<EffectP
             EffectParam("Spill", 0.0, 1.0, 0.1),
         ),
     ),
+
+    /**
+     * A 3D lookup table from the LUT library applied to the clip, blended in by Intensity. The first value
+     * is the library key (see data/LutStore), chosen by the LUT picker, never by a slider. It runs on the
+     * clip's pixels in the project's working space after the source-to-project colour conversion, i.e.
+     * Rec.709 gamma in an SDR project and the HLG signal in an HLG project (LUTs made for other spaces
+     * will look off; this is by design, the same assumption editors make for a creative LUT).
+     */
+    LUT(13, "LUT", listOf(EffectParam("LUT", 1.0, MAX_LUT_KEY, 1.0), EffectParam("Intensity", 0.0, 1.0, 1.0))),
     ;
 
     val defaults: List<Double> get() = params.map { it.default }

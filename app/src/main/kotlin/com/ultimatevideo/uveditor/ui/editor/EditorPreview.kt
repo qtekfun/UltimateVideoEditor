@@ -6,6 +6,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.ultimatevideo.uveditor.domain.ClipTransform
+import com.ultimatevideo.uveditor.domain.CubeLut
+import com.ultimatevideo.uveditor.domain.effectLutKeys
+import com.ultimatevideo.uveditor.domain.toDirectBuffer
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.engine.preview.DecoderLimits
@@ -81,6 +84,8 @@ class EditorPreview(
     private val maxDecoders: Int = DecoderLimits.maxPreviewDecoders(),
     private val rasterizer: TitleRasterizer = AndroidTitleRasterizer(),
     private val stillRasterizer: StillRasterizer = AndroidStillRasterizer(context),
+    /** Reads a LUT of the library by key (off the main thread); null when it is missing or unreadable. */
+    private val lutLoader: (Int) -> CubeLut? = { null },
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -117,6 +122,12 @@ class EditorPreview(
     private val loadingStills = HashSet<Int>()
     private val uploadedStills = HashSet<Int>()
     private val brokenStills = HashSet<Int>()
+
+    // 3D LUTs are read and parsed off the main thread, then uploaded once per library key (keys are content
+    // hashes, so a key never changes meaning). Until a LUT is on the GPU its layer shows ungraded.
+    private val uploadedLuts = HashSet<Int>()
+    private val loadingLuts = HashSet<Int>()
+    private val brokenLuts = HashSet<Int>()
 
     /** Shows [scene] as a still frame (paused, scrubbing, editing). Stops any native playback. */
     fun show(scene: PreviewScene) {
@@ -219,6 +230,7 @@ class EditorPreview(
                 else -> Ready(layer, titleKey = 0)
             }
         }
+        ensureLuts(engine, scene)
         for (key in titleKeys.drain()) engine.releaseTitle(key)
         for (key in stillKeys.drain()) {
             uploadedStills -= key
@@ -298,6 +310,31 @@ class EditorPreview(
             }
         }
         return key.takeIf { it in uploadedStills }
+    }
+
+    /** Starts loading and uploading the LUTs the scene's layers use that are not on the GPU yet. */
+    private fun ensureLuts(engine: PreviewEngine, scene: PreviewScene) {
+        for (key in scene.layers.flatMap { effectLutKeys(it.fx.effects) }) {
+            if (key <= 0 || key in uploadedLuts || key in loadingLuts || key in brokenLuts) continue
+            loadingLuts += key
+            scope.launch {
+                val lut = withContext(Dispatchers.Default) { lutLoader(key) }
+                loadingLuts -= key
+                if (lut == null) {
+                    brokenLuts += key
+                    onError("A LUT used by this project is missing; its clip is shown without it")
+                    return@launch
+                }
+                try {
+                    engine.uploadLut(key, lut.size, lut.toDirectBuffer())
+                    uploadedLuts += key
+                } catch (e: PreviewException) {
+                    brokenLuts += key
+                    onError("A LUT could not be shown: ${e.message}")
+                }
+                if (!following) latest?.let(::show)
+            }
+        }
     }
 
     /** Marks [key] as the most recently shown asset. */

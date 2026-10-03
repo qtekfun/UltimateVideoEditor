@@ -106,7 +106,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       Follow-ups: spectral-flux onsets (the detector reads amplitude only), dragging markers on the ruler, text animations
       beyond keyframes
 - [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
-- [ ] 3D LUTs
+- [x] 3D LUTs (.cube 17/33/65): library import, per-clip LUT effect with intensity, preview/export parity — parser, store, wire format and the CPU reference have JVM/host tests; the GL 3D-texture path was not seen on the device
 - [ ] Vulkan renderer evaluation
 
 ## Cross-cutting

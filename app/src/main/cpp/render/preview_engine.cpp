@@ -268,6 +268,23 @@ void PreviewEngine::uploadTitle(uint32_t key, int width, int height, std::vector
     });
 }
 
+void PreviewEngine::uploadLut(uint32_t key, int size, std::vector<float> rgb) {
+    thread_->post([this, key, size, rgb = std::move(rgb)] {
+        Error error{Status::Ok, ""};
+        if (pipeline_->uploadLut(key, size, rgb.data(), &error) != Status::Ok) {
+            report(error);
+            return;
+        }
+        drawnValid_ = false;  // a changed LUT under a drawn key must show up
+    });
+}
+
+void PreviewEngine::releaseLut(uint32_t key) {
+    thread_->post([this, key] {
+        if (pipeline_) pipeline_->releaseLut(key);
+    });
+}
+
 void PreviewEngine::releaseTitle(uint32_t key) {
     thread_->post([this, key] {
         if (pipeline_) pipeline_->releaseTitle(key);

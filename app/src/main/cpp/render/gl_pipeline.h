@@ -64,6 +64,12 @@ public:
     decode::Status uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, decode::Error* error);
     void releaseTitle(uint32_t key);
 
+    // Stores a 3D LUT for the LUT effect: `size`^3 RGB float triples, red varying fastest (the .cube
+    // order), as a filterable half-float 3D texture sampled trilinearly. Replaces any LUT under `key`.
+    decode::Status uploadLut(uint32_t key, int size, const float* rgb, decode::Error* error);
+    void releaseLut(uint32_t key);
+    bool hasLut(uint32_t key) const { return lutTextures_.count(key) != 0; }
+
     // Drops GL objects cached for decoder buffers (call when a decoder goes away).
     void clearSourceCache();
 
@@ -129,6 +135,7 @@ private:
     int effectDirLoc_ = -1;
     int effectSigmaLoc_ = -1;
     int effectStepLoc_ = -1;
+    int effectLutSizeLoc_ = -1;
     unsigned fxFbo_ = 0;
     FxTarget fxTargets_[2];
     FxTarget dstSnapshot_;  // copy of the target under a blended layer
@@ -138,6 +145,11 @@ private:
         int height = 0;
     };
     std::unordered_map<uint32_t, TitleTexture> titleTextures_;
+    struct LutTexture {
+        unsigned texture = 0;
+        int size = 0;
+    };
+    std::unordered_map<uint32_t, LutTexture> lutTextures_;
     std::unordered_map<uint64_t, ImageTexture> frameTextures_;       // GpuFrame::id -> GL_TEXTURE_2D
     std::unordered_map<AHardwareBuffer*, ImageTexture> sourceTextures_;  // decoder buffer -> external texture
 };
