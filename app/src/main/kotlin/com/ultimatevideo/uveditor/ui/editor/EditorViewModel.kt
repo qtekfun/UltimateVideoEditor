@@ -77,6 +77,8 @@ class EditorViewModel(
             EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.RippleDelete(it)) }
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
             EditorIntent.TogglePlay -> togglePlay()
+            is EditorIntent.AddTrack -> addTrack(intent.type)
+            EditorIntent.RemoveSelectedTrack -> removeSelectedTrack()
             EditorIntent.SeekPrevious -> seekTo(previousEditPoint())
             EditorIntent.SeekNext -> seekTo(nextEditPoint())
             EditorIntent.Undo -> undo()
@@ -144,6 +146,7 @@ class EditorViewModel(
                         projectName = project.name,
                         fps = FrameRate(project.settings.fpsNum, project.settings.fpsDen),
                         timeline = timeline,
+                        selectedTrackId = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
                         assets = project.mediaLibrary,
                     )
                 }
@@ -200,9 +203,14 @@ class EditorViewModel(
     private fun tap(hit: TimelineHit) {
         when (hit.kind) {
             HitKind.RULER, HitKind.PLAYHEAD -> setPlayhead(hit.frame)
-            HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE ->
-                reduce { copy(selectedClipId = clipKeys.idFor(hit.clipKey)) }
-            HitKind.EMPTY_TRACK, HitKind.NONE -> reduce { copy(selectedClipId = null) }
+            HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> {
+                val clipId = clipKeys.idFor(hit.clipKey)
+                reduce { copy(selectedClipId = clipId, selectedTrackId = clipId?.let { timeline.trackOfClip(it)?.id } ?: selectedTrackId) }
+            }
+            HitKind.EMPTY_TRACK -> reduce {
+                copy(selectedClipId = null, selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId)
+            }
+            HitKind.NONE -> reduce { copy(selectedClipId = null) }
         }
     }
 
@@ -301,6 +309,9 @@ class EditorViewModel(
                 canUndo = canUndo,
                 canRedo = canRedo,
                 selectedClipId = selectedClipId?.takeIf { committed.trackOfClip(it) != null },
+                // If the selected track vanished (undo, removal), fall back to the first video track.
+                selectedTrackId = selectedTrackId?.takeIf { committed.track(it) != null }
+                    ?: committed.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
             )
         }
     }
@@ -330,6 +341,32 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage(describe(result.error)))
             false
         }
+    }
+
+    /**
+     * New video tracks go on top of the video stack (they overlay the ones below); new audio
+     * tracks go at the bottom. Track order is display order, top to bottom.
+     */
+    private fun addTrack(type: TrackType) {
+        if (type == TrackType.TITLE) return
+        val tracks = history.timeline.tracks
+        val index = if (type == TrackType.VIDEO) tracks.indexOfFirst { it.type == TrackType.VIDEO }.takeIf { it >= 0 } ?: 0 else tracks.size
+        val prefix = if (type == TrackType.VIDEO) "track-v" else "track-a"
+        val track = Track(uniqueTrackId(tracks, prefix), type)
+        if (execute(EditCommand.AddTrack(track, index))) reduce { copy(selectedTrackId = track.id, selectedClipId = null) }
+    }
+
+    private fun removeSelectedTrack() {
+        val track = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
+        if (track == null) {
+            emit(EditorEffect.ShowMessage("Tap a track to select it first"))
+            return
+        }
+        if (history.timeline.tracks.count { it.type == track.type } <= 1) {
+            emit(EditorEffect.ShowMessage("Keep at least one ${track.type.name.lowercase()} track"))
+            return
+        }
+        execute(EditCommand.RemoveTrack(track.id))
     }
 
     private fun splitAtPlayhead() = withSelection { clipId ->
@@ -481,7 +518,9 @@ class EditorViewModel(
     /** Overwrites [asset] onto its track at [start]; returns the new clip's end, or null on failure. */
     private fun place(asset: MediaAssetDto, start: FrameIndex): FrameIndex? {
         val type = if (asset.hasVideo) TrackType.VIDEO else TrackType.AUDIO
-        val track = history.timeline.tracks.firstOrNull { it.type == type }
+        // The selected track if it fits the media, else the first track of the right type.
+        val selected = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
+        val track = selected?.takeIf { it.type == type } ?: history.timeline.tracks.firstOrNull { it.type == type }
         if (track == null) {
             emit(EditorEffect.ShowMessage("There is no ${type.name.lowercase()} track to place the clip on"))
             return null
@@ -489,7 +528,7 @@ class EditorViewModel(
         val length = assetLengthFrames(asset.id) ?: return null
         val clip = Clip("clip-${idGenerator()}", asset.id, start, FrameIndex.ZERO, FrameIndex(length))
         if (!execute(EditCommand.Overwrite(track.id, clip))) return null
-        reduce { copy(selectedClipId = clip.id) }
+        reduce { copy(selectedClipId = clip.id, selectedTrackId = track.id) }
         return clip.timelineEnd
     }
 
@@ -509,7 +548,8 @@ class EditorViewModel(
         EditError.SourceOutOfRange -> "That is beyond the end of the source media"
         is EditError.InvalidTrim -> "That trim is not possible: ${error.reason}"
         is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
-        is EditError.DuplicateClipId, is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
+        is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
+        is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
 
     private companion object {
