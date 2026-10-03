@@ -8,6 +8,12 @@
             android:exported="true"
             android:label="Preview debug"
             android:theme="@style/Theme.UVEditor" />
+        <!-- Debug-only harness for the native timeline canvas; start with:
+             adb shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity -->
+        <activity
+            android:name=".debug.TimelineDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
     </application>
 
 </manifest>

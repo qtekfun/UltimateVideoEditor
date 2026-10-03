@@ -14,27 +14,27 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** `./gradlew :app:assembleDebug` and `:app:testDebugUnitTest` pass; app launches on device and shows the JNI version string.
 
 ## Phase 1 — Project hub
-- [ ] Hub UI (project list, empty/welcome state)
-- [ ] New Project dialog (resolution, FPS rational, colour space)
-- [ ] `project.json` model + serialization (kotlinx.serialization), atomic writes, forward-compatible
-- [ ] CRUD: create, clone, delete, rename; import/export via SAF
-- [ ] Unit tests: serialization round-trips, repository operations
+- [x] Hub UI (project list, empty/welcome state)
+- [x] New Project dialog (resolution, FPS rational, colour space)
+- [x] `project.json` model + serialization (kotlinx.serialization), atomic writes, forward-compatible
+- [x] CRUD: create, clone, delete, rename; import/export via SAF
+- [x] Unit tests: serialization round-trips, repository operations
 - **Gate:** projects survive app restarts; JSON validates against the SPECS schema.
 
 ## Phase 2 — Domain timeline and operations (pure Kotlin, TDD)
-- [ ] `FrameIndex`, rational fps, time conversion helpers
-- [ ] Track/Clip model with invariants
-- [ ] Split, move, overwrite, ripple delete, ripple append, trim, snapping
-- [ ] Undo/redo command stack
-- [ ] Exhaustive unit tests for collisions and gaps
+- [x] `FrameIndex`, rational fps, time conversion helpers
+- [x] Track/Clip model with invariants
+- [x] Split, move, overwrite, ripple delete, ripple append, trim, snapping
+- [x] Undo/redo command stack
+- [x] Exhaustive unit tests for collisions and gaps
 - **Gate:** all operation tests green; invariants fuzz-tested.
 
 ## Phase 3 — Timeline canvas and waveforms
-- [ ] Timeline `SurfaceView` + native GLES renderer (blocks, playhead, ruler)
-- [ ] Scroll and pinch-zoom at 60/120 fps; gesture forwarding; hit-testing
+- [x] Timeline `SurfaceView` + native GLES renderer (blocks, playhead, ruler)
+- [x] Scroll and pinch-zoom at 60/120 fps; gesture forwarding; hit-testing (scroll, fling and tap seen working on device; frame rate not measured; pinch-zoom only host-tested)
 - [ ] Media import (SAF picker, persisted URI permission), media library panel
-- [ ] Background waveform extraction and on-disk peak cache
-- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch
+- [x] Background waveform extraction and on-disk peak cache
+- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; thumbnails and touch editing pending)
 - **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank.
 
 ## Phase 4 — Decode, preview and audio playback
