@@ -4,34 +4,58 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import com.ultimatevideo.uveditor.domain.ClipTransform
+import com.ultimatevideo.uveditor.engine.preview.DecoderLimits
+import com.ultimatevideo.uveditor.engine.preview.DecoderPlanner
+import com.ultimatevideo.uveditor.engine.preview.LayerPlacement
 import com.ultimatevideo.uveditor.engine.preview.PreviewEngine
 import com.ultimatevideo.uveditor.engine.preview.PreviewException
+import com.ultimatevideo.uveditor.engine.preview.PreviewLayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
 
-/** What the preview should show right now. Frames are in [fpsNum]/[fpsDen] units. */
+/**
+ * One layer of what the preview should show. Frames are in [fpsNum]/[fpsDen] units: the project
+ * rate, since source ranges are kept in project frames.
+ */
 data class PreviewRequest(
     val assetKey: Int,
     val uri: String,
     val sourceFrame: Long,
     val fpsNum: Int,
     val fpsDen: Int,
+    val transform: ClipTransform = ClipTransform.IDENTITY,
+)
+
+/** The whole composite: the project canvas and its layers, bottom layer first. */
+data class PreviewScene(val canvasWidth: Int, val canvasHeight: Int, val layers: List<PreviewRequest>)
+
+internal fun ClipTransform.toPlacement() = LayerPlacement(
+    positionX = positionX.toFloat(),
+    positionY = positionY.toFloat(),
+    scaleX = scaleX.toFloat(),
+    scaleY = scaleY.toFloat(),
+    rotationDegrees = rotationDegrees.toFloat(),
+    opacity = opacity.toFloat(),
 )
 
 /**
  * Connects the editing session to the native preview: opens each asset lazily (off the main
- * thread, since opening does blocking I/O) and seeks it to the requested frame. All methods
- * except the internal open must be called on the main thread.
+ * thread, since opening does blocking I/O), keeps no more decoders open than the device allows,
+ * and sends the composite to the native compositor. All methods except the internal open must be
+ * called on the main thread.
  *
  * Failures are reported through [onError] and never swallowed. The preview keeps its last frame
- * when there is nothing to show.
+ * when there is nothing to show. When a stack has more layers than the device has hardware
+ * decoders, the top layers are shown and the lower ones are left out, with a message.
  */
 class EditorPreview(
     private val context: Context,
     private val scope: CoroutineScope,
+    private val maxDecoders: Int = DecoderLimits.maxPreviewDecoders(),
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -45,23 +69,54 @@ class EditorPreview(
         null
     }
 
-    private val open = HashSet<Int>()
+    /** Open assets, least recently shown first. */
+    private val open = LinkedHashSet<Int>()
     private val opening = HashSet<Int>()
     private val failed = HashSet<Int>()
-    private var latest: PreviewRequest? = null
+    private var latest: PreviewScene? = null
+    private var reportedSkipped: Set<Int> = emptySet()
 
-    fun show(request: PreviewRequest) {
+    fun show(scene: PreviewScene) {
         val engine = engine ?: return
-        latest = request
-        val key = request.assetKey
-        when {
-            key in open -> engine.seek(key, request.sourceFrame)
-            key in failed || key in opening -> Unit
-            else -> openThenShow(engine, request)
+        latest = scene
+        val neededTopFirst = scene.layers.asReversed().map { it.assetKey }.filter { it !in failed }
+        val plan = DecoderPlanner.plan(maxDecoders, neededTopFirst, open.toList())
+
+        for (key in plan.toClose) {
+            open -= key
+            engine.closeAsset(key)
+        }
+        reportSkipped(plan.skipped)
+        for (layer in scene.layers) {
+            val key = layer.assetKey
+            if (key in plan.render && key !in open && key !in opening) openThen(engine, layer)
+        }
+        // Layers whose asset is still opening are left out for now; the scene is resent when they are ready.
+        val ready = scene.layers.filter { it.assetKey in open && it.assetKey in plan.render }
+        for (layer in ready) touch(layer.assetKey)
+        engine.setScene(
+            scene.canvasWidth,
+            scene.canvasHeight,
+            ready.map { PreviewLayer(it.assetKey, it.sourceFrame, it.transform.toPlacement()) },
+        )
+    }
+
+    /** Marks [key] as the most recently shown asset. */
+    private fun touch(key: Int) {
+        open -= key
+        open += key
+    }
+
+    private fun reportSkipped(skipped: List<Int>) {
+        val set = skipped.toSet()
+        if (set == reportedSkipped) return
+        reportedSkipped = set
+        if (set.isNotEmpty()) {
+            onError("This device can preview $maxDecoders video layers at once; the lower ${set.size} are hidden in the preview")
         }
     }
 
-    private fun openThenShow(engine: PreviewEngine, request: PreviewRequest) {
+    private fun openThen(engine: PreviewEngine, request: PreviewRequest) {
         val key = request.assetKey
         opening += key
         scope.launch {
@@ -83,11 +138,12 @@ class EditorPreview(
             if (error != null) {
                 failed += key
                 onError(error)
+                latest?.let(::show)  // lower layers may now be shown without it
                 return@launch
             }
             open += key
             // The playhead may have moved while the asset was opening.
-            latest?.takeIf { it.assetKey == key }?.let { engine.seek(key, it.sourceFrame) }
+            latest?.let(::show)
         }
     }
 
