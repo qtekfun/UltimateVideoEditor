@@ -78,6 +78,14 @@ data class VideoClipSpec(
     val keyframes: List<ExportKeyframe> = emptyList(),
     /** Project frame that [ExportKeyframe.frame] counts from: the clip's own first frame. */
     val keyframeOriginFrame: Long = 0,
+    /**
+     * For a retimed clip (speed, ramp, reverse, freeze), the source frame of each of its project frames
+     * (index = frame - [startFrame], size [durationFrames]); null for a plain 1x clip, which shows
+     * `sourceInFrame + (frame - startFrame)`. Built from `domain/Retime.kt`, as the preview does.
+     */
+    val sourceFrames: LongArray? = null,
+    /** The clip plays backwards: the decoder keeps decoded frames behind the one being drawn. */
+    val reverse: Boolean = false,
 )
 
 /**

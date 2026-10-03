@@ -92,7 +92,8 @@ public:
     void serviceOnce();
 
 private:
-    using SourceKey = std::tuple<int64_t, int64_t, int64_t, int32_t, int32_t>;
+    // clip, asset, source in-point, source rate (num, den) and a hash of the retime knots.
+    using SourceKey = std::tuple<int64_t, int64_t, int64_t, int32_t, int32_t, uint64_t>;
     struct Retired {
         float* storage;
         int64_t atBlock;
@@ -106,6 +107,7 @@ private:
 
     void workerLoop();
     void serviceClip(ClipSource& src, const PreparedClip& clip, int64_t needStart, int64_t needEnd, int32_t rate);
+    void serviceRetimedClip(ClipSource& src, const PreparedClip& clip, int64_t needStart, int64_t needEnd, int32_t rate);
     void releaseClip(ClipSource& src);
     void failClip(ClipSource& src, core::Status status);
     bool openDecoder(ClipSource& src, int32_t rate);
@@ -115,6 +117,7 @@ private:
     static constexpr int64_t kNoSeek = INT64_MIN;
     static constexpr int32_t kMaxBlock = 4096;
     static constexpr int32_t kDecodeChunk = 4096;
+    static constexpr int32_t kRetimeBlock = 1024;  // output samples rendered per retimed read
 
     const DecoderFactory factory_;
     const AudioCoreOptions options_;

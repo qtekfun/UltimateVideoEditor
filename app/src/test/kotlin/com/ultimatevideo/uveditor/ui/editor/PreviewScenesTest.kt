@@ -45,6 +45,43 @@ class PreviewScenesTest {
     }
 
     @Test
+    fun `a fast clip shows source frames at twice the pace and has no playback end`() {
+        val tl = TimelineOps.setSpeed(timeline(track("v1", clip("c", 10, 100, srcIn = 20, asset = "a1"))), "c", 2, 1).getOrFail()
+
+        val atStart = requests(tl, 10, asset("a1")).single()
+        val later = requests(tl, 30, asset("a1")).single()
+
+        assertEquals(20L, atStart.sourceFrame)
+        assertEquals(60L, later.sourceFrame) // 20 frames in at 2x
+        assertNull(later.endFrame)
+        assertEquals(false, later.reverse)
+    }
+
+    @Test
+    fun `a reversed clip plays from its last frame down and tells the decoder`() {
+        val tl = TimelineOps.setReverse(timeline(track("v1", clip("c", 0, 100, srcIn = 10, asset = "a1"))), "c", true).getOrFail()
+
+        val first = requests(tl, 0, asset("a1")).single()
+        val later = requests(tl, 40, asset("a1")).single()
+
+        assertEquals(109L, first.sourceFrame)
+        assertEquals(69L, later.sourceFrame)
+        assertTrue(first.reverse && later.reverse)
+        assertNull(later.endFrame)
+    }
+
+    @Test
+    fun `a frozen frame stays on one source frame`() {
+        val tl = TimelineOps.freezeFrame(timeline(track("v1", clip("c", 0, 100, asset = "a1"))), "v1", FrameIndex(40), 30, "fz", "c2").getOrFail()
+
+        // Frames 40..69 hold source frame 40; the second half then carries on from it.
+        assertEquals(setOf(40L), listOf(40L, 41L, 55L, 69L).map { requests(tl, it, asset("a1")).single().sourceFrame }.toSet())
+        assertEquals(40L, requests(tl, 70, asset("a1")).single().sourceFrame)
+        assertEquals(41L, requests(tl, 71, asset("a1")).single().sourceFrame)
+        assertEquals(39L, requests(tl, 39, asset("a1")).single().sourceFrame)
+    }
+
+    @Test
     fun `playback stops each video layer at its clip's out point`() {
         val tl = timeline(
             track("v2", clip("top", 50, 100, srcIn = 10, asset = "a2")),

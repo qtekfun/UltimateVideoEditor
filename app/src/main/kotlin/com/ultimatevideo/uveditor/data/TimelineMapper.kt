@@ -4,6 +4,7 @@ import com.ultimatevideo.uveditor.data.model.ClipDto
 import com.ultimatevideo.uveditor.data.model.KeyframeDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
+import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.data.model.TransformDto
@@ -13,6 +14,7 @@ import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
+import com.ultimatevideo.uveditor.domain.SpeedKey
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -77,6 +79,9 @@ object TimelineMapper {
         gainDb = dto.gainDb,
         title = dto.title?.let { toTitle(dto.id, it) },
         keyframes = dto.keyframes.map { toKeyframe(dto.id, it) },
+        retimedFrames = dto.timelineFrames,
+        reverse = dto.reverse,
+        speedRamp = dto.speedRamp.map { SpeedKey(it.frame, it.weightPermille) },
     )
 
     private fun toKeyframe(clipId: String, dto: KeyframeDto) = Keyframe(
@@ -174,6 +179,9 @@ object TimelineMapper {
             gainDb = clip.gainDb,
             title = clip.title?.let(::toTitleDto),
             keyframes = clip.keyframes.map(::toKeyframeDto),
+            timelineFrames = clip.retimedFrames,
+            reverse = clip.reverse,
+            speedRamp = clip.speedRamp.map { SpeedKeyDto(it.frame, it.weightPermille) },
         )
 
     private const val COLOR_HEX_LENGTH = 8

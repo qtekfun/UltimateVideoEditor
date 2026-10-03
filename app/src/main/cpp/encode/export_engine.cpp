@@ -319,6 +319,7 @@ struct AssetState {
     int64_t lastUsedFrame = 0;  // output frame that last needed this decoder
     decode::AssetInfo info;
     int turns = 0;
+    bool reverse = false;  // the clip being drawn plays backwards: the decoder window is behind the frame
     std::mutex mu;
     std::map<int64_t, std::shared_ptr<decode::GpuFrame>> frames;
 };
@@ -361,6 +362,7 @@ public:
         struct Used {
             AssetState* asset;
             int64_t source;
+            bool reverse;
         };
         std::vector<std::shared_ptr<decode::GpuFrame>> held;
         std::vector<render::LayerDraw> layers;
@@ -379,6 +381,7 @@ public:
             }
             AssetState& asset = assetFor(clip->assetKey, clip->layer * 2 + clip->lane);
             asset.lastUsedFrame = frame;
+            setDirection(asset, clip->reverse);
             const int64_t source = sourceFrameFor(*clip, projectFrame, asset.info.durationFrames);
             held.push_back(fetch(asset, source));
             render::LayerDraw layer;
@@ -389,13 +392,19 @@ public:
                 static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
                 static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
             layers.push_back(layer);
-            used.push_back({&asset, source});
+            used.push_back({&asset, source, clip->reverse});
         }
         // No layers draws black: a gap in the timeline.
         if (pipeline_->drawScene(layers, params_.canvasWidth, params_.canvasHeight, w, h, &e) != decode::Status::Ok) {
             failDecode(e, "drawing a frame failed");
         }
-        for (const Used& u : used) evictBefore(*u.asset, u.source);
+        for (const Used& u : used) {
+            if (u.reverse) {
+                evictAfter(*u.asset, u.source);
+            } else {
+                evictBefore(*u.asset, u.source);
+            }
+        }
         if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
 
         egl_.setPresentationTimeExact(frameToNs(frame, params_.fps));
@@ -516,6 +525,28 @@ private:
             }
         }
         return nullptr;
+    }
+
+    // The decoder keeps its window ahead of the frame for a clip that plays forwards and behind it for one
+    // that plays backwards (a mirrored window: one pass over a GOP then serves the next stretch).
+    void setDirection(AssetState& asset, bool reverse) {
+        if (asset.reverse == reverse) return;
+        asset.reverse = reverse;
+        if (reverse) {
+            const int64_t frameBytes = static_cast<int64_t>(asset.info.width) * asset.info.height * 4;
+            asset.decoder->setWindow(reverseWindowFrames(frameBytes), 0);
+        } else {
+            asset.decoder->setWindow(0, kDecodeAhead);
+        }
+    }
+
+    // Playing backwards the frames after `source` are never needed again; recycle them.
+    void evictAfter(AssetState& asset, int64_t source) {
+        std::lock_guard<std::mutex> lock(asset.mu);
+        for (auto it = asset.frames.upper_bound(source); it != asset.frames.end();) {
+            if (it->second.use_count() == 1 && pool_.size() < 8) pool_.push_back(std::move(it->second));
+            it = asset.frames.erase(it);
+        }
     }
 
     // Frames before `source` are never needed again (output only moves forward); recycle them.

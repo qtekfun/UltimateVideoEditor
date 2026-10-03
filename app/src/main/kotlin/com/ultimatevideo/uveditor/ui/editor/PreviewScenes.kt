@@ -54,8 +54,10 @@ internal fun previewRequestsAt(
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,
-                        // Playback holds the clip's last frame instead of running into trimmed-away media.
-                        endFrame = clip.sourceInFrame + clip.durationFrames,
+                        // Playback holds the clip's last frame instead of running into trimmed-away media. A
+                        // retimed clip is re-anchored every tick at the frame its mapping gives, so it has no end.
+                        endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
+                        reverse = clip.isReverse,
                     )
                 }
             }
