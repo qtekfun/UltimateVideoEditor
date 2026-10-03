@@ -101,6 +101,15 @@ object TimelineOps {
         return updateFx(timeline, clipId) { it.copy(effects = reordered) }
     }
 
+    /** Reads the clip's source as [space], or as its file says when null. Only clips that play a video file have a source colour. */
+    fun setColorOverride(timeline: Timeline, clipId: String, space: SourceColorSpace?): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (space != null && (!clip.hasMedia || timeline.trackOfClip(clipId)?.type != TrackType.VIDEO)) {
+            return failure(EditError.InvalidClip("only a video clip has a source colour space"))
+        }
+        return updateClip(timeline, clipId) { it.copy(colorOverride = space) }
+    }
+
     fun setBlendMode(timeline: Timeline, clipId: String, mode: BlendMode): EditResult<Timeline> =
         updateFx(timeline, clipId) { it.copy(blendMode = mode) }
 
