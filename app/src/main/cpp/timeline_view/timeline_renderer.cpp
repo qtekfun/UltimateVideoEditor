@@ -443,13 +443,15 @@ HitResult TimelineRenderer::hitTest(float x, float y) const {
     std::shared_ptr<const TimelineSnapshot> snap;
     Viewport vp;
     Layout layout;
+    int64_t playhead = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         snap = state_->snapshot;
         vp = state_->vp;
         layout = state_->layout;
+        playhead = state_->playhead;
     }
-    return uv::timeline::hitTest(*snap, vp, layout, x, y);
+    return uv::timeline::hitTest(*snap, vp, layout, x, y, playhead);
 }
 
 void TimelineRenderer::onFrame(int64_t frameTimeNanos, void* data) {

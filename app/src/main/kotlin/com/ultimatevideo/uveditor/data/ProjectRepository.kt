@@ -57,7 +57,7 @@ class ProjectRepository(
     }
 
     suspend fun create(name: String, settings: ProjectSettingsDto): ProjectDto = mutate {
-        val project = ProjectDto(id = idGenerator(), name = validName(name), settings = settings)
+        val project = ProjectDto(id = idGenerator(), name = freeName(name, excludingId = null), settings = settings)
         writeProject(project)
         project
     }
@@ -69,7 +69,7 @@ class ProjectRepository(
     override suspend fun save(project: ProjectDto) = mutate { writeProject(project) }
 
     suspend fun rename(id: String, name: String): ProjectDto = mutate {
-        val renamed = ProjectJson.decode(readText(projectFile(id))).copy(name = validName(name))
+        val renamed = ProjectJson.decode(readText(projectFile(id))).copy(name = freeName(name, excludingId = id))
         writeProject(renamed)
         renamed
     }
@@ -78,7 +78,11 @@ class ProjectRepository(
     suspend fun clone(id: String, newName: String? = null): ProjectDto = mutate {
         val raw = ProjectJson.parseObject(readText(projectFile(id)))
         val source = ProjectJson.decode(readText(projectFile(id)))
-        val copyName = validName(newName ?: "${source.name} copy".take(MAX_NAME_LENGTH))
+        val copyName = if (newName != null) {
+            freeName(newName, excludingId = null)
+        } else {
+            ProjectNames.unique(validName("${source.name} copy".take(MAX_NAME_LENGTH)), namesInUse(null), MAX_NAME_LENGTH) { b, n -> "$b $n" }
+        }
         storeRaw(raw, idGenerator(), copyName)
     }
 
@@ -101,7 +105,9 @@ class ProjectRepository(
         val raw = ProjectJson.parseObject(text)
         val imported = ProjectJson.decode(text)
         val keepId = isValidId(imported.id) && !projectDir(imported.id).exists()
-        storeRaw(raw, if (keepId) imported.id else idGenerator(), imported.name)
+        // An imported file must not be refused over a clash, so it is renamed to "<name> (2)" etc.
+        val name = ProjectNames.unique(validName(imported.name), namesInUse(null), MAX_NAME_LENGTH) { b, n -> "$b ($n)" }
+        storeRaw(raw, if (keepId) imported.id else idGenerator(), name)
     }
 
     private fun storeRaw(raw: kotlinx.serialization.json.JsonObject, id: String, name: String): ProjectDto {
@@ -153,6 +159,27 @@ class ProjectRepository(
     private fun projectFile(id: String) = File(projectDir(id), PROJECT_FILE)
 
     private fun isValidId(id: String) = ID_PATTERN.matches(id)
+
+    /** Validates [name] and rejects it if another project (not [excludingId]) already uses it. */
+    private fun freeName(name: String, excludingId: String?): String {
+        val valid = validName(name)
+        if (ProjectNames.isTaken(valid, namesInUse(excludingId))) throw ProjectError.DuplicateName(valid)
+        return valid
+    }
+
+    /** Names of every readable project. Unreadable files cannot clash and are skipped. */
+    private fun namesInUse(excludingId: String?): List<String> {
+        val dirs = rootDir.listFiles { file -> file.isDirectory && file.name != excludingId }.orEmpty()
+        return dirs.mapNotNull { dir ->
+            val file = File(dir, PROJECT_FILE)
+            if (!file.isFile) return@mapNotNull null
+            try {
+                ProjectJson.decode(readText(file)).name
+            } catch (e: ProjectError) {
+                null
+            }
+        }
+    }
 
     private fun validName(name: String): String {
         val trimmed = name.trim()

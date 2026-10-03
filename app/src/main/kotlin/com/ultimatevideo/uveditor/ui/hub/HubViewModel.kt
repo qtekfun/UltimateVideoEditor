@@ -2,7 +2,9 @@ package com.ultimatevideo.uveditor.ui.hub
 
 import androidx.lifecycle.viewModelScope
 import com.ultimatevideo.uveditor.data.ProjectError
+import com.ultimatevideo.uveditor.data.ProjectNames
 import com.ultimatevideo.uveditor.data.ProjectRepository
+import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.engine.EngineClient
 import com.ultimatevideo.uveditor.engine.EngineException
@@ -28,7 +30,7 @@ class HubViewModel(
             HubIntent.LoadEngineInfo -> loadEngineInfo()
             HubIntent.Refresh -> refresh()
 
-            HubIntent.ShowNewProject -> reduce { copy(newProjectDraft = NewProjectDraft()) }
+            HubIntent.ShowNewProject -> reduce { copy(newProjectDraft = NewProjectDraft(name = suggestedName(projects))) }
             is HubIntent.DraftNameChanged -> reduceDraft { copy(name = intent.name) }
             is HubIntent.DraftResolutionSelected -> reduceDraft { copy(resolution = intent.preset) }
             is HubIntent.DraftFpsSelected -> reduceDraft { copy(fps = intent.preset) }
@@ -63,6 +65,9 @@ class HubViewModel(
         }
     }
 
+    private fun suggestedName(existing: List<ProjectSummary>): String =
+        ProjectNames.unique(DEFAULT_PROJECT_NAME, existing.map { it.name }, ProjectRepository.MAX_NAME_LENGTH) { b, n -> "$b $n" }
+
     private fun reduceDraft(change: NewProjectDraft.() -> NewProjectDraft) {
         reduce { copy(newProjectDraft = newProjectDraft?.change()) }
     }
@@ -90,6 +95,7 @@ class HubViewModel(
     }
 
     private fun confirmCreate() {
+        if (state.value.newNameTaken) return
         val draft = state.value.newProjectDraft?.takeIf { it.canCreate } ?: return
         val settings = ProjectSettingsDto(
             width = draft.resolution.width,
@@ -106,6 +112,7 @@ class HubViewModel(
     }
 
     private fun confirmRename() {
+        if (state.value.renameNameTaken) return
         val draft = state.value.renameDraft ?: return
         launchProjectOp {
             projects.rename(draft.projectId, draft.name)
@@ -133,5 +140,9 @@ class HubViewModel(
                 emit(HubEffect.ShowMessage(e.message ?: "Project operation failed"))
             }
         }
+    }
+
+    private companion object {
+        const val DEFAULT_PROJECT_NAME = "New project"
     }
 }

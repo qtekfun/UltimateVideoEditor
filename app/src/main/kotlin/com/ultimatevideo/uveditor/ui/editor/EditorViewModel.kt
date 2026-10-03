@@ -44,9 +44,10 @@ class EditorViewModel(
     private val importer: MediaImporter,
     private val idGenerator: () -> String = { UUID.randomUUID().toString().take(ID_LENGTH) },
     private val saveDebounceMillis: Long = DEFAULT_SAVE_DEBOUNCE_MILLIS,
+    private val nanoClock: () -> Long = System::nanoTime,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
-    private enum class DragMode { MOVE, TRIM_START, TRIM_END }
+    private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
 
     private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long)
 
@@ -58,6 +59,7 @@ class EditorViewModel(
     private var drag: DragSession? = null
     private var pendingDragCommand: EditCommand? = null
     private var saveJob: Job? = null
+    private var playJob: Job? = null
     private var dirty = false
 
     init {
@@ -74,6 +76,9 @@ class EditorViewModel(
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
             EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.RippleDelete(it)) }
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
+            EditorIntent.TogglePlay -> togglePlay()
+            EditorIntent.SeekPrevious -> seekTo(previousEditPoint())
+            EditorIntent.SeekNext -> seekTo(nextEditPoint())
             EditorIntent.Undo -> undo()
             EditorIntent.Redo -> redo()
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
@@ -86,6 +91,8 @@ class EditorViewModel(
 
     /** True if a drag that starts on [hit] should edit the clip instead of scrolling the timeline. */
     fun canDrag(hit: TimelineHit): Boolean {
+        // The playhead (or anywhere on the ruler) scrubs; clips only drag once selected.
+        if (hit.kind == HitKind.PLAYHEAD || hit.kind == HitKind.RULER) return true
         val selected = state.value.selectedClipId ?: return false
         val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
         return onClip && clipKeys.idFor(hit.clipKey) == selected
@@ -156,6 +163,7 @@ class EditorViewModel(
     }
 
     private fun flush(thenClose: Boolean) {
+        pausePlayback()
         viewModelScope.launch {
             saveJob?.cancelAndJoin()
             if (dirty) persist()
@@ -191,7 +199,7 @@ class EditorViewModel(
 
     private fun tap(hit: TimelineHit) {
         when (hit.kind) {
-            HitKind.RULER -> setPlayhead(hit.frame)
+            HitKind.RULER, HitKind.PLAYHEAD -> setPlayhead(hit.frame)
             HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE ->
                 reduce { copy(selectedClipId = clipKeys.idFor(hit.clipKey)) }
             HitKind.EMPTY_TRACK, HitKind.NONE -> reduce { copy(selectedClipId = null) }
@@ -200,6 +208,74 @@ class EditorViewModel(
 
     private fun setPlayhead(frame: Long) {
         reduce { copy(playhead = FrameIndex(frame.coerceAtLeast(0))) }
+    }
+
+    /**
+     * Moves the playhead in real time while playing. This is only the transport clock: it does not
+     * drive video or audio output yet. Elapsed time is converted to frames with integer math.
+     */
+    private fun togglePlay() {
+        if (state.value.isPlaying) pausePlayback() else startPlayback()
+    }
+
+    private fun timelineEnd(): Long = history.timeline.tracks.maxOfOrNull { it.end }?.value ?: 0
+
+    private fun startPlayback() {
+        val end = timelineEnd()
+        if (end <= 0) {
+            emit(EditorEffect.ShowMessage("Add a clip to play the timeline"))
+            return
+        }
+        val fps = state.value.fps
+        val from = state.value.playhead.value.takeIf { it < end } ?: 0
+        val startedAt = nanoClock()
+        reduce { copy(isPlaying = true, playhead = FrameIndex(from)) }
+        playJob?.cancel()
+        playJob = viewModelScope.launch {
+            while (true) {
+                delay(PLAY_TICK_MILLIS)
+                val elapsedMicros = (nanoClock() - startedAt) / NANOS_PER_MICRO
+                val frame = from + fps.microsToFrames(elapsedMicros)
+                // Re-read the end each tick: the timeline can be edited while playing.
+                val currentEnd = timelineEnd()
+                if (frame >= currentEnd) {
+                    reduce { copy(playhead = FrameIndex(currentEnd), isPlaying = false) }
+                    return@launch
+                }
+                reduce { copy(playhead = FrameIndex(frame)) }
+            }
+        }
+    }
+
+    /** Clip starts and ends on every track, plus the timeline start. */
+    private fun editPoints(): List<Long> = buildList {
+        add(0L)
+        for (track in history.timeline.tracks) {
+            for (clip in track.clips) {
+                add(clip.timelineStart.value)
+                add(clip.timelineEnd.value)
+            }
+        }
+    }
+
+    private fun previousEditPoint(): Long = editPoints().filter { it < state.value.playhead.value }.maxOrNull() ?: 0
+
+    private fun nextEditPoint(): Long {
+        val playhead = state.value.playhead.value
+        return editPoints().filter { it > playhead }.minOrNull() ?: playhead
+    }
+
+    private fun seekTo(frame: Long) {
+        val wasPlaying = state.value.isPlaying
+        pausePlayback()
+        setPlayhead(frame)
+        if (wasPlaying) startPlayback()
+    }
+
+    private fun pausePlayback() {
+        playJob?.cancel()
+        playJob = null
+        if (state.value.isPlaying) reduce { copy(isPlaying = false) }
     }
 
     private fun undo() {
@@ -263,6 +339,13 @@ class EditorViewModel(
 
     private fun dragStart(hit: TimelineHit) {
         if (!canDrag(hit)) return
+        if (hit.kind == HitKind.PLAYHEAD || hit.kind == HitKind.RULER) {
+            pausePlayback()
+            drag = DragSession(clipId = "", mode = DragMode.PLAYHEAD, grabOffset = 0)
+            pendingDragCommand = null
+            setPlayhead(hit.frame)
+            return
+        }
         val clipId = clipKeys.idFor(hit.clipKey) ?: return
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
         val mode = when (hit.kind) {
@@ -276,6 +359,10 @@ class EditorViewModel(
 
     private fun dragMove(frame: Long, trackIndex: Int) {
         val session = drag ?: return
+        if (session.mode == DragMode.PLAYHEAD) {
+            setPlayhead(frame)
+            return
+        }
         val base = history.timeline
         val sourceTrack = base.trackOfClip(session.clipId) ?: return
         val clip = sourceTrack.clip(session.clipId) ?: return
@@ -303,6 +390,7 @@ class EditorViewModel(
                 frame = snapFrame(base, session.clipId, frame, playhead),
                 sourceLength = assetLengthFrames(clip.assetId),
             )
+            DragMode.PLAYHEAD -> return
         }
         // A rejected position (overlap, out of range) keeps the last valid preview on screen.
         val result = command.apply(base)
@@ -429,5 +517,7 @@ class EditorViewModel(
         const val DEFAULT_SAVE_DEBOUNCE_MILLIS = 500L
         const val SNAP_THRESHOLD_FRAMES = 8L
         const val NO_ASSET_KEY = -1L
+        const val PLAY_TICK_MILLIS = 16L
+        const val NANOS_PER_MICRO = 1_000L
     }
 }

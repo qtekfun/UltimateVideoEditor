@@ -24,6 +24,7 @@ data class EditorState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val isImporting: Boolean = false,
+    val isPlaying: Boolean = false,
 ) : UiState {
     /** What the canvas should draw right now. */
     val visibleTimeline: Timeline get() = dragPreview ?: timeline
@@ -40,6 +41,11 @@ sealed interface EditorIntent : UiIntent {
     data object SplitAtPlayhead : EditorIntent
     data object RippleDeleteSelected : EditorIntent
     data object RippleAppendSelected : EditorIntent
+    data object TogglePlay : EditorIntent
+
+    /** Jump to the previous / next clip boundary (start or end of a clip), or the timeline start. */
+    data object SeekPrevious : EditorIntent
+    data object SeekNext : EditorIntent
     data object Undo : EditorIntent
     data object Redo : EditorIntent
 
