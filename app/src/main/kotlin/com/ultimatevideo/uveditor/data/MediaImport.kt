@@ -88,9 +88,18 @@ internal object ColorSpaceNames {
     const val HLG = "Rec2020-HLG"
     const val PQ = "Rec2020-PQ"
 
-    fun fromTransfer(transfer: Int?): String = when (transfer) {
-        MediaFormat.COLOR_TRANSFER_HLG -> HLG
-        MediaFormat.COLOR_TRANSFER_ST2084 -> PQ
+    fun fromTransfer(transfer: Int?): String = detect(transfer, hasHdrStaticInfo = false)
+
+    /**
+     * The colour space a video track really is. The transfer characteristic decides (HLG and PQ are
+     * explicit); when a file carries no transfer at all but does carry HDR10 static metadata
+     * (mastering display / content light level), it is PQ. Everything else, including BT.2020 with an
+     * SDR transfer, is treated as SDR.
+     */
+    fun detect(transfer: Int?, hasHdrStaticInfo: Boolean): String = when {
+        transfer == MediaFormat.COLOR_TRANSFER_HLG -> HLG
+        transfer == MediaFormat.COLOR_TRANSFER_ST2084 -> PQ
+        transfer == null && hasHdrStaticInfo -> PQ
         else -> SDR
     }
 }
@@ -200,6 +209,7 @@ class AndroidMediaImporter(
         var durationMicros = 0L
         var fps: Double? = null
         var transfer: Int? = null
+        var hdrStaticInfo = false
         for (index in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(index)
             val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
@@ -213,6 +223,7 @@ class AndroidMediaImporter(
                     if (format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
                         transfer = format.getInteger(MediaFormat.KEY_COLOR_TRANSFER)
                     }
+                    hdrStaticInfo = format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO)
                 }
                 mime.startsWith("audio/") -> hasAudio = true
             }
@@ -220,7 +231,7 @@ class AndroidMediaImporter(
         if (!hasVideo && !hasAudio) throw MediaImportException("The file has no audio or video track", problem = MediaProblem.UNSUPPORTED)
         if (durationMicros <= 0) throw MediaImportException("The file has no readable duration", problem = MediaProblem.UNSUPPORTED)
         val (num, den) = FpsRational.fromFloat(fps ?: captureFrameRate(uri) ?: FpsRational.DEFAULT_FPS.toDouble())
-        return ProbedMedia(durationMicros, num, den, ColorSpaceNames.fromTransfer(transfer), hasVideo, hasAudio)
+        return ProbedMedia(durationMicros, num, den, ColorSpaceNames.detect(transfer, hdrStaticInfo), hasVideo, hasAudio)
     }
 
     private fun captureFrameRate(uri: Uri): Double? {

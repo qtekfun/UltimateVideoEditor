@@ -11,6 +11,10 @@ import com.ultimatevideo.uveditor.engine.export.ExportListener
 import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
 import com.ultimatevideo.uveditor.engine.export.ExportSettings
+import com.ultimatevideo.uveditor.domain.CubeLut
+import com.ultimatevideo.uveditor.domain.lutKeys
+import com.ultimatevideo.uveditor.domain.toDirectBuffer
+import com.ultimatevideo.uveditor.engine.export.ExportLut
 import com.ultimatevideo.uveditor.engine.export.ExportTitle
 import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
 import com.ultimatevideo.uveditor.engine.still.StillRasterException
@@ -41,6 +45,8 @@ class ExportViewModel(
         throw StillRasterException("This build cannot draw pictures")
     },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Reads a LUT of the library by key; null when it is missing (its effect then leaves the clip ungraded). */
+    private val lutLoader: (Int) -> CubeLut? = { null },
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
 
     private var input: ExportInput? = null
@@ -265,6 +271,7 @@ class ExportViewModel(
             audioSnapshot = plan.audio?.encode(),
             outputFd = outputFd,
             titles = titleImages + stillImages,
+            luts = source.timeline.lutKeys().mapNotNull { key -> lutLoader(key)?.let { ExportLut(key, it.size, it.toDirectBuffer()) } },
         )
         val totalFrames = request.totalFrames
         synchronized(lock) {

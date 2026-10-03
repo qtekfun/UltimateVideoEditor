@@ -116,6 +116,8 @@ data class PreviewLayer(
     val reverse: Boolean = false,
     /** Effects, blend mode and mask; neutral draws the layer as is. */
     val fx: ClipFx = ClipFx.NONE,
+    /** Reads this layer's source as SDR (0), HLG (1) or PQ (2) whatever the file says; -1 uses the file's own. */
+    val sourceOverride: Int = -1,
 )
 
 data class AssetInfo(
