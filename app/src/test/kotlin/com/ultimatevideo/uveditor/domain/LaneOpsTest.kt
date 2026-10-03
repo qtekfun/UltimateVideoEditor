@@ -150,4 +150,53 @@ class LaneOpsTest {
     }
 
     // endregion
+
+    // region lifting a clip off the base
+
+    private fun liftScene() = timeline(
+        track("v2", clip("x", 160, 40)),
+        track("v1", clip("a", 0, 100), clip("b", 100, 50), clip("c", 150, 100)),
+    )
+
+    @Test
+    fun `lifting a base clip closes the base gap, overlays follow and the clip lands on the overlay`() {
+        val result = LaneOps.liftFromBase(liftScene(), "b", "v2", f(20)).getOrFail()
+        assertLayout(result, "v1", at("a", 0, 100), at("c", 100, 200))
+        assertLayout(result, "v2", at("b", 20, 70), at("x", 110, 150))
+    }
+
+    @Test
+    fun `lifting onto a new lane puts the clip on a fresh top lane`() {
+        val result = LaneOps.liftFromBase(liftScene(), "b", null, f(30)).getOrFail()
+        assertEquals(3, result.tracks.size)
+        val top = result.tracks.first()
+        assertEquals(listOf("b"), top.clips.map { it.id })
+        assertEquals(f(30), top.clips.single().timelineStart)
+        assertEquals(emptyList<String>(), result.invariantViolations())
+    }
+
+    @Test
+    fun `lifting over an overlay clip overwrites what it covers`() {
+        val t = timeline(track("v2", clip("x", 0, 200)), track("v1", clip("a", 0, 100), clip("b", 100, 50)))
+        val result = LaneOps.liftFromBase(t, "b", "v2", f(10)).getOrFail()
+        assertEquals(emptyList<String>(), result.invariantViolations())
+        assertEquals(1, result.tracks.first { it.id == "v2" }.clips.count { it.id == "b" })
+    }
+
+    @Test
+    fun `only base clips can be lifted and the destination must be an overlay video lane`() {
+        assertTrue(LaneOps.liftFromBase(liftScene(), "x", "v2", f(0)).errorOrFail() is EditError.InvalidClip)
+        assertTrue(LaneOps.liftFromBase(liftScene(), "b", "v1", f(0)).errorOrFail() is EditError.TrackTypeMismatch)
+        assertEquals(EditError.TrackNotFound("zz"), LaneOps.liftFromBase(liftScene(), "b", "zz", f(0)).errorOrFail())
+    }
+
+    @Test
+    fun `lifting the only base clip leaves an empty base and undoes exactly`() {
+        val t = timeline(track("v2"), track("v1", clip("a", 0, 100)))
+        val lifted = EditHistory(t).execute(EditCommand.LiftFromBase("a", "v2", f(5))).getOrFail()
+        assertEquals(emptyList<Clip>(), lifted.timeline.track("v1")!!.clips)
+        assertEquals(t, lifted.undo().timeline)
+    }
+
+    // endregion
 }
