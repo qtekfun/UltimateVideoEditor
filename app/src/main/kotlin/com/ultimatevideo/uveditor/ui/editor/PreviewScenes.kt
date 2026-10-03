@@ -40,6 +40,7 @@ internal fun previewRequestsAt(
                     fpsDen = fps.den,
                     transform = transform,
                     title = content,
+                    fx = clip.fx,
                 )
             }
             RenderKind.VIDEO -> {
@@ -58,6 +59,7 @@ internal fun previewRequestsAt(
                         // retimed clip is re-anchored every tick at the frame its mapping gives, so it has no end.
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
+                        fx = clip.fx,
                     )
                 }
             }

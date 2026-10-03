@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.engine.title
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
@@ -77,6 +78,16 @@ class AndroidTitleRasterizer : TitleRasterizer {
         try {
             Canvas(bitmap).apply {
                 translate(margin.toFloat(), margin.toFloat())
+                if (content.outline) {
+                    // Stroke first, then the fill on top, so only the outside of the glyphs is dark.
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeJoin = Paint.Join.ROUND
+                    paint.strokeWidth = paint.textSize * OUTLINE_FRACTION
+                    paint.color = OUTLINE_COLOR
+                    layout.draw(this)
+                    paint.style = Paint.Style.FILL
+                    paint.color = content.colorArgb
+                }
                 layout.draw(this)
             }
             val pixels = ByteBuffer.allocateDirect(width * height * BYTES_PER_PIXEL)
@@ -92,6 +103,8 @@ class AndroidTitleRasterizer : TitleRasterizer {
         const val MIN_TEXT_PX = 4f
         const val MAX_LINE_FRACTION = 0.9
         const val MARGIN_FRACTION = 0.1f
+        const val OUTLINE_FRACTION = 0.14f
+        const val OUTLINE_COLOR = 0xFF000000.toInt()
         const val MAX_SIDE = 8192
         const val BYTES_PER_PIXEL = 4
     }

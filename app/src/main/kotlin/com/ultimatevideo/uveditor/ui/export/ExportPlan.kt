@@ -58,6 +58,7 @@ private fun RenderClip.toSpec(assetKey: Long, colorMode: Int, titleKey: Int = 0)
     keyframeOriginFrame = keyframeOriginFrame,
     sourceFrames = retime?.let { LongArray(durationFrames.toInt()) { i -> sourceFrameAt(startFrame + i) } },
     reverse = isReverse,
+    fx = fx,
 )
 
 private const val HLG_TO_SDR = 1

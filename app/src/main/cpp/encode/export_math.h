@@ -10,6 +10,7 @@
 
 #include "core/crossfade_math.h"
 #include "core/keyframe_math.h"
+#include "core/layer_fx.h"
 
 namespace uv::encode {
 
@@ -54,6 +55,8 @@ struct VideoClip {
     // to keep its window of decoded frames behind the frame being drawn.
     std::vector<int64_t> sourceTable;
     bool reverse = false;
+    // Effects, blend mode and mask; the same blob the preview gets (core/layer_fx.h).
+    core::LayerFx fx = {};
 };
 
 // Frame index -> nanoseconds, rounded half up. Monotonic and exact for any realistic length.

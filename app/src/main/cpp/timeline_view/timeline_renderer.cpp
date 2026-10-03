@@ -40,6 +40,7 @@ constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
 constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
+constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
 constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
 constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
 
@@ -888,8 +889,20 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             const float width = static_cast<float>(std::strlen(label)) * 4.0f * gs;
             if (label[0] != '\0' && fx1 - fx0 > width + 8.0f * density) {
                 g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
-                g.drawNumber(label, fx1 - width - 3.0f * density, top + (header - 5.0f * gs) * 0.5f, gs, kSpeedLabel);
+                g.drawNumber(label, fx1 - width - (c.hasFx ? 12.0f : 3.0f) * density, top + (header - 5.0f * gs) * 0.5f, gs, kSpeedLabel);
                 g.setClip(0, layout.rulerHeight, W, H);
+            }
+        }
+
+        // Effects marker: a small badge at the right end of the header strip, "fx" drawn as two bars.
+        if (c.hasFx) {
+            const float cy = top + header * 0.5f;
+            const float s = std::min(3.0f * density, header * 0.45f);
+            const float right = fx1 - s * 1.5f;
+            if (right - s * 4.0f > fx0) {
+                g.rect(right - s * 3.0f, cy - s, right - s * 2.0f, cy + s, kFxBadge);
+                g.rect(right - s * 1.5f, cy - s, right - s * 0.5f, cy + s, kFxBadge);
+                g.rect(right - s * 3.0f, cy - s * 0.2f, right - s * 0.5f, cy + s * 0.2f, kFxBadge);
             }
         }
 
