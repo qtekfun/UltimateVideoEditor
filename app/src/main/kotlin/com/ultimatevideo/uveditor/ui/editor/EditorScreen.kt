@@ -97,6 +97,7 @@ import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
 import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
+import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
 import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
 import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
@@ -121,6 +122,16 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // The app-wide LUT library, shared by the effects section, the preview and the export.
+    val lutStore = remember(context) { LutStore(File(context.applicationContext.filesDir, "luts")) }
+    val lutLibrary: LutLibraryViewModel = viewModel(
+        key = "luts",
+        factory = viewModelFactory {
+            initializer { LutLibraryViewModel(lutStore, ContentResolverLutReader(context.applicationContext)) }
+        },
+    )
+    val lutState by lutLibrary.state.collectAsStateWithLifecycle()
+
     val exportViewModel: ExportViewModel = viewModel(
         key = "export-$projectId",
         factory = viewModelFactory {
@@ -131,6 +142,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     titleRasterizer = AndroidTitleRasterizer(),
                     stillRasterizer = AndroidStillRasterizer(context.applicationContext),
                     hdrSupport = MediaCodecHdrExportSupport(),
+                    lutLoader = lutStore::load,
                 )
             }
         },
@@ -199,7 +211,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     DisposableEffect(engine) { onDispose { engine.close() } }
 
     val preview = remember {
-        EditorPreview(context, scope) { viewModel.onIntent(EditorIntent.ReportError(it)) }
+        EditorPreview(context, scope, lutLoader = lutStore::load) { viewModel.onIntent(EditorIntent.ReportError(it)) }
     }
     DisposableEffect(preview) { onDispose { preview.close() } }
 
@@ -535,6 +547,17 @@ private fun EditorMain(
             SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
         }
         if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
+        if (state.lutPickerOpen) {
+            LutPickerDialog(
+                state = lutState,
+                onPick = { viewModel.onIntent(EditorIntent.AddLut(it)) },
+                onImport = { uri -> lutLibrary.import(uri) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
+                onDismiss = {
+                    lutLibrary.clearError()
+                    viewModel.onIntent(EditorIntent.CloseLutPicker)
+                },
+            )
+        }
 
         // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
         // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
