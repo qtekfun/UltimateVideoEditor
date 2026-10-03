@@ -64,6 +64,15 @@ import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.ThumbnailCache
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
+import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
+import com.ultimatevideo.uveditor.ui.export.ExportHost
+import com.ultimatevideo.uveditor.ui.export.ExportInput
+import com.ultimatevideo.uveditor.ui.export.ExportIntent
+import com.ultimatevideo.uveditor.ui.export.ExportViewModel
+import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ultimatevideo.uveditor.ui.preview.PreviewSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,6 +90,22 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     val density = LocalDensity.current.density
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val exportViewModel: ExportViewModel = viewModel(
+        key = "export-$projectId",
+        factory = viewModelFactory {
+            initializer { ExportViewModel(ContentResolverExportIO(context.applicationContext), NativeExportRunner()) }
+        },
+    )
+    ExportHost(exportViewModel)
+    val openExport = {
+        // The dialog works from what the editor holds right now; the autosave is not involved.
+        exportViewModel.onIntent(
+            ExportIntent.Open(
+                ExportInput(state.projectName, state.canvasWidth, state.canvasHeight, state.fps, state.timeline, state.assets),
+            ),
+        )
+    }
 
     val engine = remember {
         val main = Handler(Looper.getMainLooper())
@@ -240,7 +265,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             modifier = Modifier.width(280.dp).fillMaxHeight(),
                         )
                     }
-                    EditorMain(state, viewModel, engine, preview, editing, launchImport, Modifier.weight(1f).fillMaxHeight())
+                    EditorMain(state, viewModel, engine, preview, editing, launchImport, openExport, Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
@@ -255,6 +280,7 @@ private fun EditorMain(
     preview: EditorPreview,
     editing: TimelineEditing,
     onImport: () -> Unit,
+    onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val hasSelection = state.selectedClipId != null
@@ -272,6 +298,7 @@ private fun EditorMain(
             )
             ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
+            ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
         }
 
         // No background here: the preview is a SurfaceView, and an opaque parent would hide it.
