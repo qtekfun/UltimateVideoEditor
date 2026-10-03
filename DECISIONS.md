@@ -356,7 +356,7 @@ screen; long-press dragging of lane headers can come later. **Alternative:** lon
 ## 2026-10-03 · CI: two jobs, host tests separate from the Android build
 **Chosen:** `.github/workflows/ci.yml` runs on pushes to master and on pull requests with two parallel jobs. `native-host-tests`
 (no SDK, no submodule) runs `scripts/run-native-tests.sh` and the CMake/ctest host tests; `android` checks out the whisper.cpp
-submodule, installs platform 37 / NDK 29.0.14206865 / CMake 3.31.6 with `sdkmanager` after `android-actions/setup-android`, then runs
+submodule, installs platform 37 / NDK 29.0.14206865 / CMake 3.31.6 with `sdkmanager` (the runner image already provides the SDK and sdkmanager; `android-actions/setup-android@v3` failed on a removed `tools` package), then runs
 `:app:testDebugUnitTest :app:assembleDebug` and uploads the debug APK. Superseded runs are cancelled. Actions are pinned to major tags.
 **Why:** the host tests are seconds long and must not wait for the slow first arm64 build of ggml/whisper. **Alternatives:**
 one job; caching the NDK build output (skipped until the build time proves it matters); a release/signing job (needs secrets,
