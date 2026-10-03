@@ -125,8 +125,8 @@ fun InspectorPanel(
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(opacity = it.toDouble()))) }
             FxControls(clip.fx, onIntent)
         }
-        if (title == null) SpeedControls(state, clip, isVisual, onIntent)
-        if (title == null) {
+        if (clip.hasMedia) SpeedControls(state, clip, isVisual, onIntent)
+        if (clip.hasMedia) {
             InspectorSlider(
                 label = "Volume",
                 value = clip.gainDb.toFloat().coerceIn(GAIN_MIN, GAIN_MAX),
