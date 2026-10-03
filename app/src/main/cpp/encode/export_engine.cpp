@@ -366,13 +366,14 @@ public:
         std::vector<render::LayerDraw> layers;
         std::vector<Used> used;
         for (const VideoClip* clip : layersAt(params_.clips, projectFrame)) {
+            const core::Pose pose = poseAt(*clip, projectFrame);
             const float opacity = static_cast<float>(opacityAt(*clip, projectFrame));
             if (clip->titleKey != 0) {
                 render::LayerDraw title;
                 title.titleKey = clip->titleKey;
                 title.transform = render::LayerTransform{
-                    static_cast<float>(clip->posX),   static_cast<float>(clip->posY),        static_cast<float>(clip->scaleX),
-                    static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), opacity};
+                    static_cast<float>(pose.posX),   static_cast<float>(pose.posY),        static_cast<float>(pose.scaleX),
+                    static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
                 layers.push_back(title);
                 continue;
             }
@@ -385,8 +386,8 @@ public:
             layer.mode = static_cast<render::ColorMode>(clip->colorMode);
             layer.turns = asset.turns;
             layer.transform = render::LayerTransform{
-                static_cast<float>(clip->posX),   static_cast<float>(clip->posY),     static_cast<float>(clip->scaleX),
-                static_cast<float>(clip->scaleY), static_cast<float>(clip->rotationDeg), opacity};
+                static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
+                static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
             layers.push_back(layer);
             used.push_back({&asset, source});
         }

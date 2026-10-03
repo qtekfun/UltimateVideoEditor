@@ -17,6 +17,9 @@ import com.ultimatevideo.uveditor.domain.EditHistory
 import com.ultimatevideo.uveditor.domain.EditResult
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.Interpolation
+import com.ultimatevideo.uveditor.domain.Keyframe
+import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.Snap
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TimelineOps
@@ -27,6 +30,7 @@ import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.domain.TrimEdge
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotKeyframe
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
@@ -64,6 +68,8 @@ class EditorViewModel(
         val baseGain: Double,
         var transform: ClipTransform,
         var gainDb: Double,
+        /** The clip frame a pose edit is keyed at when the clip is animated; null for a fixed transform. */
+        val keyFrame: Long? = null,
     )
 
     /** A title text/style edit in progress: shown live, committed as one undo step. */
@@ -121,6 +127,14 @@ class EditorViewModel(
             is EditorIntent.TransformGesture -> transformGesture(intent)
             is EditorIntent.EndAppearanceEdit -> endAppearance(intent.commit)
             EditorIntent.ResetAppearance -> resetAppearance()
+            EditorIntent.ToggleKeyframe -> toggleKeyframe()
+            is EditorIntent.JumpToKeyframe -> jumpToKeyframe(intent.forward)
+            is EditorIntent.SetKeyframeInterpolation -> setKeyframeInterpolation(intent.interpolation)
+            EditorIntent.ClearKeyframes -> clearKeyframes()
+            is EditorIntent.SetSafeZone -> reduce { copy(safeZone = intent.platform) }
+            EditorIntent.ShowCanvasDialog -> reduce { copy(canvasDialogOpen = true) }
+            EditorIntent.DismissCanvasDialog -> reduce { copy(canvasDialogOpen = false) }
+            is EditorIntent.ChangeCanvas -> changeCanvas(intent.width, intent.height)
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
             EditorIntent.Flush -> flush(thenClose = false)
@@ -184,7 +198,10 @@ class EditorViewModel(
                 SnapshotTransition(trackIndex, cut.value, transition.preFrames, transition.postFrames)
             }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions)
+        val keyframes = timeline.tracks.flatMap { track ->
+            track.clips.flatMap { clip -> clip.keyframes.map { SnapshotKeyframe(clipKeys.keyFor(clip.id), it.frame) } }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes)
     }
 
     // region loading and saving
@@ -582,8 +599,33 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("Select a clip first"))
             return false
         }
-        appearance = AppearanceSession(clip.id, clip.transform, clip.gainDb, clip.transform, clip.gainDb)
+        // An animated clip is edited at the playhead: the edit becomes a keyframe there.
+        val keyFrame = if (clip.keyframes.isEmpty()) null else state.value.selectedClipFrame
+        if (clip.keyframes.isNotEmpty() && keyFrame == null) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to edit its animation"))
+            return false
+        }
+        val pose = if (keyFrame != null) clip.transformAt(keyFrame) else clip.transform
+        appearance = AppearanceSession(clip.id, pose, clip.gainDb, pose, clip.gainDb, keyFrame)
         return true
+    }
+
+    /**
+     * The edit an appearance session stands for. A fixed clip gets its transform and gain replaced;
+     * an animated one gets a keyframe at the session's frame (only when the pose changed, so a gain
+     * edit never adds one) and the new gain.
+     */
+    private fun sessionCommand(session: AppearanceSession): EditCommand {
+        val frame = session.keyFrame ?: return EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
+        val clip = history.timeline.trackOfClip(session.clipId)?.clip(session.clipId)
+            ?: return EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
+        val parts = ArrayList<EditCommand>()
+        if (session.transform != session.baseTransform) {
+            val interpolation = Keyframes.at(clip.keyframes, frame)?.interpolation ?: Interpolation.LINEAR
+            parts += EditCommand.SetKeyframe(clip.id, Keyframe(frame, session.transform, interpolation))
+        }
+        if (session.gainDb != session.baseGain) parts += EditCommand.SetGain(clip.id, session.gainDb)
+        return EditCommand.Batch(parts)
     }
 
     private fun updateAppearance(transform: ClipTransform? = null, gainDb: Double? = null) {
@@ -615,7 +657,7 @@ class EditorViewModel(
 
     /** Shows the session's values on the preview without touching the undo history. */
     private fun showAppearance(session: AppearanceSession) {
-        val result = EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb).apply(history.timeline)
+        val result = sessionCommand(session).apply(history.timeline)
         if (result is EditResult.Success) reduce { copy(dragPreview = result.value) }
     }
 
@@ -623,15 +665,101 @@ class EditorViewModel(
         val session = appearance ?: return
         appearance = null
         val changed = session.transform != session.baseTransform || session.gainDb != session.baseGain
-        if (commit && changed && execute(EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb))) return
+        if (commit && changed && execute(sessionCommand(session))) return
         reduce { copy(dragPreview = null) }
     }
 
     private fun resetAppearance() = withSelection { clipId ->
         endAppearance(commit = false)
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
-        if (clip.transform.isIdentity && clip.gainDb == 0.0) return@withSelection
-        execute(EditCommand.SetAppearance(clipId, ClipTransform.IDENTITY, 0.0))
+        if (clip.transform.isIdentity && clip.gainDb == 0.0 && clip.keyframes.isEmpty()) return@withSelection
+        // One undo step: the animation goes and the clip returns to its original placement.
+        execute(EditCommand.Batch(listOf(EditCommand.ClearKeyframes(clipId), EditCommand.SetAppearance(clipId, ClipTransform.IDENTITY, 0.0))))
+    }
+
+    // endregion
+
+    // region keyframes
+
+    /** Adds a keyframe at the playhead holding the pose shown there, or removes the one that is there. */
+    private fun toggleKeyframe() = withSelection { clipId ->
+        endAppearance(commit = true)
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (history.timeline.trackOfClip(clipId)?.type == TrackType.AUDIO) {
+            emit(EditorEffect.ShowMessage("Only video clips and titles can be animated"))
+            return@withSelection
+        }
+        val frame = state.value.selectedClipFrame
+        if (frame == null) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to set a keyframe"))
+            return@withSelection
+        }
+        if (Keyframes.at(clip.keyframes, frame) != null) {
+            execute(EditCommand.RemoveKeyframe(clipId, frame))
+        } else {
+            execute(EditCommand.SetKeyframe(clipId, Keyframe(frame, clip.transformAt(frame))))
+        }
+    }
+
+    private fun jumpToKeyframe(forward: Boolean) = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        val relative = state.value.playhead - clip.timelineStart
+        val target = if (forward) Keyframes.nextFrame(clip.keyframes, relative) else Keyframes.previousFrame(clip.keyframes, relative)
+        if (target == null) {
+            emit(EditorEffect.ShowMessage(if (forward) "No later keyframe on this clip" else "No earlier keyframe on this clip"))
+            return@withSelection
+        }
+        seekTo(clip.timelineStart.value + target)
+    }
+
+    private fun setKeyframeInterpolation(interpolation: Interpolation) = withSelection { clipId ->
+        endAppearance(commit = true)
+        val frame = state.value.keyframeAtPlayhead?.frame
+        if (frame == null) {
+            emit(EditorEffect.ShowMessage("Put the playhead on a keyframe to change how it moves on"))
+            return@withSelection
+        }
+        execute(EditCommand.SetKeyframeInterpolation(clipId, frame, interpolation))
+    }
+
+    private fun clearKeyframes() = withSelection { clipId ->
+        endAppearance(commit = false)
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.keyframes.isEmpty()) return@withSelection
+        // The clip keeps the pose it has at the playhead, so the picture does not jump.
+        val frame = state.value.selectedClipFrame
+        val pose = if (frame != null) clip.transformAt(frame) else clip.keyframes.first().transform
+        execute(EditCommand.Batch(listOf(EditCommand.ClearKeyframes(clipId), EditCommand.SetTransform(clipId, pose))))
+    }
+
+    // endregion
+
+    // region canvas
+
+    /**
+     * Switches the project to another canvas size (a different format such as 9:16, or a different
+     * resolution). The positions of clips and keyframes are rescaled; the undo history starts over.
+     */
+    private fun changeCanvas(width: Int, height: Int) {
+        val current = state.value
+        reduce { copy(canvasDialogOpen = false) }
+        if (width <= 0 || height <= 0 || (width == current.canvasWidth && height == current.canvasHeight)) return
+        endAppearance(commit = false)
+        endTitleEdit(commit = false)
+        drag = null
+        pendingDragCommand = null
+        val remapped = when (val result = TimelineOps.remapCanvas(history.timeline, current.canvasWidth, current.canvasHeight, width, height)) {
+            is EditResult.Success -> result.value
+            is EditResult.Failure -> {
+                emit(EditorEffect.ShowMessage(describe(result.error)))
+                return
+            }
+        }
+        history = EditHistory(remapped)
+        baseProject = baseProject?.let { it.copy(settings = it.settings.copy(width = width, height = height)) }
+        reduce { copy(canvasWidth = width, canvasHeight = height) }
+        syncFromHistory()
+        scheduleSave()
     }
 
     // endregion
@@ -809,6 +937,8 @@ class EditorViewModel(
         is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
         is EditError.TransitionNotFound -> "The transition no longer exists"
         is EditError.NotATitle -> "That clip is not a title"
+        is EditError.InvalidKeyframe -> "That keyframe is not possible: ${error.reason}"
+        is EditError.KeyframeNotFound -> "There is no keyframe there"
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }

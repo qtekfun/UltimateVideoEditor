@@ -35,6 +35,10 @@ data class ExportState(
     val codec: ExportCodec = ExportCodec.H264,
     val bitrateMbps: Int = 12,
     val phase: ExportPhase = ExportPhase.Configuring,
+    /** The destination preset that produced the current settings, until one of them is changed by hand. */
+    val preset: ExportPreset? = null,
+    /** Shape of the project ("9:16"), compared with a preset's to warn about a mismatch. */
+    val projectAspect: String = "",
 ) : UiState {
     val isRunning: Boolean get() = phase is ExportPhase.Running
 }
@@ -46,6 +50,9 @@ sealed interface ExportIntent : UiIntent {
     data class SelectFrameRate(val rate: FrameRate) : ExportIntent
     data class SelectCodec(val codec: ExportCodec) : ExportIntent
     data class SelectBitrate(val mbps: Int) : ExportIntent
+
+    /** Fill resolution, rate, codec and bitrate for an upload destination. */
+    data class SelectPreset(val preset: ExportPreset) : ExportIntent
 
     /** The user pressed Export: ask where to save. */
     data object ChooseLocation : ExportIntent

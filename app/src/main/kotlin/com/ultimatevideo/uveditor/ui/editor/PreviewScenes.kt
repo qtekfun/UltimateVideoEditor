@@ -29,7 +29,7 @@ internal fun previewRequestsAt(
 ): List<PreviewRequest> {
     val assetsById = assets.associateBy { it.id }
     return visualClipsAt(timeline.renderClips(), playhead.value).mapNotNull { clip ->
-        val transform = clip.transform.copy(opacity = clip.opacityAt(playhead.value))
+        val transform = clip.appearanceAt(playhead.value)
         when (clip.kind) {
             RenderKind.TITLE -> clip.title?.let { content ->
                 PreviewRequest(

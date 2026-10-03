@@ -37,6 +37,7 @@ constexpr Color kTick{0.55f, 0.58f, 0.65f, 1.0f};
 constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
 constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
+constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
 constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
 
@@ -820,6 +821,20 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                     g.rect(x, mid - hi * half - 0.5f, x + colW, mid - lo * half + 0.5f, wave);
                 }
                 g.setClip(0, layout.rulerHeight, W, H);
+            }
+        }
+
+        // Keyframe markers: small diamonds in the clip's header strip, at their time in the clip.
+        {
+            const auto [first, last] = snap->keyframesOf(c.clipKey);
+            const float cy = top + header * 0.5f;
+            const float s = std::min(3.0f * density, header * 0.45f);
+            for (const KeyframeSnapshot* k = first; k != last; ++k) {
+                const float x = static_cast<float>(vp.frameToX(c.startFrame + k->frame));
+                if (x < fx0 || x > fx1) continue;
+                g.rect(x - s * 0.34f, cy - s, x + s * 0.34f, cy + s, kKeyframe);
+                g.rect(x - s * 0.67f, cy - s * 0.67f, x + s * 0.67f, cy + s * 0.67f, kKeyframe);
+                g.rect(x - s, cy - s * 0.34f, x + s, cy + s * 0.34f, kKeyframe);
             }
         }
 
