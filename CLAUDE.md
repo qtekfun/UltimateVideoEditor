@@ -17,6 +17,7 @@ Read `PRD.md` (what), `SPECS.md` (how), `PLAN.md` (order of work) before writing
   - `./gradlew :app:assembleDebug`
   - `./gradlew :app:testDebugUnitTest`
   - `./gradlew :app:connectedDebugAndroidTest`
+  - `scripts/run-native-tests.sh` (host-built C++ tests for cache/time/colour math, needs only g++)
 - Reference device is physical over wireless adb. Several adb transports can appear for the same
   device, so always pass `adb -s <serial>`; for Gradle use `ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest` (otherwise the install fails). The screen must be unlocked to view the UI. Device: OnePlus CPH2841, SM8850, Android 16, 11 GB RAM.
 

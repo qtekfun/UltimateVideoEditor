@@ -19,3 +19,5 @@ include(cmake/timeline.cmake)
 
 find_library(log-lib log)
 target_link_libraries(uveditor_engine PRIVATE ${log-lib})
+
+include(cmake/preview.cmake)
