@@ -37,6 +37,15 @@ public:
     void destroyImage(EGLImageKHR image) const;
     void bindImageToTexture(GLenum target, EGLImageKHR image) const;
 
+    // Fence that signals when the GPU work submitted so far is done. Returns a native fence fd
+    // (owned by the caller, -1 when the work already finished) or -2 if fences are unsupported.
+    static constexpr int kFenceUnsupported = -2;
+    int createReleaseFence() const;
+    bool supportsFences() const { return createSync_ != nullptr; }
+
+    // Requests that the next swapped buffer is shown no earlier than `ns` (CLOCK_MONOTONIC); 0 = now.
+    void setPresentationTime(int64_t ns) const;
+
 private:
     EGLDisplay display_ = EGL_NO_DISPLAY;
     EGLContext context_ = EGL_NO_CONTEXT;
@@ -49,6 +58,10 @@ private:
     PFNEGLCREATEIMAGEKHRPROC createImageKhr_ = nullptr;
     PFNEGLDESTROYIMAGEKHRPROC destroyImageKhr_ = nullptr;
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC imageTargetTexture_ = nullptr;
+    PFNEGLCREATESYNCKHRPROC createSync_ = nullptr;
+    PFNEGLDESTROYSYNCKHRPROC destroySync_ = nullptr;
+    PFNEGLDUPNATIVEFENCEFDANDROIDPROC dupNativeFence_ = nullptr;
+    PFNEGLPRESENTATIONTIMEANDROIDPROC presentationTime_ = nullptr;
 };
 
 }  // namespace uv::render

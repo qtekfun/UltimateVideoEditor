@@ -45,7 +45,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [ ] Per-clip transform (position/scale/rotation) with on-preview gestures; gain control
 - [x] Colour shaders: HLG/Rec.2020 → SDR Rec.709; per-clip override
 - [ ] Multi-layer compositing (video tracks above one another)
-- _Status (4a):_ 1080p30 H.264 plays at ~92% of frames on the reference device; 4K60 HEVC shows ~70% (decode/blit pipeline is not yet at real-time with headroom). Gate still open.
+- _Status (4a, after preview-perf):_ synthetic 4K60 HEVC (480 frames) and 1080p30 H.264 (300 frames) play on the reference device with every frame decoded once and shown (0 seeks, 0 dropped decodes in steady state); render thread spends ~0.2 ms blit + ~0.15 ms draw + ~0.5 ms swap per frame. The 4K60 criterion is met on synthetic clips only (not real footage). The A/V drift criterion cannot be measured until audio lands, so the gate stays open.
 - **Gate:** 4K60 single-layer playback without drops; no measurable A/V drift on a long timeline.
 
 ## Phase 5 — Titles and transitions
