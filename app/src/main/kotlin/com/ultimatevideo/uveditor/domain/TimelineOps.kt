@@ -267,6 +267,30 @@ object TimelineOps {
         return success(timeline.copy(transitions = timeline.transitions.filter { it.id != transitionId }))
     }
 
+    /**
+     * The longest transition that fits across the cut from [fromClipId] to [toClipId] right now
+     * (ignoring any transition already there), or 0 when not even the shortest one does. Longer
+     * transitions only ever need more room, so this is a binary search.
+     */
+    fun maxTransitionFrames(timeline: Timeline, fromClipId: String, toClipId: String, outgoingSourceLength: Long? = null): Long {
+        val others = timeline.copy(transitions = timeline.transitions.filterNot { it.fromClipId == fromClipId && it.toClipId == toClipId })
+        val from = timeline.trackOfClip(fromClipId)?.clip(fromClipId) ?: return 0
+        val to = timeline.trackOfClip(toClipId)?.clip(toClipId) ?: return 0
+        fun fits(duration: Long): Boolean {
+            val probe = Transition("probe", fromClipId, toClipId, duration)
+            val candidate = others.copy(transitions = others.transitions + probe)
+            return candidate.transitionProblem(probe) == null && outgoingHandleProblem(candidate, probe, outgoingSourceLength) == null
+        }
+        var high = from.durationFrames + to.durationFrames  // no transition can be longer than both clips together
+        if (high < Transition.MIN_DURATION_FRAMES || !fits(Transition.MIN_DURATION_FRAMES)) return 0
+        var low = Transition.MIN_DURATION_FRAMES  // fits
+        while (low < high) {
+            val mid = (low + high + 1) / 2
+            if (fits(mid)) low = mid else high = mid - 1
+        }
+        return low
+    }
+
     private fun outgoingHandleProblem(timeline: Timeline, transition: Transition, sourceLength: Long?): String? {
         if (sourceLength == null) return null
         val from = timeline.trackOfClip(transition.fromClipId)?.clip(transition.fromClipId) ?: return null
