@@ -949,6 +949,8 @@ class EditorViewModel(
         is EditError.NotATitle -> "That clip is not a title"
         is EditError.InvalidKeyframe -> "That keyframe is not possible: ${error.reason}"
         is EditError.KeyframeNotFound -> "There is no keyframe there"
+        is EditError.InvalidEffect -> "That effect is not possible: ${error.reason}"
+        is EditError.EffectNotFound -> "That effect no longer exists"
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
