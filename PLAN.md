@@ -71,8 +71,11 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - **Gate:** exported file plays correctly with matching A/V sync and colours.
 
 ## Phase 7 — CapCut-style features (post-MVP, in this order, revisit priority later)
-- [ ] Social format presets (9:16, 1:1, 4:5, 16:9), safe zones
-- [ ] Keyframes; speed changes, ramps, reverse, freeze frame
+- [x] Social format presets (9:16, 1:1, 4:5, 16:9), safe zones, per-platform export presets — JVM and host tests
+      pass; not yet seen on the device (phone offline during this work)
+- [x] Keyframes: position, scale, rotation, opacity (linear / ease / hold), inspector diamond, timeline markers,
+      same pose in preview and export — JVM and host tests pass; not yet seen on the device
+- [ ] Speed changes, ramps, reverse, freeze frame
 - [ ] Chainable shader effects, chroma key, masks, blend modes
 - [ ] Automatic subtitles (on-device transcription) and animated caption styles
   - _Status (captions):_ implemented but not yet verified on the device (adb was offline): whisper.cpp v1.9.4 in the engine,

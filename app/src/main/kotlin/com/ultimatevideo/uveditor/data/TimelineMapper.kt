@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.data
 
 import com.ultimatevideo.uveditor.data.model.ClipDto
+import com.ultimatevideo.uveditor.data.model.KeyframeDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
@@ -10,6 +11,8 @@ import com.ultimatevideo.uveditor.data.model.TransitionDto
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
+import com.ultimatevideo.uveditor.domain.Interpolation
+import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -73,6 +76,24 @@ object TimelineMapper {
         transform = toTransform(dto.id, dto.transform),
         gainDb = dto.gainDb,
         title = dto.title?.let { toTitle(dto.id, it) },
+        keyframes = dto.keyframes.map { toKeyframe(dto.id, it) },
+    )
+
+    private fun toKeyframe(clipId: String, dto: KeyframeDto) = Keyframe(
+        frame = dto.frame,
+        transform = toTransform(clipId, dto.transform),
+        interpolation = when (dto.interpolation) {
+            "linear" -> Interpolation.LINEAR
+            "ease" -> Interpolation.EASE
+            "hold" -> Interpolation.HOLD
+            else -> throw ProjectError.Corrupt("clip $clipId has a keyframe with unknown interpolation '${dto.interpolation}'")
+        },
+    )
+
+    private fun toKeyframeDto(key: Keyframe) = KeyframeDto(
+        frame = key.frame,
+        transform = toTransformDto(key.transform),
+        interpolation = key.interpolation.name.lowercase(),
     )
 
     private fun toTitle(clipId: String, dto: TitleDto): TitleContent = TitleContent(
@@ -154,6 +175,7 @@ object TimelineMapper {
             transform = toTransformDto(clip.transform),
             gainDb = clip.gainDb,
             title = clip.title?.let(::toTitleDto),
+            keyframes = clip.keyframes.map(::toKeyframeDto),
         )
 
     private const val COLOR_HEX_LENGTH = 8

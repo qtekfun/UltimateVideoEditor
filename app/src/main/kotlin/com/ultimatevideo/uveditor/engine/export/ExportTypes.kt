@@ -74,6 +74,25 @@ data class VideoClipSpec(
     val lane: Int = 0,
     /** Non-zero for a title: the key of its image in [ExportRequest.titles] (then [assetKey] is unused). */
     val titleKey: Int = 0,
+    /** Animated pose; when non-empty it replaces the fixed transform above (opacity still gets the crossfade). */
+    val keyframes: List<ExportKeyframe> = emptyList(),
+    /** Project frame that [ExportKeyframe.frame] counts from: the clip's own first frame. */
+    val keyframeOriginFrame: Long = 0,
+)
+
+/**
+ * A pose at [frame] frames after [VideoClipSpec.keyframeOriginFrame]. [interpolation] is the code of
+ * `domain.Interpolation` (0 linear, 1 ease, 2 hold); the native evaluator mirrors `Keyframes.evaluate`.
+ */
+data class ExportKeyframe(
+    val frame: Long,
+    val positionX: Double,
+    val positionY: Double,
+    val scaleX: Double,
+    val scaleY: Double,
+    val rotationDegrees: Double,
+    val opacity: Double,
+    val interpolation: Int,
 )
 
 /** A rasterised title for the export: premultiplied RGBA in canvas pixels, see `TitleBitmap`. */

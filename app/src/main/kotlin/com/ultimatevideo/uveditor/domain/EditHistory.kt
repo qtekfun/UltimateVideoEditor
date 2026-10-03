@@ -50,6 +50,40 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setAppearance(timeline, clipId, transform, gainDb)
     }
 
+    data class ClearKeyframes(val clipId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.clearKeyframes(timeline, clipId)
+    }
+
+    /** Several commands applied in order as one undo step; if any fails, none of them takes effect. */
+    data class Batch(val commands: List<EditCommand>) : EditCommand {
+        override fun apply(timeline: Timeline): EditResult<Timeline> {
+            var current = timeline
+            for (command in commands) {
+                when (val result = command.apply(current)) {
+                    is EditResult.Failure -> return result
+                    is EditResult.Success -> current = result.value
+                }
+            }
+            return EditResult.Success(current)
+        }
+    }
+
+    data class SetKeyframe(val clipId: String, val keyframe: Keyframe) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setKeyframe(timeline, clipId, keyframe)
+    }
+
+    data class RemoveKeyframe(val clipId: String, val frame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.removeKeyframe(timeline, clipId, frame)
+    }
+
+    data class MoveKeyframe(val clipId: String, val fromFrame: Long, val toFrame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.moveKeyframe(timeline, clipId, fromFrame, toFrame)
+    }
+
+    data class SetKeyframeInterpolation(val clipId: String, val frame: Long, val interpolation: Interpolation) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setKeyframeInterpolation(timeline, clipId, frame, interpolation)
+    }
+
     data class SetTitle(val clipId: String, val title: TitleContent) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setTitle(timeline, clipId, title)
     }

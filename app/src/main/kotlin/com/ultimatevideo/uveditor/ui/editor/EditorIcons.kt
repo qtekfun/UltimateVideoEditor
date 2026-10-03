@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
@@ -87,8 +88,24 @@ internal object EditorIcons {
             "M15,9h2V7h4V5h-4V3h-2v6z",
     )
 
-    private fun icon(name: String, pathData: String): ImageVector =
+    /** A filled diamond: a keyframe exists at the playhead. */
+    val KeyframeOn = icon("KeyframeOn", "M12,2l10,10 -10,10 -10,-10z")
+
+    /** An outlined diamond: add a keyframe at the playhead. */
+    val KeyframeOff = icon("KeyframeOff", "M12,2l10,10 -10,10 -10,-10zM12,6.8l-5.2,5.2 5.2,5.2 5.2,-5.2z", evenOdd = true)
+
+    /** A frame inside a frame: the safe-zone overlay. */
+    val SafeZone = icon("SafeZone", "M3,3h18v18H3zM6,6v12h12V6z", evenOdd = true)
+
+    /** A tall frame: change the canvas format. */
+    val CanvasFormat = icon("CanvasFormat", "M7,2h10v20H7zM9,4v16h6V4z", evenOdd = true)
+
+    private fun icon(name: String, pathData: String, evenOdd: Boolean = false): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
-            .addPath(PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.Black))
+            .addPath(
+                PathParser().parsePathString(pathData).toNodes(),
+                pathFillType = if (evenOdd) PathFillType.EvenOdd else PathFillType.NonZero,
+                fill = SolidColor(Color.Black),
+            )
             .build()
 }
