@@ -309,3 +309,17 @@ clip as ready, so a single hiccup (codec reclaimed, failed seek) put silence in 
 generic error. **Why:** transient hardware codec failures happen under load and when another app takes a decoder.
 **Alternative:** fail on the first fault (the old behaviour) or retry forever; neither tells a bad file from a busy
 phone. Playback (non-offline) behaviour is unchanged.
+
+## 2026-10-03 · Magnetic base track: insertion point, reorder rule, trim rules
+**Chosen:** base = lowest video track, always contiguous from 0. Insert/import goes to the *nearest clip boundary*
+(ties to the end), not mid-clip, so no fragments appear. Reorder places the dragged clip in the slot its centre is
+over (past a neighbour's midpoint swaps) and overlays follow their footage by being cut at the points where the
+footage under them moves by different amounts (a bijective remap, so overlays never collide). Trim keeps the clip's
+start and ripples followers; frames cut from the base are cut from overlays like a deletion, lengthening shifts
+overlays at/after the trim point. A base clip cannot be dragged onto another track; an overlay dragged onto the base is
+inserted. Legacy base gaps are closed (like deletions) on the first magnetic edit. **Why:** matches the LumaFusion
+primary-storyline behaviour the user described and makes it impossible to create a gap or orphan an overlay.
+**Alternatives:** split the base clip at the playhead on insert; connected clips that always travel with one base clip
+(Final Cut style); leaving legacy gaps untouched; letting overlays crossing an insertion point be split.
+**Open:** overlays that cross a base insertion point stay put (not split), and overlays over a closed legacy gap are
+deleted; confirm both feel right.

@@ -431,7 +431,7 @@ private fun EditorMain(
             ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.RippleDeleteSelected)
             }
-            ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
+            ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
                 viewModel.onIntent(EditorIntent.RippleAppendSelected)
             }
             ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }

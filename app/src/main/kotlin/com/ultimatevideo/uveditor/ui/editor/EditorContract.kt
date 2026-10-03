@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.editor
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipDeletion
 import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.EffectType
@@ -109,6 +110,14 @@ data class EditorState(
         get() {
             val clip = selectedClip ?: return null
             return visibleTimeline.trackOfClip(clip.id)?.clips?.firstOrNull { it.timelineStart == clip.timelineEnd }
+        }
+
+    /** True when the selected clip is on the base track, where gaps are closed automatically. */
+    val selectedClipOnBase: Boolean
+        get() {
+            val id = selectedClipId ?: return false
+            val base = ClipDeletion.baseTrack(visibleTimeline) ?: return false
+            return base.clip(id) != null
         }
 
     /** The transition from the selected clip into the next one, if there is one. */
