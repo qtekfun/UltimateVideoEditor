@@ -434,11 +434,12 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   `DropHint`). Targets: a lane, `AboveLanes` (new overlay lane), `Outside` (cancel; `HitKind::OUTSIDE`, the finger left
   the panel). On the base: start edge within `INSERT_RADIUS_FRAMES` (10) of a junction -> INSERT (`MoveClip`, ripple,
   overlays follow); past the end -> append; otherwise OVERWRITE (`LaneOps.overwriteMove`). Base clips only REORDER.
-  On other lanes: overlapping clips -> OVERWRITE, free space -> MOVE. No insert on those lanes (deferred).
+  On other lanes: a start edge within the same radius of a cut between two touching clips -> INSERT (`InsertOnLane`: that
+  lane's later clips shift right, nothing else moves); other overlapping clips -> OVERWRITE, free space -> MOVE.
 - **Indicator.** `EditorState.dropHint` is passed to the native canvas with `TimelineEngine.setDropHint` and drawn by
   `timeline_view/drop_hint.h` + the renderer: bar and arrow (insert), tinted range (overwrite), lane placeholder
   (new lane), wash (cancel).
-- **Lane ops** (`domain/LaneOps`): `moveToNewLane`, `overwriteMove`, `moveTrack` (up/down among lanes of the same kind;
+- **Lane ops** (`domain/LaneOps`): `moveToNewLane`, `overwriteMove`, `insertOnLane`, `liftFromBase`, `moveTrack` (up/down among lanes of the same kind;
   the base never moves), each one undo step.
 
 ### 5.15 Animated captions

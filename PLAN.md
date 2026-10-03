@@ -98,7 +98,7 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
       (8 drawn shapes + 8 emoji) and an 'Add sticker' picker; same compositor path and effects/keyframes as titles, in
       preview and export. Domain, JSON, preview scene and export plan are covered by JVM tests; nothing of this has been
       seen on the device yet (the OPPO was not reachable by adb), in particular EXIF orientation, HEIC and the sticker art.
-      Follow-ups: a thumbnail tile on still clips in the timeline (needs a native tile upload), animated GIF/WebP
+      Photos now ask the native thumbnail worker for one tile (AImageDecoder, host-tested sampling; not seen on the device). Follow-ups: animated GIF/WebP
 - [x] Animated text templates (lower third, pop title, slide-in headline, subtitle bar) and beat sync (ruler markers, beat
       detection from the waveform cache, snap to markers, 'Cut to beat'). Domain, JSON, snapshot v5, ViewModel and the beat
       detector (synthetic click tracks) are covered by JVM tests and the host tests pass; the native ruler drawing, the template
@@ -126,4 +126,4 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
 - [x] Drop zones decided by position with a live native indicator: insert (base), overwrite, new lane, cancel
 - [x] Move lanes up/down (toolbar)
 - [ ] Verified on the OPPO (the device was unreachable when this was written)
-- [ ] Insert on overlay/audio lanes (deferred)
+- [x] Insert on overlay/audio lanes: a drop in a cut between two touching clips shifts that lane's later clips right (`LaneOps.insertOnLane`, JVM tests; not seen on the device)
