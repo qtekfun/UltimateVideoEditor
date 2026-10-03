@@ -21,7 +21,8 @@ fun PreviewSurface(engine: PreviewEngine, modifier: Modifier = Modifier) {
                     object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) = engine.attachSurface(holder.surface)
 
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) =
+                            engine.surfaceChanged()
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) = engine.detachSurface()
                     },

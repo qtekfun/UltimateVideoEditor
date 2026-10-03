@@ -6,6 +6,7 @@
 #include "cache/lru_cache.h"
 #include "decode/frame_rate.h"
 #include "render/color_math.h"
+#include "render/layout_math.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                              \
@@ -76,6 +77,28 @@ static void lruEraseIf() {
     CHECK(removed.size() == 3);
     CHECK(c.size() == 3 && c.usedBytes() == 300);
     CHECK(!c.contains(0) && c.contains(1) && !c.contains(2) && c.contains(5));
+}
+
+static void lruProtectedEvictionKeepsWindow() {
+    LruCache<int, int> c(300);
+    c.put(10, 10, 100);  // oldest by recency, but inside the protected window
+    c.put(11, 11, 100);
+    c.put(1, 1, 100);
+    const auto inWindow = [](int k) { return k >= 10 && k <= 12; };
+    auto ev = c.put(12, 12, 100, inWindow);
+    CHECK(ev.size() == 1 && ev[0] == 1);  // the unprotected entry goes, not the older protected 10
+    CHECK(c.contains(10) && c.contains(11) && c.contains(12));
+    // With only protected entries left, plain LRU order decides.
+    ev = c.put(11, 11, 100, inWindow);
+    CHECK(c.size() == 3 && c.usedBytes() == 300);
+    auto ev2 = c.put(13, 13, 100, [](int k) { return k >= 10; });
+    CHECK(ev2.size() == 1 && ev2[0] == 10);
+    // The entry just inserted may be evicted when it is outside the window, instead of a protected one.
+    LruCache<int, int> d(200);
+    d.put(10, 10, 100, inWindow);
+    d.put(11, 11, 100, inWindow);
+    auto ev3 = d.put(99, 99, 100, inWindow);
+    CHECK(ev3.size() == 1 && ev3[0] == 99 && d.contains(10) && d.contains(11));
 }
 
 static void frameRateSnapAndConversions() {
@@ -152,6 +175,64 @@ static void hlgToSdrEndToEnd() {
     CHECK(sat.r >= 0.0f && sat.r <= 1.0f && sat.g <= 1.0f && sat.b >= 0.0f);
 }
 
+static void quarterTurnsNormalise() {
+    using uv::render::quarterTurns;
+    CHECK(quarterTurns(0) == 0 && quarterTurns(90) == 1 && quarterTurns(180) == 2 && quarterTurns(270) == 3);
+    CHECK(quarterTurns(360) == 0 && quarterTurns(-90) == 3 && quarterTurns(450) == 1);
+    CHECK(quarterTurns(45) == 0);  // off-grid metadata is ignored
+}
+
+static void rotateUvCornersAndComposition() {
+    using uv::render::rotateUv;
+    using uv::render::Uv;
+    // Rotating 90 clockwise: the source top-left corner ends up top-right in the output, so the
+    // output top-right samples the source top-left.
+    Uv a = rotateUv({1.0f, 0.0f}, 1);
+    CHECK_NEAR(a.u, 0.0f, 1e-6f);
+    CHECK_NEAR(a.v, 0.0f, 1e-6f);
+    // Output bottom-left shows the source bottom-right after 270 clockwise.
+    Uv b = rotateUv({0.0f, 1.0f}, 3);
+    CHECK_NEAR(b.u, 0.0f, 1e-6f);
+    CHECK_NEAR(b.v, 0.0f, 1e-6f);
+    Uv c = rotateUv({0.25f, 0.75f}, 2);
+    CHECK_NEAR(c.u, 0.75f, 1e-6f);
+    CHECK_NEAR(c.v, 0.25f, 1e-6f);
+    // Mapping a point through the source-to-output rotation and back is the identity: a 90 and a
+    // 270 mapping are inverse, 180 is its own inverse.
+    for (int t = 0; t < 4; ++t) {
+        Uv p{0.3f, 0.8f};
+        Uv back = rotateUv(rotateUv(p, t), (4 - t) & 3);
+        CHECK_NEAR(back.u, p.u, 1e-6f);
+        CHECK_NEAR(back.v, p.v, 1e-6f);
+    }
+}
+
+static void displaySizeAndLetterbox() {
+    using namespace uv::render;
+    int w = 0;
+    int h = 0;
+    displaySize(3840, 2160, 1, &w, &h);
+    CHECK(w == 2160 && h == 3840);
+    displaySize(3840, 2160, 2, &w, &h);
+    CHECK(w == 3840 && h == 2160);
+    // 16:9 into a tall phone surface: full width, bars above and below.
+    Viewport v = letterbox(3840, 2160, 1440, 3168);
+    CHECK(v.w == 1440 && v.h == 810 && v.x == 0 && v.y == (3168 - 810) / 2);
+    // Portrait frame (rotated 90) into the same surface: full width again, taller image.
+    displaySize(3840, 2160, 1, &w, &h);
+    v = letterbox(w, h, 1440, 3168);
+    CHECK(v.h <= 3168 && v.w <= 1440 && (v.w == 1440 || v.h == 3168));
+    // Same aspect as the surface fills it exactly.
+    v = letterbox(1920, 1080, 960, 540);
+    CHECK(v == (Viewport{0, 0, 960, 540}));
+    // Wide surface: pillarbox.
+    v = letterbox(1080, 1920, 1920, 1080);
+    CHECK(v.h == 1080 && v.w == 607 && v.y == 0 && v.x == (1920 - 607) / 2);
+    // Degenerate inputs do not divide by zero.
+    v = letterbox(0, 0, 100, 100);
+    CHECK(v.w == 100 && v.h == 100);
+}
+
 int main() {
     lruEvictsLeastRecentlyUsed();
     lruNeverExceedsBudget();
@@ -159,11 +240,15 @@ int main() {
     lruBudgetShrinkAndClear();
     lruContainsDoesNotTouchRecency();
     lruEraseIf();
+    lruProtectedEvictionKeepsWindow();
     frameRateSnapAndConversions();
     hlgTransferCurves();
     gamutMatrixPreservesWhite();
     toneMapProperties();
     hlgToSdrEndToEnd();
+    quarterTurnsNormalise();
+    rotateUvCornersAndComposition();
+    displaySizeAndLetterbox();
     if (g_failures == 0) std::puts("all native tests passed");
     return g_failures == 0 ? 0 : 1;
 }
