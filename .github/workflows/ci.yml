@@ -48,11 +48,12 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      # Installs the command-line tools, sets ANDROID_HOME and accepts the licences.
-      - uses: android-actions/setup-android@v3
-
+      # The runner image ships an Android SDK ($ANDROID_HOME) with sdkmanager; add what this project needs.
       - name: Install SDK platform, NDK and CMake
-        run: sdkmanager "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.31.6"
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.31.6"
 
       - uses: gradle/actions/setup-gradle@v4
 
