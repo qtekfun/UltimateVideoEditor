@@ -109,10 +109,11 @@ class EditorViewModelTest {
     private fun TestScope.harness(
         project: ProjectDto? = project(),
         importer: MediaImporter = FakeImporter(emptyMap()),
+        clock: () -> Long = { 0L },
     ): Harness {
         var counter = 0
         val store = FakeStore(project)
-        val vm = EditorViewModel("p1", store, importer, idGenerator = { "n${counter++}" })
+        val vm = EditorViewModel("p1", store, importer, idGenerator = { "n${counter++}" }, nanoClock = clock)
         val effects = mutableListOf<EditorEffect>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.effects.collect { effects += it } }
         advanceUntilIdle()
@@ -294,7 +295,93 @@ class EditorViewModelTest {
         h.select("c2")
         assertTrue(h.vm.canDrag(onC2))
         assertFalse(h.vm.canDrag(h.hitOn("c1", frame = 10)))
-        assertFalse(h.vm.canDrag(TimelineHit(HitKind.RULER, -1, -1, 5)))
+        // The ruler and playhead always scrub; nothing else is draggable without a selection.
+        assertTrue(h.vm.canDrag(TimelineHit(HitKind.RULER, -1, -1, 5)))
+        assertTrue(h.vm.canDrag(TimelineHit(HitKind.PLAYHEAD, -1, -1, 5)))
+        assertFalse(h.vm.canDrag(TimelineHit(HitKind.EMPTY_TRACK, 0, -1, 5)))
+    }
+
+    @Test
+    fun `dragging the playhead moves it without touching the timeline or history`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.onIntent(EditorIntent.DragStart(TimelineHit(HitKind.PLAYHEAD, -1, -1, 10)))
+        h.vm.onIntent(EditorIntent.DragMove(frame = 75, trackIndex = -1))
+        h.vm.onIntent(EditorIntent.DragMove(frame = -20, trackIndex = -1))
+        assertEquals(FrameIndex(0), h.state.playhead)
+        h.vm.onIntent(EditorIntent.DragMove(frame = 120, trackIndex = -1))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+
+        assertEquals(FrameIndex(120), h.state.playhead)
+        assertNull(h.state.dragPreview)
+        assertFalse(h.state.canUndo)
+        assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
+    }
+
+    @Test
+    fun `play advances the playhead in real time and stops at the end of the timeline`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        assertTrue(h.state.isPlaying)
+
+        advanceTimeBy(1_000)
+        assertEquals(30.0, h.state.playhead.value.toDouble(), 2.0)
+
+        advanceTimeBy(6_000)
+        runCurrent()
+        assertFalse(h.state.isPlaying)
+        assertEquals(FrameIndex(200), h.state.playhead)
+    }
+
+    @Test
+    fun `toggling play again pauses where it is`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        advanceTimeBy(500)
+
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        val paused = h.state.playhead
+        advanceTimeBy(2_000)
+
+        assertFalse(h.state.isPlaying)
+        assertEquals(paused, h.state.playhead)
+    }
+
+    @Test
+    fun `play from the end restarts from the beginning and an empty timeline cannot play`() = runTest(dispatcher) {
+        val h = harness(clock = { testScheduler.currentTime * 1_000_000 })
+        h.vm.onIntent(EditorIntent.SetPlayhead(200))
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        assertEquals(FrameIndex(0), h.state.playhead)
+        h.vm.onIntent(EditorIntent.TogglePlay)
+
+        val empty = harness(project(withClips = false))
+        empty.vm.onIntent(EditorIntent.TogglePlay)
+        runCurrent()
+
+        assertFalse(empty.state.isPlaying)
+        assertTrue(empty.effects.single() is EditorEffect.ShowMessage)
+    }
+
+    @Test
+    fun `seeking jumps between clip boundaries`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.onIntent(EditorIntent.SeekNext)
+        assertEquals(FrameIndex(100), h.state.playhead)
+        h.vm.onIntent(EditorIntent.SeekNext)
+        assertEquals(FrameIndex(200), h.state.playhead)
+        h.vm.onIntent(EditorIntent.SeekNext)
+        assertEquals(FrameIndex(200), h.state.playhead)
+
+        h.vm.onIntent(EditorIntent.SetPlayhead(150))
+        h.vm.onIntent(EditorIntent.SeekPrevious)
+        assertEquals(FrameIndex(100), h.state.playhead)
+        h.vm.onIntent(EditorIntent.SeekPrevious)
+        assertEquals(FrameIndex(0), h.state.playhead)
+        h.vm.onIntent(EditorIntent.SeekPrevious)
+        assertEquals(FrameIndex(0), h.state.playhead)
     }
 
     @Test

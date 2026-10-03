@@ -1,12 +1,13 @@
 package com.ultimatevideo.uveditor.ui.hub
 
+import com.ultimatevideo.uveditor.data.ProjectNames
 import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
 import com.ultimatevideo.uveditor.mvi.UiState
 
 data class NewProjectDraft(
-    val name: String = "New project",
+    val name: String = "",
     val resolution: ResolutionPreset = ProjectPresets.defaultResolution,
     val fps: FpsPreset = ProjectPresets.defaultFps,
     val colorSpace: ColorSpacePreset = ProjectPresets.defaultColorSpace,
@@ -25,7 +26,15 @@ data class HubState(
     val deleteTarget: ProjectSummary? = null,
     val engineVersion: String? = null,
     val engineError: String? = null,
-) : UiState
+) : UiState {
+    val newNameTaken: Boolean
+        get() = newProjectDraft?.let { ProjectNames.isTaken(it.name, projects.map(ProjectSummary::name)) } == true
+
+    val renameNameTaken: Boolean
+        get() = renameDraft?.let { draft ->
+            ProjectNames.isTaken(draft.name, projects.filter { it.id != draft.projectId }.map(ProjectSummary::name))
+        } == true
+}
 
 sealed interface HubIntent : UiIntent {
     data object LoadEngineInfo : HubIntent

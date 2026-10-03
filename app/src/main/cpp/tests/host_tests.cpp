@@ -119,6 +119,14 @@ static void testHitTest() {
     auto r = timeline::hitTest(s, vp, lay, 100, 10);
     CHECK(r.kind == timeline::HitKind::Ruler && r.frame == 100);
 
+    r = timeline::hitTest(s, vp, lay, 100, 10, /*playheadFrame=*/110);
+    CHECK(r.kind == timeline::HitKind::Playhead && r.frame == 100);
+    r = timeline::hitTest(s, vp, lay, 100, 10, /*playheadFrame=*/200);
+    CHECK(r.kind == timeline::HitKind::Ruler);
+    // Below the ruler the playhead never hides a clip handle.
+    r = timeline::hitTest(s, vp, lay, 12, lay.trackTop(0) + 10, /*playheadFrame=*/10);
+    CHECK(r.kind == timeline::HitKind::ClipLeftEdge);
+
     r = timeline::hitTest(s, vp, lay, 60, lay.trackTop(0) + 10);
     CHECK(r.kind == timeline::HitKind::Clip && r.clipKey == 1 && r.trackIndex == 0);
 
