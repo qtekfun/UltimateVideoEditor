@@ -293,3 +293,32 @@ primary-storyline behaviour the user described and makes it impossible to create
 (Final Cut style); leaving legacy gaps untouched; letting overlays crossing an insertion point be split.
 **Open:** overlays that cross a base insertion point stay put (not split), and overlays over a closed legacy gap are
 deleted; confirm both feel right.
+
+## 2026-10-03 · Lane layout: video stack anchored to the bottom, ruler on top
+**Chosen:** lanes keep display order (first = topmost). The lane stack (overlays, then the base, then audio) rests on the
+bottom of the timeline panel and grows upward, so with few lanes the free room is between the ruler and the first lane;
+once the stack is taller than the panel it scrolls vertically, opening at the bottom so the base is visible. The room above
+the stack is the 'add a lane' drop zone. **Why:** the user wants overlays high on the screen and the base low, like
+LumaFusion. **Alternative:** pin the stack to the top (the old layout) or centre the base. **Open:** audio lanes sit below the
+base, so the base is not literally the lowest lane on screen; say if audio should sit elsewhere.
+
+## 2026-10-03 · Dropping a clip: the position decides, an indicator says what happens (no prompt)
+**Chosen:** one function, `DropPlan.decide`, picks the action while dragging and the same command runs on release; the
+timeline draws its hint natively (`DropHint`). Thresholds: **INSERT radius = 10 project frames** measured from the dragged
+clip's **start edge** to a junction of the *base* (a cut between two clips, frame 0, or the end); past the base's end the clip
+is appended. Otherwise over a clip body it is an **OVERWRITE** of the frames the clip covers (tinted range). On overlay, audio
+and title lanes there is **no insert**: landing on clips is always overwrite, free space is a plain move (ghost only).
+The 'add lane' zone (below the ruler above the stack, or the ruler itself) creates a new overlay lane (placeholder tint); a
+finger outside the panel is a **cancel** (red wash, release restores). A base clip dragged within the base only reorders (its
+indicator is an insertion marker at the cut it lands on); it can never leave the base. A gap between lanes keeps the last lane.
+Overwriting onto the base keeps its length (a drop past the end is placed at the end) and clears overlays above the replaced
+frames like a deleted range, without closing it. One undo step per drop. **Why:** the user asked for LumaFusion's
+position-driven behaviour with a live indicator instead of a confirmation prompt. **Alternatives:** a bottom-sheet prompt;
+a zoom-dependent radius in pixels (the frame radius is large when zoomed in and tiny when zoomed out); using the clip centre
+or end edge. **Deferred:** inserting (shifting later clips) on overlay and audio lanes; 'remember my choice'.
+**Open:** whether clearing overlays above an overwritten base range is wanted (the alternative is to leave them untouched).
+
+## 2026-10-03 · Reordering lanes with toolbar buttons
+**Chosen:** up/down buttons for the selected lane; overlay video lanes swap with each other (their order is the stacking
+order), audio lanes with audio lanes, and the base never moves or gets passed. **Why:** cheap and unambiguous on a touch
+screen; long-press dragging of lane headers can come later. **Alternative:** long-press a lane header and drag it.

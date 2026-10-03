@@ -15,7 +15,14 @@ enum class EngineStatus(val code: Int) {
 }
 
 /** Order mirrors uv::timeline::HitKind; PLAYHEAD is the playhead handle inside the ruler. */
-enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD }
+/**
+ * [ABOVE_LANES] is the free room between the ruler and the first lane (the 'add a lane' zone) and
+ * [OUTSIDE] means the finger left the panel; both exist so a drag can tell where it would land.
+ */
+enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE }
+
+/** What the indicator drawn over the timeline during a clip drag shows; mirrors the native `DropHintKind`. */
+enum class DropIndicator(val code: Int) { NONE(0), INSERT(1), OVERWRITE(2), NEW_LANE(3), CANCEL(4) }
 
 data class TimelineHit(val kind: HitKind, val trackIndex: Int, val clipKey: Long, val frame: Long)
 
@@ -86,6 +93,10 @@ class TimelineEngine(
 
     /** Scrolls, keeping the zoom, until [frame] is on screen (pages when it leaves the view). */
     fun ensureVisible(frame: Long) = NativeTimeline.nativeEnsureVisible(live(), frame)
+
+    /** Draws the drop indicator on lane [trackIndex] of the current snapshot over [startFrame, endFrame). */
+    fun setDropHint(indicator: DropIndicator, trackIndex: Int = -1, startFrame: Long = 0, endFrame: Long = 0) =
+        NativeTimeline.nativeSetDropHint(live(), indicator.code, trackIndex, startFrame, endFrame)
 
     fun hitTest(x: Float, y: Float): TimelineHit {
         val r = NativeTimeline.nativeHitTest(live(), x, y) ?: throw EngineException("hitTest failed")

@@ -145,6 +145,18 @@ JNIEXPORT void JNICALL JNI_FN(nativeEnsureVisible)(JNIEnv*, jobject, jlong handl
     if (TimelineHandle* h = from(handle)) h->renderer->ensureVisible(frame);
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeSetDropHint)(JNIEnv*, jobject, jlong handle, jint kind, jint trackIndex, jlong startFrame,
+                                                 jlong endFrame) {
+    TimelineHandle* h = from(handle);
+    if (h == nullptr) return;
+    uv::timeline::DropHint hint;
+    hint.kind = static_cast<uv::timeline::DropHintKind>(kind);
+    hint.trackIndex = trackIndex;
+    hint.startFrame = startFrame;
+    hint.endFrame = endFrame;
+    h->renderer->setDropHint(hint);
+}
+
 // Returns {kind, trackIndex, clipKey, frame}.
 JNIEXPORT jlongArray JNICALL JNI_FN(nativeHitTest)(JNIEnv* env, jobject, jlong handle, jfloat x, jfloat y) {
     TimelineHandle* h = from(handle);

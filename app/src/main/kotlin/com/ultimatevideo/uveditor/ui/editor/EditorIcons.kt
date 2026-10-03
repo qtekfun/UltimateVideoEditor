@@ -68,6 +68,12 @@ internal object EditorIcons {
     /** Two arrows meeting in the middle: closes the gap before the selected clip. */
     val CloseGap = icon("CloseGap", "M2,11h6V8l4,4 -4,4v-3H2zM22,11h-6V8l-4,4 4,4v-3h6z")
 
+    /** An arrow pointing up: moves the selected lane up. */
+    val LaneUp = icon("LaneUp", "M4,12l1.41,1.41L11,7.83V20h2V7.83l5.58,5.59L20,12l-8,-8z")
+
+    /** An arrow pointing down: moves the selected lane down. */
+    val LaneDown = icon("LaneDown", "M20,12l-1.41,-1.41L13,16.17V4h-2v12.17l-5.58,-5.59L4,12l8,8z")
+
     /** A capital T: add a title. */
     val Title = icon("Title", "M5,4v3h5.5v12h3V7H19V4z")
 

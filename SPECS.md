@@ -400,6 +400,23 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   playback of long-GOP footage therefore re-decodes a GOP every few frames, which is slow at 4K; fast forward
   (above 2x) is limited by decoder throughput.
 
+### 5.14 Lane layout, drops and lane order
+
+- **Layout.** Tracks are in display order (first is topmost). The timeline panel draws the lane stack bottom-anchored
+  (`Layout::anchoredBottom`): the last lane rests on the panel bottom, the ruler stays on top, and the room between
+  them is the 'add a lane' zone (`HitKind::AboveLanes`). A taller stack scrolls and opens scrolled to the bottom.
+  The base is the lowest *video* lane; audio lanes sit below it.
+- **Drop decision.** `domain/DropPlan.decide` maps (clip, requested start, target) to a `DropDecision` (command +
+  `DropHint`). Targets: a lane, `AboveLanes` (new overlay lane), `Outside` (cancel; `HitKind::OUTSIDE`, the finger left
+  the panel). On the base: start edge within `INSERT_RADIUS_FRAMES` (10) of a junction -> INSERT (`MoveClip`, ripple,
+  overlays follow); past the end -> append; otherwise OVERWRITE (`LaneOps.overwriteMove`). Base clips only REORDER.
+  On other lanes: overlapping clips -> OVERWRITE, free space -> MOVE. No insert on those lanes (deferred).
+- **Indicator.** `EditorState.dropHint` is passed to the native canvas with `TimelineEngine.setDropHint` and drawn by
+  `timeline_view/drop_hint.h` + the renderer: bar and arrow (insert), tinted range (overwrite), lane placeholder
+  (new lane), wash (cancel).
+- **Lane ops** (`domain/LaneOps`): `moveToNewLane`, `overwriteMove`, `moveTrack` (up/down among lanes of the same kind;
+  the base never moves), each one undo step.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

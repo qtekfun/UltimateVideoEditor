@@ -76,7 +76,10 @@ import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsViewModel
 import com.ultimatevideo.uveditor.ui.editor.captions.captionTarget
+import com.ultimatevideo.uveditor.domain.DropKind
+import com.ultimatevideo.uveditor.engine.timeline.DropIndicator
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
+import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
@@ -224,7 +227,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         object : TimelineEditing {
             override fun canDrag(hit: TimelineHit) = viewModel.canDrag(hit)
             override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragStart(hit))
-            override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex))
+            override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
             override fun onDragEnd(commit: Boolean) = viewModel.onIntent(EditorIntent.DragEnd(commit))
         }
     }
@@ -251,6 +254,24 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         if (state.isLoading) return@LaunchedEffect
         try {
             engine.setSnapshot(viewModel.snapshotOf(state))
+        } catch (e: EngineException) {
+            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+        }
+    }
+    // The indicator of what releasing a dragged clip would do. After the snapshot effect, so the lane
+    // index it names refers to the timeline the engine already has.
+    LaunchedEffect(state.dropHint, state.visibleTimeline) {
+        val hint = state.dropHint
+        val lane = hint?.trackId?.let { id -> state.visibleTimeline.tracks.indexOfFirst { it.id == id } } ?: -1
+        val indicator = when (hint?.kind) {
+            DropKind.INSERT -> DropIndicator.INSERT
+            DropKind.OVERWRITE -> DropIndicator.OVERWRITE
+            DropKind.NEW_LANE -> DropIndicator.NEW_LANE
+            DropKind.CANCEL -> DropIndicator.CANCEL
+            else -> DropIndicator.NONE
+        }
+        try {
+            engine.setDropHint(indicator, lane, hint?.startFrame ?: 0L, hint?.endFrame ?: 0L)
         } catch (e: EngineException) {
             viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
         }
@@ -444,7 +465,11 @@ private fun EditorMain(
             ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
                 viewModel.onIntent(EditorIntent.ToggleInspector)
             }
-            TrackControls(state.selectedTrackLabel, onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) }) {
+            TrackControls(
+                state.selectedTrackLabel,
+                onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) },
+                onMove = { viewModel.onIntent(EditorIntent.MoveSelectedTrack(it)) },
+            ) {
                 viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
             }
             ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
@@ -476,11 +501,19 @@ private fun EditorMain(
     }
 }
 
+/** Where the finger is during a drag: over the lanes, in the room above them, or off the panel (cancel). */
+private fun dragZoneOf(hit: TimelineHit): DragZone = when (hit.kind) {
+    HitKind.ABOVE_LANES, HitKind.RULER -> DragZone.ABOVE_LANES
+    HitKind.OUTSIDE -> DragZone.OUTSIDE
+    else -> DragZone.LANES
+}
+
 /** Add a video or audio track, remove the selected empty one, and show which track is selected. */
 @Composable
 private fun TrackControls(
     selectedLabel: String?,
     onAdd: (TrackType) -> Unit,
+    onMove: (Int) -> Unit,
     onRemove: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -492,6 +525,8 @@ private fun TrackControls(
         }
     }
     ToolButton(EditorIcons.Minus, "Remove selected track", enabled = selectedLabel != null, onClick = onRemove)
+    ToolButton(EditorIcons.LaneUp, "Move the selected lane up", enabled = selectedLabel != null) { onMove(-1) }
+    ToolButton(EditorIcons.LaneDown, "Move the selected lane down", enabled = selectedLabel != null) { onMove(1) }
     Text(
         text = selectedLabel ?: "",
         style = MaterialTheme.typography.labelLarge,
