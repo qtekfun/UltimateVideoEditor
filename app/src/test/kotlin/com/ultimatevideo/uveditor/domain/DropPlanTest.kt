@@ -55,10 +55,18 @@ class DropPlanTest {
     }
 
     @Test
-    fun `an overlay lane has no insert, even right on a junction`() {
+    fun `an overlay lane inserts into a cut between two touching clips`() {
         val d = decide("x", 62, DropTarget.Lane("v2"))
-        assertEquals(DropKind.OVERWRITE, d.kind)
-        assertEquals(EditCommand.OverwriteMove("x", "v2", f(62)), d.command)
+        assertEquals(DropKind.INSERT, d.kind)
+        assertEquals(EditCommand.InsertOnLane("x", "v2", f(60)), d.command)
+        assertEquals(DropHint(DropKind.INSERT, "v2", 60, 60), d.hint)
+    }
+
+    @Test
+    fun `an overlay lane never inserts at a gap or at the ends, those stay overwrite or move`() {
+        // 100 is the end of q and the start of a gap, 150 the start of r after the gap: not cuts between touching clips.
+        assertEquals(DropKind.MOVE, decide("x", 104, DropTarget.Lane("v2")).kind)
+        assertEquals(DropKind.MOVE, decide("x", 182, DropTarget.Lane("v2")).kind)
     }
 
     @Test
