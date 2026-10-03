@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -237,7 +239,10 @@ private fun NewProjectDialog(draft: NewProjectDraft, nameTaken: Boolean, onInten
         onDismissRequest = { onIntent(HubIntent.DismissDialogs) },
         title = { Text("New project") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { onIntent(HubIntent.DraftNameChanged(it)) },
@@ -246,14 +251,17 @@ private fun NewProjectDialog(draft: NewProjectDraft, nameTaken: Boolean, onInten
                     isError = nameTaken,
                     supportingText = if (nameTaken) ({ Text(NAME_TAKEN_MESSAGE) }) else null,
                 )
-                Text("Resolution", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ProjectPresets.resolutions.forEach { preset ->
-                        FilterChip(
-                            selected = preset == draft.resolution,
-                            onClick = { onIntent(HubIntent.DraftResolutionSelected(preset)) },
-                            label = { Text(preset.label) },
-                        )
+                Text("Format and resolution", style = MaterialTheme.typography.labelLarge)
+                ProjectPresets.resolutionGroups.forEach { group ->
+                    Text(group.title, style = MaterialTheme.typography.bodySmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        group.presets.forEach { preset ->
+                            FilterChip(
+                                selected = preset == draft.resolution,
+                                onClick = { onIntent(HubIntent.DraftResolutionSelected(preset)) },
+                                label = { Text(preset.label) },
+                            )
+                        }
                     }
                 }
                 Text("Frame rate", style = MaterialTheme.typography.labelLarge)

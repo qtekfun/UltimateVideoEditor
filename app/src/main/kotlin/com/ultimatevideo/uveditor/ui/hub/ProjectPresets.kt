@@ -2,7 +2,22 @@ package com.ultimatevideo.uveditor.ui.hub
 
 import java.util.Locale
 
-data class ResolutionPreset(val label: String, val width: Int, val height: Int)
+data class ResolutionPreset(val label: String, val width: Int, val height: Int) {
+    /** The reduced aspect ratio, e.g. "16:9" or "9:16". */
+    val aspectLabel: String get() = aspectLabelOf(width, height)
+}
+
+/** A titled run of presets that share an aspect ratio, shown together in the New project dialog. */
+data class ResolutionGroup(val title: String, val presets: List<ResolutionPreset>)
+
+private fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+
+/** "16:9" for 1920x1080; sizes such as 1080x1350 reduce to "4:5". */
+fun aspectLabelOf(width: Int, height: Int): String {
+    require(width > 0 && height > 0) { "invalid size ${width}x$height" }
+    val divisor = gcd(width, height)
+    return "${width / divisor}:${height / divisor}"
+}
 
 data class FpsPreset(val label: String, val num: Int, val den: Int)
 
@@ -16,6 +31,17 @@ object ProjectPresets {
         ResolutionPreset("4K", 3840, 2160),
         ResolutionPreset("1080×1920 (9:16)", 1080, 1920),
         ResolutionPreset("1080×1080 (1:1)", 1080, 1080),
+        ResolutionPreset("720×1280 (9:16)", 720, 1280),
+        ResolutionPreset("2160×3840 (9:16)", 2160, 3840),
+        ResolutionPreset("1080×1350 (4:5)", 1080, 1350),
+    )
+
+    /** The same presets by shape, with the platforms each one is made for. */
+    val resolutionGroups = listOf(
+        ResolutionGroup("Landscape 16:9 (YouTube)", resolutions.filter { it.aspectLabel == "16:9" }),
+        ResolutionGroup("Vertical 9:16 (TikTok, Shorts, Reels)", resolutions.filter { it.aspectLabel == "9:16" }),
+        ResolutionGroup("Square 1:1", resolutions.filter { it.aspectLabel == "1:1" }),
+        ResolutionGroup("Portrait 4:5 (Instagram feed)", resolutions.filter { it.aspectLabel == "4:5" }),
     )
 
     val fps = listOf(

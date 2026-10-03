@@ -29,7 +29,7 @@ class TimelineSnapshotTest {
         assertEquals(ByteOrder.LITTLE_ENDIAN, buffer.order())
         assertEquals(
             TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
-                TimelineSnapshot.TRAILER_BYTES,
+                TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -65,7 +65,10 @@ class TimelineSnapshotTest {
     @Test
     fun `empty timeline encodes to a header only`() {
         val buffer = TimelineSnapshot(30, 1, emptyList(), emptyList()).encode()
-        assertEquals(TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES, buffer.remaining())
+        assertEquals(
+            TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES,
+            buffer.remaining(),
+        )
     }
 
     @Test
@@ -80,7 +83,10 @@ class TimelineSnapshotTest {
         val b = snapshot.encode()
 
         val trailer = TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES
-        assertEquals(trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES, b.remaining())
+        assertEquals(
+            trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES,
+            b.remaining(),
+        )
         assertEquals(2, b.getInt(trailer))
         assertEquals(0, b.getInt(trailer + 4))
         assertEquals(100L, b.getLong(trailer + 12))
@@ -98,6 +104,36 @@ class TimelineSnapshotTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             TimelineSnapshot(30, 1, tracks, emptyList(), listOf(SnapshotTransition(0, 10, -1, 1)))
+        }
+    }
+
+    @Test
+    fun `keyframe markers follow the transitions with their own count`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(clip(key = 7), clip(key = 9, start = 100)),
+            keyframes = listOf(SnapshotKeyframe(7, 0), SnapshotKeyframe(9, 42)),
+        )
+        val b = snapshot.encode()
+        val keys = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
+            TimelineSnapshot.TRAILER_BYTES
+        assertEquals(keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES, b.remaining())
+        assertEquals(2, b.getInt(keys))
+        assertEquals(7L, b.getLong(keys + 4))
+        assertEquals(0L, b.getLong(keys + 12))
+        assertEquals(9L, b.getLong(keys + 20))
+        assertEquals(42L, b.getLong(keys + 28))
+    }
+
+    @Test
+    fun `keyframes of unknown clips or before their clip are rejected`() {
+        val tracks = listOf(SnapshotTrackType.VIDEO)
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(key = 7)), keyframes = listOf(SnapshotKeyframe(8, 0)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(key = 7)), keyframes = listOf(SnapshotKeyframe(7, -1)))
         }
     }
 

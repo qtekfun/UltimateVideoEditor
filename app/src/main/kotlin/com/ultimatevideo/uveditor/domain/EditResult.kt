@@ -27,6 +27,10 @@ sealed interface EditError {
     /** A transform or gain value that cannot be rendered or mixed. */
     data class InvalidAppearance(val reason: String) : EditError
 
+    /** A keyframe that cannot exist on its clip (outside it, an invalid pose, or on an audio clip). */
+    data class InvalidKeyframe(val reason: String) : EditError
+    data class KeyframeNotFound(val frame: Long) : EditError
+
     data class NotATitle(val clipId: String) : EditError
     data class TransitionNotFound(val transitionId: String) : EditError
     data class DuplicateTransitionId(val transitionId: String) : EditError

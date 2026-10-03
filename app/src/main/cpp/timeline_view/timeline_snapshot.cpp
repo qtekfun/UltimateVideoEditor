@@ -11,6 +11,14 @@ int64_t TimelineSnapshot::endFrame() const {
     return end;
 }
 
+std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> TimelineSnapshot::keyframesOf(int64_t clipKey) const {
+    const auto range = std::equal_range(
+        keyframes.begin(), keyframes.end(), KeyframeSnapshot{clipKey, 0},
+        [](const KeyframeSnapshot& a, const KeyframeSnapshot& b) { return a.clipKey < b.clipKey; });
+    const KeyframeSnapshot* base = keyframes.data();
+    return {base + (range.first - keyframes.begin()), base + (range.second - keyframes.begin())};
+}
+
 namespace {
 
 class Reader {
@@ -44,7 +52,8 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         !r.read(&trackCount) || !r.read(&clipCount)) {
         return Status::BadSnapshot;
     }
-    if (magic != kSnapshotMagic || version != kSnapshotVersion) return Status::BadSnapshot;
+    if (magic != kSnapshotMagic || version < kSnapshotMinVersion || version > kSnapshotVersion) return Status::BadSnapshot;
+    const bool hasKeyframes = version >= 3;
     if (fpsNum <= 0 || fpsDen <= 0 || trackCount < 0 || clipCount < 0) return Status::BadSnapshot;
     // Reject sizes that cannot fit in the buffer before allocating. The transition count follows
     // the clips, so here only the part up to it must fit.
@@ -79,7 +88,9 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     }
     int32_t transitionCount = 0;
     if (!r.read(&transitionCount) || transitionCount < 0) return Status::BadSnapshot;
-    if (r.remaining() != static_cast<size_t>(transitionCount) * kSnapshotTransitionBytes) return Status::BadSnapshot;
+    // Version 3 has the keyframe count after the transitions; at least the transitions and it must fit.
+    const size_t transitionBytes = static_cast<size_t>(transitionCount) * kSnapshotTransitionBytes;
+    if (hasKeyframes ? r.remaining() < transitionBytes + 4 : r.remaining() != transitionBytes) return Status::BadSnapshot;
     snap.transitions.reserve(static_cast<size_t>(transitionCount));
     for (int32_t i = 0; i < transitionCount; ++i) {
         TransitionSnapshot t{};
@@ -92,6 +103,20 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
             return Status::BadSnapshot;
         }
         snap.transitions.push_back(t);
+    }
+    if (hasKeyframes) {
+        int32_t keyframeCount = 0;
+        if (!r.read(&keyframeCount) || keyframeCount < 0) return Status::BadSnapshot;
+        if (r.remaining() != static_cast<size_t>(keyframeCount) * kSnapshotKeyframeBytes) return Status::BadSnapshot;
+        snap.keyframes.reserve(static_cast<size_t>(keyframeCount));
+        for (int32_t i = 0; i < keyframeCount; ++i) {
+            KeyframeSnapshot k{};
+            if (!r.read(&k.clipKey) || !r.read(&k.frame) || k.frame < 0) return Status::BadSnapshot;
+            snap.keyframes.push_back(k);
+        }
+        std::sort(snap.keyframes.begin(), snap.keyframes.end(), [](const KeyframeSnapshot& a, const KeyframeSnapshot& b) {
+            return a.clipKey != b.clipKey ? a.clipKey < b.clipKey : a.frame < b.frame;
+        });
     }
     if (!r.atEnd()) return Status::BadSnapshot;
     *out = std::move(snap);

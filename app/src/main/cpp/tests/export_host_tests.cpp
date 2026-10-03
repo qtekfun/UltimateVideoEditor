@@ -212,9 +212,76 @@ void titleClipsCarryTheirKey() {
     CHECK_EQ(layersAt({title}, 20)[0]->titleKey, 5);
 }
 
+#define CHECK_NEAR(actual, expected)                                                                           \
+    do {                                                                                                       \
+        const double a_ = static_cast<double>(actual);                                                         \
+        const double e_ = static_cast<double>(expected);                                                       \
+        if (std::fabs(a_ - e_) > 1e-9) {                                                                       \
+            std::printf("FAIL %s:%d: %s = %.12f, expected %.12f\n", __FILE__, __LINE__, #actual, a_, e_);      \
+            ++failures;                                                                                        \
+        }                                                                                                      \
+    } while (0)
+
+// The same vectors as KeyframesTest.kotlinAndNativeShareVectors in the JVM tests.
+std::vector<uv::core::Keyframe> sharedKeyframes() {
+    using uv::core::Interpolation;
+    using uv::core::Keyframe;
+    return {
+        Keyframe{0, {0, 0, 1, 1, 0, 1.0}, Interpolation::Linear},
+        Keyframe{10, {100, -50, 2, 3, 90, 0.5}, Interpolation::Ease},
+        Keyframe{20, {300, 50, 1, 1, 180, 0.0}, Interpolation::Hold},
+        Keyframe{30, {0, 0, 1, 1, 0, 1.0}, Interpolation::Linear},
+    };
+}
+
+void keyframesMatchTheKotlinVectors() {
+    const auto keys = sharedKeyframes();
+    const uv::core::Pose base{7, 8, 1, 1, 0, 1};
+    CHECK_NEAR(uv::core::evaluateKeyframes({}, 5, base).posX, 7);  // no keyframes: the fixed pose
+    CHECK_NEAR(uv::core::evaluateKeyframes(keys, -3, base).posX, 0);
+    CHECK_NEAR(uv::core::evaluateKeyframes(keys, 0, base).opacity, 1.0);
+    const auto linear = uv::core::evaluateKeyframes(keys, 5, base);
+    CHECK_NEAR(linear.posX, 50);
+    CHECK_NEAR(linear.posY, -25);
+    CHECK_NEAR(linear.scaleX, 1.5);
+    CHECK_NEAR(linear.scaleY, 2.0);
+    CHECK_NEAR(linear.rotationDeg, 45);
+    CHECK_NEAR(linear.opacity, 0.75);
+    CHECK_NEAR(uv::core::evaluateKeyframes(keys, 10, base).posX, 100);
+    const auto mid = uv::core::evaluateKeyframes(keys, 15, base);  // ease, halfway: weight 0.5
+    CHECK_NEAR(mid.posX, 200);
+    CHECK_NEAR(mid.posY, 0);
+    CHECK_NEAR(mid.scaleX, 1.5);
+    CHECK_NEAR(mid.rotationDeg, 135);
+    CHECK_NEAR(mid.opacity, 0.25);
+    CHECK_NEAR(uv::core::evaluateKeyframes(keys, 12, base).posX, 120.8);  // ease, t = 0.2: weight 0.104
+    const auto held = uv::core::evaluateKeyframes(keys, 25, base);        // hold: the earlier pose until the next key
+    CHECK_NEAR(held.posX, 300);
+    CHECK_NEAR(held.rotationDeg, 180);
+    CHECK_NEAR(uv::core::evaluateKeyframes(keys, 30, base).posX, 0);
+    CHECK_NEAR(uv::core::evaluateKeyframes(keys, 1000, base).posX, 0);
+}
+
+void poseCountsFromTheClipOriginNotTheTransitionStart() {
+    // A transition makes the clip start 10 frames early; keyframes still count from its own first frame.
+    VideoClip clip = makeClip(90, 60, 0, 0, 0);
+    clip.keyOriginFrame = 100;
+    clip.keyframes = sharedKeyframes();
+    CHECK_NEAR(poseAt(clip, 105).posX, 50);  // clip frame 5
+    CHECK_NEAR(poseAt(clip, 95).posX, 0);    // before the clip's first frame: the first pose holds
+    clip.fadeInFrames = 10;
+    // Opacity is the animated one times the crossfade ramp ((k + 0.5) / d at k = 5 over 10 frames).
+    CHECK_NEAR(opacityAt(clip, 95), 1.0 * 0.55);
+    clip.keyframes.clear();
+    clip.opacity = 0.5;
+    CHECK_NEAR(opacityAt(clip, 95), 0.5 * 0.55);
+}
+
 }  // namespace
 
 int main() {
+    keyframesMatchTheKotlinVectors();
+    poseCountsFromTheClipOriginNotTheTransitionStart();
     ptsIsExactForNtscRates();
     ptsDoesNotDriftOverLongTimelines();
     audioSamplesTileWithVideoFrames();

@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -36,6 +39,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.ultimatevideo.uveditor.domain.ClipGain
+import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Transition
@@ -71,10 +75,12 @@ fun InspectorPanel(
         if (clip == null) return@Column
 
         val isVisual = state.selectedVisualClip != null
-        val transform = clip.transform
+        // An animated clip shows its pose at the playhead; a fixed one its transform.
+        val transform = state.selectedPose ?: clip.transform
         val title = clip.title
         if (title != null) TitleControls(title, clip.id, onIntent)
         if (isVisual) {
+            KeyframeControls(state, clip.keyframes.size, onIntent)
             InspectorSlider(
                 label = "Position X",
                 value = transform.positionX.toFloat(),
@@ -121,6 +127,50 @@ fun InspectorPanel(
             ) { onIntent(EditorIntent.UpdateGain(if (it <= GAIN_MIN) ClipGain.MIN_DB else it.toDouble())) }
         }
         TransitionControls(state, onIntent, transitionLimit)
+    }
+}
+
+/**
+ * Animation of the selected clip: a diamond adds or removes a keyframe at the playhead, arrows jump
+ * between keyframes, and the chips choose how the pose moves on from the keyframe under the
+ * playhead. Once a clip has keyframes, changing a slider at the playhead writes a keyframe there.
+ */
+@Composable
+private fun KeyframeControls(state: EditorState, keyframeCount: Int, onIntent: (EditorIntent) -> Unit) {
+    val atPlayhead = state.keyframeAtPlayhead
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = if (keyframeCount == 0) "Animation" else "Animation · $keyframeCount keyframe${if (keyframeCount == 1) "" else "s"}",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = { onIntent(EditorIntent.JumpToKeyframe(forward = false)) }, enabled = keyframeCount > 0) {
+            Icon(EditorIcons.SkipPrevious, contentDescription = "Previous keyframe", modifier = Modifier.size(20.dp))
+        }
+        IconButton(onClick = { onIntent(EditorIntent.ToggleKeyframe) }) {
+            Icon(
+                imageVector = if (atPlayhead != null) EditorIcons.KeyframeOn else EditorIcons.KeyframeOff,
+                contentDescription = if (atPlayhead != null) "Remove the keyframe at the playhead" else "Add a keyframe at the playhead",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        IconButton(onClick = { onIntent(EditorIntent.JumpToKeyframe(forward = true)) }, enabled = keyframeCount > 0) {
+            Icon(EditorIcons.SkipNext, contentDescription = "Next keyframe", modifier = Modifier.size(20.dp))
+        }
+        TextButton(onClick = { onIntent(EditorIntent.ClearKeyframes) }, enabled = keyframeCount > 0) { Text("Clear") }
+    }
+    if (atPlayhead != null) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = "Then", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            for ((mode, label) in listOf(Interpolation.LINEAR to "Linear", Interpolation.EASE to "Ease", Interpolation.HOLD to "Hold")) {
+                FilterChip(
+                    selected = atPlayhead.interpolation == mode,
+                    onClick = { onIntent(EditorIntent.SetKeyframeInterpolation(mode)) },
+                    label = { Text(label) },
+                )
+            }
+        }
     }
 }
 
