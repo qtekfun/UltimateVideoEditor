@@ -22,17 +22,32 @@ target_compile_options(uv_host_tests PRIVATE -Wall -Wextra -Werror)
 add_executable(uv_audio_host_tests
     audio_host_tests.cpp
     ${ENGINE_DIR}/core/error.cpp
+    ${ENGINE_DIR}/audio/analysis.cpp
     ${ENGINE_DIR}/audio/audio_core.cpp
     ${ENGINE_DIR}/audio/audio_mixer.cpp
     ${ENGINE_DIR}/audio/audio_snapshot.cpp
     ${ENGINE_DIR}/audio/clip_buffer.cpp
+    ${ENGINE_DIR}/audio/dsp.cpp
+    ${ENGINE_DIR}/audio/loudness.cpp
     ${ENGINE_DIR}/audio/resampler.cpp
     ${ENGINE_DIR}/audio/retime_source.cpp
+    ${ENGINE_DIR}/audio/spectral_denoise.cpp
 )
 target_include_directories(uv_audio_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
 find_package(Threads REQUIRED)
 target_link_libraries(uv_audio_host_tests PRIVATE Threads::Threads)
+
+# Classical audio DSP: biquad EQ, pan, compressor, ducker, limiter, BS.1770 loudness, spectral denoise.
+add_executable(uv_dsp_host_tests
+    dsp_host_tests.cpp
+    ${ENGINE_DIR}/core/error.cpp
+    ${ENGINE_DIR}/audio/dsp.cpp
+    ${ENGINE_DIR}/audio/loudness.cpp
+    ${ENGINE_DIR}/audio/spectral_denoise.cpp
+)
+target_include_directories(uv_dsp_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_dsp_host_tests PRIVATE -Wall -Wextra -Werror)
 
 # Export maths (PTS, audio sample tiling, progress, clip selection).
 add_executable(uv_export_host_tests export_host_tests.cpp)
@@ -64,4 +79,5 @@ add_test(NAME uv_effects_host_tests COMMAND uv_effects_host_tests)
 add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
+add_test(NAME uv_dsp_host_tests COMMAND uv_dsp_host_tests)
 add_test(NAME uv_thumbnail_host_tests COMMAND uv_thumbnail_host_tests)
