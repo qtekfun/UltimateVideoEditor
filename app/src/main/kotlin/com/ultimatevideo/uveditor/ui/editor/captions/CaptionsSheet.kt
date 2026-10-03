@@ -21,23 +21,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import com.ultimatevideo.uveditor.ui.editor.formatTimecode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,13 +56,12 @@ import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.TitleAnimation
 import com.ultimatevideo.uveditor.domain.captions.CaptionEntrance
 import com.ultimatevideo.uveditor.domain.captions.CaptionStyle
-import com.ultimatevideo.uveditor.engine.captions.CaptionLanguage
 
-/** Shows the captions sheet while [CaptionsViewModel] has a target, and passes its results on. */
+/** Shows the captions sheet while [CaptionsViewModel] has it open, and passes its results on. */
 @Composable
 fun CaptionsHost(
     viewModel: CaptionsViewModel,
-    onClips: (List<Clip>) -> Unit,
+    onClips: (List<Clip>, Boolean) -> Unit,
     onRestyle: (CaptionStyle, Int) -> Unit,
     onMessage: (String) -> Unit,
 ) {
@@ -70,7 +69,7 @@ fun CaptionsHost(
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
-                is CaptionsEffect.ClipsReady -> onClips(effect.clips)
+                is CaptionsEffect.ClipsReady -> onClips(effect.clips, effect.intoExistingTrack)
                 is CaptionsEffect.Restyle -> onRestyle(effect.style, effect.canvasHeight)
                 is CaptionsEffect.ShowMessage -> onMessage(effect.text)
             }
@@ -82,6 +81,10 @@ fun CaptionsHost(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CaptionsSheet(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit) {
+    // The system file picker: the app never asks for storage permission, it only receives the file the user picks.
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onIntent(CaptionsIntent.ImportFile(uri.toString()))
+    }
     ModalBottomSheet(
         onDismissRequest = { onIntent(CaptionsIntent.Close) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -94,48 +97,75 @@ internal fun CaptionsSheet(state: CaptionsState, onIntent: (CaptionsIntent) -> U
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(if (state.restyleOnly) "Caption style" else "Auto captions", style = MaterialTheme.typography.titleLarge)
+            Text("Captions", style = MaterialTheme.typography.titleLarge)
             Text(
-                if (state.restyleOnly) {
-                    "Pick a look and apply it to the ${state.existingCaptions} captions on the timeline."
-                } else {
-                    "Listens to the selected clip on this device and adds the words as editable title clips on a new track."
-                },
+                "Type captions or import a .srt / .vtt file. Everything stays on this device.",
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            if (!state.restyleOnly) {
-                Section("Spoken language") { LanguagePicker(state, onIntent) }
-                Section("Speech model") { ModelPicker(state, onIntent) }
+            Section("Add a caption") { DraftEditor(state, onIntent) }
+            Section("Import subtitles") {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = { picker.launch(arrayOf("*/*")) },
+                        enabled = !state.importing,
+                    ) { Text(if (state.importing) "Reading…" else "Choose a .srt or .vtt file") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Switch(checked = state.importAtPlayhead, onCheckedChange = { onIntent(CaptionsIntent.SetImportAtPlayhead(it)) })
+                    Text("Start at the playhead (otherwise at the start of the project)", style = MaterialTheme.typography.bodyMedium)
+                }
             }
             Section("Style") { StylePicker(state, onIntent) }
             Section("Colours") { ColorOptions(state, onIntent) }
 
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-            if (state.busy) {
-                val label = if (state.phase == CaptionPhase.DOWNLOADING) "Downloading the model" else "Listening to the clip"
-                Text("$label ${state.progress}%", style = MaterialTheme.typography.bodyMedium)
-                LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth())
-            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                if (state.busy) {
-                    OutlinedButton(onClick = { onIntent(CaptionsIntent.Cancel) }) { Text("Cancel") }
-                } else {
-                    if (state.restyleOnly) {
-                        Button(onClick = { onIntent(CaptionsIntent.ApplyToExisting) }) { Text("Apply to ${state.existingCaptions} captions") }
-                    } else {
-                        Button(onClick = { onIntent(CaptionsIntent.Generate) }) {
-                            Text(if (state.selectedModel?.installed == true) "Generate captions" else "Download and generate")
-                        }
-                        if (state.existingCaptions > 0) {
-                            OutlinedButton(onClick = { onIntent(CaptionsIntent.ApplyToExisting) }) { Text("Restyle ${state.existingCaptions} existing") }
-                        }
-                    }
-                    TextButton(onClick = { onIntent(CaptionsIntent.Close) }) { Text("Close") }
+                if (state.existingCaptions > 0) {
+                    OutlinedButton(onClick = { onIntent(CaptionsIntent.ApplyToExisting) }) { Text("Restyle ${state.existingCaptions} existing") }
                 }
+                TextButton(onClick = { onIntent(CaptionsIntent.Close) }) { Text("Close") }
             }
         }
+    }
+}
+
+/** The caption being typed: its text, and a start and length stepped by a frame or a second. */
+@Composable
+private fun DraftEditor(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit) {
+    val second = ((state.fps.num + state.fps.den / 2) / state.fps.den).coerceAtLeast(1).toLong()
+    OutlinedTextField(
+        value = state.draftText,
+        onValueChange = { onIntent(CaptionsIntent.SetDraftText(it)) },
+        label = { Text("Caption text") },
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Stepper(
+        label = "Starts",
+        value = formatTimecode(state.draftStart, state.fps),
+        onChange = { onIntent(CaptionsIntent.NudgeStart(it)) },
+        second = second,
+    )
+    Stepper(
+        label = "Lasts",
+        value = formatTimecode(state.draftLength, state.fps),
+        onChange = { onIntent(CaptionsIntent.NudgeLength(it)) },
+        second = second,
+    )
+    Button(onClick = { onIntent(CaptionsIntent.AddDraft) }, enabled = state.canAdd) { Text("Add caption") }
+}
+
+@Composable
+private fun Stepper(label: String, value: String, second: Long, onChange: (Long) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(60.dp))
+        TextButton(onClick = { onChange(-second) }, modifier = Modifier.semantics { contentDescription = "$label one second earlier" }) { Text("-1 s") }
+        TextButton(onClick = { onChange(-1) }, modifier = Modifier.semantics { contentDescription = "$label one frame earlier" }) { Text("-1 f") }
+        Text(value, style = MaterialTheme.typography.titleSmall)
+        TextButton(onClick = { onChange(1) }, modifier = Modifier.semantics { contentDescription = "$label one frame later" }) { Text("+1 f") }
+        TextButton(onClick = { onChange(second) }, modifier = Modifier.semantics { contentDescription = "$label one second later" }) { Text("+1 s") }
     }
 }
 
@@ -144,51 +174,6 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         content()
-    }
-}
-
-@Composable
-private fun LanguagePicker(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val current = CaptionLanguage.ALL.firstOrNull { it.code == state.languageCode } ?: CaptionLanguage.ALL.first()
-    OutlinedButton(onClick = { open = true }, enabled = !state.busy) { Text(current.label) }
-    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        for (language in CaptionLanguage.ALL) {
-            DropdownMenuItem(
-                text = { Text(language.label) },
-                onClick = {
-                    open = false
-                    onIntent(CaptionsIntent.SelectLanguage(language.code))
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ModelPicker(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit) {
-    for (option in state.models) {
-        val model = option.model
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .selectable(selected = state.modelId == model.id, enabled = !state.busy, role = Role.RadioButton) {
-                    onIntent(CaptionsIntent.SelectModel(model.id))
-                },
-        ) {
-            RadioButton(selected = state.modelId == model.id, onClick = null, enabled = !state.busy)
-            Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                Text("${model.label} · ${megabytes(model.sizeBytes)} MB", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    if (option.installed) "Downloaded, works offline" else "${model.description} (downloaded once)",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            if (option.installed) {
-                TextButton(onClick = { onIntent(CaptionsIntent.DeleteModel(model.id)) }, enabled = !state.busy) { Text("Remove") }
-            }
-        }
     }
 }
 
@@ -203,7 +188,7 @@ private fun StylePicker(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit
             val selected = state.styleId == style.id
             // The card shows the colours that would be used, so a colour pick is visible at once.
             val shown = if (selected) state.style else style
-            StyleCard(shown, selected, enabled = !state.busy) { onIntent(CaptionsIntent.SelectStyle(style.id)) }
+            StyleCard(shown, selected, enabled = true) { onIntent(CaptionsIntent.SelectStyle(style.id)) }
         }
     }
 }
@@ -265,9 +250,9 @@ private fun describe(style: CaptionStyle): String = when {
 @Composable
 private fun ColorOptions(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit) {
     val style = state.style
-    ColorRow("Text", style.colorArgb, enabled = !state.busy) { onIntent(CaptionsIntent.SelectTextColor(it)) }
+    ColorRow("Text", style.colorArgb, enabled = true) { onIntent(CaptionsIntent.SelectTextColor(it)) }
     if (style.usesHighlight) {
-        ColorRow("Highlight", style.highlightArgb, enabled = !state.busy) { onIntent(CaptionsIntent.SelectHighlightColor(it)) }
+        ColorRow("Highlight", style.highlightArgb, enabled = true) { onIntent(CaptionsIntent.SelectHighlightColor(it)) }
     }
 }
 
@@ -305,4 +290,3 @@ private val PALETTE = listOf(
 
 private const val SAMPLE_BACKGROUND = 0xFF26303B
 
-private fun megabytes(bytes: Long) = (bytes + 1024 * 1024 - 1) / (1024 * 1024)

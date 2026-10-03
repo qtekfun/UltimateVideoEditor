@@ -60,11 +60,11 @@ the differentiators.
 
 ## 6. Post-MVP roadmap (all wanted, scheduled last)
 
-- Automatic subtitles (on-device transcription) with animated social styles.
+- Captions (typed or imported from subtitle files) with animated social styles.
 - Keyframes, speed changes, speed ramps, reverse, freeze frame.
 - Social format presets (9:16, 1:1, 4:5, 16:9), safe zones, per-platform export.
 - Chroma key, masks, chainable shader effects, blend modes.
-- Stickers, animated text templates, auto-captions styling, beat sync.
+- Stickers, animated text templates, caption styling, beat sync.
 - HDR (HLG) end-to-end projects, 3D LUTs, Vulkan renderer.
 - FFmpeg fallback for unsupported formats.
 
@@ -86,3 +86,9 @@ the differentiators.
 | Multi-layer decode limits (concurrent hardware decoders) | Query codec capabilities; decoder pool with priorities |
 | FFmpeg licensing | GPL-3.0 chosen; document linkage and sources |
 | Scope creep | Strict phase gates in PLAN.md |
+
+## 9. Privacy (hard requirement)
+
+The app works entirely on the device: no network access, no accounts, no analytics, no crash reporting, no AI or
+machine-learning features and no third-party services. Features that would need them are out of scope. Details and how to
+verify it: `docs/PRIVACY.md`.
