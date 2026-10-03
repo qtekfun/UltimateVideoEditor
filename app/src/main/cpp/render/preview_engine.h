@@ -75,6 +75,9 @@ struct SceneLayer {
     // holds its last frame instead of showing media the editor cut away.
     int64_t baseFrame = 0;
     int64_t limitFrame = INT64_MAX;
+    // -1 when the clip plays backwards: playScene() then steps `frame` down, and the asset's decoder
+    // keeps its window of decoded frames behind `frame` instead of ahead (see applyWindowForBudget).
+    int32_t direction = 1;
     core::LayerFx fx = {};  // effects, blend mode and mask; neutral by default
 };
 
@@ -144,6 +147,7 @@ private:
         // Look-behind/ahead its decoder keeps filled; frames inside it are evicted last.
         int32_t windowBehind = 0;
         int32_t windowAhead = 0;
+        bool reverse = false;  // the scene plays this asset backwards: the window above is mirrored
         SourceTransfer transfer = SourceTransfer::Sdr;
     };
 

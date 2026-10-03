@@ -155,23 +155,26 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 }
 
 namespace {
+constexpr jsize kParamsPerLayer = 7;
+
 // `ids` holds `idStride` longs per layer ({assetId, frame} and, for playback, the exclusive limit
-// frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity}, both bottom to top.
+// frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity, direction}, both bottom to top.
+// direction is +1 for a layer that plays forwards and -1 for one that plays backwards.
 // A negative assetId -k is the title uploaded under key k (frame is ignored).
 // Returns false after throwing if the arrays do not agree.
 // `fx` (may be null) holds one effects/blend/mask blob per layer, see core/layer_fx.h.
 bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx, jsize idStride,
                 std::vector<uv::render::SceneLayer>* out) {
     const jsize layerCount = env->GetArrayLength(ids) / idStride;
-    if (env->GetArrayLength(ids) != layerCount * idStride || env->GetArrayLength(params) != layerCount * 6) {
+    if (env->GetArrayLength(ids) != layerCount * idStride || env->GetArrayLength(params) != layerCount * kParamsPerLayer) {
         throwPreview(env, Status::InvalidArgument, "scene arrays do not match");
         return false;
     }
     std::vector<jlong> idValues(static_cast<size_t>(layerCount) * static_cast<size_t>(idStride));
-    std::vector<jfloat> paramValues(static_cast<size_t>(layerCount) * 6);
+    std::vector<jfloat> paramValues(static_cast<size_t>(layerCount) * kParamsPerLayer);
     if (layerCount > 0) {
         env->GetLongArrayRegion(ids, 0, layerCount * idStride, idValues.data());
-        env->GetFloatArrayRegion(params, 0, layerCount * 6, paramValues.data());
+        env->GetFloatArrayRegion(params, 0, layerCount * kParamsPerLayer, paramValues.data());
     }
     std::vector<uv::core::LayerFx> fxValues;
     {
@@ -197,8 +200,9 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx
         }
         layer.frame = id[1];
         if (idStride > 2) layer.limitFrame = id[2];
-        const jfloat* p = &paramValues[static_cast<size_t>(i) * 6];
+        const jfloat* p = &paramValues[static_cast<size_t>(i) * kParamsPerLayer];
         layer.transform = uv::render::LayerTransform{p[0], p[1], p[2], p[3], p[4], p[5]};
+        layer.direction = p[6] < 0.0f ? -1 : 1;
         out->push_back(layer);
     }
     return true;

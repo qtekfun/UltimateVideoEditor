@@ -112,6 +112,8 @@ data class PreviewLayer(
     val placement: LayerPlacement = LayerPlacement.IDENTITY,
     val endFrame: Long? = null,
     val titleKey: Int = 0,
+    /** The layer plays backwards: its decoder keeps the frames behind [frame] decoded rather than those ahead. */
+    val reverse: Boolean = false,
     /** Effects, blend mode and mask; neutral draws the layer as is. */
     val fx: ClipFx = ClipFx.NONE,
 )

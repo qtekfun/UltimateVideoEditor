@@ -49,6 +49,12 @@ struct VideoClip {
     // pose above; mirrors domain/Keyframes.kt.
     std::vector<core::Keyframe> keyframes;
     int64_t keyOriginFrame = 0;
+    // A retimed clip (speed, ramp, reverse or freeze) lists the source frame of each of its project
+    // frames (index = frame - startFrame), computed by domain/Retime.kt so the preview and the export
+    // agree; empty means source frame sourceInFrame + (frame - startFrame). `reverse` tells the decoder
+    // to keep its window of decoded frames behind the frame being drawn.
+    std::vector<int64_t> sourceTable;
+    bool reverse = false;
     // Effects, blend mode and mask; the same blob the preview gets (core/layer_fx.h).
     core::LayerFx fx = {};
 };
@@ -125,9 +131,26 @@ inline int64_t outputToProjectFrame(int64_t outFrame, Fps out, Fps project) {
 }
 
 inline int64_t sourceFrameFor(const VideoClip& clip, int64_t frame, int64_t assetFrames) {
-    const int64_t wanted = clip.sourceInFrame + (frame - clip.startFrame);
+    int64_t wanted = clip.sourceInFrame + (frame - clip.startFrame);
+    if (!clip.sourceTable.empty()) {
+        const int64_t last = static_cast<int64_t>(clip.sourceTable.size()) - 1;
+        wanted = clip.sourceTable[static_cast<size_t>(std::clamp<int64_t>(frame - clip.startFrame, 0, last))];
+    }
     if (assetFrames <= 0) return std::max<int64_t>(wanted, 0);
     return std::clamp<int64_t>(wanted, 0, assetFrames - 1);
+}
+
+// How many already-decoded frames a decoder keeps behind the frame being drawn while a clip plays
+// backwards: a whole stretch of a GOP is decoded in one pass and then consumed frame by frame. Bounded
+// by memory (a 4K frame is 33 MB), so long GOPs at high resolution re-decode more often.
+constexpr int64_t kReverseWindowBudgetBytes = 256ll * 1024 * 1024;
+constexpr int32_t kMinReverseWindowFrames = 4;
+constexpr int32_t kMaxReverseWindowFrames = 48;
+
+inline int32_t reverseWindowFrames(int64_t frameBytes) {
+    if (frameBytes <= 0) return kMinReverseWindowFrames;
+    return static_cast<int32_t>(std::clamp<int64_t>(kReverseWindowBudgetBytes / frameBytes, kMinReverseWindowFrames,
+                                                    kMaxReverseWindowFrames));
 }
 
 // End of the last clip: the length of the exported movie in project frames.

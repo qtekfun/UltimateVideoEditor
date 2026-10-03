@@ -11,6 +11,7 @@ target_sources(uveditor_engine PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../audio/audio_snapshot.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/clip_buffer.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/resampler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../audio/retime_source.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../core/error.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../jni/audio_jni.cpp
 )

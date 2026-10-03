@@ -13,6 +13,8 @@ import com.ultimatevideo.uveditor.engine.audio.AudioException
 import com.ultimatevideo.uveditor.engine.audio.AudioFault
 import com.ultimatevideo.uveditor.engine.audio.AudioPlaybackEngine
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
+import com.ultimatevideo.uveditor.engine.audio.RetimeKnot
+import com.ultimatevideo.uveditor.domain.RenderClip
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,21 +38,47 @@ internal fun audioSnapshotOf(
     val specs = timeline.renderClips().mapNotNull { clip ->
         if (clip.kind == RenderKind.TITLE) return@mapNotNull null
         val asset = withAudio[clip.assetId] ?: return@mapNotNull null
+        val knots = retimeKnotsOf(clip)
+        if (clip.retime != null && knots.isEmpty()) return@mapNotNull null // too fast, too slow or frozen: silent
         AudioClipSpec(
             clipKey = clipKey(clip.clipId),
             assetKey = assetKey(asset.id),
             startFrame = clip.startFrame,
             durationFrames = clip.durationFrames,
-            sourceInFrame = clip.sourceInFrame,
+            sourceInFrame = clip.sourceInFrame.coerceAtLeast(0),
             // A clip's source range is in project frames, so the source rate is the project's.
             sourceFpsNum = fps.num,
             sourceFpsDen = fps.den,
             gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
             fadeInFrames = clip.crossfadeInFrames,
             fadeOutFrames = clip.crossfadeOutFrames,
+            retimeKnots = knots,
         )
     }
     return AudioSnapshot(fps.num, fps.den, specs)
+}
+
+/** Slowest and fastest source speed (frames per timeline frame) that is still played; beyond it a clip is muted. */
+internal const val MIN_AUDIBLE_SPEED = 0.25
+internal const val MAX_AUDIBLE_SPEED = 4.0
+private const val AUDIO_KNOT_STEP_FRAMES = 12L
+
+/**
+ * The mixer's view of a retimed clip's mapping, or empty when the clip is not retimed or must be
+ * silent: a freeze frame has no sound, and between [MIN_AUDIBLE_SPEED] and [MAX_AUDIBLE_SPEED] is the
+ * range where varispeed audio is still usable (pitch follows the speed). A ramp is checked at every
+ * knot, so one fast stretch mutes the whole clip rather than playing noise.
+ */
+internal fun retimeKnotsOf(clip: RenderClip): List<RetimeKnot> {
+    val retime = clip.retime ?: return emptyList()
+    if (retime.isFreeze) return emptyList()
+    val from = clip.startFrame - clip.keyframeOriginFrame
+    val knots = retime.sourceKnots(from, clip.endFrame - clip.keyframeOriginFrame, AUDIO_KNOT_STEP_FRAMES)
+    val audible = knots.zipWithNext().all { (a, b) ->
+        val speed = kotlin.math.abs(b.second - a.second) / (b.first - a.first).toDouble()
+        speed in MIN_AUDIBLE_SPEED..MAX_AUDIBLE_SPEED
+    }
+    return if (audible) knots.map { RetimeKnot(it.first, it.second) } else emptyList()
 }
 
 /**

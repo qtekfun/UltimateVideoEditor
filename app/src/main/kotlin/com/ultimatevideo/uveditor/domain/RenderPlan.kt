@@ -37,6 +37,8 @@ data class RenderClip(
     val keyframes: List<Keyframe> = emptyList(),
     /** Project frame of the clip's own first frame (a transition can start [startFrame] earlier). */
     val keyframeOriginFrame: Long = startFrame,
+    /** How the clip's frames map to its source when it is not a plain 1x forward span; null otherwise. */
+    val retime: ClipRetime? = null,
     /** Effects, blend mode and mask of the clip; the compositor applies them in this order. */
     val fx: ClipFx = ClipFx.NONE,
 ) {
@@ -54,7 +56,11 @@ data class RenderClip(
     fun appearanceAt(frame: Long): ClipTransform = transformAt(frame).let { it.copy(opacity = it.opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)) }
 
     /** Source frame shown at [frame] (unclamped; renderers clamp to the media). */
-    fun sourceFrameAt(frame: Long): Long = sourceInFrame + (frame - startFrame)
+    fun sourceFrameAt(frame: Long): Long =
+        retime?.sourceFrameAt(frame - keyframeOriginFrame) ?: (sourceInFrame + (frame - startFrame))
+
+    /** True when the clip plays its source backwards. */
+    val isReverse: Boolean get() = retime?.reverse == true
 }
 
 /**
@@ -105,13 +111,18 @@ fun Timeline.renderClips(): List<RenderClip> {
                 title = clip.title,
                 startFrame = clip.timelineStart.value - pre,
                 durationFrames = clip.durationFrames + pre + post,
-                sourceInFrame = if (clip.title != null) 0L else clip.sourceIn.value - pre,
+                sourceInFrame = when {
+                    clip.title != null -> 0L
+                    clip.isRetimed -> clip.retime.sourceFrameAt(-pre)
+                    else -> clip.sourceIn.value - pre
+                },
                 transform = clip.transform,
                 gainDb = clip.gainDb,
                 crossfadeInFrames = incoming?.durationFrames ?: 0L,
                 crossfadeOutFrames = outgoing?.durationFrames ?: 0L,
                 keyframes = clip.keyframes,
                 keyframeOriginFrame = clip.timelineStart.value,
+                retime = if (clip.title == null && clip.isRetimed) clip.retime else null,
                 fx = clip.fx,
             )
         }

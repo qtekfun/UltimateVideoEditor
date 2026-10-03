@@ -17,6 +17,7 @@
 #include "audio/clip_buffer.h"
 #include "audio/clock_mapper.h"
 #include "audio/resampler.h"
+#include "audio/retime_source.h"
 #include "core/crossfade_math.h"
 
 using namespace uv;
@@ -184,7 +185,13 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
         w.put<float>(c.gainDb);
         w.put<int32_t>(static_cast<int32_t>(c.fadeInFrames));
         w.put<int32_t>(static_cast<int32_t>(c.fadeOutFrames));
-        w.put<int32_t>(0);
+        w.put<int32_t>(static_cast<int32_t>(c.knots.size()));
+    }
+    for (const auto& c : clips) {
+        for (const RetimeKnot& k : c.knots) {
+            w.put<int64_t>(k.frame);
+            w.put<double>(k.sourceFrame);
+        }
     }
     return w;
 }
@@ -252,6 +259,7 @@ static void testSnapshotParsing() {
 
 static std::atomic<int> g_liveDecoders{0};
 static std::atomic<int> g_createdDecoders{0};
+static std::atomic<int> g_seeks{0};
 
 struct FakeSpec {
     int32_t rate = 48000;
@@ -273,6 +281,7 @@ public:
     ~FakeDecoder() override { --g_liveDecoders; }
     int32_t sampleRate() const override { return spec_.rate; }
     Status seekToMicros(int64_t us) override {
+        ++g_seeks;
         pos_ = microsToSamples(us, spec_.rate);
         return Status::Ok;
     }
@@ -681,6 +690,254 @@ static void testOfflineRenderWaitsForData() {
     core.streamStopped();
 }
 
+
+// ------------------------------------------------------------------ retimed clips
+
+static std::vector<RetimeKnot> knotsOf(std::initializer_list<std::pair<int64_t, double>> list) {
+    std::vector<RetimeKnot> knots;
+    for (const auto& [frame, source] : list) knots.push_back(RetimeKnot{frame, source});
+    return knots;
+}
+
+// Source sample q read the way the reader does: linear interpolation of the fake decoder's ramp.
+static float interpolatedValue(double q) {
+    if (q < 0) return 0.0f;
+    const int64_t i0 = static_cast<int64_t>(std::floor(q));
+    const float frac = static_cast<float>(q - static_cast<double>(i0));
+    const float a = valueAt(i0);
+    const float b = valueAt(i0 + 1);
+    return a + (b - a) * frac;
+}
+
+static void testRetimeSnapshotParsing() {
+    AudioSnapshotData out;
+    AudioClipDesc fast = clipDesc(1, 0, 30);
+    fast.knots = knotsOf({{0, 0.0}, {30, 60.0}});
+    AudioClipDesc plain = clipDesc(2, 40, 10);
+    AudioClipDesc ramped = clipDesc(3, 60, 20);
+    ramped.knots = knotsOf({{0, 100.0}, {10, 80.5}, {20, 60.0}});  // reversed, with a middle knot
+    Buf ok = makeAudioSnapshot(30, 1, {fast, plain, ramped});
+    CHECK(parseAudioSnapshot(ok.b.data(), ok.b.size(), &out) == Status::Ok);
+    CHECK(out.clips.size() == 3);
+    CHECK(out.clips[0].knots.size() == 2 && out.clips[1].knots.empty() && out.clips[2].knots.size() == 3);
+    CHECK(out.clips[0].knots[1].frame == 30 && out.clips[0].knots[1].sourceFrame == 60.0);
+    CHECK(out.clips[2].knots[1].sourceFrame == 80.5);
+
+    const auto bad = [&](std::vector<RetimeKnot> knots) {
+        AudioClipDesc c = clipDesc(1, 0, 30);
+        c.knots = std::move(knots);
+        Buf b = makeAudioSnapshot(30, 1, {c});
+        return parseAudioSnapshot(b.b.data(), b.b.size(), &out) == Status::BadSnapshot;
+    };
+    CHECK(bad(knotsOf({{0, 0.0}})));                                   // one knot is not a mapping
+    CHECK(bad(knotsOf({{1, 0.0}, {30, 60.0}})));                       // must start at the clip's start
+    CHECK(bad(knotsOf({{0, 0.0}, {20, 60.0}})));                       // must end at the clip's end
+    CHECK(bad(knotsOf({{0, 0.0}, {15, 5.0}, {15, 6.0}, {30, 9.0}})));  // strictly increasing
+    CHECK(bad(knotsOf({{0, 0.0}, {40, 9.0}})));                        // past the clip
+    CHECK(bad(knotsOf({{0, 0.0}, {30, std::nan("")}})));               // finite positions only
+    Buf truncated = ok;
+    truncated.b.resize(truncated.b.size() - 16);
+    CHECK(parseAudioSnapshot(truncated.b.data(), truncated.b.size(), &out) == Status::BadSnapshot);
+    Buf extra = ok;
+    for (int i = 0; i < 16; ++i) extra.b.push_back(0);  // a knot nobody asked for
+    CHECK(parseAudioSnapshot(extra.b.data(), extra.b.size(), &out) == Status::BadSnapshot);
+}
+
+static void testRetimeMap() {
+    const Rational fps{30, 1};
+    // 2x: 30 frames of clip play 60 frames of source; at equal rates sample j reads source 2j.
+    RetimeMap fast(knotsOf({{0, 0.0}, {30, 60.0}}), fps, 48000, 48000);
+    CHECK_NEAR(fast.sourceSample(0), 0.0, 1e-9);
+    CHECK_NEAR(fast.sourceSample(1000), 2000.0, 1e-6);
+    CHECK_NEAR(fast.sourceSample(48000), 96000.0, 1e-6);
+    CHECK_NEAR(fast.sourceSample(60000), 120000.0, 1e-6);  // past the last knot the speed continues
+    CHECK_NEAR(fast.sourceSample(-100), -200.0, 1e-6);
+    CHECK(!fast.reversed());
+    // A source at 44.1 kHz read onto a 48 kHz output at 1x.
+    RetimeMap resampled(knotsOf({{0, 0.0}, {30, 30.0}}), fps, 48000, 44100);
+    CHECK_NEAR(resampled.sourceSample(48000), 44100.0, 1e-6);
+    // Reversed: positions fall.
+    RetimeMap back(knotsOf({{0, 100.0}, {30, 70.0}}), fps, 48000, 48000);
+    CHECK(back.reversed());
+    CHECK_NEAR(back.sourceSample(0), 100.0 * 1600, 1e-6);
+    CHECK_NEAR(back.sourceSample(48000), 70.0 * 1600, 1e-6);
+    // A middle knot changes the speed: 1x for 10 frames then 4x.
+    RetimeMap ramp(knotsOf({{0, 0.0}, {10, 10.0}, {20, 50.0}}), fps, 48000, 48000);
+    CHECK_NEAR(ramp.sourceSample(16000), 16000.0, 1e-6);
+    CHECK_NEAR(ramp.sourceSample(24000), 16000.0 + 8000.0 * 4, 1e-6);
+}
+
+static void renderAll(RetimedReader& reader, int64_t total, int32_t block, std::vector<float>* out) {
+    out->resize(static_cast<size_t>(total) * 2);
+    for (int64_t at = 0; at < total; at += block) {
+        const int32_t n = static_cast<int32_t>(std::min<int64_t>(block, total - at));
+        CHECK(reader.render(at, n, out->data() + at * 2) == RetimedReader::Result::Ok);
+    }
+}
+
+static int countWrong(const RetimeMap& map, const std::vector<float>& out, int64_t total) {
+    int wrong = 0;
+    for (int64_t j = 0; j < total; ++j) {
+        const float expect = interpolatedValue(map.sourceSample(j));
+        if (std::fabs(out[2 * j] - expect) > 1e-3f || std::fabs(out[2 * j + 1] - expect) > 1e-3f) ++wrong;
+    }
+    return wrong;
+}
+
+static void testRetimedReaderForward() {
+    g_spec = FakeSpec{};
+    g_seeks = 0;
+    FakeDecoder decoder(g_spec);
+    const RetimeMap map(knotsOf({{0, 0.0}, {30, 60.0}}), Rational{30, 1}, 48000, 48000);  // 2x
+    RetimedReader reader(&decoder, map);
+    std::vector<float> out;
+    renderAll(reader, 48000, 1024, &out);
+    CHECK(countWrong(map, out, 48000) == 0);
+    CHECK(g_seeks == 1);  // streamed: one positioning seek, none while it played through
+    // Half speed reads each source sample twice over (linear interpolation in between).
+    g_seeks = 0;
+    FakeDecoder slowDecoder(g_spec);
+    const RetimeMap slowMap(knotsOf({{0, 0.0}, {60, 30.0}}), Rational{30, 1}, 48000, 48000);
+    RetimedReader slow(&slowDecoder, slowMap);
+    renderAll(slow, 60000, 777, &out);
+    CHECK(countWrong(slowMap, out, 60000) == 0);
+    CHECK(g_seeks == 1);
+}
+
+static void testRetimedReaderReverse() {
+    g_spec = FakeSpec{};
+    g_seeks = 0;
+    FakeDecoder decoder(g_spec);
+    // 1 s of output reading source frames 60 down to 0 at 2x backwards (2 s of source).
+    const RetimeMap map(knotsOf({{0, 60.0}, {30, 0.0}}), Rational{30, 1}, 48000, 48000);
+    RetimedReader reader(&decoder, map);
+    std::vector<float> out;
+    renderAll(reader, 48000, 1024, &out);
+    CHECK(countWrong(map, out, 48000) == 0);
+    // The first read decodes a block below the start (96000 source samples): a single seek serves all of it.
+    CHECK(g_seeks <= 2);
+    // Longer than a block: seeks once per block, not once per read.
+    g_seeks = 0;
+    FakeDecoder longDecoder(g_spec);
+    const RetimeMap longMap(knotsOf({{0, 300.0}, {150, 0.0}}), Rational{30, 1}, 48000, 48000);  // 5 s output, 10 s source
+    RetimedReader longReader(&longDecoder, longMap);
+    renderAll(longReader, 5 * 48000, 1024, &out);
+    CHECK(countWrong(longMap, out, 5 * 48000) == 0);
+    CHECK(g_seeks >= 2 && g_seeks <= 8);
+}
+
+static void testRetimedReaderRampAndEdges() {
+    g_spec = FakeSpec{};
+    FakeDecoder decoder(g_spec);
+    const RetimeMap ramp(knotsOf({{0, 0.0}, {10, 10.0}, {20, 50.0}}), Rational{30, 1}, 48000, 48000);
+    RetimedReader reader(&decoder, ramp);
+    std::vector<float> out;
+    renderAll(reader, 32000, 1000, &out);
+    CHECK(countWrong(ramp, out, 32000) == 0);
+
+    // Media shorter than the clip wants: the rest is silence, not garbage.
+    g_spec.totalFrames = 10000;
+    FakeDecoder shortDecoder(g_spec);
+    const RetimeMap fast(knotsOf({{0, 0.0}, {30, 60.0}}), Rational{30, 1}, 48000, 48000);
+    RetimedReader shortReader(&shortDecoder, fast);
+    renderAll(shortReader, 12000, 1024, &out);  // source positions 0..24000, media ends at 10000
+    for (int64_t j = 6000; j < 12000; ++j) CHECK(out[2 * j] == 0.0f);
+    CHECK(std::fabs(out[2 * 1000] - valueAt(2000)) < 1e-3f);
+
+    // Before the start of the source (a transition's lead-in reaching below zero) is silence too.
+    g_spec = FakeSpec{};
+    FakeDecoder startDecoder(g_spec);
+    const RetimeMap early(knotsOf({{0, -2.0}, {30, 28.0}}), Rational{30, 1}, 48000, 48000);  // starts 2 frames before the media
+    RetimedReader startReader(&startDecoder, early);
+    renderAll(startReader, 8000, 1024, &out);
+    CHECK(out[0] == 0.0f && out[2 * 3000] == 0.0f);
+    CHECK(std::fabs(out[2 * 4000] - interpolatedValue(early.sourceSample(4000))) < 1e-3f);
+}
+
+static void testRetimedReaderReportsDecoderFailures() {
+    g_spec = FakeSpec{};
+    class Failing : public PcmDecoder {
+    public:
+        int32_t sampleRate() const override { return 48000; }
+        Status seekToMicros(int64_t) override { return Status::IoError; }
+        PcmReadResult read(float*, int32_t) override { return {}; }
+    } failing;
+    RetimedReader reader(&failing, RetimeMap(knotsOf({{0, 0.0}, {30, 30.0}}), Rational{30, 1}, 48000, 48000));
+    std::vector<float> out(2048);
+    CHECK(reader.render(0, 1024, out.data()) == RetimedReader::Result::Error);
+    CHECK(reader.lastStatus() == Status::IoError);
+    // A decoder with nothing ready yet is "not ready", not an error.
+    class Slow : public PcmDecoder {
+    public:
+        int32_t sampleRate() const override { return 48000; }
+        Status seekToMicros(int64_t) override { return Status::Ok; }
+        PcmReadResult read(float*, int32_t) override { return {}; }
+    } slow;
+    RetimedReader waiting(&slow, RetimeMap(knotsOf({{0, 0.0}, {30, 30.0}}), Rational{30, 1}, 48000, 48000));
+    CHECK(waiting.render(0, 1024, out.data()) == RetimedReader::Result::NotReady);
+}
+
+// A 2x clip and a reversed clip through the whole core, as the editor sends them.
+static void testRetimedClipsPlayThroughTheCore() {
+    g_spec = FakeSpec{};
+    AudioCore core(fakeFactory());
+    CHECK(core.configure(48000) == Status::Ok);
+    core.streamStarting();
+    AudioClipDesc fast = clipDesc(1, 0, 30);
+    fast.knots = knotsOf({{0, 0.0}, {30, 60.0}});  // 1 s of output, source seconds 0..2
+    AudioClipDesc back = clipDesc(2, 30, 30);
+    back.knots = knotsOf({{0, 90.0}, {30, 60.0}});  // 1 s of output, source seconds 3 down to 2
+    CHECK(core.setSnapshot(snap30({fast, back})) == Status::Ok);
+    core.play();
+
+    std::vector<float> out;
+    CHECK(renderUntilPlaying(core, &out));
+    while (out.size() / 2 < 96000) step(core, &out);
+    const RetimeMap fastMap(fast.knots, Rational{30, 1}, 48000, 48000);
+    const RetimeMap backMap(back.knots, Rational{30, 1}, 48000, 48000);
+    int bad = 0;
+    for (int64_t k = 0; k < 96000; ++k) {
+        const float expect = k < 48000 ? interpolatedValue(fastMap.sourceSample(k)) : interpolatedValue(backMap.sourceSample(k - 48000));
+        if (std::fabs(out[2 * k] - expect) > 1e-3f) ++bad;
+    }
+    CHECK(bad == 0);
+    CHECK(core.underrunBlocks() == 0);
+    std::vector<AudioFault> faults;
+    core.pollFaults(&faults);
+    CHECK(faults.empty());
+    core.streamStopped();
+}
+
+// Changing only a clip's retime makes a new source: the old buffer is not reused for the new mapping.
+static void testRetimeChangeStartsANewSource() {
+    g_spec = FakeSpec{};
+    g_createdDecoders = 0;
+    AudioCore core(fakeFactory());
+    core.configure(48000);
+    core.streamStarting();
+    AudioClipDesc a = clipDesc(1, 0, 30);
+    a.knots = knotsOf({{0, 0.0}, {30, 60.0}});
+    core.setSnapshot(snap30({a}));
+    core.play();
+    std::vector<float> out;
+    CHECK(renderUntilPlaying(core, &out));
+    for (int i = 0; i < 20; ++i) step(core, &out);
+    CHECK(g_createdDecoders == 1);
+    // Same retime, clip moved: the decoder survives (the buffer is clip local).
+    AudioClipDesc moved = a;
+    moved.startFrame = 3;
+    core.setSnapshot(snap30({moved}));
+    for (int i = 0; i < 5; ++i) step(core, &out);
+    CHECK(g_createdDecoders == 1);
+    // A different speed: a new source and decoder.
+    AudioClipDesc slower = a;
+    slower.knots = knotsOf({{0, 0.0}, {30, 45.0}});
+    core.setSnapshot(snap30({slower}));
+    for (int i = 0; i < 5; ++i) step(core, &out);
+    CHECK(g_createdDecoders == 2);
+    core.streamStopped();
+}
+
 int main() {
     testTimeMath();
     testClockMapper();
@@ -698,6 +955,14 @@ int main() {
     testFarClipsHoldNoDecoder();
     testThreadedWorker();
     testOfflineRenderWaitsForData();
+    testRetimeSnapshotParsing();
+    testRetimeMap();
+    testRetimedReaderForward();
+    testRetimedReaderReverse();
+    testRetimedReaderRampAndEdges();
+    testRetimedReaderReportsDecoderFailures();
+    testRetimedClipsPlayThroughTheCore();
+    testRetimeChangeStartsANewSource();
     if (g_failures == 0) std::puts("audio host tests: all passed");
     return g_failures == 0 ? 0 : 1;
 }

@@ -82,6 +82,34 @@ class AudioSnapshotTest {
     }
 
     @Test
+    fun `retime knots follow the clips after the clip table`() {
+        val plain = clip(1, start = 0, duration = 30)
+        val fast = clip(2, start = 40, duration = 30).copy(retimeKnots = listOf(RetimeKnot(0, 10.0), RetimeKnot(30, 70.5)))
+        val buffer = AudioSnapshot(30, 1, listOf(plain, fast)).encode()
+
+        assertEquals(AudioSnapshot.HEADER_BYTES + 2 * AudioSnapshot.CLIP_BYTES + 2 * AudioSnapshot.KNOT_BYTES, buffer.remaining())
+        val reservedAt = { index: Int -> AudioSnapshot.HEADER_BYTES + index * AudioSnapshot.CLIP_BYTES + 60 }
+        assertEquals(0, buffer.getInt(reservedAt(0)))
+        assertEquals(2, buffer.getInt(reservedAt(1)))
+        val knots = AudioSnapshot.HEADER_BYTES + 2 * AudioSnapshot.CLIP_BYTES
+        assertEquals(0L, buffer.getLong(knots))
+        assertEquals(10.0, buffer.getDouble(knots + 8), 0.0)
+        assertEquals(30L, buffer.getLong(knots + 16))
+        assertEquals(70.5, buffer.getDouble(knots + 24), 0.0)
+    }
+
+    @Test
+    fun `retime knots are validated`() {
+        fun withKnots(duration: Long, vararg knots: RetimeKnot) = clip(duration = duration).copy(retimeKnots = knots.toList())
+        withKnots(30, RetimeKnot(0, 0.0), RetimeKnot(30, 60.0)) // valid
+        assertThrows(IllegalArgumentException::class.java) { withKnots(30, RetimeKnot(0, 0.0)) }
+        assertThrows(IllegalArgumentException::class.java) { withKnots(30, RetimeKnot(1, 0.0), RetimeKnot(30, 60.0)) }
+        assertThrows(IllegalArgumentException::class.java) { withKnots(30, RetimeKnot(0, 0.0), RetimeKnot(20, 60.0)) }
+        assertThrows(IllegalArgumentException::class.java) { withKnots(30, RetimeKnot(0, 0.0), RetimeKnot(15, 1.0), RetimeKnot(15, 2.0), RetimeKnot(30, 3.0)) }
+        assertThrows(IllegalArgumentException::class.java) { withKnots(30, RetimeKnot(0, 0.0), RetimeKnot(30, Double.NaN)) }
+    }
+
+    @Test
     fun `error codes map back from native values`() {
         assertEquals(AudioErrorCode.BadSnapshot, AudioErrorCode.fromValue(2))
         assertEquals(AudioErrorCode.DeviceError, AudioErrorCode.fromValue(100))

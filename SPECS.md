@@ -361,6 +361,45 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   everything else is one step. A small badge on the clip header marks clips that have a look (timeline snapshot
   clip flags bit 1).
 
+### 5.13 Retiming: speed, ramps, reverse and freeze frames
+- **Model.** A clip keeps its source range `[sourceIn, sourceOut)` (source frames, in project-frame units like
+  everywhere in the editor). Three optional fields change how the range plays:
+  `timelineFrames` (the clip's length on the timeline when it is not the range's length, so the speed is
+  `range / timelineFrames`), `reverse`, and `speedRamp` (keys `{frame, weightPermille}` in clip frames; the speed
+  at a frame is the clip's average times the weight, linear between keys and held outside them). A ramp only
+  shapes the speed: the average still comes from range and length, so a ramp never moves the clip's ends. A
+  **freeze frame** is a one-frame range held for a longer length (`sourceOut = sourceIn + 1`,
+  `timelineFrames = N`): there is no separate model for it. Titles are never retimed.
+  ```json
+  { "id": "c1", "assetId": "a1", "timelineStartFrame": 0, "sourceInFrame": 20, "sourceOutFrame": 120,
+    "timelineFrames": 50, "reverse": false, "speedRamp": [ { "frame": 0, "weightPermille": 400 }, { "frame": 49, "weightPermille": 1600 } ] }
+  ```
+- **One mapping.** `domain/Retime.kt` (`ClipRetime`) maps a clip frame `t` (any integer: a transition extends clips
+  past their ends) to the source frame shown: `floor(t * range / length)` in exact integer arithmetic without a
+  ramp, the ramp's integral (`position`) with one, `sourceOut - 1 - offset` when reversed, and the single frame
+  of a freeze. The preview (per tick), the exporter (a per-clip table) and the mixer (knots) all start from it.
+- **Edits.** The constant speed is limited to 0.1x–8x (`SpeedLimits`). `setSpeed` keeps the range and changes the
+  length (rounded to a whole frame, at least 1), stretching keyframes and the ramp with it; getting longer
+  must not run into the next clip unless it ripples (the editor ripples). Split, trim and overwrite go through
+  `Clip.cropped(from, to)`, which re-derives the range, length, ramp and keyframes from the same mapping, so the two
+  halves of a split meet exactly at the cut (when the cut falls inside a source frame held by slow motion both
+  halves show that frame), and extending a trimmed clip continues its speed (bounded by the media length).
+  `freezeFrame` splits the video clip at the playhead and inserts the still, moving later clips on the track.
+- **Wire formats.** Timeline snapshot version 4 appends the retimed clips (`clipKey`, `sourceSpanFrames`, flags
+  reverse/freeze) so the canvas can place waveforms and thumbnails and label the speed ("2x", "0.5x", "<" for
+  reverse, "||" for a freeze); a ramp is drawn at its average speed. Audio snapshot version 3 keeps the clip
+  table and appends the knots (`frame`, absolute `sourceFrame`) of retimed clips after it. The export request
+  carries `sourceFrames` (one source frame per project frame) and a reverse flag per retimed clip.
+- **Sound.** Audio follows the mapping with linear interpolation, so the pitch follows the speed (varispeed). A clip is
+  muted outside 0.25x–4x (checked at every knot of a ramp) and a freeze frame is silent; time-stretching that keeps
+  the pitch is future work. Reverse playback decodes a block of source below the playhead and reads it backwards.
+- **Decoding.** A retimed clip's preview layer is re-anchored every tick, like an animated one. A reversed layer
+  mirrors the decoder's window (frames behind the playhead are kept decoded instead of those ahead) so one pass
+  over a GOP serves the next stretch; the exporter does the same with a window bounded by memory
+  (`reverseWindowFrames`: about 8 frames at 4K, 32 at 1080p) and drops frames after the one drawn. Reverse
+  playback of long-GOP footage therefore re-decodes a GOP every few frames, which is slow at 4K; fast forward
+  (above 2x) is limited by decoder throughput.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
@@ -374,6 +413,9 @@ cover collisions, gaps, and boundaries:
 | Ripple delete | Removes clip and shifts later clips on the same track left by its duration |
 | Ripple append | Snaps clip to the end of the previous clip with no gap |
 | Trim | Changes in/out points, bounded by source length and neighbours |
+| Speed | Changes the length (range / speed) and stretches keyframes and ramp; fails on overlap unless it ripples |
+| Reverse, ramp | Do not change place or length; a ramp's keys must lie inside the clip |
+| Freeze frame | Splits the video clip at the playhead and inserts a one-frame still; later clips move by its length |
 
 Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
 

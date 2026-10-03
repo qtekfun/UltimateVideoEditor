@@ -34,7 +34,8 @@ struct Buf {
 
 static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& clips,
                         const std::vector<timeline::TransitionSnapshot>& transitions = {},
-                        const std::vector<timeline::KeyframeSnapshot>& keyframes = {}, uint32_t version = timeline::kSnapshotVersion) {
+                        const std::vector<timeline::KeyframeSnapshot>& keyframes = {}, uint32_t version = timeline::kSnapshotVersion,
+                        const std::vector<timeline::RetimeSnapshot>& retimes = {}) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
     w.put<uint32_t>(version);
@@ -69,6 +70,15 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
             w.put<int64_t>(k.frame);
         }
     }
+    if (version >= 4) {
+        w.put<int32_t>(static_cast<int32_t>(retimes.size()));
+        for (const auto& t : retimes) {
+            w.put<int64_t>(t.clipKey);
+            w.put<int64_t>(t.sourceSpanFrames);
+            w.put<int32_t>(t.flags);
+            w.put<int32_t>(0);
+        }
+    }
     return w;
 }
 
@@ -78,7 +88,7 @@ static timeline::ClipSnapshot clip(int64_t key, int track, int64_t start, int64_
 
 static void testSnapshotRoundTrip() {
     auto buf = makeSnapshot(2, {clip(7, 0, 0, 100), clip(8, 1, 50, 25)});
-    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4);
+    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4);
     timeline::TimelineSnapshot s;
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
     CHECK(s.tracks.size() == 2 && s.clips.size() == 2);
@@ -140,7 +150,11 @@ static void testSnapshotKeyframes() {
     // A version 2 snapshot (no keyframe trailer) still parses and has none.
     auto v2 = makeSnapshot(1, {clip(1, 0, 0, 10)}, {{0, 5, 1, 1}}, {}, 2);
     CHECK(timeline::parseSnapshot(v2.b.data(), v2.b.size(), &s) == core::Status::Ok);
-    CHECK(s.transitions.size() == 1 && s.keyframes.empty());
+    CHECK(s.transitions.size() == 1 && s.keyframes.empty() && s.retimes.empty());
+    // So does version 3 (keyframes, no retime trailer).
+    auto v3 = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {{1, 4}}, 3);
+    CHECK(timeline::parseSnapshot(v3.b.data(), v3.b.size(), &s) == core::Status::Ok);
+    CHECK(s.keyframes.size() == 1 && s.retimes.empty());
 
     // A keyframe count that disagrees with the bytes, a negative frame and a future version are rejected.
     auto truncated = buf.b;
@@ -148,8 +162,55 @@ static void testSnapshotKeyframes() {
     CHECK(timeline::parseSnapshot(truncated.data(), truncated.size(), &s) == core::Status::BadSnapshot);
     auto negative = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {{1, -1}});
     CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
-    auto future = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, 4);
+    auto future = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, 5);
     CHECK(timeline::parseSnapshot(future.b.data(), future.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+
+static void testSnapshotRetimes() {
+    timeline::TimelineSnapshot s;
+    // Clip 7 plays 100 source frames over 50 (2x); clip 3 is reversed; clip 9 is a freeze frame.
+    const std::vector<timeline::RetimeSnapshot> retimes = {{9, 1, 2}, {7, 100, 0}, {3, 40, 1}};
+    auto buf = makeSnapshot(1, {clip(3, 0, 0, 40), clip(7, 0, 40, 50), clip(9, 0, 100, 30), clip(11, 0, 140, 10)}, {}, {}, 4, retimes);
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.retimes.size() == 3);
+    const auto* two = s.retimeOf(7);
+    CHECK(two != nullptr && two->sourceSpanFrames == 100 && !two->reverse() && !two->freeze());
+    const auto* back = s.retimeOf(3);
+    CHECK(back != nullptr && back->reverse() && !back->freeze());
+    const auto* still = s.retimeOf(9);
+    CHECK(still != nullptr && still->freeze());
+    CHECK(s.retimeOf(11) == nullptr);  // a plain clip has none
+    CHECK(s.retimeOf(12345) == nullptr);
+
+    // Version 3 snapshots carried no retimes; the keyframe trailer must still end exactly where it did.
+    auto withKeys = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {{1, 4}}, 4, retimes);
+    CHECK(timeline::parseSnapshot(withKeys.b.data(), withKeys.b.size(), &s) == core::Status::Ok);
+    CHECK(s.keyframes.size() == 1 && s.retimes.size() == 3);
+
+    // Rejected: a count that disagrees with the bytes, an empty span.
+    auto truncated = buf.b;
+    truncated.pop_back();
+    CHECK(timeline::parseSnapshot(truncated.data(), truncated.size(), &s) == core::Status::BadSnapshot);
+    auto empty = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, 4, {{1, 0, 0}});
+    CHECK(timeline::parseSnapshot(empty.b.data(), empty.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+static void testRetimeBoundaries() {
+    const timeline::RetimeSnapshot fast{1, 100, 0};  // 100 source frames over 50: 2x
+    CHECK(timeline::retimeBoundary(nullptr, 50, 20) == 20);
+    CHECK(timeline::retimeBoundary(&fast, 50, 0) == 0);
+    CHECK(timeline::retimeBoundary(&fast, 50, 20) == 40);
+    CHECK(timeline::retimeBoundary(&fast, 50, 50) == 100);
+    const timeline::RetimeSnapshot slow{2, 10, 0};  // 10 over 40: 0.25x
+    CHECK(timeline::retimeBoundary(&slow, 40, 4) == 1);
+    CHECK(timeline::retimeBoundary(&slow, 40, 39) == 9);
+    const timeline::RetimeSnapshot back{3, 40, 1};  // reversed: the end of the range first
+    CHECK(timeline::retimeBoundary(&back, 40, 0) == 40);
+    CHECK(timeline::retimeBoundary(&back, 40, 10) == 30);
+    CHECK(timeline::retimeBoundary(&back, 40, 40) == 0);
+    const timeline::RetimeSnapshot still{4, 1, 2};
+    CHECK(timeline::retimeBoundary(&still, 30, 29) == 0);
 }
 
 static void testSnapshotRejectsBadInput() {
@@ -376,6 +437,8 @@ int main() {
     testSnapshotFxFlag();
     testSnapshotTransitions();
     testSnapshotKeyframes();
+    testSnapshotRetimes();
+    testRetimeBoundaries();
     testSnapshotRejectsBadInput();
     testViewport();
     testHitTest();

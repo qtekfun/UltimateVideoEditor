@@ -121,6 +121,28 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setKeyframeInterpolation(timeline, clipId, frame, interpolation)
     }
 
+    data class SetSpeed(val clipId: String, val num: Long, val den: Long, val ripple: Boolean = false) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setSpeed(timeline, clipId, num, den, ripple)
+    }
+
+    data class SetReverse(val clipId: String, val reverse: Boolean) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setReverse(timeline, clipId, reverse)
+    }
+
+    data class SetSpeedRamp(val clipId: String, val ramp: List<SpeedKey>) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setSpeedRamp(timeline, clipId, ramp)
+    }
+
+    data class FreezeFrame(
+        val trackId: String,
+        val at: FrameIndex,
+        val durationFrames: Long,
+        val freezeClipId: String,
+        val rightClipId: String,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.freezeFrame(timeline, trackId, at, durationFrames, freezeClipId, rightClipId)
+    }
+
     data class SetTitle(val clipId: String, val title: TitleContent) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setTitle(timeline, clipId, title)
     }

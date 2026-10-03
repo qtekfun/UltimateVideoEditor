@@ -104,7 +104,11 @@ data class Transition(
 
 /**
  * A span of a source placed on a track. Source range is [sourceIn, sourceOut) in source frames;
- * the clip occupies [timelineStart, timelineEnd) on the timeline at 1x speed.
+ * the clip occupies [timelineStart, timelineEnd) on the timeline. Normally that is 1x speed and the
+ * clip is as long as its range; [retimedFrames] makes it another length (speed = range / length),
+ * [reverse] plays the range backwards and [speedRamp] shapes the speed over the clip. A one-frame
+ * range held for a longer length is a freeze frame. [Clip.retime] is the mapping from timeline
+ * frames to source frames that every renderer uses.
  * Title clips live on title tracks, have no [assetId] and carry [title] instead; their source
  * range is just the duration (sourceIn is 0).
  */
@@ -123,10 +127,16 @@ data class Clip(
      * returns to when its last keyframe is removed.
      */
     val keyframes: List<Keyframe> = emptyList(),
+    /** Length on the timeline when it differs from the source range's length; null means 1x speed. */
+    val retimedFrames: Long? = null,
+    /** Plays the source range backwards. */
+    val reverse: Boolean = false,
+    /** Relative speed over the clip, in clip frames; empty means constant speed. */
+    val speedRamp: List<SpeedKey> = emptyList(),
     /** Effects, blend mode and mask of a video or title clip; neutral by default. */
     val fx: ClipFx = ClipFx.NONE,
 ) {
-    val durationFrames: Long get() = sourceOut - sourceIn
+    val durationFrames: Long get() = retimedFrames ?: (sourceOut - sourceIn)
     val timelineEnd: FrameIndex get() = timelineStart + durationFrames
 
     /** The pose [relativeFrame] frames after the clip's start. */
@@ -188,7 +198,7 @@ data class Timeline(
         if (transition.durationFrames < Transition.MIN_DURATION_FRAMES) return "transition is too short"
         if (transition.preFrames > from.durationFrames) return "transition reaches past the start of the outgoing clip"
         if (transition.postFrames > to.durationFrames) return "transition reaches past the end of the incoming clip"
-        if (to.title == null && transition.preFrames > to.sourceIn.value) return "incoming clip has no media before its in point"
+        if (to.title == null && to.retime.sourceFrameAt(-transition.preFrames) < 0) return "incoming clip has no media before its in point"
         val next = transitions.firstOrNull { it.id != transition.id && it.fromClipId == to.id }
         if (next != null && transition.postFrames + next.preFrames > to.durationFrames) {
             return "transitions on clip ${to.id} overlap"
@@ -220,6 +230,12 @@ data class Timeline(
             for (clip in track.clips) {
                 if (!seenClipIds.add(clip.id)) violations += "duplicate clip id ${clip.id}"
                 if (clip.durationFrames <= 0) violations += "clip ${clip.id} has non-positive duration"
+                if (clip.sourceOut <= clip.sourceIn) violations += "clip ${clip.id} has an empty source range"
+                if (clip.retimedFrames != null && clip.retimedFrames == clip.sourceSpan) violations += "clip ${clip.id} stores its own length as a retime"
+                if (clip.title != null && clip.isRetimed) violations += "clip ${clip.id} is a title but is retimed"
+                if (clip.speedRamp.isNotEmpty() && clip.durationFrames > 0) {
+                    SpeedRamps.problem(clip.speedRamp, clip.durationFrames)?.let { violations += "clip ${clip.id} $it" }
+                }
                 if (clip.timelineStart < FrameIndex.ZERO) violations += "clip ${clip.id} starts before frame 0"
                 if (clip.sourceIn < FrameIndex.ZERO) violations += "clip ${clip.id} has negative sourceIn"
                 clip.transform.problem()?.let { violations += "clip ${clip.id} transform: $it" }

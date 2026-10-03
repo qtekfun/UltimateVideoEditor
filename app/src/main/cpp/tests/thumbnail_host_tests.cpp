@@ -176,6 +176,50 @@ static void testPlanCells() {
     CHECK(cells.empty());
 }
 
+static void testPlanCellsOfRetimedClips() {
+    std::vector<CellPlan> cells;
+    // 500 timeline frames at 2 px each; cell k is centred 100k + 50 frames in.
+    ClipCellParams p = baseParams();
+
+    // 2x: 1000 source frames over the 500 timeline frames, so each cell reads twice as far in.
+    p.spanFrames = 1000;
+    p.durationFrames = 500;
+    planClipCells(p, &cells);
+    CHECK(cells.size() == 5);
+    for (int64_t k = 0; k < 5; ++k) {
+        CHECK(cells[k].key.index == tileIndexForTimeUs(sourceTimeUs(2 * (100 * k + 50), 30, 1), 3));
+    }
+
+    // Half speed: 250 source frames over 500.
+    p.spanFrames = 250;
+    planClipCells(p, &cells);
+    for (int64_t k = 0; k < 5; ++k) {
+        CHECK(cells[k].key.index == tileIndexForTimeUs(sourceTimeUs((100 * k + 50) / 2, 30, 1), 3));
+    }
+
+    // Reversed: the first cell shows the end of the range.
+    p.spanFrames = 500;
+    p.reverse = true;
+    planClipCells(p, &cells);
+    CHECK(cells[0].key.index == tileIndexForTimeUs(sourceTimeUs(500 - 1 - 50, 30, 1), 3));
+    CHECK(cells[4].key.index == tileIndexForTimeUs(sourceTimeUs(500 - 1 - 450, 30, 1), 3));
+
+    // A freeze frame holds one source frame: every cell asks for the same tile (sourceIn = 90 frames = 3 s).
+    p = baseParams();
+    p.sourceInFrame = 90;
+    p.spanFrames = 1;
+    p.durationFrames = 500;
+    p.freeze = true;
+    planClipCells(p, &cells);
+    CHECK(cells.size() == 5);
+    for (const CellPlan& c : cells) CHECK(c.key.index == tileIndexForTimeUs(sourceTimeUs(90, 30, 1), 3));
+
+    // A plain clip (no span) is unchanged by the new fields.
+    p = baseParams();
+    planClipCells(p, &cells);
+    CHECK(cells[1].key.index == 1);
+}
+
 static void testResolve() {
     std::set<TileKey> resident;
     const auto has = [&](const TileKey& k) { return resident.count(k) != 0; };
@@ -570,6 +614,7 @@ static void testYuv() {
 int main() {
     testGrid();
     testPlanCells();
+    testPlanCellsOfRetimedClips();
     testResolve();
     testAtlasLayout();
     testSlotLru();
