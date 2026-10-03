@@ -167,6 +167,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
         }
     }
+    // Follow the whole project's length until the user zooms by hand. Keyed on the committed
+    // timeline, so a clip being dragged does not make the zoom jump. Declared after the snapshot
+    // effect so the engine already has the new timeline when it fits.
+    val committedEnd = state.timeline.tracks.maxOfOrNull { it.end.value } ?: 0L
+    LaunchedEffect(committedEnd, state.isLoading) {
+        if (!state.isLoading && engine.isAutoFit()) engine.fitToContent()
+    }
     LaunchedEffect(state.playhead) { engine.setPlayhead(state.playhead.value) }
 
     val requestedWaveforms = remember { mutableSetOf<String>() }
@@ -272,6 +279,9 @@ private fun EditorMain(
                 ) { viewModel.onIntent(EditorIntent.TogglePlay) }
                 ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
             }
+            ToolButton(EditorIcons.Fit, "Fit the whole project", modifier = Modifier.align(Alignment.CenterEnd)) {
+                engine.fitToContent()
+            }
         }
 
         Row(
@@ -331,10 +341,11 @@ private fun TrackControls(
 private fun ToolButton(
     icon: ImageVector,
     description: String,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
         Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
     }
 }
