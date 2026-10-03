@@ -45,6 +45,12 @@ sealed interface EditError {
 
     /** A transition that cannot hold between its clips (not adjacent, too long, no handle). */
     data class InvalidTransition(val reason: String) : EditError
+
+    /** The timeline has no video track to act as the magnetic base. */
+    data object NoBaseTrack : EditError
+
+    /** A base-track clip cannot be dragged onto another track: that would leave a gap in the base. */
+    data class BaseClipCannotLeave(val clipId: String) : EditError
 }
 
 internal fun failure(error: EditError): EditResult.Failure = EditResult.Failure(error)
