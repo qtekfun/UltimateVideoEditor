@@ -218,6 +218,8 @@ inline constexpr const char* kEffectFragment = R"(#version 320 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uTex;
+uniform highp sampler3D uLut;  // unit 1: the 3D LUT of a type-13 pass
+uniform float uLutSize;        // edge length of uLut
 uniform int uType;
 uniform float uP[6];
 uniform vec2 uTexel;  // 1 / texture size
@@ -278,6 +280,10 @@ void main() {
         vec3 sep = vec3(dot(rgb, vec3(0.393, 0.769, 0.189)), dot(rgb, vec3(0.349, 0.686, 0.168)),
                         dot(rgb, vec3(0.272, 0.534, 0.131)));
         rgb = mix(rgb, clamp(sep, vec3(0.0), vec3(1.0)), uP[0]);
+    } else if (uType == 13) {
+        // Texel centres: input 0 maps to the middle of the first texel, 1 to the middle of the last.
+        vec3 coord = (clamp(rgb, vec3(0.0), vec3(1.0)) * (uLutSize - 1.0) + 0.5) / uLutSize;
+        rgb = mix(rgb, texture(uLut, coord).rgb, uP[1]);
     } else if (uType == 12) {
         vec3 key = vec3(uP[0], uP[1], uP[2]);
         float ky = luma(key);

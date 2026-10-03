@@ -240,6 +240,25 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
                                             std::vector<uint8_t>(bytes, bytes + needed));
 }
 
+// `rgb` is a direct float buffer of size^3 * 3 values (red varying fastest); it is copied.
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadLut(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint size, jobject rgb) {
+    const void* data = rgb == nullptr ? nullptr : env->GetDirectBufferAddress(rgb);
+    const jlong capacity = rgb == nullptr ? 0 : env->GetDirectBufferCapacity(rgb);
+    const int64_t count = static_cast<int64_t>(size) * size * size * 3;
+    if (key <= 0 || size < 2 || size > 65 || data == nullptr || capacity < count * static_cast<int64_t>(sizeof(float))) {
+        throwPreview(env, Status::InvalidArgument, "LUT data does not match the given size");
+        return;
+    }
+    const auto* floats = static_cast<const float*>(data);
+    fromHandle(handle)->engine->uploadLut(static_cast<uint32_t>(key), size, std::vector<float>(floats, floats + count));
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseLut(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
+    fromHandle(handle)->engine->releaseLut(static_cast<uint32_t>(key));
+}
+
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseTitle(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
     fromHandle(handle)->engine->releaseTitle(static_cast<uint32_t>(key));

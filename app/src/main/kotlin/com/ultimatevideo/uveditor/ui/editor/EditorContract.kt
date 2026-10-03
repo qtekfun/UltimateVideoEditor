@@ -61,6 +61,8 @@ data class EditorState(
     val safeZone: SafeZonePlatform? = null,
     /** The "change canvas" dialog is open. */
     val canvasDialogOpen: Boolean = false,
+    /** The LUT picker (library list and import) is open for the selected clip. */
+    val lutPickerOpen: Boolean = false,
     /** Library files that cannot be read right now, by asset id. Their clips stay on the timeline, marked. */
     val missingMedia: Map<String, MediaProblem> = emptyMap(),
     /** The relink list is open. */
@@ -316,6 +318,13 @@ sealed interface EditorIntent : UiIntent {
     data class UpdateMask(val mask: ClipMask?) : EditorIntent
     data class EndFxEdit(val commit: Boolean) : EditorIntent
     data object ClearFx : EditorIntent
+
+    /** Opens the LUT picker for the selected clip. */
+    data object OpenLutPicker : EditorIntent
+    data object CloseLutPicker : EditorIntent
+
+    /** Adds the library LUT [key] to the selected clip as an effect. */
+    data class AddLut(val key: Int) : EditorIntent
 
     /** Outline the safe zones of an app over the preview; null turns the overlay off. */
     data class SetSafeZone(val platform: SafeZonePlatform?) : EditorIntent

@@ -139,6 +139,8 @@ inline Rgba applyColorEffect(const core::EffectOp& op, Rgba c, float u, float v)
         case EffectType::Blur:
         case EffectType::Sharpen:
             break;  // neighbourhood effects, see sharpenPremultiplied
+        case EffectType::Lut:
+            break;  // needs the LUT table, see applyLut
     }
     c.r = clamp01(c.r);
     c.g = clamp01(c.g);
@@ -176,6 +178,35 @@ inline float maskCoverage(const core::MaskParams& m, float px, float py) {
         cov = 1.0f - smoothstep(-m.feather, m.feather, dist);
     }
     return m.invert ? 1.0f - cov : cov;
+}
+
+// The 3D LUT effect (core::EffectType::Lut): trilinear lookup of straight RGB in a `size`^3 table of
+// RGB triples (red varying fastest, as in a .cube file), mixed with the input by `intensity`. This is
+// the same maths as the GPU's texture(uLut, (rgb * (size - 1) + 0.5) / size) with linear filtering.
+inline void lutSample(const float* data, int size, const float in[3], float out[3]) {
+    const float maxIndex = static_cast<float>(size - 1);
+    float f[3];
+    int i0[3];
+    float t[3];
+    for (int c = 0; c < 3; ++c) {
+        f[c] = clamp01(in[c]) * maxIndex;
+        i0[c] = std::min(static_cast<int>(f[c]), size - 2);
+        t[c] = f[c] - static_cast<float>(i0[c]);
+    }
+    auto at = [&](int r, int g, int b, int c) { return data[((b * size + g) * size + r) * 3 + c]; };
+    for (int c = 0; c < 3; ++c) {
+        const float c00 = mixf(at(i0[0], i0[1], i0[2], c), at(i0[0] + 1, i0[1], i0[2], c), t[0]);
+        const float c10 = mixf(at(i0[0], i0[1] + 1, i0[2], c), at(i0[0] + 1, i0[1] + 1, i0[2], c), t[0]);
+        const float c01 = mixf(at(i0[0], i0[1], i0[2] + 1, c), at(i0[0] + 1, i0[1], i0[2] + 1, c), t[0]);
+        const float c11 = mixf(at(i0[0], i0[1] + 1, i0[2] + 1, c), at(i0[0] + 1, i0[1] + 1, i0[2] + 1, c), t[0]);
+        out[c] = mixf(mixf(c00, c10, t[1]), mixf(c01, c11, t[1]), t[2]);
+    }
+}
+
+inline void applyLut(const float* data, int size, float intensity, float rgb[3]) {
+    float graded[3];
+    lutSample(data, size, rgb, graded);
+    for (int c = 0; c < 3; ++c) rgb[c] = clamp01(mixf(rgb[c], graded[c], intensity));
 }
 
 // Blended colour of source `s` over destination `d` (both straight RGB, display-referred).

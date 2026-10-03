@@ -1,5 +1,6 @@
 // Host tests for core/layer_fx.h (wire format) and render/effect_math.h (CPU reference of the
 // effect, mask and blend shaders). No Android dependencies.
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -32,6 +33,8 @@ int failures = 0;
 using namespace uv;
 using namespace uv::core;
 using namespace uv::render;
+
+bool near(float a, float b, float eps) { return std::fabs(a - b) <= eps; }
 
 EffectOp op(EffectType type, std::vector<float> values) {
     EffectOp o;
@@ -351,7 +354,75 @@ void compositeFadesFromTheDestinationToTheBlend() {
 
 }  // namespace
 
+// A `size`^3 identity LUT, or one that swaps red and blue, in .cube order (red fastest).
+std::vector<float> makeLut(int size, bool swapRedBlue) {
+    std::vector<float> data;
+    const float d = static_cast<float>(size - 1);
+    for (int b = 0; b < size; ++b) {
+        for (int g = 0; g < size; ++g) {
+            for (int r = 0; r < size; ++r) {
+                const float rf = r / d, gf = g / d, bf = b / d;
+                data.push_back(swapRedBlue ? bf : rf);
+                data.push_back(gf);
+                data.push_back(swapRedBlue ? rf : bf);
+            }
+        }
+    }
+    return data;
+}
+
+void lutParsesAsAnEffect() {
+    using namespace uv::core;
+    // blend=0, no mask, one effect: type 13, two values (key 7, intensity 0.5).
+    const std::vector<double> blob = {0, 0, 0, 0, 1, 1, 0, 0, 1, 13, 2, 7, 0.5};
+    size_t offset = 0;
+    LayerFx fx;
+    CHECK(parseLayerFx(blob.data(), blob.size(), &offset, &fx));
+    CHECK(fx.effects.size() == 1 && fx.effects[0].type == EffectType::Lut);
+    CHECK(fx.effects[0].v[0] == 7.0f && fx.effects[0].v[1] == 0.5f);
+    // Type 14 does not exist.
+    std::vector<double> bad = blob;
+    bad[9] = 14;
+    offset = 0;
+    CHECK(!parseLayerFx(bad.data(), bad.size(), &offset, &fx));
+}
+
+void identityLutLeavesColoursAlone() {
+    for (int size : {2, 17, 33, 65}) {
+        const std::vector<float> lut = makeLut(size, false);
+        for (const auto& c : std::vector<std::array<float, 3>>{{0, 0, 0}, {1, 1, 1}, {0.25f, 0.5f, 0.8f}, {0.123f, 0.9f, 0.01f}}) {
+            float rgb[3] = {c[0], c[1], c[2]};
+            applyLut(lut.data(), size, 1.0f, rgb);
+            CHECK(near(rgb[0], c[0], 1e-4f) && near(rgb[1], c[1], 1e-4f) && near(rgb[2], c[2], 1e-4f));
+        }
+    }
+}
+
+void lutSwapAndIntensity() {
+    const std::vector<float> lut = makeLut(17, true);
+    float full[3] = {0.9f, 0.5f, 0.2f};
+    applyLut(lut.data(), 17, 1.0f, full);
+    CHECK(near(full[0], 0.2f, 1e-4f) && near(full[1], 0.5f, 1e-4f) && near(full[2], 0.9f, 1e-4f));
+    float half[3] = {0.9f, 0.5f, 0.2f};
+    applyLut(lut.data(), 17, 0.5f, half);  // halfway between the input and the swap
+    CHECK(near(half[0], 0.55f, 1e-4f) && near(half[2], 0.55f, 1e-4f));
+    float none[3] = {0.9f, 0.5f, 0.2f};
+    applyLut(lut.data(), 17, 0.0f, none);
+    CHECK(near(none[0], 0.9f, 1e-6f) && near(none[2], 0.2f, 1e-6f));
+}
+
+void lutClampsItsInput() {
+    const std::vector<float> lut = makeLut(2, false);
+    float rgb[3] = {2.0f, -1.0f, 9.0f};
+    applyLut(lut.data(), 2, 1.0f, rgb);
+    CHECK(near(rgb[0], 1.0f, 1e-6f) && near(rgb[1], 0.0f, 1e-6f) && near(rgb[2], 1.0f, 1e-6f));
+}
+
 int main() {
+    lutParsesAsAnEffect();
+    identityLutLeavesColoursAlone();
+    lutSwapAndIntensity();
+    lutClampsItsInput();
     plainLayerParses();
     fullLayerParses();
     scenesParseLayersBackToBack();

@@ -120,6 +120,9 @@ public:
     // applied, so upload first and then reference `key` from setScene(). `key` must not be 0.
     void uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba);
     void releaseTitle(uint32_t key);
+    // 3D LUTs for the LUT effect (see GlPipeline::uploadLut): size^3 RGB triples, red fastest.
+    void uploadLut(uint32_t key, int size, std::vector<float> rgb);
+    void releaseLut(uint32_t key);
     // Like setScene(), then plays: every layer advances at `fps` (project frames per second) from
     // now on the monotonic clock, each from its own start frame. Calling it again re-anchors.
     void playScene(int canvasW, int canvasH, std::vector<SceneLayer> layers, decode::Rational fps);

@@ -177,6 +177,28 @@ class ExportViewModelTest {
     }
 
     @Test
+    fun `the LUTs a clip uses are loaded and handed to the engine, a missing one is left out`() {
+        val grade = com.ultimatevideo.uveditor.domain.TimelineOps.addEffect(
+            input().timeline, "c1", com.ultimatevideo.uveditor.domain.Effect("e1", com.ultimatevideo.uveditor.domain.EffectType.LUT, listOf(11.0, 1.0)),
+        ).let { (it as com.ultimatevideo.uveditor.domain.EditResult.Success).value }
+        val gradedAndMissing = com.ultimatevideo.uveditor.domain.TimelineOps.addEffect(
+            grade, "c1", com.ultimatevideo.uveditor.domain.Effect("e2", com.ultimatevideo.uveditor.domain.EffectType.LUT, listOf(22.0, 1.0)),
+        ).let { (it as com.ultimatevideo.uveditor.domain.EditResult.Success).value }
+        val lut = com.ultimatevideo.uveditor.domain.CubeParser.parse(
+            "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n",
+        )
+        val vm = ExportViewModel(io, runner, dispatcher, lutLoader = { key -> lut.takeIf { key == 11 } })
+
+        vm.onIntent(ExportIntent.Open(input().copy(timeline = gradedAndMissing)))
+        vm.onIntent(ExportIntent.LocationChosen("content://out/movie.mp4"))
+
+        val luts = runner.request!!.luts
+        assertEquals(listOf(11), luts.map { it.key })
+        assertEquals(2, luts.single().size)
+        assertEquals(2 * 2 * 2 * 3 * 4, luts.single().rgb.remaining())
+    }
+
+    @Test
     fun `an export at a lower frame rate counts output frames at that rate`() {
         val vm = viewModel()
         vm.onIntent(ExportIntent.Open(input().copy(fps = FrameRate(60, 1))))
