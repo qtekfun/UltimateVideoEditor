@@ -19,6 +19,12 @@ std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> TimelineSnapshot::ke
     return {base + (range.first - keyframes.begin()), base + (range.second - keyframes.begin())};
 }
 
+const RetimeSnapshot* TimelineSnapshot::retimeOf(int64_t clipKey) const {
+    const auto it = std::lower_bound(retimes.begin(), retimes.end(), clipKey,
+                                     [](const RetimeSnapshot& a, int64_t key) { return a.clipKey < key; });
+    return it != retimes.end() && it->clipKey == clipKey ? &*it : nullptr;
+}
+
 namespace {
 
 class Reader {
@@ -54,6 +60,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     }
     if (magic != kSnapshotMagic || version < kSnapshotMinVersion || version > kSnapshotVersion) return Status::BadSnapshot;
     const bool hasKeyframes = version >= 3;
+    const bool hasRetimes = version >= 4;
     if (fpsNum <= 0 || fpsDen <= 0 || trackCount < 0 || clipCount < 0) return Status::BadSnapshot;
     // Reject sizes that cannot fit in the buffer before allocating. The transition count follows
     // the clips, so here only the part up to it must fit.
@@ -107,7 +114,8 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     if (hasKeyframes) {
         int32_t keyframeCount = 0;
         if (!r.read(&keyframeCount) || keyframeCount < 0) return Status::BadSnapshot;
-        if (r.remaining() != static_cast<size_t>(keyframeCount) * kSnapshotKeyframeBytes) return Status::BadSnapshot;
+        const size_t keyframeBytes = static_cast<size_t>(keyframeCount) * kSnapshotKeyframeBytes;
+        if (hasRetimes ? r.remaining() < keyframeBytes + 4 : r.remaining() != keyframeBytes) return Status::BadSnapshot;
         snap.keyframes.reserve(static_cast<size_t>(keyframeCount));
         for (int32_t i = 0; i < keyframeCount; ++i) {
             KeyframeSnapshot k{};
@@ -117,6 +125,23 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         std::sort(snap.keyframes.begin(), snap.keyframes.end(), [](const KeyframeSnapshot& a, const KeyframeSnapshot& b) {
             return a.clipKey != b.clipKey ? a.clipKey < b.clipKey : a.frame < b.frame;
         });
+    }
+    if (hasRetimes) {
+        int32_t retimeCount = 0;
+        if (!r.read(&retimeCount) || retimeCount < 0) return Status::BadSnapshot;
+        if (r.remaining() != static_cast<size_t>(retimeCount) * kSnapshotRetimeBytes) return Status::BadSnapshot;
+        snap.retimes.reserve(static_cast<size_t>(retimeCount));
+        for (int32_t i = 0; i < retimeCount; ++i) {
+            RetimeSnapshot t{};
+            int32_t reserved = 0;
+            if (!r.read(&t.clipKey) || !r.read(&t.sourceSpanFrames) || !r.read(&t.flags) || !r.read(&reserved) ||
+                t.sourceSpanFrames < 1) {
+                return Status::BadSnapshot;
+            }
+            snap.retimes.push_back(t);
+        }
+        std::sort(snap.retimes.begin(), snap.retimes.end(),
+                  [](const RetimeSnapshot& a, const RetimeSnapshot& b) { return a.clipKey < b.clipKey; });
     }
     if (!r.atEnd()) return Status::BadSnapshot;
     *out = std::move(snap);

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <map>
 #include <set>
@@ -38,6 +39,7 @@ constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
 constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
 constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
+constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kTransitionBand{1.0f, 1.0f, 1.0f, 0.38f};
 constexpr Color kTransitionCut{1.0f, 1.0f, 1.0f, 0.95f};
 
@@ -56,11 +58,12 @@ Color clipColor(TrackType t) {
 
 Color scaled(Color c, float k) { return {c.r * k, c.g * k, c.b * k, c.a}; }
 
-// 3x5 pixel glyphs for 0-9 and ':'; bit 14 = top-left, row-major.
-constexpr uint16_t kGlyphs[11] = {
+// 3x5 pixel glyphs for 0-9, ':', 'x', '.', '<' (reverse) and '|' (freeze); bit 14 = top-left, row-major.
+constexpr uint16_t kGlyphs[15] = {
     0b111101101101111, 0b010110010010111, 0b111001111100111, 0b111001111001111,
     0b101101111001001, 0b111100111001111, 0b111100111101111, 0b111001001001001,
-    0b111101111101111, 0b111101111001111, 0b000010000010000,
+    0b111101111101111, 0b111101111001111, 0b000010000010000, 0b101101010101101,
+    0b000000000000010, 0b001010100010001, 0b010010010010010,
 };
 
 constexpr const char* kVertexShader = R"(#version 300 es
@@ -242,6 +245,10 @@ public:
             int g = -1;
             if (*p >= '0' && *p <= '9') g = *p - '0';
             else if (*p == ':') g = 10;
+            else if (*p == 'x') g = 11;
+            else if (*p == '.') g = 12;
+            else if (*p == '<') g = 13;
+            else if (*p == '|') g = 14;
             if (g >= 0) {
                 for (int row = 0; row < 5; ++row) {
                     for (int col = 0; col < 3; ++col) {
@@ -771,13 +778,16 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         // Thumbnail filmstrip across the body. Cells are drawn from whatever tile is already in the
         // atlas (the exact one, else a finer/coarser one); missing exact tiles are requested.
         const float bodyTop = top + header;
+        const RetimeSnapshot* retime = snap->retimeOf(c.clipKey);
         bool hasThumbs = false;
         if (type == TrackType::Video && c.assetKey >= 0 && thumbs && atlas.ready() && thumbs->isActive(c.assetKey)) {
             hasThumbs = true;
             const float bodyH = bottom - bodyTop;
             const thumb::ClipCellParams params{c.assetKey, x0, x1, 0.0, static_cast<double>(W),
                                                static_cast<double>(bodyH) * thumb::kTileAspect, vp.pxPerFrame,
-                                               snap->fpsNum, snap->fpsDen, c.sourceInFrame, c.sourceFpsNum, c.sourceFpsDen};
+                                               snap->fpsNum, snap->fpsDen, c.sourceInFrame, c.sourceFpsNum, c.sourceFpsDen,
+                                               retime != nullptr ? retime->sourceSpanFrames : 0, c.durationFrames,
+                                               retime != nullptr && retime->reverse(), retime != nullptr && retime->freeze()};
             thumb::planClipCells(params, &cells);
             Wanted& want = wanted[c.assetKey];
             g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, bodyTop), std::min(W, fx1), bottom);
@@ -799,7 +809,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         }
 
         // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling.
-        if (c.assetKey >= 0 && lookup_) {
+        if (c.assetKey >= 0 && lookup_ && !(retime != nullptr && retime->freeze())) {
             if (auto peaks = lookup_(c.assetKey)) {
                 // Without thumbnails the waveform gets the whole body below the header; with them it
                 // sits in a strip along the bottom, over a scrim so it reads against the pictures.
@@ -820,8 +830,11 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                     const int64_t r1 = std::clamp<int64_t>(std::max(f1, f0 + 1), 0, c.durationFrames);
                     if (r1 <= r0) continue;
                     const int64_t rate = peaks->sampleRate;
-                    const int64_t s0 = (c.sourceInFrame + r0) * rate * c.sourceFpsDen / c.sourceFpsNum;
-                    int64_t s1 = (c.sourceInFrame + r1) * rate * c.sourceFpsDen / c.sourceFpsNum;
+                    // A retimed clip covers its source range at its average speed (a reversed one from the end).
+                    const int64_t a = retimeBoundary(retime, c.durationFrames, r0);
+                    const int64_t b = retimeBoundary(retime, c.durationFrames, r1);
+                    const int64_t s0 = (c.sourceInFrame + std::min(a, b)) * rate * c.sourceFpsDen / c.sourceFpsNum;
+                    int64_t s1 = (c.sourceInFrame + std::max(a, b)) * rate * c.sourceFpsDen / c.sourceFpsNum;
                     s1 = std::max(s1, s0 + 1);
                     int16_t mm[2];
                     audio::queryPeaks(*peaks, s0, s1, 1, mm);
@@ -846,6 +859,37 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 g.rect(x - s * 0.34f, cy - s, x + s * 0.34f, cy + s, kKeyframe);
                 g.rect(x - s * 0.67f, cy - s * 0.67f, x + s * 0.67f, cy + s * 0.67f, kKeyframe);
                 g.rect(x - s, cy - s * 0.34f, x + s, cy + s * 0.34f, kKeyframe);
+            }
+        }
+
+        // Speed label at the right end of the header: "2x", "0.5x", "<" for reverse, "||" for a freeze.
+        if (retime != nullptr) {
+            char label[24];
+            if (retime->freeze()) {
+                std::snprintf(label, sizeof(label), "||");
+            } else {
+                const double speed = static_cast<double>(retime->sourceSpanFrames) / static_cast<double>(c.durationFrames);
+                char number[16] = "";
+                if (std::fabs(speed - 1.0) >= 0.005) {
+                    if (std::fabs(speed - std::round(speed)) < 0.005) {
+                        std::snprintf(number, sizeof(number), "%dx", static_cast<int>(std::lround(speed)));
+                    } else {
+                        std::snprintf(number, sizeof(number), "%.2f", speed);
+                        // 0.50 -> 0.5: drop trailing zeros, then add the multiplication sign.
+                        size_t n = std::strlen(number);
+                        while (n > 0 && number[n - 1] == '0') number[--n] = '\0';
+                        if (n < sizeof(number) - 1) number[n] = 'x';
+                        if (n < sizeof(number) - 1) number[n + 1] = '\0';
+                    }
+                }
+                std::snprintf(label, sizeof(label), "%s%s", retime->reverse() ? "<" : "", number);
+            }
+            const float gs = std::max(1.0f, header * 0.5f / 5.0f);
+            const float width = static_cast<float>(std::strlen(label)) * 4.0f * gs;
+            if (label[0] != '\0' && fx1 - fx0 > width + 8.0f * density) {
+                g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
+                g.drawNumber(label, fx1 - width - 3.0f * density, top + (header - 5.0f * gs) * 0.5f, gs, kSpeedLabel);
+                g.setClip(0, layout.rulerHeight, W, H);
             }
         }
 

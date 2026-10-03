@@ -92,7 +92,21 @@ struct ClipCellParams {
     int64_t sourceInFrame;
     int32_t sourceFpsNum;
     int32_t sourceFpsDen;
+    // A retimed clip: it covers `spanFrames` source frames over `durationFrames` timeline frames (0 span
+    // = plain 1x), plays backwards when `reverse` and holds its first frame when `freeze`.
+    int64_t spanFrames = 0;
+    int64_t durationFrames = 0;
+    bool reverse = false;
+    bool freeze = false;
 };
+
+// The source frame (from sourceIn) that timeline frame `local` of the clip shows.
+inline int64_t sourceOffsetOf(const ClipCellParams& p, int64_t local) {
+    if (p.spanFrames <= 0 || p.durationFrames <= 0) return local;
+    if (p.freeze) return 0;
+    const int64_t forward = static_cast<int64_t>(static_cast<__int128>(local) * p.spanFrames / p.durationFrames);
+    return p.reverse ? std::max<int64_t>(p.spanFrames - 1 - forward, 0) : forward;
+}
 
 // Level used for a clip at the current zoom: how much source time one cell covers.
 inline int levelForClip(const ClipCellParams& p) {
@@ -123,7 +137,7 @@ inline void planClipCells(const ClipCellParams& p, std::vector<CellPlan>* out) {
         const double centre = (static_cast<double>(k) + 0.5) * p.cellWidth;
         const int64_t localFrames =
             std::clamp<int64_t>(static_cast<int64_t>(std::floor(centre / p.pxPerFrame)), 0, std::max<int64_t>(clipFrames - 1, 0));
-        const int64_t timeUs = sourceTimeUs(p.sourceInFrame + localFrames, p.sourceFpsNum, p.sourceFpsDen);
+        const int64_t timeUs = sourceTimeUs(p.sourceInFrame + sourceOffsetOf(p, localFrames), p.sourceFpsNum, p.sourceFpsDen);
         out->push_back({x0, x0 + p.cellWidth, {p.assetKey, level, tileIndexForTimeUs(timeUs, level)}});
     }
 }
