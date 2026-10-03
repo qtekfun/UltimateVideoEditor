@@ -39,6 +39,7 @@ internal fun audioSnapshotOf(
                 // A clip's source range is in project frames, so the source rate is the project's.
                 sourceFpsNum = fps.num,
                 sourceFpsDen = fps.den,
+                gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
             )
         }
     }
