@@ -338,8 +338,9 @@ private fun EditorMain(
             }
         }
 
+        // Scrolls sideways when the buttons do not fit a narrow window.
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -353,7 +354,13 @@ private fun EditorMain(
             ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
                 viewModel.onIntent(EditorIntent.RippleAppendSelected)
             }
-            ToolButton(EditorIcons.Tune, "Adjust clip: position, scale, rotation, opacity, volume", enabled = hasSelection || state.inspectorOpen) {
+            ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
+            ToolButton(
+                EditorIcons.Transition,
+                "Add a crossfade between the selected clip and the next",
+                enabled = state.clipAfterSelected != null && state.selectedTransition == null,
+            ) { viewModel.onIntent(EditorIntent.AddTransition) }
+            ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
                 viewModel.onIntent(EditorIntent.ToggleInspector)
             }
             TrackControls(state.selectedTrackLabel, onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) }) {
@@ -376,7 +383,7 @@ private fun EditorMain(
                     // Swallow touches so they never reach the timeline underneath.
                     modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } },
                 ) {
-                    InspectorPanel(state = state, onIntent = viewModel::onIntent)
+                    InspectorPanel(state = state, onIntent = viewModel::onIntent, transitionLimit = viewModel::transitionLimit)
                 }
             }
         }
