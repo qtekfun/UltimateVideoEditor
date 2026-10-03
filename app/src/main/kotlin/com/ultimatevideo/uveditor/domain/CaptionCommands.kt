@@ -50,3 +50,21 @@ data class AddCaptions(val track: Track, val index: Int, val clips: List<Clip>) 
         return EditResult.Success(current)
     }
 }
+
+/**
+ * Puts captions on the caption track [trackId] that is already on the timeline, replacing whatever
+ * the new clips cover, as one edit. Used for captions typed one at a time.
+ */
+data class AddCaptionsToTrack(val trackId: String, val clips: List<Clip>) : EditCommand {
+    override fun apply(timeline: Timeline): EditResult<Timeline> {
+        if (timeline.track(trackId) == null) return EditResult.Failure(EditError.TrackNotFound(trackId))
+        var current = timeline
+        for (clip in clips) {
+            current = when (val placed = TimelineOps.overwrite(current, trackId, clip)) {
+                is EditResult.Failure -> return placed
+                is EditResult.Success -> placed.value
+            }
+        }
+        return EditResult.Success(current)
+    }
+}

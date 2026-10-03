@@ -257,7 +257,7 @@ sealed interface EditorIntent : UiIntent {
      * Generated captions (title clips) go on a new title track on top, as one undo step. The clips are
      * built elsewhere (see the captions sheet); this only places them.
      */
-    data class AddCaptionClips(val clips: List<Clip>) : EditorIntent
+    data class AddCaptionClips(val clips: List<Clip>, val intoExistingTrack: Boolean = false) : EditorIntent
 
     /** Puts every generated caption on the timeline in [style], as one undo step. */
     data class RestyleCaptions(val style: com.ultimatevideo.uveditor.domain.captions.CaptionStyle, val canvasHeight: Int) : EditorIntent

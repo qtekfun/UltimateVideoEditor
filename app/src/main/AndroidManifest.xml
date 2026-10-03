@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only used to download the speech model for auto captions, when the user asks for it. -->
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Deliberately no permissions: the app works entirely offline (see docs/PRIVACY.md). -->
 
     <application
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"

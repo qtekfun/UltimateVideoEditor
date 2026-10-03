@@ -81,7 +81,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
 | T | Add a title | Adds a text title at the playhead. |
-| CC | Auto captions | Transcribes the selected clip on the device and creates caption clips. First use downloads a speech model. |
+| CC | Captions | Opens the captions sheet: type captions, import a `.srt` / `.vtt` file, choose a style and restyle all captions. |
 | ☺ | Add a sticker | Opens the sticker picker (built-in shapes and emoji). |
 | Tt | Text templates | Adds an animated text template (lower third, pop title, slide-in headline, subtitle bar). |
 | ⇄ | Crossfade | Adds a crossfade between the selected clip and the next one. |
@@ -152,9 +152,11 @@ reverse do not apply to them.
 - **T** adds a title. Drag it on the preview to move it (for a lower third, drag it to the bottom).
 - **Tt** opens templates: lower third, pop title, slide-in headline and subtitle bar. Type your text first if
   you want, then apply; each template is a normal editable title with keyframes.
-- **CC** creates captions from speech. Pick a language (or auto), a model (Fast or Balanced; downloaded once and
-  then offline) and a style: Classic, Bold, Pop, Impact, Karaoke, Word pop, Typewriter or Bounce. "Restyle"
-  changes the style of every caption at once.
+- **CC** opens the captions sheet. Type a caption, set where it starts and how long it lasts (the buttons step by one
+  frame or one second; the next caption starts where the last one ended), and tap Add. Or import a `.srt` or `.vtt`
+  subtitle file (it can start at the project start or at the playhead). Pick a style: Classic, Bold, Pop, Impact,
+  Karaoke, Word pop, Typewriter or Bounce, and text and highlight colours. "Restyle" changes every caption at once.
+  Nothing is sent anywhere: the app has no network access.
 - **☺** adds stickers on an overlay lane.
 
 ## Markers and beats
@@ -193,7 +195,7 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 ## Known limits
 
 - Several recent features are covered by automated tests but have had little time on a real device:
-  auto captions and animated styles, photos and stickers, beat detection, text templates, relink flow and
+  captions and animated styles, photos and stickers, beat detection, text templates, relink flow and
   HDR export. Report anything odd with the steps you used.
 - Slow motion repeats frames (no blending). Audio speed change is varispeed.
 - Animated GIF and WebP use their first frame.
