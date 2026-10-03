@@ -4,6 +4,11 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -176,41 +181,63 @@ private fun EditorMain(
     val hasSelection = state.selectedClipId != null
     Column(modifier = modifier) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = { viewModel.onIntent(EditorIntent.Back) }) { Text("Back") }
+            ToolButton(EditorIcons.Back, "Back") { viewModel.onIntent(EditorIntent.Back) }
             Text(
                 text = state.projectName,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
-            TextButton(onClick = { viewModel.onIntent(EditorIntent.Undo) }, enabled = state.canUndo) { Text("Undo") }
-            TextButton(onClick = { viewModel.onIntent(EditorIntent.Redo) }, enabled = state.canRedo) { Text("Redo") }
+            ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
+            ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
         }
 
         // Placeholder until the native preview is wired in a later phase.
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(PREVIEW_WEIGHT)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
+            contentAlignment = Alignment.Center,
         ) {
             Text(text = "Preview", style = MaterialTheme.typography.labelLarge)
-            Text(text = formatTimecode(state.playhead.value, state.fps), style = MaterialTheme.typography.headlineMedium)
+        }
+
+        // Transport: timecode on the left, previous / play / next centred.
+        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = formatTimecode(state.playhead.value, state.fps),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
+                ToolButton(
+                    icon = if (state.isPlaying) EditorIcons.Pause else EditorIcons.Play,
+                    description = if (state.isPlaying) "Pause" else "Play",
+                ) { viewModel.onIntent(EditorIntent.TogglePlay) }
+                ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
+            }
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(onClick = onImport, enabled = !state.isImporting) { Text(if (state.isImporting) "Importing…" else "Import") }
-            FilledTonalButton(onClick = { viewModel.onIntent(EditorIntent.SplitAtPlayhead) }, enabled = hasSelection) { Text("Split") }
-            FilledTonalButton(onClick = { viewModel.onIntent(EditorIntent.RippleDeleteSelected) }, enabled = hasSelection) { Text("Delete") }
-            FilledTonalButton(onClick = { viewModel.onIntent(EditorIntent.RippleAppendSelected) }, enabled = hasSelection) { Text("Close gap") }
+            ToolButton(EditorIcons.Add, "Import media", enabled = !state.isImporting, onClick = onImport)
+            ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
+                viewModel.onIntent(EditorIntent.SplitAtPlayhead)
+            }
+            ToolButton(EditorIcons.Delete, "Delete and close gap", enabled = hasSelection) {
+                viewModel.onIntent(EditorIntent.RippleDeleteSelected)
+            }
+            ToolButton(EditorIcons.CloseGap, "Close gap before clip", enabled = hasSelection) {
+                viewModel.onIntent(EditorIntent.RippleAppendSelected)
+            }
         }
 
         TimelineHost(
@@ -219,6 +246,19 @@ private fun EditorMain(
             editing = editing,
             modifier = Modifier.fillMaxWidth().weight(TIMELINE_WEIGHT),
         )
+    }
+}
+
+/** Small icon-only button; [description] is read by screen readers. */
+@Composable
+private fun ToolButton(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+        Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
     }
 }
 

@@ -73,7 +73,7 @@ class TimelineDemoActivity : ComponentActivity() {
     private fun onTimelineTap(hit: TimelineHit) {
         status = "tap ${hit.kind} track=${hit.trackIndex} clip=${hit.clipKey} frame=${hit.frame}"
         when (hit.kind) {
-            HitKind.RULER -> {
+            HitKind.RULER, HitKind.PLAYHEAD -> {
                 playhead = hit.frame
                 engine.setPlayhead(playhead)
             }
