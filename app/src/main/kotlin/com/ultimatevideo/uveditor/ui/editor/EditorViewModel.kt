@@ -9,6 +9,8 @@ import com.ultimatevideo.uveditor.data.TimelineMapper
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipGain
+import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.EditCommand
 import com.ultimatevideo.uveditor.domain.EditError
 import com.ultimatevideo.uveditor.domain.EditHistory
@@ -51,6 +53,15 @@ class EditorViewModel(
 
     private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long)
 
+    /** An inspector or preview-gesture edit in progress: shown live, committed as one undo step on release. */
+    private class AppearanceSession(
+        val clipId: String,
+        val baseTransform: ClipTransform,
+        val baseGain: Double,
+        var transform: ClipTransform,
+        var gainDb: Double,
+    )
+
     private val clipKeys = KeyRegistry()
     private val assetKeys = KeyRegistry()
 
@@ -58,6 +69,7 @@ class EditorViewModel(
     private var baseProject: ProjectDto? = null
     private var drag: DragSession? = null
     private var pendingDragCommand: EditCommand? = null
+    private var appearance: AppearanceSession? = null
     private var saveJob: Job? = null
     private var playJob: Job? = null
 
@@ -86,6 +98,13 @@ class EditorViewModel(
             EditorIntent.SeekNext -> seekTo(nextEditPoint())
             EditorIntent.Undo -> undo()
             EditorIntent.Redo -> redo()
+            EditorIntent.ToggleInspector -> toggleInspector()
+            EditorIntent.BeginAppearanceEdit -> beginAppearance()
+            is EditorIntent.UpdateTransform -> updateAppearance(transform = intent.transform)
+            is EditorIntent.UpdateGain -> updateAppearance(gainDb = intent.gainDb)
+            is EditorIntent.TransformGesture -> transformGesture(intent)
+            is EditorIntent.EndAppearanceEdit -> endAppearance(intent.commit)
+            EditorIntent.ResetAppearance -> resetAppearance()
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
             EditorIntent.Flush -> flush(thenClose = false)
@@ -151,6 +170,8 @@ class EditorViewModel(
                         isLoading = false,
                         projectName = project.name,
                         fps = FrameRate(project.settings.fpsNum, project.settings.fpsDen),
+                        canvasWidth = project.settings.width,
+                        canvasHeight = project.settings.height,
                         timeline = timeline,
                         selectedTrackId = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
                         assets = project.mediaLibrary,
@@ -347,6 +368,7 @@ class EditorViewModel(
     }
 
     private fun syncFromHistory() {
+        appearance = null  // the timeline changed under any edit in progress
         val committed = history.timeline
         val canUndo = history.canUndo
         val canRedo = history.canRedo
@@ -507,6 +529,77 @@ class EditorViewModel(
         }
         val nearest = targets.minByOrNull { abs(it - frame) }
         return FrameIndex(if (nearest != null && abs(nearest - frame) <= SNAP_THRESHOLD_FRAMES) nearest else frame.coerceAtLeast(0))
+    }
+
+    // endregion
+
+    // region appearance (transform and gain)
+
+    private fun toggleInspector() {
+        if (state.value.inspectorOpen) endAppearance(commit = true)
+        reduce { copy(inspectorOpen = !inspectorOpen) }
+    }
+
+    /** Starts an edit session on the selected clip. Returns false (with a message) if there is nothing to edit. */
+    private fun beginAppearance(): Boolean {
+        if (appearance != null) return true
+        if (drag != null) return false
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        if (clip == null) {
+            emit(EditorEffect.ShowMessage("Select a clip first"))
+            return false
+        }
+        appearance = AppearanceSession(clip.id, clip.transform, clip.gainDb, clip.transform, clip.gainDb)
+        return true
+    }
+
+    private fun updateAppearance(transform: ClipTransform? = null, gainDb: Double? = null) {
+        if (!beginAppearance()) return
+        val session = appearance ?: return
+        val newTransform = transform ?: session.transform
+        val newGain = gainDb ?: session.gainDb
+        val problem = newTransform.problem() ?: ClipGain.problem(newGain)
+        if (problem != null) {
+            emit(EditorEffect.ShowMessage("That value is not allowed: $problem"))
+            return
+        }
+        session.transform = newTransform
+        session.gainDb = newGain
+        showAppearance(session)
+    }
+
+    /** A step of a pan/pinch/rotate gesture on the preview; only meaningful while the clip is visible. */
+    private fun transformGesture(step: EditorIntent.TransformGesture) {
+        if (appearance == null) {
+            // Gestures edit what is on screen: the selected video clip under the playhead.
+            if (!state.value.selectedClipVisible) return
+            if (!beginAppearance()) return
+        }
+        val session = appearance ?: return
+        session.transform = PreviewGeometry.applyGesture(session.transform, step.panX, step.panY, step.zoom, step.rotationDegrees)
+        showAppearance(session)
+    }
+
+    /** Shows the session's values on the preview without touching the undo history. */
+    private fun showAppearance(session: AppearanceSession) {
+        val result = EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb).apply(history.timeline)
+        if (result is EditResult.Success) reduce { copy(dragPreview = result.value) }
+    }
+
+    private fun endAppearance(commit: Boolean) {
+        val session = appearance ?: return
+        appearance = null
+        val changed = session.transform != session.baseTransform || session.gainDb != session.baseGain
+        if (commit && changed && execute(EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb))) return
+        reduce { copy(dragPreview = null) }
+    }
+
+    private fun resetAppearance() = withSelection { clipId ->
+        endAppearance(commit = false)
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.transform.isIdentity && clip.gainDb == 0.0) return@withSelection
+        execute(EditCommand.SetAppearance(clipId, ClipTransform.IDENTITY, 0.0))
     }
 
     // endregion

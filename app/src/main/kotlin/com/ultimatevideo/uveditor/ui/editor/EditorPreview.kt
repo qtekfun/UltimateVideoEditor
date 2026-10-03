@@ -55,8 +55,8 @@ internal fun ClipTransform.toPlacement() = LayerPlacement(
 class EditorPreview(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val onError: (String) -> Unit,
     private val maxDecoders: Int = DecoderLimits.maxPreviewDecoders(),
+    private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
     private val main = Handler(Looper.getMainLooper())

@@ -27,9 +27,9 @@ class DecoderPlannerTest {
     fun `least recently used unneeded assets are closed to make room`() {
         val plan = DecoderPlanner.plan(maxOpen = 3, neededTopFirst = listOf(9, 8), openOldestFirst = listOf(1, 2, 3))
 
-        // Two new assets need two free slots; only one is free, so one old asset goes: the oldest.
+        // Two new assets need two free slots and none is free, so the two oldest go.
         assertEquals(listOf(9, 8), plan.render)
-        assertEquals(listOf(1), plan.toClose)
+        assertEquals(listOf(1, 2), plan.toClose)
     }
 
     @Test

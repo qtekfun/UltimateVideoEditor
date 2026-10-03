@@ -122,6 +122,19 @@ class ClipAppearanceTest {
     }
 
     @Test
+    fun `set appearance is one undo step and all or nothing`() {
+        val h = EditHistory(base).execute(EditCommand.SetAppearance("a", moved, -4.0)).getOrFail()
+
+        val clip = h.timeline.track("v1")!!.clip("a")!!
+        assertEquals(moved, clip.transform)
+        assertEquals(-4.0, clip.gainDb, 0.0)
+        assertEquals(1, h.undoDepth)
+        assertEquals(base, h.undo().timeline)
+        assertTrue(EditHistory(base).execute(EditCommand.SetAppearance("a", moved, 99.0)).errorOrFail() is EditError.InvalidAppearance)
+        assertTrue(TimelineOps.setAppearance(base, "a", moved.copy(opacity = 2.0), 0.0).errorOrFail() is EditError.InvalidAppearance)
+    }
+
+    @Test
     fun `a rejected value leaves history untouched`() {
         val h = EditHistory(base)
         assertTrue(h.execute(EditCommand.SetTransform("a", moved.copy(scaleX = 0.0))).errorOrFail() is EditError.InvalidAppearance)
