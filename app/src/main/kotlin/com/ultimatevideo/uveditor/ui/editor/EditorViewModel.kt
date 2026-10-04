@@ -2778,23 +2778,25 @@ class EditorViewModel(
 
     // endregion
 
-    private fun addTransition() = withSelection { clipId ->
+    private fun addTransition() {
         val timeline = history.timeline
-        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
-        val next = timeline.trackOfClip(clipId)?.clips?.firstOrNull { it.timelineStart == clip.timelineEnd }
-        if (next == null) {
-            emit(EditorEffect.ShowMessage("Place another clip right after this one to add a transition"))
-            return@withSelection
+        val cut = state.value.transitionCut
+        if (cut == null) {
+            val message = if (state.value.selectedClip != null && state.value.visibleTimeline.transitions.isNotEmpty() && state.value.clipAfterSelected != null) {
+                "These clips already have a transition"
+            } else {
+                "Place another clip right after this one, or put the playhead on a cut, to add a transition"
+            }
+            emit(EditorEffect.ShowMessage(message))
+            return
         }
-        if (timeline.transitionBetween(clip.id, next.id) != null) {
-            emit(EditorEffect.ShowMessage("These clips already have a transition"))
-            return@withSelection
-        }
+        val clip = cut.from
+        val next = cut.to
         val sourceLength = assetLengthFrames(clip.assetId)
         val room = TimelineOps.maxTransitionFrames(timeline, clip.id, next.id, sourceLength)
         if (room < Transition.MIN_DURATION_FRAMES) {
             emit(EditorEffect.ShowMessage("There is not enough extra footage around the cut for a transition"))
-            return@withSelection
+            return
         }
         val wanted = state.value.fps.microsToFrames(TRANSITION_DEFAULT_MICROS).coerceAtLeast(Transition.MIN_DURATION_FRAMES)
         execute(EditCommand.AddTransition(Transition("transition-${idGenerator()}", clip.id, next.id, minOf(wanted, room)), sourceLength))
