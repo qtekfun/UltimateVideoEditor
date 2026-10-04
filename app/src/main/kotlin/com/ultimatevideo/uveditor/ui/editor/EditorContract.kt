@@ -85,6 +85,8 @@ data class EditorState(
     val snapToMarkers: Boolean = true,
     /** Beat detection is running for the selected clip. */
     val isAnalyzingBeats: Boolean = false,
+    /** The stabiliser's status for the selected clip (see [StabUiState]). */
+    val stab: StabUiState = StabUiState(),
     /** Select mode: a tap toggles clips in the selection and dragging empty space draws a marquee. */
     val selectMode: Boolean = false,
     /** The selected clips when more than one is selected (includes [selectedClipId]); read them through [selection]. */
@@ -394,6 +396,16 @@ sealed interface EditorIntent : UiIntent {
     /** Reads the selected video clip's source as this colour space; null goes back to what its file says. */
     data class SetClipColor(val space: com.ultimatevideo.uveditor.domain.SourceColorSpace?) : EditorIntent
     data class UpdateMask(val mask: ClipMask?) : EditorIntent
+
+    /** Turns the stabiliser on the selected video clip on with these settings, or off with null; one undo step. */
+    data class SetStabilise(val stabilise: com.ultimatevideo.uveditor.domain.Stabilise?) : EditorIntent
+
+    /** Analyses the selected clip's camera motion (background, cancellable); needed once per file. */
+    data object AnalyseStabilise : EditorIntent
+    data object CancelStabilise : EditorIntent
+
+    /** The inspector shows a video clip: reads its analysis status and makes its correction table available. */
+    data object RefreshStabilise : EditorIntent
     data class EndFxEdit(val commit: Boolean) : EditorIntent
     data object ClearFx : EditorIntent
 
@@ -458,3 +470,13 @@ sealed interface EditorEffect : UiEffect {
     /** Open the document picker to choose a replacement for [assetId]. */
     data class LaunchRelinkPicker(val assetId: String) : EditorEffect
 }
+
+/**
+ * The stabiliser's state for the selected clip: whether its file has been analysed ([status]) and, while the
+ * analysis runs, how far it is ([progress], 0..1; null when nothing runs).
+ */
+data class StabUiState(
+    val clipId: String? = null,
+    val status: com.ultimatevideo.uveditor.engine.stabilise.StabStatus = com.ultimatevideo.uveditor.engine.stabilise.StabStatus.Off,
+    val progress: Float? = null,
+)

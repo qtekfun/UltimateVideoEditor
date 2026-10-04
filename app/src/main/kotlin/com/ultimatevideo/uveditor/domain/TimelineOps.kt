@@ -165,6 +165,21 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(colorOverride = space) }
     }
 
+    /**
+     * Turns the stabiliser on with [stabilise] (strength rounded to a percent, so equal settings share one table), or
+     * off when null. Only clips that play a video file can be stabilised.
+     */
+    fun setStabilise(timeline: Timeline, clipId: String, stabilise: Stabilise?): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (stabilise == null) return updateClip(timeline, clipId) { it.copy(stabilise = null) }
+        stabilise.problem()?.let { return failure(EditError.InvalidClip(it)) }
+        if (!clip.hasMedia || timeline.trackOfClip(clipId)?.type != TrackType.VIDEO) {
+            return failure(EditError.InvalidClip("only a video clip can be stabilised"))
+        }
+        val normalised = stabilise.copy(strength = Math.round(stabilise.strength * 100) / 100.0)
+        return updateClip(timeline, clipId) { it.copy(stabilise = normalised) }
+    }
+
     fun setBlendMode(timeline: Timeline, clipId: String, mode: BlendMode): EditResult<Timeline> =
         updateFx(timeline, clipId) { it.copy(blendMode = mode) }
 

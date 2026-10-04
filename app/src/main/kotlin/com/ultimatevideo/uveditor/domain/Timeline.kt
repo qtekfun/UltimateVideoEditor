@@ -217,6 +217,8 @@ data class Clip(
     val colorOverride: SourceColorSpace? = null,
     /** Pan, fade handles, EQ, noise suppression and loudness normalisation; neutral by default. */
     val audio: ClipAudio = ClipAudio.NONE,
+    /** Camera-shake correction of a video clip; null is off. */
+    val stabilise: Stabilise? = null,
 ) {
     /** True for a clip that plays media with a length of its own (not a title, photo or sticker). */
     val hasMedia: Boolean get() = title == null && still == null
