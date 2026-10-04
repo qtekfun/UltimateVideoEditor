@@ -155,7 +155,7 @@ waves of SPECS 9.20.
 
 ### Wave 4
 - [ ] WP-X Stabiliser (builds the shared tracker and smoother)
-- [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search
+- [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search. _Status:_ implemented (SPECS 5.21) and covered by JVM tests: bundle round trips, zip-slip, size limits and atomic import, auto-relink, EDL and FCPXML golden files with a well-formedness check, library queries, marker notes and the view models. Device status is filled in below once checked.
 
 ### Wave 5 — CapCut-style creator tools
 - [ ] WP-V1 Motion tracking (classical tracker)
