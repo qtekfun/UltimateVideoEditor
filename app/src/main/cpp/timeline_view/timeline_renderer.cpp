@@ -21,6 +21,7 @@
 #include "timeline_view/fade_curve.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/lane_header.h"
+#include "timeline_view/lane_zoom.h"
 #include "timeline_view/marker_style.h"
 #include "timeline_view/ruler_ticks.h"
 #include "timeline_view/snap_guide.h"
@@ -76,6 +77,8 @@ constexpr size_t kLabelPendingBytes = 16u * 1024u * 1024u;  // queued bitmaps; s
 constexpr int kLabelMaxDim = 1700;                          // widest/tallest bitmap accepted
 constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
 constexpr size_t kUploadsPerFrame = 6;                     // keeps a frame cheap while tiles stream in
+constexpr float kMinLabelHeaderDp = 9.0f;                   // header strip height below which clip names are not drawn
+constexpr float kMinThumbBodyDp = 12.0f;                    // clip body height below which the filmstrip is not drawn
 constexpr float kWaveStripFraction = 0.38f;                // share of the clip body used by the waveform over thumbnails
 
 // The block colour: by what the clip is (photo, sticker, multicam) when the snapshot says, else by lane type.
@@ -237,12 +240,28 @@ struct TimelineRenderer::State {
     // True until the user zooms by hand. While true the zoom follows the whole timeline: it is
     // refitted on resize and whenever fitToContent() is called.
     bool autoFit = true;
+    // The lane height, as the preset (small / medium / large) or a pinch left it. After a "fit" the lanes follow the panel
+    // and the number of lanes (resize, rotation, a lane added) until the user sets a height by hand again.
+    LaneScale laneScale;
+    bool autoFitLanes = false;
     std::weak_ptr<thumb::ThumbnailService> thumbs;
 
     ANativeWindow* requestedWindow = nullptr;
     bool windowRequestPending = false;
     uint64_t windowAckGeneration = 0;
     bool looperReady = false;
+
+    void applyLaneScale(LaneScale scale) {
+        laneScale = scale;
+        layout = Layout::forDensity(density, scale.toFloat()).withHeaders(kLaneHeaderDp * density);
+    }
+    // Fits every lane in the panel (or as many as the minimum height allows, scrolled to the base lane at the bottom).
+    void fitLanes() {
+        if (height <= 0) return;
+        const LaneFit fit = fitLaneScale(density, static_cast<int>(snapshot->tracks.size()), static_cast<float>(height));
+        applyLaneScale(fit.scale);
+        if (!fit.fitsAll) vp.scrollY = 1.0e9;
+    }
 
     void clampViewport() {
         vp.viewWidth = std::max(1, width);
@@ -881,6 +900,7 @@ void TimelineRenderer::surfaceChanged(int width, int height) {
         state_->height = height;
         state_->vp.viewWidth = std::max(1, width);
         if (state_->autoFit) state_->vp.fitTo(state_->snapshot->endFrame());
+        if (state_->autoFitLanes) state_->fitLanes();
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -906,7 +926,9 @@ void TimelineRenderer::setSnapshot(std::shared_ptr<const TimelineSnapshot> snaps
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const bool firstContent = state_->snapshot->tracks.empty() && !snapshot->tracks.empty();
+        const size_t oldLanes = state_->snapshot->tracks.size();
         state_->snapshot = std::move(snapshot);
+        if (state_->autoFitLanes && state_->snapshot->tracks.size() != oldLanes) state_->fitLanes();
         // The base lane is at the bottom of the stack: when the stack is taller than the panel, open scrolled to it.
         if (firstContent) state_->vp.scrollY = 1.0e9;
         state_->clampViewport();
@@ -997,7 +1019,8 @@ std::vector<int64_t> TimelineRenderer::clipsInRect(float x0, float y0, float x1,
 void TimelineRenderer::setLaneScale(float scale) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_->layout = Layout::forDensity(state_->density, scale).withHeaders(kLaneHeaderDp * state_->density);
+        state_->autoFitLanes = false;  // a height chosen by hand wins over a fit
+        state_->applyLaneScale(LaneScale::fromFloat(scale));
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -1072,10 +1095,41 @@ void TimelineRenderer::zoomBy(float factor, float focusX) {
     wake();
 }
 
+void TimelineRenderer::zoomLanesBy(float factor, float focusY) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        State& s = *state_;
+        const Layout before = s.layout;
+        LaneScale next = s.laneScale;
+        next.zoom(factor);
+        s.applyLaneScale(next);
+        s.autoFitLanes = false;  // the user chose a height; stop overriding it
+        s.vp.scrollY = anchoredScrollY(before, s.layout, static_cast<int>(s.snapshot->tracks.size()),
+                                       static_cast<float>(s.height), s.vp.scrollY, focusY);
+        s.clampViewport();
+        s.dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::fitToContent() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state_->autoFit = true;
+        state_->autoFitLanes = true;
+        state_->vp.viewWidth = std::max(1, state_->width);
+        state_->vp.fitTo(state_->snapshot->endFrame());
+        state_->fitLanes();
+        state_->clampViewport();
+        state_->dirty = true;
+    }
+    wake();
+}
+
+void TimelineRenderer::followContent() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!state_->autoFit) return;  // lanes follow on their own (see setSnapshot / surfaceChanged)
         state_->vp.viewWidth = std::max(1, state_->width);
         state_->vp.fitTo(state_->snapshot->endFrame());
         state_->clampViewport();
@@ -1417,6 +1471,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             }
         }
         const float header = std::min(headerStrip, 0.42f * (ibottom - itop));
+        // Below these heights a name or a filmstrip would be an unreadable sliver: the lane keeps its colour and waveform only.
+        const bool roomForLabel = header >= kMinLabelHeaderDp * density;
         g.rect(ix0, itop, ix1, ibottom, base);
         g.rect(ix0, itop, ix1, itop + header, scaled(base, 0.72f));
         g.rect(ix0, itop, ix1, itop + std::max(1.0f, 0.75f * density), Color{1.0f, 1.0f, 1.0f, 0.16f});
@@ -1426,7 +1482,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         const float bodyTop = itop + header;
         const RetimeSnapshot* retime = snap->retimeOf(c.clipKey);
         bool hasThumbs = false;
-        if (type == TrackType::Video && c.assetKey >= 0 && thumbs && atlas.ready() && thumbs->isActive(c.assetKey)) {
+        if (type == TrackType::Video && c.assetKey >= 0 && ibottom - bodyTop >= kMinThumbBodyDp * density && thumbs && atlas.ready() && thumbs->isActive(c.assetKey)) {
             hasThumbs = true;
             const float bodyH = ibottom - bodyTop;
             const thumb::ClipCellParams params{c.assetKey, x0, x1, 0.0, static_cast<double>(W),
@@ -1568,7 +1624,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         // The name of a media clip (in the header strip), the text of a title or the name of a sticker (in the body). It
         // starts at the visible left edge of the block, clear of the lane header, so it stays readable while the block is
         // scrolled partly out of view, and it is cut at the room that is left.
-        if (const std::string* text = snap->labelOf(c.clipKey)) {
+        if (const std::string* text = roomForLabel ? snap->labelOf(c.clipKey) : nullptr) {
             const int cls = labelClassOf(*snap, c);
             const float textLeft = std::max(ix0, layout.headerWidth) + 5.0f * density;
             const float textRight = ix1 - 4.0f * density - (cls == kTextClassLabel ? 0.0f : reserveRight);
