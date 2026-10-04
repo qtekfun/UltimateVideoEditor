@@ -506,7 +506,14 @@ class EditorViewModel(
                 SnapshotRetime(clipKeys.keyFor(it.id), it.sourceSpan, reverse = it.reverse, freeze = it.isFreeze)
             }
         }
-        val markers = timeline.markers.map { SnapshotMarker(it.frame.value, beat = it.kind == MarkerKind.BEAT) }
+        val markers = timeline.markers.map {
+            SnapshotMarker(
+                it.frame.value,
+                beat = it.kind == MarkerKind.BEAT,
+                colorCode = it.color?.let { color -> color.ordinal + 1 } ?: 0,
+                hasNote = !it.note.isNullOrBlank(),
+            )
+        }
         val labels = timeline.tracks.flatMap { track ->
             track.clips.mapNotNull { clip -> ClipLabels.of(clip)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
         }
