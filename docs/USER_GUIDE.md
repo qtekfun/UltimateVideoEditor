@@ -273,10 +273,18 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
   tint, blur, sharpen, vignette, grayscale, sepia, chroma key, LUT, HSL qualifier), reorder them, plus a **blend
   mode** and a **mask** (rectangle or ellipse, feather, invert). The **colour grade** has its own editor, see
   [Colour grading and scopes](#colour-grading-and-scopes). The **HSL qualifier** is a secondary correction: it keys a
-  range of hue (centre and half width on the colour wheel), saturation and luma, each with a softness, and the hue
-  shift, saturation gain and lightness apply only there. Set **Show matte** to 1 to see the selection as a grey
-  picture while you adjust the key (white = selected), **Invert** to 1 to correct everything else, then set Show
-  matte back to 0. It is a plain effect with sliders for now: there is no eyedropper yet.
+  range of hue, saturation and luma and changes only the colours inside it. Its editor has:
+  - **Pick colour**: tap it, then tap the picture on the preview. The key is set from the colour under your finger
+    (hue centre and width, saturation and luma ranges around it) as one undo step; a grey keys every hue instead.
+    The colour is read from the clip's own picture at the playhead before any effect, so the playhead must be on the
+    clip, and a tap beside the picture just asks you to tap again. In an HLG project the picture is read the way the
+    platform shows it (SDR), so refine the key by eye with Show matte.
+  - **Show matte** (the selection as a grey picture, white = selected, to set the key) and **Invert** (correct
+    everything else), as chips.
+  - **Hue**: a strip of the colour wheel with the selected hues marked (the range wraps around the red end), and
+    sliders for the centre, the width and the softness of the edges.
+  - **Saturation** and **Luma**: a *From* and a *To* slider each (the lower one never goes above the other) plus a softness.
+  - **Correct inside the selection**: hue shift, saturation and lightness, with *Reset correction*.
 - **Title text**: for title clips, the text, size, colour, alignment and bold.
 - **Transition**: its length at the cut and its **look**. Pick from Crossfade, Slide, Push, Zoom, Spin, Glitch, Wipe,
   Whip pan and Light leak; Slide, Push, Spin, Wipe and Whip pan also ask for a direction (the way the new picture
