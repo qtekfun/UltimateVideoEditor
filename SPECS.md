@@ -347,7 +347,8 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   (`UnsupportedFormat`, e.g. no ten-bit surface) is reported with a hint to export as SDR. The JNI codec
   argument carries the HDR flag as bit 0x100.
 - FFmpeg (static, NDK) is an optional fallback for formats not supported by MediaCodec: built behind
-  `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`.
+  `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`. The build includes libdav1d (BSD-2-Clause) for AV1; licence
+  notices in `THIRD_PARTY_NOTICES.md`.
 
 ### 5.11 Captions (typed or imported, no recognition)
 - There is no speech recognition and no model: the app is offline by design (`docs/PRIVACY.md`). An earlier

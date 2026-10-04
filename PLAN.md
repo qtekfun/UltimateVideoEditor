@@ -55,7 +55,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
 - [x] Audio offline mix and AAC encode
 - [x] Export UI: resolution/fps/bitrate, progress, cancel, share
-- [x] Optional: static FFmpeg fallback behind a feature flag (`-Puveditor.ffmpeg=<dir>`, off by default): **built, verified in CI only** — host tests of the readers against a real libav (MPEG-2, MPEG-4, ProRes, H.264, AAC, AC-3: exact frame indices, seeking inside GOPs, audio seek), the pinned LGPL static build for arm64 (+7.6 MB in `libuveditor_engine.so`) and the engine linked against it. **Not yet run on a device** (preview/export path, RGBA8 upload, the "software decoding" notice): see `docs/ffmpeg-fallback.md`.
+- [x] Optional: static FFmpeg fallback behind a feature flag (`-Puveditor.ffmpeg=<dir>`, off by default): **built, verified in CI only** — host tests of the readers against a real libav (MPEG-2, MPEG-4, ProRes, H.264, AAC, AC-3: exact frame indices, seeking inside GOPs, audio seek), the pinned LGPL static build for arm64 (+7.6 MB in `libuveditor_engine.so`; AV1 via libdav1d added, see DECISIONS) and the engine linked against it. **Not yet run on a device** (preview/export path, RGBA8 upload, the "software decoding" notice): see `docs/ffmpeg-fallback.md`.
 - _Status:_ exports the full timeline (all video layers composited with their transform and opacity through the preview's
   `drawScene`, clip gain in the audio mix, gaps black, HLG sources tone-mapped to SDR Rec.709) at the project
   or a lower frame rate, H.264 or HEVC + AAC in MP4, saved through SAF. On the reference device a 4K60 HEVC export runs at ~90 fps
