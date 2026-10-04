@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.EngineException
+import com.ultimatevideo.uveditor.engine.audio.PeakLevels
 import com.ultimatevideo.uveditor.domain.captions.captionCount
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
@@ -338,18 +339,21 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     DisposableEffect(audio, viewModel) {
         viewModel.playbackOutput = audio
+        viewModel.audioAnalyzer = audio
         onDispose {
             viewModel.playbackOutput = null
+            viewModel.audioAnalyzer = null
             audio.close()
         }
     }
 
-    // Keep the mixer in step with the committed timeline (not with a drag in progress).
-    StateEffect(holder, { listOf(it.timeline, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
+    // Keep the mixer in step with the committed timeline (not with a clip drag in progress). A slider
+    // of the audio tools (pan, EQ, track volume, ducking) is heard live: audioSource is its preview.
+    StateEffect(holder, { listOf(it.audioSource, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         // Files that cannot be read are left out: the mixer would only fail on them.
         audio.update(
-            audioSnapshotOf(s.timeline, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
+            audioSnapshotOf(s.audioSource, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
             s.playableAssets,
             viewModel::assetKey,
         )
@@ -458,7 +462,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     // Publish what the canvas should draw; drags show a provisional timeline until released.
-    StateEffect(holder, { listOf(it.visibleTimeline, it.selectedClipId, it.missingMedia, it.fps, it.isLoading) }) { s ->
+    StateEffect(holder, { listOf(it.visibleTimeline, it.selectedClipId, it.selectedClipIds, it.missingMedia, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         try {
             engine.setSnapshot(viewModel.snapshotOf(s))
@@ -646,6 +650,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        takePeaks = audio::takePeaks,
                     )
                 }
             }
@@ -674,8 +679,18 @@ private fun EditorMain(
     bottomTray: @Composable () -> Unit,
     titleTools: TitleTools,
     modifier: Modifier = Modifier,
+    /** Output peaks since the previous call, for the level meter next to the timecode. */
+    takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
 ) {
     val hasSelection = state.selectedClipId != null
+    val selecting = remember(holder, viewModel) {
+        object : TimelineSelecting {
+            override val selectMode: Boolean get() = holder.value.selectMode
+            override fun onLongPress(hit: TimelineHit) = viewModel.onIntent(SelectionIntent.LongPress(hit))
+            override fun onMarquee(clipKeys: List<Long>) = viewModel.onIntent(SelectionIntent.Marquee(clipKeys))
+        }
+    }
+    if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
     var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
@@ -785,7 +800,10 @@ private fun EditorMain(
                 Column(modifier = Modifier.fillMaxWidth()) {
                 // Transport: timecode on the left, previous / play / next centred.
                 Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Timecode(holder, Modifier.align(Alignment.CenterStart))
+                    Column(modifier = Modifier.align(Alignment.CenterStart)) {
+                        Timecode(holder)
+                        LevelMeter(takePeaks, state.isPlaying)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
                         ToolButton(
@@ -812,6 +830,7 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                         viewModel.onIntent(EditorIntent.RippleDeleteSelected)
                     }
+                    SelectModeButton(state, viewModel::onIntent)
                     ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
                         viewModel.onIntent(EditorIntent.RippleAppendSelected)
                     }
@@ -820,6 +839,7 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
                     MarkerMenu(state, viewModel::onIntent)
+                    ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
                     ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
                         scopesOpen = !scopesOpen
                     }
@@ -843,6 +863,7 @@ private fun EditorMain(
                     }
                     SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
                 }
+                if (state.selectMode || state.isMultiSelection) SelectionBar(state, viewModel::onIntent)
                 if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
 
                 }
@@ -856,6 +877,7 @@ private fun EditorMain(
                         onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
                         editing = editing,
                         dropTarget = dropTarget,
+                        selecting = selecting,
                         modifier = Modifier.fillMaxSize(),
                     )
                     if (state.inspectorOpen && inspectorOverlay) {

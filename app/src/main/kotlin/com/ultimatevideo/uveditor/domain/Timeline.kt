@@ -231,6 +231,8 @@ data class Clip(
      * metadata that really is HLG, or the reverse). Null means the asset's own detected space.
      */
     val colorOverride: SourceColorSpace? = null,
+    /** Pan, fade handles, EQ, noise suppression and loudness normalisation; neutral by default. */
+    val audio: ClipAudio = ClipAudio.NONE,
 ) {
     /** True for a clip that plays media with a length of its own (not a title, photo or sticker). */
     val hasMedia: Boolean get() = title == null && still == null
@@ -252,6 +254,8 @@ data class Track(
     val id: String,
     val type: TrackType,
     val clips: List<Clip> = emptyList(),
+    /** Volume, mute, solo, ducking role and bus compressor; neutral by default. */
+    val audio: TrackAudio = TrackAudio.NONE,
 ) {
     val end: FrameIndex get() = clips.lastOrNull()?.timelineEnd ?: FrameIndex.ZERO
 
@@ -265,6 +269,8 @@ data class Timeline(
     val transitions: List<Transition> = emptyList(),
     /** Ruler markers (manual and detected beats), sorted by frame with unique frames; see [MarkerOps]. */
     val markers: List<Marker> = emptyList(),
+    /** Sidechain ducking of the MUSIC tracks by the VOICE tracks; null is off. */
+    val ducking: Ducking? = null,
 ) {
     fun track(id: String): Track? = tracks.firstOrNull { it.id == id }
 

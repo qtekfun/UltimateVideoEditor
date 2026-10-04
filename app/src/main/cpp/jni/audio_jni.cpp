@@ -92,6 +92,40 @@ JNIEXPORT jlongArray JNICALL JNI_FN(nativePollFaults)(JNIEnv* env, jobject, jlon
     return out;
 }
 
+// Output peaks since the previous call: [left, right] (linear).
+JNIEXPORT jfloatArray JNICALL JNI_FN(nativeTakePeaks)(JNIEnv* env, jobject, jlong handle) {
+    float l = 0.0f, r = 0.0f;
+    from(handle)->takePeaks(&l, &r);
+    const jfloat values[] = {l, r};
+    jfloatArray out = env->NewFloatArray(2);
+    if (out != nullptr) env->SetFloatArrayRegion(out, 0, 2, values);
+    return out;
+}
+
+// Integrated loudness of an asset range: [status, lufs, samplePeak]. Blocks: call off the main thread.
+JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeMeasureLoudness)(JNIEnv* env, jobject, jlong handle, jlong assetKey,
+                                                              jlong startMicros, jlong endMicros) {
+    double lufs = 0.0, peak = 0.0;
+    const jint status = from(handle)->measureLoudness(assetKey, startMicros, endMicros, &lufs, &peak);
+    const jdouble values[] = {static_cast<jdouble>(status), lufs, peak};
+    jdoubleArray out = env->NewDoubleArray(3);
+    if (out != nullptr) env->SetDoubleArrayRegion(out, 0, 3, values);
+    return out;
+}
+
+// Noise profile of an asset range: [status, magnitude * kDenoiseBins]. Blocks: call off the main thread.
+JNIEXPORT jfloatArray JNICALL JNI_FN(nativeMeasureNoiseProfile)(JNIEnv* env, jobject, jlong handle, jlong assetKey,
+                                                                 jlong startMicros, jlong endMicros) {
+    std::vector<float> values(1 + uv::audio::kDenoiseBins, 0.0f);
+    const jint status = from(handle)->measureNoiseProfile(assetKey, startMicros, endMicros, values.data() + 1);
+    values[0] = static_cast<float>(status);
+    jfloatArray out = env->NewFloatArray(static_cast<jsize>(values.size()));
+    if (out != nullptr) env->SetFloatArrayRegion(out, 0, static_cast<jsize>(values.size()), values.data());
+    return out;
+}
+
+JNIEXPORT void JNICALL JNI_FN(nativeCancelAnalysis)(JNIEnv*, jobject, jlong handle) { from(handle)->cancelAnalysis(); }
+
 // Offline mode (tests/export): renders into `out` and returns the playhead in samples.
 JNIEXPORT jlong JNICALL JNI_FN(nativeRenderOffline)(JNIEnv* env, jobject, jlong handle, jfloatArray out, jint frames) {
     if (out == nullptr || frames <= 0 || env->GetArrayLength(out) < frames * 2) return -1;

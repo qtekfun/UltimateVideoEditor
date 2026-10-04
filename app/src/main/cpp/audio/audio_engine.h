@@ -60,6 +60,14 @@ public:
 
     AudioStats stats();
     void pollFaults(std::vector<AudioFault>* out) { core_.pollFaults(out); }
+    // Output peaks (linear) since the previous call, for the level meters.
+    void takePeaks(float* left, float* right) { core_.takePeaks(left, right); }
+
+    // Offline measurements of a registered asset (see audio/analysis.h). They decode on the calling
+    // thread, so call them from a background thread; cancelAnalysis() stops a running one.
+    int32_t measureLoudness(int64_t assetKey, int64_t startMicros, int64_t endMicros, double* lufs, double* samplePeak);
+    int32_t measureNoiseProfile(int64_t assetKey, int64_t startMicros, int64_t endMicros, float* magnitudes);
+    void cancelAnalysis() { cancelAnalysis_.store(true, std::memory_order_release); }
 
     // Offline mode only: renders `frames` stereo frames and returns the playhead afterwards (it
     // does not advance while the engine is still buffering after a play/seek).
@@ -72,7 +80,9 @@ private:
     oboe::Result openStreamLocked();
     std::shared_ptr<oboe::AudioStream> currentStream();
     int dupAsset(int64_t key);
+    std::unique_ptr<PcmDecoder> openAssetDecoder(int64_t assetKey, core::Status* status);
 
+    std::atomic<bool> cancelAnalysis_{false};
     AudioCore core_;
     std::mutex lifecycleMutex_;
     std::mutex streamMutex_;

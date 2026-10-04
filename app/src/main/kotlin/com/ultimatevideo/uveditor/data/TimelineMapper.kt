@@ -1,6 +1,21 @@
 package com.ultimatevideo.uveditor.data
 
+import com.ultimatevideo.uveditor.data.model.BusCompressorDto
+import com.ultimatevideo.uveditor.data.model.ClipAudioDto
 import com.ultimatevideo.uveditor.data.model.ClipDto
+import com.ultimatevideo.uveditor.data.model.ClipEqDto
+import com.ultimatevideo.uveditor.data.model.DenoiseDto
+import com.ultimatevideo.uveditor.data.model.DuckingDto
+import com.ultimatevideo.uveditor.data.model.EqBandDto
+import com.ultimatevideo.uveditor.data.model.TrackAudioDto
+import com.ultimatevideo.uveditor.domain.AudioRole
+import com.ultimatevideo.uveditor.domain.BusCompressor
+import com.ultimatevideo.uveditor.domain.ClipAudio
+import com.ultimatevideo.uveditor.domain.ClipEq
+import com.ultimatevideo.uveditor.domain.Denoise
+import com.ultimatevideo.uveditor.domain.Ducking
+import com.ultimatevideo.uveditor.domain.EqBand
+import com.ultimatevideo.uveditor.domain.TrackAudio
 import com.ultimatevideo.uveditor.data.model.CurvePointDto
 import com.ultimatevideo.uveditor.data.model.EffectDto
 import com.ultimatevideo.uveditor.data.model.GradeCurvesDto
@@ -65,9 +80,15 @@ object TimelineMapper {
                 id = track.id,
                 type = trackType(track.type),
                 clips = track.clips.map(::toClip).sortedBy { it.timelineStart },
+                audio = track.audio?.let { toTrackAudio(track.id, it) } ?: TrackAudio.NONE,
             )
         }
-        val timeline = Timeline(tracks, project.transitions.map(::toTransition), project.markers.map(::toMarker).sortedBy { it.frame })
+        val timeline = Timeline(
+            tracks,
+            project.transitions.map(::toTransition),
+            project.markers.map(::toMarker).sortedBy { it.frame },
+            project.ducking?.let { toDucking(it) },
+        )
         val violations = timeline.invariantViolations()
         if (violations.isNotEmpty()) throw ProjectError.Corrupt("invalid timeline: ${violations.first()}")
         return timeline
@@ -81,12 +102,63 @@ object TimelineMapper {
                 type = trackTypeName(track.type),
                 order = index,
                 clips = track.clips.map { clip -> toClipDto(clip, prototype(previous, clip.id)) },
+                audio = track.audio.takeUnless { it.isNeutral }?.let(::toTrackAudioDto),
             )
         }
         val transitions = timeline.transitions.map { toTransitionDto(it) }
         val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind)) }
-        return base.copy(mediaLibrary = assets, tracks = tracks, transitions = transitions, markers = markers)
+        return base.copy(
+            mediaLibrary = assets,
+            tracks = tracks,
+            transitions = transitions,
+            markers = markers,
+            ducking = timeline.ducking?.let { DuckingDto(it.amountDb, it.thresholdDb, it.attackMs, it.releaseMs) },
+        )
     }
+
+    private fun toDucking(dto: DuckingDto) = Ducking(dto.amountDb, dto.thresholdDb, dto.attackMs, dto.releaseMs)
+        .also { d -> d.problem()?.let { throw ProjectError.Corrupt("invalid ducking: $it") } }
+
+    private fun toTrackAudio(trackId: String, dto: TrackAudioDto): TrackAudio {
+        val role = AudioRole.entries.firstOrNull { it.name.lowercase() == dto.role }
+            ?: throw ProjectError.Corrupt("track $trackId has unknown audio role '${dto.role}'")
+        val compressor = dto.compressor?.let { BusCompressor(it.thresholdDb, it.ratio, it.attackMs, it.releaseMs, it.makeupDb) }
+        return TrackAudio(dto.volumeDb, dto.mute, dto.solo, role, compressor)
+            .also { a -> a.problem()?.let { throw ProjectError.Corrupt("track $trackId has invalid audio settings: $it") } }
+    }
+
+    private fun toTrackAudioDto(audio: TrackAudio) = TrackAudioDto(
+        volumeDb = audio.volumeDb,
+        mute = audio.mute,
+        solo = audio.solo,
+        role = audio.role.name.lowercase(),
+        compressor = audio.compressor?.let { BusCompressorDto(it.thresholdDb, it.ratio, it.attackMs, it.releaseMs, it.makeupDb) },
+    )
+
+    private fun toClipAudio(clipId: String, dto: ClipAudioDto): ClipAudio {
+        val eq = dto.eq?.let { e ->
+            ClipEq(e.highPassHz, e.lowPassHz, if (e.bands.size == ClipEq.BAND_COUNT) e.bands.map { EqBand(it.freqHz, it.gainDb, it.q) } else ClipEq.DEFAULT_BANDS)
+        } ?: ClipEq.FLAT
+        val denoise = dto.denoise?.let { Denoise(it.strength, it.profile) }
+        return ClipAudio(dto.pan, dto.fadeInFrames, dto.fadeOutFrames, eq, denoise, dto.normalizeDb, dto.targetLufs)
+            .also { a ->
+                // Only the value ranges can be checked here; whether a fade fits the clip is part of the timeline invariants.
+                val problem = if (a.fadeInFrames < 0 || a.fadeOutFrames < 0) "negative fade" else a.problem(Long.MAX_VALUE)
+                if (problem != null) throw ProjectError.Corrupt("clip $clipId has invalid audio settings: $problem")
+            }
+    }
+
+    private fun toClipAudioDto(audio: ClipAudio) = ClipAudioDto(
+        pan = audio.pan,
+        fadeInFrames = audio.fadeInFrames,
+        fadeOutFrames = audio.fadeOutFrames,
+        eq = audio.eq.takeUnless { it.isFlat }?.let { e ->
+            ClipEqDto(e.highPassHz, e.lowPassHz, e.bands.map { EqBandDto(it.freqHz, it.gainDb, it.q) })
+        },
+        denoise = audio.denoise?.let { DenoiseDto(it.strength, it.profile) },
+        normalizeDb = audio.normalizeDb,
+        targetLufs = audio.targetLufs,
+    )
 
     private fun toMarker(dto: MarkerDto) = Marker(
         id = dto.id,
@@ -123,6 +195,7 @@ object TimelineMapper {
         fx = toFx(dto),
         still = dto.still?.let { toStill(dto.id, it) },
         colorOverride = SourceColorSpace.fromIdOrNull(dto.colorOverride),
+        audio = dto.audio?.let { toClipAudio(dto.id, it) } ?: ClipAudio.NONE,
     )
 
     private fun toStill(clipId: String, name: String): StillKind =
@@ -312,6 +385,7 @@ object TimelineMapper {
             mask = clip.fx.mask?.let(::toMaskDto),
             still = clip.still?.name?.lowercase(),
             colorOverride = clip.colorOverride?.id,
+            audio = clip.audio.takeUnless { it.isNeutral }?.let(::toClipAudioDto),
         )
 
     private const val COLOR_HEX_LENGTH = 8

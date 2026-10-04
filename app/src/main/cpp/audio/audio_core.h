@@ -86,6 +86,8 @@ public:
     bool isPlaying() const { return playing_.load(std::memory_order_acquire); }
     // Appends faults raised since the previous call (underruns are aggregated).
     void pollFaults(std::vector<AudioFault>* out);
+    // Output peaks (linear, left and right) since the previous call; for the level meters.
+    void takePeaks(float* left, float* right) { meter_.take(left, right); }
     void reportDeviceFault(core::Status status);
     int64_t underrunBlocks() const { return underrunBlocks_.load(std::memory_order_relaxed); }
 
@@ -93,8 +95,9 @@ public:
     void serviceOnce();
 
 private:
-    // clip, asset, source in-point, source rate (num, den) and a hash of the retime knots.
-    using SourceKey = std::tuple<int64_t, int64_t, int64_t, int32_t, int32_t, uint64_t>;
+    // clip, asset, source in-point, source rate (num, den), a hash of the retime knots and a hash of
+    // the noise-suppression settings (a changed profile or strength makes a new source).
+    using SourceKey = std::tuple<int64_t, int64_t, int64_t, int32_t, int32_t, uint64_t, uint64_t>;
     struct Retired {
         float* storage;
         int64_t atBlock;
@@ -153,6 +156,8 @@ private:
     bool holding_ = false;
     int64_t holdFrames_ = 0;
     float scratch_[kMaxBlock * 2];
+
+    dsp::PeakMeter meter_;  // written by the mixer, read by takePeaks()
 
     // published by the audio thread
     std::atomic<int64_t> renderPos_{0};

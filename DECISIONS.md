@@ -701,3 +701,39 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - **Layer handles on the preview are a ring and cross** at the layer centre (plus the outline of a shape) with the existing gestures redirected, not corner handles. *Why:* text and picture bounds need native measurement; the gestures cover move, scale and rotate.
 - **Decoding photos for a title happens where the title is rasterised** (the main thread in the preview, with a small cache), not on a worker like photo clips. *Why:* a title is rasterised synchronously today; layers are few and decoded at their drawn size. *Alternative:* a worker with a placeholder (more code); revisit if large photos cause jank.
 
+## Multi-selection and group edits (WP-S)
+
+**Decision:** selection is `selectedClipId` (primary) plus `selectedClipIds` (the group, when more than one); a plain tap, an empty-space tap or Clear resets the group, long press toggles a clip in any mode, and select mode adds taps and a marquee on empty lane space. The marquee is native state and `clipsInRect` runs natively. Group operations are pure `Timeline -> Timeline` functions (`GroupOps`) behind one command each, so they are all-or-nothing and one undo step.
+**Why:** it reuses the immutable-snapshot undo and the single-clip rules (magnetic base, ClipDeletion), keeps the primary clip for the inspector, and needs no new native selection model beyond a primary flag (snapshot version 6) and the marquee.
+**Alternative:** a native selection set owned by the canvas (more state to keep in step), or moving group selection logic into the view layer.
+
+**Decision:** moving base clips together is only allowed for a run that touches and contains only base clips; it reorders the run (`MagneticBase.reorderBlock`). Mixed base and overlay selections only support attribute operations, with a message.
+**Why:** the base has no gaps, so a free offset move has no meaning there, and mixing would need a rule for what the overlays do.
+**Alternative:** allow mixed moves by reordering the base and shifting the overlays by the same delta.
+
+**Decision:** paste puts overlay clips back on their lane (or the first lane of their kind) and refuses to land on an existing clip; duplicate pastes right after the last selected clip. Nothing is overwritten.
+**Why:** a group edit that silently replaces footage is destructive and hard to see; a message is cheap.
+**Alternative:** overwrite on overlay lanes like a single drop, or put colliding copies on a new lane.
+
+**Decision:** "head and tail" transitions are opacity keyframes (a fade in and a fade out of each picture clip), because the model has transitions only between two clips; audio fades come with the audio tools.
+**Why:** it gives the same visible result as LumaFusion's head and tail dissolves without a new transition type.
+**Alternative:** a one-sided transition type in the domain, rendered by the compositor and exporter.
+
+**Decision:** a group drag shows no insert/overwrite indicator, only the live preview and the cancel tint off the lanes.
+**Why:** group moves on overlays are free-form, and a base run reorders like a single clip, whose insertion marker would be ambiguous for a block.
+**Alternative:** extend `DropPlan` with group decisions.
+
+**Found on the Pixel 8:** a plain tap on a clip that was part of the group left the group alive, and the canvas did not redraw the outlines when only the group changed (the snapshot key lacked `selectedClipIds`). Both are fixed, with a regression test for the first.
+
+## Audio tools (WP-A)
+
+**Decisions:**
+- One per-sample DSP path (biquad EQ, balance pan, bus compressor, sidechain ducker, -1 dBFS brickwall limiter) is used by the realtime engine and the offline export mixer, so they are identical by construction; a host test compares the two. Block size never changes the result. Alternative: separate offline code (drift risk).
+- Pan is a balance law (mono is placed with equal power, stereo is attenuated on one side) so a centred stereo clip is untouched. The limiter is a sample-peak limiter at -1 dBFS, not a true-peak one (spec says dBTP); oversampling can be added later.
+- Noise suppression is STFT spectral subtraction (1024 window, hop 256) with the profile from a user-marked quiet stretch, run in the decode worker so playback and export share it. No Wiener/neural option. Alternative: Wiener filter (more musical noise control, more tuning).
+- Loudness is BS.1770 K-weighted, gated, measured by the native engine on IO and cached by source identity and range; normalise stores a gain (`normalizeDb`) in the clip so it is cheap at playback.
+- Ducking is computed gain automation from the voice track envelope (roles Voice and Music on tracks), never baked into clips.
+- Audio snapshot is version 4 with strict native validation; the new JSON fields are optional so old projects load unchanged and old readers ignore them.
+- Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
+**Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
+
