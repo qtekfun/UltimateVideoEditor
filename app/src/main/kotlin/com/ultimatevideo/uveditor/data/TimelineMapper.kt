@@ -21,7 +21,13 @@ import com.ultimatevideo.uveditor.data.model.EffectDto
 import com.ultimatevideo.uveditor.data.model.GradeCurvesDto
 import com.ultimatevideo.uveditor.data.model.KeyframeDto
 import com.ultimatevideo.uveditor.data.model.MarkerDto
+import com.ultimatevideo.uveditor.data.model.AngleCutDto
 import com.ultimatevideo.uveditor.data.model.MotionTrackDto
+import com.ultimatevideo.uveditor.data.model.MulticamAngleDto
+import com.ultimatevideo.uveditor.data.model.MulticamDto
+import com.ultimatevideo.uveditor.domain.multicam.AngleCut
+import com.ultimatevideo.uveditor.domain.multicam.MulticamAngle
+import com.ultimatevideo.uveditor.domain.multicam.MulticamClip
 import com.ultimatevideo.uveditor.domain.MotionTrack
 import com.ultimatevideo.uveditor.domain.TrackSeed
 import com.ultimatevideo.uveditor.data.model.MaskDto
@@ -101,6 +107,7 @@ object TimelineMapper {
             project.markers.map(::toMarker).sortedBy { it.frame },
             project.ducking?.let { toDucking(it) },
             project.motionTracks.map(::toMotionTrack),
+            project.multicams.map(::toMulticam),
         )
         val violations = timeline.invariantViolations()
         if (violations.isNotEmpty()) throw ProjectError.Corrupt("invalid timeline: ${violations.first()}")
@@ -127,8 +134,35 @@ object TimelineMapper {
             markers = markers,
             ducking = timeline.ducking?.let { DuckingDto(it.amountDb, it.thresholdDb, it.attackMs, it.releaseMs) },
             motionTracks = timeline.motionTracks.map { MotionTrackDto(it.id, it.clipId, it.name, it.seed.sourceFrame, it.seed.cx, it.seed.cy, it.seed.w, it.seed.h) },
+            multicams = timeline.multicams.map(::toMulticamDto),
         )
     }
+
+    private fun toMulticam(dto: MulticamDto) = MulticamClip(
+        id = dto.id,
+        name = dto.name,
+        angles = dto.angles.map { MulticamAngle(it.id, it.name, it.assetId, it.offsetFrames, it.durationFrames) },
+        audioAngle = dto.audioAngle,
+        videoTrackId = dto.videoTrackId,
+        audioTrackId = dto.audioTrackId,
+        startFrame = dto.startFrame,
+        inFrame = dto.inFrame,
+        lengthFrames = dto.lengthFrames,
+        cuts = dto.cuts.map { AngleCut(it.frame, it.angle) },
+    ).also { g -> g.problem()?.let { throw ProjectError.Corrupt("invalid multicam clip: $it") } }
+
+    private fun toMulticamDto(group: MulticamClip) = MulticamDto(
+        id = group.id,
+        name = group.name,
+        angles = group.angles.map { MulticamAngleDto(it.id, it.name, it.assetId, it.offsetFrames, it.durationFrames) },
+        audioAngle = group.audioAngle,
+        videoTrackId = group.videoTrackId,
+        audioTrackId = group.audioTrackId,
+        startFrame = group.startFrame,
+        inFrame = group.inFrame,
+        lengthFrames = group.lengthFrames,
+        cuts = group.cuts.map { AngleCutDto(it.frame, it.angle) },
+    )
 
     private fun toMotionTrack(dto: MotionTrackDto) = MotionTrack(dto.id, dto.clipId, dto.name, TrackSeed(dto.seedFrame, dto.cx, dto.cy, dto.w, dto.h))
         .also { t -> t.problem()?.let { throw ProjectError.Corrupt("invalid motion track: $it") } }
