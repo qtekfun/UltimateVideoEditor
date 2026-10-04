@@ -4,6 +4,54 @@ package com.ultimatevideo.uveditor.domain
 sealed interface EditCommand {
     fun apply(timeline: Timeline): EditResult<Timeline>
 
+    /** Commits effects edited from what the controls showed at [frame]; keyframed values that changed become keys there. */
+    data class SetFxAt(val clipId: String, val fx: ClipFx, val frame: Long?) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setFxAt(timeline, clipId, fx, frame)
+    }
+
+    /** Like [SetFxAt] for pan and EQ gains of the clip's audio block. */
+    data class SetClipAudioAt(val clipId: String, val audio: ClipAudio, val frame: Long?) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setClipAudioAt(timeline, clipId, audio, frame)
+    }
+
+    /** Sets the volume: a key at [frame] when the volume is keyframed, else the fixed gain. */
+    data class SetGainAt(val clipId: String, val gainDb: Double, val frame: Long?) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setGainAt(timeline, clipId, gainDb, frame)
+    }
+
+    /** Adds or replaces a keyframe of one parameter (effect value, volume, pan, EQ gain or a pose component). */
+    data class SetParamKey(val clipId: String, val paramId: String, val key: ParamKey) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setKey(timeline, clipId, paramId, key)
+    }
+
+    data class RemoveParamKey(val clipId: String, val paramId: String, val frame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.removeKey(timeline, clipId, paramId, frame)
+    }
+
+    data class MoveParamKey(val clipId: String, val paramId: String, val fromFrame: Long, val toFrame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.moveKey(timeline, clipId, paramId, fromFrame, toFrame)
+    }
+
+    data class ClearParamTrack(val clipId: String, val paramId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.clearTrack(timeline, clipId, paramId)
+    }
+
+    /** Pastes copied keys onto a parameter (one undo step for the whole paste). */
+    data class PasteParamKeys(val clipId: String, val paramId: String, val keys: List<ParamKey>) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.pasteKeys(timeline, clipId, paramId, keys)
+    }
+
+    data class SetParamKeyShape(
+        val clipId: String,
+        val paramId: String,
+        val frame: Long,
+        val interpolation: Interpolation,
+        val out: BezierHandle? = null,
+        val inn: BezierHandle? = null,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setKeyShape(timeline, clipId, paramId, frame, interpolation, out, inn)
+    }
+
     data class AddTrack(val track: Track, val index: Int) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.addTrack(timeline, track, index)
     }

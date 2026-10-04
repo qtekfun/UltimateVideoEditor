@@ -153,7 +153,31 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         pc.gain = dbToLinear(d.gainDb);
         pc.track = d.trackIndex;
         pc.pan = d.pan;
-        pc.eq = dsp::EqChain::design(d.eq, rate);
+        bool bandAnimated = false;
+        for (const AutoLane& lane : d.lanes) {
+            if (lane.points.empty()) return Status::BadSnapshot;
+            PreparedLane pl;
+            pl.param = lane.param;
+            pl.samples.reserve(lane.points.size());
+            pl.values.reserve(lane.points.size());
+            for (const AutoPoint& pt : lane.points) {
+                // Points sit on the same sample grid as the clip edges, counted from the clip's own start.
+                pl.samples.push_back(framesToSamples(d.startFrame + pt.frame, data.fps, rate) - start);
+                pl.values.push_back(lane.param == AutoParam::GainDb ? dbToLinear(pt.value) : pt.value);
+            }
+            // Distinct frames can land on one sample at an extreme rate: keep the later point only.
+            for (size_t i = pl.samples.size(); i-- > 1;) {
+                if (pl.samples[i] <= pl.samples[i - 1]) {
+                    pl.samples.erase(pl.samples.begin() + static_cast<std::ptrdiff_t>(i - 1));
+                    pl.values.erase(pl.values.begin() + static_cast<std::ptrdiff_t>(i - 1));
+                }
+            }
+            bandAnimated = bandAnimated || static_cast<int32_t>(lane.param) >= static_cast<int32_t>(AutoParam::EqGain0);
+            pc.lanes.push_back(std::move(pl));
+        }
+        pc.eqParams = d.eq;
+        pc.sampleRate = rate;
+        pc.eq = bandAnimated ? dsp::EqChain::designAll(d.eq, rate) : dsp::EqChain::design(d.eq, rate);
         if (d.userFadeInFrames > 0) pc.userFadeInSamples = framesToSamples(d.startFrame + d.userFadeInFrames, data.fps, rate) - start;
         if (d.userFadeOutFrames > 0) {
             pc.userFadeOutSamples = end - framesToSamples(d.startFrame + d.durationFrames - d.userFadeOutFrames, data.fps, rate);
