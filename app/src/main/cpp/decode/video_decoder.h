@@ -19,63 +19,51 @@
 
 #include "decode/frame_rate.h"
 #include "decode/status.h"
+#include "decode/video_decoder_api.h"
 
 namespace uv::decode {
-
-struct AssetInfo {
-    int32_t width = 0;
-    int32_t height = 0;
-    int64_t durationFrames = 0;
-    Rational fps{30, 1};
-    int32_t colorTransfer = 0;  // MediaFormat.COLOR_TRANSFER_*, 0 if unknown
-    int32_t rotationDegrees = 0;  // clockwise rotation to apply for display (0/90/180/270)
-};
 
 // Decodes one video track with a hardware AMediaCodec into an AImageReader (GPU-usage buffers).
 // A worker thread keeps the window [target - lookBehind, target + lookAhead] decoded: frames
 // that are inside the window and not cached are rendered to the reader, all others are
 // dropped without touching the GPU. The render thread drains the reader via drainImages().
-class VideoDecoder {
+class VideoDecoder final : public IVideoDecoder {
 public:
-    struct Callbacks {
-        std::function<void()> onImageAvailable;           // any thread
-        std::function<bool(int64_t frame)> isCached;      // decode thread
-        std::function<void(const Error&)> onError;        // decode thread
-    };
+    using Callbacks = DecoderCallbacks;
 
     // Takes ownership of `fd` (closed on destruction/failure).
     static Result<std::unique_ptr<VideoDecoder>> open(int fd, Rational fpsOverride, Callbacks callbacks);
 
-    ~VideoDecoder();
+    ~VideoDecoder() override;
     VideoDecoder(const VideoDecoder&) = delete;
     VideoDecoder& operator=(const VideoDecoder&) = delete;
 
-    const AssetInfo& info() const { return info_; }
+    const AssetInfo& info() const override { return info_; }
 
     // Thread-safe. Moves the playhead and wakes the worker.
-    void setTarget(int64_t frame);
-    void setWindow(int32_t lookBehind, int32_t lookAhead);
+    void setTarget(int64_t frame) override;
+    void setWindow(int32_t lookBehind, int32_t lookAhead) override;
 
     // Render thread. Calls `fn` for every image waiting in the reader. `fn` returns a native fence
     // fd (or -1) that signals when the GPU is done reading the buffer; the image is released with it,
     // so the codec will not overwrite the buffer before then. Ownership of the fd passes to the reader.
-    void drainImages(const std::function<int(int64_t frame, AHardwareBuffer* buffer)>& fn);
+    void drainImages(const std::function<int(int64_t frame, AHardwareBuffer* buffer)>& fn) override;
     // Render thread: the frame reached the cache (or was discarded), stop counting it as in flight.
-    void markResolved(int64_t frame);
+    void markResolved(int64_t frame) override;
 
     // Stops and joins the worker. Must not be called from the render thread.
-    void shutdown();
+    void shutdown() override;
 
-    int64_t framesDecoded() const { return framesDecoded_.load(); }
+    int64_t framesDecoded() const override { return framesDecoded_.load(); }
 
     // Thread-safe. True when the stream is known never to produce `frame` (it was skipped, or lies past
     // the last decodable frame), so a reader may stand in an earlier frame instead of waiting for it.
-    bool isUnavailable(int64_t frame) const;
+    bool isUnavailable(int64_t frame) const override;
     // Thread-safe. For a reader whose frame has not arrived for a while: forgets what is "in flight" and
     // makes the decoder seek afresh to `frame` instead of trusting its running state.
-    void recover(int64_t frame);
+    void recover(int64_t frame) override;
     // Thread-safe one-line snapshot of the decode thread (positions, flags, counters) for stall reports.
-    std::string describe() const;
+    std::string describe() const override;
 
 private:
     VideoDecoder() = default;

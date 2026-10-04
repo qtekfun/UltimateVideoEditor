@@ -1,5 +1,9 @@
 #include "audio/waveform_extractor.h"
 
+#include "audio/pcm_decoder.h"
+#include "audio/ffmpeg_pcm.h"
+#include "decode/ffmpeg/ffmpeg_api.h"
+
 #include <android/log.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaExtractor.h>
@@ -36,7 +40,7 @@ struct FormatDeleter { void operator()(AMediaFormat* f) const { AMediaFormat_del
 
 }  // namespace
 
-core::Status extractWaveform(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
+static core::Status extractWaveformPlatform(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
     if (out == nullptr || fd < 0) return Status::InvalidArgument;
 
     struct stat st {};
@@ -178,6 +182,38 @@ core::Status extractWaveform(int fd, const std::atomic<bool>& cancel, PeakPyrami
     if (!builder) return Status::UnsupportedFormat;  // audio track with no decodable samples
     *out = builder->finish();
     return Status::Ok;
+}
+
+// The same pyramid from the software audio decoder (FFmpeg fallback), for audio the platform cannot decode.
+static core::Status extractWaveformSoftware(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
+    Status st = Status::Ok;
+    std::unique_ptr<PcmDecoder> decoder = openSoftwarePcmDecoder(fd, &st);
+    if (!decoder) return st == Status::Ok ? Status::UnsupportedFormat : st;
+    constexpr int32_t kChunk = 4096;
+    PeakBuilder builder(static_cast<uint32_t>(decoder->sampleRate()), 2);
+    std::vector<float> samples(static_cast<size_t>(kChunk) * 2);
+    std::vector<int16_t> pcm(static_cast<size_t>(kChunk) * 2);
+    for (;;) {
+        if (cancel.load(std::memory_order_relaxed)) return Status::Cancelled;
+        const PcmReadResult r = decoder->read(samples.data(), kChunk);
+        if (r.status != Status::Ok) return r.status;
+        const size_t count = static_cast<size_t>(r.frames) * 2;
+        for (size_t i = 0; i < count; ++i) pcm[i] = static_cast<int16_t>(std::clamp(samples[i], -1.0f, 1.0f) * 32767.0f);
+        if (r.frames > 0) builder.addInterleaved(pcm.data(), static_cast<size_t>(r.frames));
+        if (r.eof) break;
+    }
+    PeakPyramid pyramid = builder.finish();
+    if (pyramid.totalFrames <= 0) return Status::UnsupportedFormat;  // an audio track with no decodable samples
+    *out = std::move(pyramid);
+    return Status::Ok;
+}
+
+core::Status extractWaveform(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
+    const Status platform = extractWaveformPlatform(fd, cancel, out);
+    const bool fixable = platform == Status::UnsupportedFormat || platform == Status::CodecError || platform == Status::IoError;
+    if (!fixable || !decode::ffmpeg::available()) return platform;
+    LOGE("platform could not decode the audio (status %d); trying the software decoder", static_cast<int>(platform));
+    return extractWaveformSoftware(fd, cancel, out) == Status::Ok ? Status::Ok : platform;
 }
 
 }  // namespace uv::audio

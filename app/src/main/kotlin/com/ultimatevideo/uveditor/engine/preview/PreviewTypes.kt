@@ -137,6 +137,10 @@ data class AssetInfo(
     val colorTransfer: Int,
     /** Clockwise rotation (0/90/180/270) the container asks players to apply. */
     val rotationDegrees: Int = 0,
+    /** Decoded by the FFmpeg software fallback (the platform has no decoder for this file): slower than hardware. */
+    val software: Boolean = false,
+    /** Software decoding of this size and rate will not keep up in real time: a proxy is advised. */
+    val proxyAdvised: Boolean = false,
 ) {
     val isHlg: Boolean get() = colorTransfer == COLOR_TRANSFER_HLG
 

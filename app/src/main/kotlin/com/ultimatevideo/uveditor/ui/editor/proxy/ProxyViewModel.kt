@@ -58,6 +58,9 @@ sealed interface ProxyIntent : UiIntent {
     /** The preview stalled while playing: after a few, proxies are suggested even for lighter media. */
     data object ReportStall : ProxyIntent
 
+    /** An asset is decoded in software and is too heavy for real time: suggest proxies right away. */
+    data object SoftwareDecodeHeavy : ProxyIntent
+
     /** The preview could not open the proxy of this asset and fell back to the original. */
     data class PreviewProxyFailed(val assetId: String) : ProxyIntent
     data object ClearMessage : ProxyIntent
@@ -141,6 +144,10 @@ class ProxyViewModel(
             ProxyIntent.CloseSheet -> reduce { copy(sheetOpen = false) }
             ProxyIntent.ReportStall -> {
                 stalls++
+                refresh()
+            }
+            ProxyIntent.SoftwareDecodeHeavy -> {
+                stalls = maxOf(stalls, ProxySuggester.STALL_THRESHOLD)
                 refresh()
             }
             is ProxyIntent.PreviewProxyFailed -> {

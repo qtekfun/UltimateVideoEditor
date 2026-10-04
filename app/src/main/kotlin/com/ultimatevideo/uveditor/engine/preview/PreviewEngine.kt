@@ -118,6 +118,8 @@ class PreviewEngine private constructor(
             fpsDen = v[4],
             colorTransfer = v[5].toInt(),
             rotationDegrees = v[6].toInt(),
+            software = v.size > 7 && v[7] != 0L,
+            proxyAdvised = v.size > 8 && v[8] != 0L,
         )
     }
 
