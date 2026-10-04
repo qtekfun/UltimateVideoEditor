@@ -71,6 +71,7 @@ import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.domain.Transition
+import com.ultimatevideo.uveditor.domain.TransitionDirection
 import com.ultimatevideo.uveditor.domain.TransitionType
 
 /**
@@ -393,20 +394,26 @@ object TimelineMapper {
         fromClipId = dto.fromClipId,
         toClipId = dto.toClipId,
         durationFrames = dto.durationFrames,
-        type = when (dto.type) {
-            "crossfade" -> TransitionType.CROSSFADE
-            else -> throw ProjectError.Corrupt("transition ${dto.id} has unknown type '${dto.type}'")
+        type = TransitionType.entries.firstOrNull { transitionName(it) == dto.type }
+            ?: throw ProjectError.Corrupt("transition ${dto.id} has unknown type '${dto.type}'"),
+        direction = when (val name = dto.direction) {
+            null -> TransitionDirection.LEFT
+            else -> TransitionDirection.entries.firstOrNull { it.name.lowercase() == name }
+                ?: throw ProjectError.Corrupt("transition ${dto.id} has unknown direction '$name'")
         },
     )
 
+    /** The name a transition type has in `project.json`: lower case, words joined by a dash. */
+    internal fun transitionName(type: TransitionType): String = type.name.lowercase().replace('_', '-')
+
     private fun toTransitionDto(transition: Transition) = TransitionDto(
         id = transition.id,
-        type = when (transition.type) {
-            TransitionType.CROSSFADE -> "crossfade"
-        },
+        type = transitionName(transition.type),
         fromClipId = transition.fromClipId,
         toClipId = transition.toClipId,
         durationFrames = transition.durationFrames,
+        // Only a directional look writes its direction; files with a plain crossfade stay as they were.
+        direction = transition.direction.name.lowercase().takeIf { transition.type.hasDirection },
     )
 
     private fun toTransform(clipId: String, dto: TransformDto): ClipTransform {

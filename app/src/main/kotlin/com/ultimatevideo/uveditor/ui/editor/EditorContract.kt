@@ -383,6 +383,12 @@ sealed interface EditorIntent : UiIntent {
     data class SetTransitionDuration(val frames: Long) : EditorIntent
     data object RemoveTransition : EditorIntent
 
+    /** Changes the look (crossfade, slide, push, zoom, spin, glitch, wipe, whip pan, light leak) of the selected clip's transition. */
+    data class SetTransitionStyle(
+        val type: com.ultimatevideo.uveditor.domain.TransitionType,
+        val direction: com.ultimatevideo.uveditor.domain.TransitionDirection,
+    ) : EditorIntent
+
     /**
      * Edits of the selected clip's look and sound. A session is Begin, any number of Update/Gesture
      * steps (shown live but not yet in the undo history) and End: with `commit` the result becomes

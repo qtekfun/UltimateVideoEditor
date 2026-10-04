@@ -308,6 +308,7 @@ class EditorViewModel(
             EditorIntent.AddTransition -> addTransition()
             is EditorIntent.SetTransitionDuration -> setTransitionDuration(intent.frames)
             EditorIntent.RemoveTransition -> removeTransition()
+            is EditorIntent.SetTransitionStyle -> setTransitionStyle(intent.type, intent.direction)
             EditorIntent.BeginAppearanceEdit -> beginAppearance()
             is EditorIntent.UpdateTransform -> updateAppearance(transform = intent.transform)
             is EditorIntent.UpdateGain -> updateAppearance(gainDb = intent.gainDb)
@@ -2317,6 +2318,18 @@ class EditorViewModel(
         if (frames == transition.durationFrames) return@withSelection
         val from = history.timeline.trackOfClip(clipId)?.clip(clipId)
         execute(EditCommand.SetTransitionDuration(transition.id, frames, assetLengthFrames(from?.assetId)))
+    }
+
+    private fun setTransitionStyle(
+        type: com.ultimatevideo.uveditor.domain.TransitionType,
+        direction: com.ultimatevideo.uveditor.domain.TransitionDirection,
+    ) = withSelection { clipId ->
+        val transition = history.timeline.transitions.firstOrNull { it.fromClipId == clipId }
+        if (transition == null) {
+            emit(EditorEffect.ShowMessage("Add a transition to the next clip first"))
+            return@withSelection
+        }
+        execute(EditCommand.SetTransitionStyle(transition.id, type, direction))
     }
 
     private fun removeTransition() = withSelection { clipId ->
