@@ -6,14 +6,15 @@
 # |heard frame - frame the preview should be on| and how many times the preview had to be
 # re-anchored (tag UVSync). It does not measure display or speaker latency.
 #
-# Usage: scripts/av-drift-test.sh <adb-serial> [minutes=5]
-# Needs: adb, ffmpeg, python3, a debug build installed (run-as). The screen must be unlocked.
+# Usage: [PKG=com.ultimatevideo.uveditor[.suffix]] scripts/av-drift-test.sh <adb-serial> [minutes=5]
+# Needs: adb, ffmpeg, python3, a debug build installed (run-as). The screen must be unlocked: the script seeds the
+# project, opens it from the hub through uiautomator (dismissing the reopen offer) and presses play on its own.
 set -euo pipefail
 
 serial="${1:?usage: $0 <adb-serial> [minutes]}"
 minutes="${2:-5}"
-pkg=com.ultimatevideo.uveditor
-adb_() { adb -s "$serial" "$@"; }
+pkg="${PKG:-com.ultimatevideo.uveditor}"
+. "$(dirname "$0")/device-ui.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -29,15 +30,16 @@ adb_ shell run-as "$pkg" mkdir -p files/projects/avdrift
 adb_ shell "cat /data/local/tmp/beep10.mp4 | run-as $pkg sh -c 'cat > files/beep10.mp4'"
 
 clips=$((minutes * 6))  # 10 s per clip
-python3 - "$clips" > "$work/project.json" <<'PY'
+python3 - "$clips" "$pkg" > "$work/project.json" <<'PY'
 import json, sys
 n = int(sys.argv[1])
+pkg = sys.argv[2]
 clips = [{"id": f"c{i}", "assetId": "a1", "timelineStartFrame": i * 300, "sourceInFrame": 0,
           "sourceOutFrame": 300} for i in range(n)]
 print(json.dumps({
     "version": 1, "id": "avdrift", "name": "AV drift test",
     "settings": {"width": 1920, "height": 1080, "fpsNum": 30, "fpsDen": 1, "colorSpace": "Rec709-SDR"},
-    "mediaLibrary": [{"id": "a1", "uri": "file:///data/data/com.ultimatevideo.uveditor/files/beep10.mp4",
+    "mediaLibrary": [{"id": "a1", "uri": f"file:///data/data/{pkg}/files/beep10.mp4",
                       "durationFrames": 300, "nativeFpsNum": 30, "nativeFpsDen": 1,
                       "colorSpace": "Rec709-SDR", "hasVideo": True, "hasAudio": True}],
     "tracks": [{"id": "v1", "type": "video", "order": 0, "clips": clips}],
@@ -47,10 +49,14 @@ adb_ push "$work/project.json" /data/local/tmp/avdrift.json >/dev/null
 adb_ shell "cat /data/local/tmp/avdrift.json | run-as $pkg sh -c 'cat > files/projects/avdrift/project.json'"
 
 adb_ shell setprop log.tag.UVSync DEBUG
+ui_require_unlocked
+ui_launch
+ui_open_project "AV drift test"
 adb_ logcat -c
-echo "Project 'AV drift test' seeded (${minutes} min). Open it in the app and press play;"
-echo "logging UVSync for $((minutes * 60 + 30)) s ..."
-timeout "$((minutes * 60 + 30))" adb -s "$serial" logcat -s UVSync:D | tee "$work/uvsync.log" || true
+echo "Project 'AV drift test' seeded (${minutes} min) and opened; pressing play and logging UVSync for $((minutes * 60 + 20)) s ..."
+ui_tap_text "Play"
+timeout "$((minutes * 60 + 20))" adb -s "$serial" logcat -s UVSync:D | tee "$work/uvsync.log" || true
+ui_tap_text "Pause" || true
 
 python3 - "$work/uvsync.log" <<'PY'
 import re, sys

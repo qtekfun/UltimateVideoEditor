@@ -135,3 +135,11 @@ preview, markers and beats, templates, captions, photos and stickers, tray drag 
 clip labels on title and sticker blocks, unattended perf/drift scripts and the 5-minute A/V drift number: they need an
 unlocked screen. Run them again when the Pixel is unlocked.
 
+### Unattended device scripts (added after the second pass)
+
+`scripts/perf-editor.sh` and `scripts/av-drift-test.sh` no longer need anyone to open the project or press play: the new
+`scripts/device-ui.sh` helpers find nodes with `uiautomator` (under `/tmp/uiautomator.lock`, because two parallel dumps crash
+the service), dismiss the "app closed while ... was open" offer, open a project by name and press Play/Pause. Both take
+`PKG=` for a side-by-side build (`-PappIdSuffix`). The node lookup is tested against a sample dump; **the scripts themselves
+were not run on a device** (the Pixel was locked), so the 5-minute A/V drift number is still missing.
+

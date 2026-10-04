@@ -4,6 +4,8 @@ import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
+import com.ultimatevideo.uveditor.domain.SourceColorSpace
+import com.ultimatevideo.uveditor.proxy.ResolvedSource
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -28,6 +30,20 @@ internal fun previewRequestsAt(
     assets: List<MediaAssetDto>,
     fps: FrameRate,
     playhead: FrameIndex,
+    assetKeyOf: (String) -> Int,
+): List<PreviewRequest> = previewRequestsWithSources(timeline, assets, fps, playhead, { ResolvedSource(it.uri) }, assetKeyOf)
+
+/**
+ * [previewRequestsAt] with the file to open for each asset chosen by [sourceOf]: its original unless a ready
+ * proxy stands in for it while editing. The proxy keeps the source's frame rate and length, so every frame
+ * number in the requests is the same for both.
+ */
+internal fun previewRequestsWithSources(
+    timeline: Timeline,
+    assets: List<MediaAssetDto>,
+    fps: FrameRate,
+    playhead: FrameIndex,
+    sourceOf: (MediaAssetDto) -> ResolvedSource,
     assetKeyOf: (String) -> Int,
 ): List<PreviewRequest> {
     val assetsById = assets.associateBy { it.id }
@@ -67,9 +83,11 @@ internal fun previewRequestsAt(
                 if (asset == null || !asset.hasVideo) {
                     null
                 } else {
+                    val source = sourceOf(asset)
                     PreviewRequest(
                         assetKey = assetKeyOf(asset.id) + clip.lane * LANE_STRIDE,
-                        uri = asset.uri,
+                        uri = source.uri,
+                        proxyAssetId = source.proxyAssetId,
                         sourceFrame = clip.sourceFrameAt(playhead.value),
                         fpsNum = fps.num,
                         fpsDen = fps.den,
@@ -79,7 +97,8 @@ internal fun previewRequestsAt(
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
                         fx = clip.fxAt(playhead.value),
-                        sourceOverride = clip.colorOverride?.transferIndex ?: -1,
+                        // A proxy is an SDR Rec.709 stand-in whatever the original was: read it as that.
+                        sourceOverride = if (source.isProxy) SourceColorSpace.SDR.transferIndex else clip.colorOverride?.transferIndex ?: -1,
                     )
                 }
             }

@@ -166,7 +166,7 @@ waves of SPECS 9.20.
 - [ ] WP-V3 Voice effects (classical DSP)
 
 ### Wave 7
-- [ ] WP-P Proxy media
+- [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
 - [ ] WP-V5 Project templates, transition and filter packs
 
 ### Wave 8
