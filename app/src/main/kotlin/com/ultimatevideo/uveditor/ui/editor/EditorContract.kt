@@ -71,6 +71,8 @@ data class EditorState(
      * refers to a lane of [visibleTimeline].
      */
     val dropHint: DropHint? = null,
+    /** The clips being dragged or trimmed and the frame an edge snapped to, drawn by the timeline while the drag lasts. */
+    val dragOverlay: DragOverlay? = null,
     val assets: List<MediaAssetDto> = emptyList(),
     val playhead: FrameIndex = FrameIndex.ZERO,
     val selectedClipId: String? = null,
@@ -689,3 +691,6 @@ data class TrackUiState(
     val activeId: String? = null,
     val overlay: List<com.ultimatevideo.uveditor.domain.TrackMath.CanvasPoint> = emptyList(),
 )
+
+/** What the timeline draws on top of a drag: the clips lifted with a shadow and a line where a moved edge snapped ([guideFrame], null for none). */
+data class DragOverlay(val clipIds: List<String>, val guideFrame: Long?)

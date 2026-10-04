@@ -11,5 +11,5 @@ fun MediaAssetDto.animationTiming(): AnimationTiming? {
     if (!isImage) return null
     val delays = animationDelaysMs ?: return null
     if (delays.size < 2 || delays.any { it !in 1..AnimationTiming.MAX_DELAY_MS }) return null
-    return AnimationTiming(delays)
+    return AnimationTiming(delays, (animationPlays ?: AnimationTiming.INFINITE).coerceIn(0, AnimationTiming.MAX_PLAYS))
 }

@@ -137,14 +137,35 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         if (end <= start) continue;  // shorter than one output sample
 
         const uint64_t denoiseHash = hashDenoise(d.denoiseStrength, d.noiseProfile);
-        const uint64_t voiceHash = d.voice.hash();
+        std::shared_ptr<const VoiceSchedule> voiceSchedule;
+        if (!d.voiceLanes.empty()) {
+            auto schedule = std::make_shared<VoiceSchedule>();
+            for (const VoiceAutoLane& lane : d.voiceLanes) {
+                if (lane.points.empty()) return Status::BadSnapshot;
+                VoiceLane vl;
+                vl.field = lane.field;
+                for (const AutoPoint& pt : lane.points) {
+                    // Clip-local samples, so moving the clip does not make the effect a new source.
+                    const int64_t at = framesToSamples(pt.frame, data.fps, rate);
+                    if (!vl.samples.empty() && at <= vl.samples.back()) {
+                        vl.samples.pop_back();  // two frames on one sample at an extreme rate: keep the later
+                        vl.values.pop_back();
+                    }
+                    vl.samples.push_back(at);
+                    vl.values.push_back(pt.value);
+                }
+                schedule->lanes.push_back(std::move(vl));
+            }
+            voiceSchedule = std::move(schedule);
+        }
+        const uint64_t voiceHash = voiceSchedule ? voiceSchedule->identity(d.voice) : d.voice.hash();
         const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den, hashKnots(d.knots), denoiseHash, voiceHash};
         std::shared_ptr<ClipSource> source;
         if (auto it = sources_.find(key); it != sources_.end()) {
             source = it->second;
         } else {
             source = std::make_shared<ClipSource>(d.clipKey, d.assetKey, sourceFramesToMicros(d.sourceInFrame, d.sourceFps),
-                                                  bufferFrames_, d.knots, d.sourceFps, d.denoiseStrength, d.noiseProfile, denoiseHash, d.voice, voiceHash);
+                                                  bufferFrames_, d.knots, d.sourceFps, d.denoiseStrength, d.noiseProfile, denoiseHash, d.voice, voiceHash, voiceSchedule);
         }
         next[key] = source;
 
@@ -529,7 +550,7 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
         }
         src.resampler->reset();
         if (src.denoiser) src.denoiser->reset();
-        if (src.voiceFx) src.voiceFx->reset();
+        if (src.voiceFx) src.voiceFx->reset(needStart);
         src.drainLeft = 0;
         src.buffer.reset(needStart);
         src.decodedEnd = needStart;
@@ -610,7 +631,7 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
                 if (src.voiceFx && src.decodedEnd < len) {
                     // Frames still inside the vocoder plus the echo/reverb tail, bounded by the clip's length.
                     const int64_t inside = src.voiceFx->framesIn() - src.voiceFx->framesOut();
-                    src.drainLeft = inside + src.voice.tailFrames(rate) + kVoiceHop;
+                    src.drainLeft = inside + src.voiceEnvelope.tailFrames(rate) + kVoiceHop;
                     continue;  // the drain branch above lets it sound; the end of the media is declared when it is done
                 }
             }
@@ -631,7 +652,7 @@ void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, in
         if (!src.decoder && !openDecoder(src, rate)) return;
         src.retimed->reset();
         if (src.denoiser) src.denoiser->reset();
-        if (src.voiceFx) src.voiceFx->reset();
+        if (src.voiceFx) src.voiceFx->reset(needStart);
         src.drainLeft = 0;
         src.buffer.reset(needStart);
         src.decodedEnd = needStart;
@@ -693,7 +714,7 @@ bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
     if (src.denoiseStrength > 0.0f && src.noiseProfile.size() == static_cast<size_t>(kDenoiseBins)) {
         src.denoiser = std::make_unique<SpectralDenoiser>(src.noiseProfile.data(), src.denoiseStrength);
     }
-    if (!src.voice.isNeutral()) src.voiceFx = std::make_unique<VoiceProcessor>(src.voice, rate);
+    if (!src.voiceEnvelope.isNeutral()) src.voiceFx = std::make_unique<VoiceProcessor>(src.voice, rate, false, src.voiceSchedule);
     src.drainLeft = 0;
     if (!src.knots.empty()) {
         src.retimed = std::make_unique<RetimedReader>(src.decoder.get(), RetimeMap(src.knots, src.fps, rate, srcRate));

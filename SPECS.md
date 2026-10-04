@@ -558,7 +558,8 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
   one frame per step; `CanvasSnapshots` keeps the canvas every N frames, N grown with the canvas size so snapshots stay within 32 MB, so a
   seek back replays less than N frames). WebP is read from its RIFF container (`WebpContainerParser`: VP8X, ANIM, ANMF with
   offset, duration, blend and dispose bits, with size and frame-count limits); every frame is wrapped as a standalone still WebP
-  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The file's loop count is ignored.
+  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The loop count is read from the container (WebP ANIM; GIF NETSCAPE2.0, repeat count + 1, none = once) into
+  `MediaAssetDto.animationPlays` and `AnimationTiming.plays` (0 = forever); after the last pass `frameIndexAt` holds the last frame.
   Frame timing is `AnimationTiming` for both (0 ms and 10 ms or less count as 100 ms).
 - **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
 
@@ -1766,7 +1767,19 @@ strictness; see DECISIONS.md, "Privacy").
   `audio_snapshot.h`); versions 4 and 5 still parse. Kotlin: `domain/AudioTools.kt` (`VoicePreset`, `VoiceFx`,
   `VoiceParams`), `ClipAudio.voice`, JSON `voice: {preset, values}` (optional), `engine/audio/VoiceSpec`,
   inspector subsection in `AudioControls.kt`.
-- Not keyframable (changing a value restarts decoding of the clip); the effect belongs to the clip, so a split keeps it on both halves.
+- Keyframable: every slider is a parameter `audio.voice.<sliderIndex>` of the clip's `params` (same keys, interpolation, split/trim/speed
+  re-basing and undo as pan and EQ gains). `ui/editor/EditorAudio.kt` `voiceLanesOf` turns the animated sliders into one lane per engine
+  setting they drive: the presets map sliders to settings with affine maps, so the settings are evaluated at every frame where an animated
+  slider has a point (`ParamTracks.audioPoints`) and the engine's linear interpolation is exact. Snapshot version 7 appends the lanes after
+  the voice blocks (a lane count per clip, header and points like the automation lanes, field = position in the voice block) and a trailing
+  u32 with their byte size; versions 4 to 6 still parse. Native: `VoiceSchedule` (`audio/voice_fx.h`) holds the lanes in clip-local output
+  samples; `VoiceProcessor` takes it with the clip-local position of its first sample (`reset(position)`, so a seek reads the keys there).
+  The widest value of every setting over the keys (`envelope`) decides which stages exist, the delay line size and the tail. The spectral
+  stage reads the settings at the centre of each analysis frame; ring, band, drive, echo and reverb read them every 16 samples at the
+  absolute position, so output never depends on how the stream is cut. Echo delay is a fractional read ramped over a block (a moving delay
+  glides in pitch); reverb size moves the feedback, the comb lengths are fixed at the middle of the keyed range; the ring carrier is a
+  phase accumulator. Keys, like the static values, make a new source (decoding restarts); the effect belongs to the clip, so a split keeps
+  it on both halves.
 
 ### 9.18 WP-V4 Optical-flow slow motion, video denoise and deflicker
 

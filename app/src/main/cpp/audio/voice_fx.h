@@ -15,9 +15,13 @@
 // many frames as were fed (plus the tail). The 1536-sample latency of the spectral stage is hidden by
 // priming the history with zeros, so a clip never shifts against the picture. Everything is
 // sample-exact in the input stream: the output does not depend on how the stream is cut into calls.
+//
+// The settings can be keyframed (VoiceSchedule): the spectral stage reads them at the centre of every analysis frame,
+// the later stages every 16 samples, always at the clip-local position, so this property holds with animation too.
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "audio/dsp.h"
@@ -66,16 +70,54 @@ bool voiceParamsValid(const VoiceParams& p);
 void voiceParamsFromFloats(const float* f, VoiceParams* p);
 void voiceParamsToFloats(const VoiceParams& p, float* f);
 
+// Keyframes of the effect's settings. A lane replaces one field of VoiceParams (by its position in the wire layout,
+// 0..kVoiceFieldCount) while the clip plays: `values[i]` holds at clip-local output sample `samples[i]`, linear in
+// between, held before the first and after the last. The processor reads the schedule at the output position of the
+// sample (or, for the spectral stage, of the centre of the analysis frame), so the result does not depend on how
+// the stream is cut into calls.
+constexpr int kVoiceFieldCount = 14;
+
+struct VoiceFieldRange {
+    float lo, hi;
+    bool zeroOk;  // 0 means "off" and is accepted next to lo..hi
+};
+VoiceFieldRange voiceFieldRange(int field);
+
+struct VoiceLane {
+    int field = 0;
+    std::vector<int64_t> samples;  // strictly increasing, never empty
+    std::vector<float> values;
+    float at(int64_t sample) const;
+};
+
+class VoiceSchedule {
+public:
+    std::vector<VoiceLane> lanes;  // at most one per field
+
+    bool empty() const { return lanes.empty(); }
+    bool animates(int field) const;
+    const VoiceLane* find(int field) const;
+    // `base` with every animated field replaced by its value at clip-local `sample`.
+    VoiceParams at(const VoiceParams& base, int64_t sample) const;
+    // The widest setting of every field over `base` and all the keys: decides which stages exist, how long the
+    // delay lines are and how long the tail can be.
+    VoiceParams envelope(const VoiceParams& base) const;
+    // Identity of base plus keys (never 0 when there are keys), part of a clip source's key.
+    uint64_t identity(const VoiceParams& base) const;
+};
+
 class VoiceProcessor {
 public:
     // `forceSpectral` runs the spectral stage even for neutral shifts (the host tests use it to check
-    // alignment and gain of the phase vocoder itself).
-    VoiceProcessor(const VoiceParams& params, int32_t sampleRate, bool forceSpectral = false);
+    // alignment and gain of the phase vocoder itself). `schedule` animates fields of `params` (null: fixed).
+    VoiceProcessor(const VoiceParams& params, int32_t sampleRate, bool forceSpectral = false,
+                   std::shared_ptr<const VoiceSchedule> schedule = nullptr);
     ~VoiceProcessor();
     VoiceProcessor(const VoiceProcessor&) = delete;
     VoiceProcessor& operator=(const VoiceProcessor&) = delete;
 
-    void reset();
+    // `position` is the clip-local output sample the next input sample belongs to (what the schedule is read at).
+    void reset(int64_t position = 0);
     // Interleaved stereo in; appends the finished, input-aligned frames (stereo) to `out`.
     void process(const float* stereo, size_t frames, std::vector<float>* out);
     // Completes the pipeline: the frames still inside it, then up to `maxTailFrames` of echo/reverb tail
@@ -90,6 +132,9 @@ private:
     struct Impl;
     Impl* impl_;
     VoiceParams params_;
+    VoiceParams envelope_;  // params_ widened by the schedule: sizes buffers, decides stages and the tail
+    std::shared_ptr<const VoiceSchedule> schedule_;
+    int64_t origin_ = 0;
     int32_t rate_;
     bool spectral_;
     int64_t in_ = 0;

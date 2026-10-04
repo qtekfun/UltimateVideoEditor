@@ -33,6 +33,8 @@ import com.ultimatevideo.uveditor.engine.audio.EqBandSpec
 import com.ultimatevideo.uveditor.engine.audio.EqSpec
 import com.ultimatevideo.uveditor.engine.audio.RetimeKnot
 import com.ultimatevideo.uveditor.engine.audio.TrackRole
+import com.ultimatevideo.uveditor.engine.audio.VoiceField
+import com.ultimatevideo.uveditor.engine.audio.VoiceLane
 import com.ultimatevideo.uveditor.engine.audio.VoiceSpec
 import com.ultimatevideo.uveditor.domain.RenderClip
 import kotlinx.coroutines.CoroutineScope
@@ -93,6 +95,7 @@ internal fun audioSnapshotOf(
             noiseProfile = denoise?.profile ?: emptyList(),
             automation = automationLanesOf(clip),
             voice = voiceSpecOf(tools.voice),
+            voiceAutomation = voiceLanesOf(clip),
         )
     }
     val tracks = mixerTracks.map { track ->
@@ -146,6 +149,35 @@ internal fun automationLanesOf(clip: RenderClip): List<AutomationLane> {
 
 /** A key for a track id that is stable across snapshots, so the mixer keeps its envelopes running through edits. */
 internal fun stableTrackKey(trackId: String): Long = trackId.hashCode().toLong()
+
+/**
+ * The keyframed voice sliders of [clip] as engine lanes. A slider is one to three numbers that the preset turns into the
+ * engine's settings with affine maps (see [VoiceFx.params]), so the settings are evaluated at every frame where any
+ * animated slider has a point (its keys, plus one point per frame inside an eased or Bezier segment, like
+ * [ParamTracks.audioPoints]); the engine then interpolates linearly between them, which is exact for the maps involved.
+ * A setting that never differs from its static value gets no lane. Frames are shifted like those of [automationLanesOf].
+ */
+internal fun voiceLanesOf(clip: RenderClip): List<VoiceLane> {
+    val voice = clip.audio.voice ?: return emptyList()
+    val tracks = voice.preset.sliders.indices.mapNotNull { i -> ParamTracks.track(clip.params, ParamIds.voice(i))?.let { i to it.keys } }
+    if (tracks.isEmpty()) return emptyList()
+    val shift = clip.keyframeOriginFrame - clip.startFrame
+    val frames = tracks.flatMap { (_, keys) -> ParamTracks.audioPoints(keys).map { it.first } }.toSortedSet()
+        .filter { it + shift in 0..clip.durationFrames }
+    if (frames.isEmpty()) return emptyList()
+    val fixed = voiceSpecOf(voice)
+    val specs = frames.map { frame ->
+        val values = voice.values.mapIndexed { i, base ->
+            val keys = tracks.firstOrNull { it.first == i }?.second
+            if (keys == null) base else ParamTracks.evaluate(keys, frame, base)
+        }
+        frame to voiceSpecOf(voice.copy(values = values))
+    }
+    return VoiceField.entries.mapNotNull { field ->
+        val points = specs.map { (frame, spec) -> AutoPoint(frame + shift, field.clamp(spec.valueOf(field))) }
+        if (points.all { it.value == fixed.valueOf(field) }) null else VoiceLane(field, points)
+    }
+}
 
 /** The engine's view of a clip's voice effect: the preset's sliders resolved to the native chain's settings. */
 internal fun voiceSpecOf(fx: VoiceFx?): VoiceSpec {

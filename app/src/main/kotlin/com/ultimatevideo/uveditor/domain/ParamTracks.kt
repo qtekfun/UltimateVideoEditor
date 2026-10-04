@@ -23,6 +23,7 @@ data class ParamSpec(val id: String, val label: String, val min: Double, val max
  * old builds ignore tracks they do not know:
  * - `fx.<effectId>.<valueIndex>`: a value of one of the clip's effects (colour grade included);
  * - `audio.gainDb`, `audio.pan`, `audio.eq.<band>.gainDb`: the clip's volume, balance and EQ band gains;
+ * - `audio.voice.<sliderIndex>`: a slider of the clip's voice effect (index into [VoicePreset.sliders]);
  * - `pose.positionX`, `pose.positionY`, `pose.scaleX`, `pose.scaleY`, `pose.rotation`, `pose.opacity`: the
  *   pose, stored as the clip's joint [Keyframe]s and shown per parameter ([PoseParams]).
  */
@@ -33,6 +34,12 @@ object ParamIds {
     fun fx(effectId: String, valueIndex: Int) = "fx.$effectId.$valueIndex"
 
     fun eqGain(band: Int) = "audio.eq.$band.gainDb"
+
+    fun voice(sliderIndex: Int) = "audio.voice.$sliderIndex"
+
+    /** The slider index of an `audio.voice.` parameter, or null. */
+    fun parseVoice(id: String): Int? =
+        if (id.startsWith("audio.voice.")) id.removePrefix("audio.voice.").toIntOrNull()?.takeIf { it >= 0 } else null
 
     /** (effect id, value index) of an `fx.` parameter, or null. Effect ids may contain dots. */
     fun parseFx(id: String): Pair<String, Int>? {
@@ -234,6 +241,11 @@ fun Clip.paramSpec(id: String): ParamSpec? {
         if (effect.type == EffectType.LUT && index == 0) return null
         return ParamSpec(id, "${effect.type.label} ${param.name.lowercase()}", param.min, param.max)
     }
+    ParamIds.parseVoice(id)?.let { index ->
+        val voice = audio.voice ?: return null
+        val slider = voice.preset.sliders.getOrNull(index) ?: return null
+        return ParamSpec(id, "${voice.preset.label} ${slider.name.lowercase()}", slider.min, slider.max)
+    }
     return when (id) {
         ParamIds.GAIN_DB -> ParamSpec(id, "Volume", ClipGain.MIN_DB, ClipGain.MAX_DB)
         ParamIds.PAN -> ParamSpec(id, "Pan", -1.0, 1.0)
@@ -247,6 +259,7 @@ fun Clip.paramSpec(id: String): ParamSpec? {
 fun Clip.staticParamValue(id: String): Double? {
     PoseParams.byId(id)?.let { return it.read(transform) }
     ParamIds.parseFx(id)?.let { (effectId, index) -> return fx.effect(effectId)?.values?.getOrNull(index) }
+    ParamIds.parseVoice(id)?.let { index -> return audio.voice?.values?.getOrNull(index) }
     return when (id) {
         ParamIds.GAIN_DB -> gainDb
         ParamIds.PAN -> audio.pan
