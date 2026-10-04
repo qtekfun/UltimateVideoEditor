@@ -169,6 +169,7 @@ import com.ultimatevideo.uveditor.ui.editor.layout.handleThickness
 import com.ultimatevideo.uveditor.ui.editor.layout.label
 import com.ultimatevideo.uveditor.ui.editor.layout.rememberTicker
 import com.ultimatevideo.uveditor.ui.editor.layout.sideCollapsed
+import com.ultimatevideo.uveditor.ui.editor.layout.bottomTrayShown
 import com.ultimatevideo.uveditor.ui.editor.layout.visiblePanels
 import kotlin.math.roundToInt
 import android.content.Context
@@ -728,7 +729,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                         onOpenTray = { tray = tray.open(it) },
                         bottomTray = {
                             val trayDock = layout.tray
-                            if (trayDock.dock == Dock.BOTTOM) {
+                            if (bottomTrayShown(layout.state, inspectorOpen)) {
                                 if (trayDock.collapsed) {
                                     CollapsedBottomBar("media tray", onExpand = { layout.dispatch(LayoutAction.SetCollapsed(Panel.TRAY, false)) })
                                 } else {
