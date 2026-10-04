@@ -22,7 +22,8 @@ automated tests so far; see [Known limits](#known-limits).
 14. [Proxy media](#proxy-media)
 15. [Multicam](#multicam)
 16. [Missing media and recovery](#missing-media-and-recovery)
-17. [Known limits](#known-limits)
+17. [About, privacy, tips and crash reports](#about-privacy-tips-and-crash-reports)
+18. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -516,6 +517,22 @@ hatched. Tap it to **Relink** each file to a replacement (the app warns if the r
 different frame rate or colour space). Everything else stays editable.
 
 Each save keeps a `project.json.bak`. If a project fails to load, use **Recover** in the hub.
+
+## About, privacy, tips and crash reports
+
+Open the **⋮ menu** in the project list and choose **About, privacy and help**.
+
+- **Version** of the build, the **licence** (GPL-3.0) with the full text, and where the source code lives.
+- **Privacy**: what the app stores and why it needs no permissions, the same text as `docs/PRIVACY.md`.
+- **Third-party software**: the libraries inside the app and their licences.
+- **Storage**: how much space projects, caches and proxy copies use. **Clear caches** deletes waveforms, thumbnails and
+  analysis results (they are rebuilt when needed); it never touches projects, your media or the proxy copies (manage
+  those in the proxy sheet).
+- **Last crash report**: if the app ever crashed, a short text report was saved on your phone. It has the app version,
+  phone model, Android version and the technical stack, with file paths and names removed. **Copy** it or **Share** it
+  (only when you tap Share does it leave the phone) to attach it to a bug report, or **Delete** it.
+- **Show tips again**: three short tips (import, cut and arrange, export and help) appear on first launch and can be
+  brought back here.
 
 ## Known limits
 
