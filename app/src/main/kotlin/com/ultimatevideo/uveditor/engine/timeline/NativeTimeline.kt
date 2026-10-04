@@ -23,6 +23,8 @@ internal object NativeTimeline {
     external fun nativeScrollBy(handle: Long, dx: Float, dy: Float)
     external fun nativeZoomBy(handle: Long, factor: Float, focusX: Float)
     external fun nativeFling(handle: Long, velocityX: Float)
+    external fun nativeZoomLanesBy(handle: Long, factor: Float, focusY: Float)
+    external fun nativeFollowContent(handle: Long)
     external fun nativeFitToContent(handle: Long)
     external fun nativeIsAutoFit(handle: Long): Boolean
     external fun nativeSetPlayhead(handle: Long, frame: Long)

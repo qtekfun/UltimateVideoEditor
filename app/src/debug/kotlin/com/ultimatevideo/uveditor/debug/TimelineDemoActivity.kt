@@ -55,6 +55,11 @@ class TimelineDemoActivity : ComponentActivity() {
         // `--ef zoom <factor>` zooms in at start (adb cannot pinch), e.g. to exercise finer thumbnail levels.
         val zoom = intent.getFloatExtra("zoom", 1f)
         if (zoom != 1f) engine.zoomBy(zoom, 0f)
+        // `--ef vzoom <factor>` zooms the lane heights (about the panel's lower third) and `--ez fit true` presses "Fit"
+        // (time axis and lanes); `--ei lanes <n>` sets the number of lanes (default 5). adb cannot pinch either.
+        val vzoom = intent.getFloatExtra("vzoom", 1f)
+        if (vzoom != 1f) engine.zoomLanesBy(vzoom, 600f)
+        if (intent.getBooleanExtra("fit", false)) engine.fitToContent()
 
         setContent {
             UVEditorTheme {
@@ -115,10 +120,11 @@ class TimelineDemoActivity : ComponentActivity() {
     }
 
     private fun buildDemoSnapshot(selected: Long): TimelineSnapshot {
-        val tracks = listOf(
+        val order = listOf(
             SnapshotTrackType.TITLE, SnapshotTrackType.VIDEO, SnapshotTrackType.VIDEO,
             SnapshotTrackType.AUDIO, SnapshotTrackType.AUDIO,
         )
+        val tracks = List(intent.getIntExtra("lanes", order.size).coerceIn(1, 40)) { order[it % order.size] }
         val clips = mutableListOf<SnapshotClip>()
         var key = 0L
         // Deterministic pseudo-random layout: ~60 clips across five tracks.
