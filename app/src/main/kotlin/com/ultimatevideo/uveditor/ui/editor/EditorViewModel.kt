@@ -108,6 +108,7 @@ import com.ultimatevideo.uveditor.domain.paramKeys
 import com.ultimatevideo.uveditor.domain.paramSpec
 import com.ultimatevideo.uveditor.domain.paramValueAt
 import com.ultimatevideo.uveditor.domain.Snap
+import com.ultimatevideo.uveditor.domain.SnapGuides
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -909,6 +910,7 @@ class EditorViewModel(
             copy(
                 timeline = committed,
                 dragPreview = null,
+                dragOverlay = null,
                 audioSessionActive = false,
                 noiseRegion = noiseRegion?.takeIf { committed.trackOfClip(it.clipId) != null },
                 dropHint = null,
@@ -1407,6 +1409,26 @@ class EditorViewModel(
     }
 
     private fun dragMove(frame: Long, trackIndex: Int, zone: DragZone) {
+        dragStep(frame, trackIndex, zone)
+        updateDragOverlay()
+    }
+
+    /** The clips being dragged or trimmed and where a moved edge snapped, read from the preview the step just produced. */
+    private fun updateDragOverlay() {
+        val session = drag ?: return
+        if (session.mode == DragMode.PLAYHEAD || session.mode == DragMode.MARKER) return
+        val ids = session.group ?: listOf(session.clipId)
+        val base = history.timeline
+        val preview = state.value.dragPreview
+        val guide = preview?.let { SnapGuides.guideFrame(base, it, ids, snapWith(base, state.value.playhead)) }
+        val overlay = DragOverlay(ids, guide)
+        if (state.value.dragOverlay != overlay) reduce { copy(dragOverlay = overlay) }
+    }
+
+    /** Snapshot keys of the dragged clips, for the canvas. */
+    fun dragOverlayKeys(overlay: DragOverlay): LongArray = LongArray(overlay.clipIds.size) { clipKeys.keyFor(overlay.clipIds[it]) }
+
+    private fun dragStep(frame: Long, trackIndex: Int, zone: DragZone) {
         val session = drag ?: return
         if (session.mode == DragMode.PLAYHEAD) {
             setPlayhead(frame)
@@ -1487,7 +1509,7 @@ class EditorViewModel(
         drag = null
         pendingDragCommand = null
         if (commit && command != null && execute(command)) return
-        reduce { copy(dragPreview = null, dropHint = null) }
+        reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
     }
 
     private fun snapFrame(timeline: Timeline, movingClipId: String, frame: Long, playhead: FrameIndex): FrameIndex {
@@ -3024,6 +3046,7 @@ class EditorViewModel(
                 isImage = true,
                 displayName = probed.displayName,
                 animationDelaysMs = probed.animationDelaysMs,
+                animationPlays = probed.animationPlays.takeIf { probed.animationDelaysMs != null },
             )
             reduce { copy(assets = assets + image) }
             scheduleSave()

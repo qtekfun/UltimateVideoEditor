@@ -69,6 +69,11 @@ class TimelineEngine(
                 if (h != 0L) NativeTimeline.nativeLabelPut(h, hash, label.pixels, label.width, label.height, label.colour)
             }
 
+            override fun takeEvicted(out: LongArray): Int {
+                val h = handle
+                return if (h != 0L) NativeTimeline.nativeLabelTakeEvicted(h, out) else 0
+            }
+
             override fun labelGeneration(): Int {
                 val h = handle
                 return if (h != 0L) NativeTimeline.nativeLabelGeneration(h) else 0
@@ -127,6 +132,13 @@ class TimelineEngine(
 
     fun setDropHint(indicator: DropIndicator, trackIndex: Int = -1, startFrame: Long = 0, endFrame: Long = 0) =
         NativeTimeline.nativeSetDropHint(live(), indicator.code, trackIndex, startFrame, endFrame)
+
+    /**
+     * What is drawn while clips are dragged or trimmed: a line at [snapGuideFrame] (null for none) and the blocks with the
+     * given [clipKeys] lifted with a soft shadow. Call with no guide and no keys when the drag ends.
+     */
+    fun setDragOverlay(snapGuideFrame: Long?, clipKeys: LongArray) =
+        NativeTimeline.nativeSetDragOverlay(live(), snapGuideFrame ?: -1L, clipKeys)
 
     /** Draws the selection rectangle from (x0, y0) to (x1, y1) in view pixels, or hides it with [clearMarquee]. */
     fun setMarquee(x0: Float, y0: Float, x1: Float, y1: Float) = NativeTimeline.nativeSetMarquee(live(), true, x0, y0, x1, y1)
