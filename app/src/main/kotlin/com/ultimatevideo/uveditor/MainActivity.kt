@@ -43,6 +43,7 @@ import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.data.trimPersistedUris
 import com.ultimatevideo.uveditor.engine.NativeEngineClient
 import com.ultimatevideo.uveditor.engine.timeline.WaveformBeatSource
+import com.ultimatevideo.uveditor.engine.timeline.CachedEnvelopeSource
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.editor.EditorScreen
 import com.ultimatevideo.uveditor.ui.editor.EditorViewModel
@@ -149,6 +150,7 @@ class MainActivity : ComponentActivity() {
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                     stabiliser = FileStabiliser(File(filesDir, "projects/$projectId/stab"), ContentResolverFdOpener(contentResolver)),
                                     interchange = interchange,
+                                    envelopeSource = CachedEnvelopeSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                     multicamServices = MulticamServices(
                                         envelopes = WaveformEnvelopeSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                         hasProxy = ProxyManager.of(applicationContext)::hasUsableProxy,

@@ -162,7 +162,7 @@ waves of SPECS 9.20.
 - [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker
 
 ### Wave 6
-- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper
+- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper. _Status:_ implemented (SPECS 5.23) and covered by JVM tests (silence detection on synthetic envelopes, source-to-timeline mapping, atomic cut with base ripple and overlays following, undo, reframe maths and keyframes, view model flows); the sheets and the real waveform path have not been seen on a device yet, so the box stays open.
 - [ ] WP-V3 Voice effects (classical DSP)
 
 ### Wave 7

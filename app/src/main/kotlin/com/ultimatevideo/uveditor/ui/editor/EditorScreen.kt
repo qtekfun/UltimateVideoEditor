@@ -754,6 +754,7 @@ private fun EditorMain(
         }
     }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
+    QuickEditSheets(state) { viewModel.onIntent(it) }
     if (state.multicam.open) {
         MulticamSheet(
             state = state,
@@ -927,6 +928,7 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
                     MarkerMenu(state, viewModel::onIntent)
+                    QuickEditMenu(state, viewModel::onIntent)
                     LibraryButton(viewModel::onIntent)
                     val proxyIntent = LocalProxyIntent.current
                     ToolButton(EditorIcons.Proxy, "Proxy media: small copies for smooth editing of heavy video; export always uses the originals") {
