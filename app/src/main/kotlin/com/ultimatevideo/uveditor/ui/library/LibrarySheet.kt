@@ -1,7 +1,6 @@
 package com.ultimatevideo.uveditor.ui.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Image
 import androidx.compose.material3.AlertDialog
@@ -58,7 +56,6 @@ import com.ultimatevideo.uveditor.ui.editor.EditorIntent
 import com.ultimatevideo.uveditor.ui.editor.EditorState
 import com.ultimatevideo.uveditor.ui.editor.InterchangeKind
 import com.ultimatevideo.uveditor.ui.editor.LibraryIntent
-import com.ultimatevideo.uveditor.ui.editor.MarkerEditDraft
 import com.ultimatevideo.uveditor.ui.editor.ToolButton
 import com.ultimatevideo.uveditor.ui.editor.formatTimecode
 import com.ultimatevideo.uveditor.ui.editor.proxy.badgeLabel
@@ -89,7 +86,6 @@ internal fun LibraryOverlays(state: EditorState, onIntent: (EditorIntent) -> Uni
             onDismiss = { onIntent(LibraryIntent.DismissBundleExport) },
         )
     }
-    state.markerEdit?.let { MarkerEditDialog(it, onIntent) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -275,48 +271,6 @@ private fun DeleteUnusedDialog(count: Int, onIntent: (EditorIntent) -> Unit) {
         confirmButton = { TextButton(onClick = { onIntent(LibraryIntent.ConfirmDeleteUnused) }) { Text("Remove") } },
         dismissButton = { TextButton(onClick = { onIntent(LibraryIntent.DismissDeleteUnused) }) { Text("Keep") } },
     )
-}
-
-@Composable
-private fun MarkerEditDialog(draft: MarkerEditDraft, onIntent: (EditorIntent) -> Unit) {
-    AlertDialog(
-        onDismissRequest = { onIntent(LibraryIntent.DismissMarkerEdit) },
-        title = { Text("Marker note") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = draft.note,
-                    onValueChange = { onIntent(LibraryIntent.MarkerNoteChanged(it)) },
-                    label = { Text("Note") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ColourDot(null, draft.color == null, onIntent)
-                    for (color in MarkerColor.entries) ColourDot(color, draft.color == color, onIntent)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onIntent(LibraryIntent.ConfirmMarkerEdit) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = { onIntent(LibraryIntent.DismissMarkerEdit) }) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun ColourDot(color: MarkerColor?, selected: Boolean, onIntent: (EditorIntent) -> Unit) {
-    val label = color?.name?.lowercase() ?: "no colour"
-    Box(
-        Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(color?.let(::markerColour) ?: MaterialTheme.colorScheme.surfaceVariant)
-            .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
-            .clickable(onClickLabel = "Marker colour $label") { onIntent(LibraryIntent.MarkerColorSelected(color)) }
-            .semantics { contentDescription = "Marker colour $label${if (selected) ", selected" else ""}" },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (selected) Text("✓", color = if (color == null) MaterialTheme.colorScheme.onSurface else Color.White)
-        if (color == null && !selected) Text("–", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
 }
 
 /** The colour a marker colour is shown in. */

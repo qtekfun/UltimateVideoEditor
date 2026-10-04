@@ -144,6 +144,8 @@ data class MarkerDto(
     val kind: String = "manual",
     val note: String? = null,
     val color: String? = null,
+    /** A short label drawn on the ruler; absent in projects written before markers could be named. */
+    val name: String? = null,
 )
 
 @Serializable

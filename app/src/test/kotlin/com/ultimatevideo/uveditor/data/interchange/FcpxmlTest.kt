@@ -67,6 +67,14 @@ class FcpxmlTest {
     }
 
     @Test
+    fun `a marker name is the marker text, before the note`() {
+        val project = sampleProject().let { it.copy(markers = listOf(com.ultimatevideo.uveditor.data.model.MarkerDto("mk1", 75, "manual", name = "Intro", note = "the note", color = "blue"))) }
+        val xml = Fcpxml.export(project).xml
+        assertTrue(xml, xml.contains("value=\"[blue] Intro\""))
+        assertTrue(xml, xml.contains("note=\"the note\""))
+    }
+
+    @Test
     fun `the unsupported features are listed`() {
         val export = Fcpxml.export(sampleProject())
         assertTrue(export.notes.any { it.contains("content://") })

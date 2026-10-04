@@ -263,7 +263,7 @@ object Fcpxml {
         }
 
         private fun markerText(marker: Marker): String {
-            val label = marker.note?.takeIf { it.isNotBlank() } ?: if (marker.kind == MarkerKind.BEAT) "Beat" else "Marker"
+            val label = marker.name?.takeIf { it.isNotBlank() } ?: marker.note?.takeIf { it.isNotBlank() } ?: if (marker.kind == MarkerKind.BEAT) "Beat" else "Marker"
             return marker.color?.let { "[${it.name.lowercase()}] $label" } ?: label
         }
 
