@@ -5,8 +5,20 @@ import kotlin.math.abs
 /** A manual marker is placed by the user; a beat marker comes from beat detection and is replaced as a set. */
 enum class MarkerKind { MANUAL, BEAT }
 
-/** A point on the ruler, in project frames. Markers do not move when clips are edited around them. */
-data class Marker(val id: String, val frame: FrameIndex, val kind: MarkerKind = MarkerKind.MANUAL)
+/** The colours a marker can be given; they only label it (a beat marker has none). */
+enum class MarkerColor { RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE }
+
+/**
+ * A point on the ruler, in project frames. Markers do not move when clips are edited around them.
+ * [note] and [color] are optional labels the user writes; they travel with the project and to EDL / FCPXML.
+ */
+data class Marker(
+    val id: String,
+    val frame: FrameIndex,
+    val kind: MarkerKind = MarkerKind.MANUAL,
+    val note: String? = null,
+    val color: MarkerColor? = null,
+)
 
 /** Pure marker edits. Frames are unique across all markers and the list is always sorted by frame. */
 object MarkerOps {
@@ -36,6 +48,19 @@ object MarkerOps {
             return EditResult.Failure(EditError.InvalidMarker("there is already a marker at frame ${marker.frame.value}"))
         }
         return EditResult.Success(timeline.copy(markers = normalised(timeline.markers + marker)))
+    }
+
+    const val MAX_NOTE_LENGTH = 200
+
+    /** Sets the note and colour of a marker; a blank note clears it. */
+    fun annotate(timeline: Timeline, markerId: String, note: String?, color: MarkerColor?): EditResult<Timeline> {
+        val marker = timeline.markers.firstOrNull { it.id == markerId } ?: return EditResult.Failure(EditError.MarkerNotFound(markerId))
+        val cleaned = note?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleaned != null && cleaned.length > MAX_NOTE_LENGTH) {
+            return EditResult.Failure(EditError.InvalidMarker("a marker note is at most $MAX_NOTE_LENGTH characters"))
+        }
+        if (marker.note == cleaned && marker.color == color) return EditResult.Success(timeline)
+        return EditResult.Success(timeline.copy(markers = timeline.markers.map { if (it.id == markerId) it.copy(note = cleaned, color = color) else it }))
     }
 
     fun remove(timeline: Timeline, markerId: String): EditResult<Timeline> {
