@@ -45,4 +45,21 @@ HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout
     return res;
 }
 
+std::vector<int64_t> clipsInRect(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x0, float y0, float x1,
+                                 float y1) {
+    if (x0 > x1) std::swap(x0, x1);
+    if (y0 > y1) std::swap(y0, y1);
+    y0 = std::max(y0, layout.rulerHeight);
+    std::vector<int64_t> keys;
+    if (y1 <= y0) return keys;
+    for (const ClipSnapshot& c : snap.clips) {
+        const double top = layout.trackTop(c.trackIndex) - vp.scrollY;
+        const double bottom = top + layout.trackHeight;
+        const double left = vp.frameToX(c.startFrame);
+        const double right = vp.frameToX(c.startFrame + c.durationFrames);
+        if (left < x1 && right > x0 && top < y1 && bottom > y0) keys.push_back(c.clipKey);
+    }
+    return keys;
+}
+
 }  // namespace uv::timeline

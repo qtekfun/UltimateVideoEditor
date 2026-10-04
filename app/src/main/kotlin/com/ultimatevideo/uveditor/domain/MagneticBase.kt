@@ -182,19 +182,29 @@ object MagneticBase {
 
     // region reorder
 
-    private fun reorder(timeline: Timeline, clipId: String, newStart: FrameIndex): EditResult<Timeline> {
+    private fun reorder(timeline: Timeline, clipId: String, newStart: FrameIndex): EditResult<Timeline> =
+        reorderBlock(timeline, listOf(clipId), newStart)
+
+    /**
+     * Reorders a run of base clips together (used by group moves): the block lands in the slot its
+     * centre is over, never leaving a gap, and overlays follow the footage like for a single clip.
+     * [clipIds] must be base clips that touch each other; the caller checks that.
+     */
+    internal fun reorderBlock(timeline: Timeline, clipIds: List<String>, newStart: FrameIndex): EditResult<Timeline> {
         val current = when (val closed = closeGaps(timeline)) {
             is EditResult.Success -> closed.value
             is EditResult.Failure -> return closed
         }
         val base = checkNotNull(ClipDeletion.baseTrack(current))
-        val clip = checkNotNull(base.clip(clipId))
-        val others = base.clips.filter { it.id != clipId }
-        val centre = newStart.value + clip.durationFrames / 2
+        val block = base.clips.filter { it.id in clipIds }
+        if (block.isEmpty()) return failure(EditError.ClipNotFound(clipIds.firstOrNull() ?: ""))
+        val others = base.clips.filter { it.id !in clipIds }
+        val blockLength = block.sumOf { it.durationFrames }
+        val centre = newStart.value + blockLength / 2
         val slot = others.count { it.timelineStart.value + it.durationFrames / 2 < centre }
-        if (slot == base.clips.indexOf(clip)) return EditResult.Success(timeline)
+        if (slot == base.clips.indexOf(block.first())) return EditResult.Success(timeline)
 
-        val order = others.toMutableList().apply { add(slot, clip) }
+        val order = others.toMutableList().apply { addAll(slot, block) }
         var cursor = FrameIndex.ZERO
         val segments = mutableListOf<Segment>()
         val newStarts = mutableMapOf<String, FrameIndex>()

@@ -91,6 +91,12 @@ data class EditorState(
     val snapToMarkers: Boolean = true,
     /** Beat detection is running for the selected clip. */
     val isAnalyzingBeats: Boolean = false,
+    /** Select mode: a tap toggles clips in the selection and dragging empty space draws a marquee. */
+    val selectMode: Boolean = false,
+    /** The selected clips when more than one is selected (includes [selectedClipId]); read them through [selection]. */
+    val selectedClipIds: Set<String> = emptySet(),
+    /** How many clips the clipboard holds. */
+    val clipboardCount: Int = 0,
     /** A slider drag on an audio tool is in progress: [dragPreview] holds it and the mixer plays it live. */
     val audioSessionActive: Boolean = false,
     /** What the audio analysis in progress is doing ("Measuring loudness…"), or null when idle. */
