@@ -20,6 +20,9 @@ import com.ultimatevideo.uveditor.domain.GradeCurves
 object FxWire {
     const val HEADER_DOUBLES = 9
 
+    /** Wire code of the stabiliser's effect (`core::EffectType::Stabilise`); it is not an [EffectType] users can add. */
+    const val STABILISE_CODE = 15
+
     /** Empty when every layer is plain, which the native side reads as "no effects anywhere". */
     fun encode(layers: List<ClipFx>): DoubleArray {
         if (layers.all { it.isNeutral }) return DoubleArray(0)
@@ -45,7 +48,15 @@ object FxWire {
         out += mask?.height ?: 1.0
         out += mask?.feather ?: 0.0
         out += if (mask?.invert == true) 1.0 else 0.0
-        out += fx.effects.size.toDouble()
+        val stab = fx.stabKey
+        out += (fx.effects.size + if (stab != null) 1 else 0).toDouble()
+        if (stab != null) {
+            // The stabiliser always runs first. Edge mode 1 repeats the border pixels; the last four values are
+            // placeholders that the native side fills in from the registered table for the frame being drawn.
+            out += STABILISE_CODE.toDouble()
+            out += 6.0
+            out += listOf(stab.toDouble(), 1.0, 0.0, 0.0, 0.0, 1.0)
+        }
         for (effect in fx.effects) {
             out += effect.type.code.toDouble()
             val values = effectValues(effect)

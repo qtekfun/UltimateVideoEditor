@@ -113,8 +113,14 @@ import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.engine.stabilise.NoStabiliser
+import com.ultimatevideo.uveditor.engine.stabilise.StabOutcome
+import com.ultimatevideo.uveditor.engine.stabilise.StabStatus
+import com.ultimatevideo.uveditor.engine.stabilise.Stabiliser
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.ui.editor.tray.moveAsset
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -140,6 +146,10 @@ class EditorViewModel(
     private val beatSource: BeatSource = NoBeatSource,
     /** Loudness measurements kept per file and range (normalising the same clip again does not decode it). */
     private val loudnessCache: LoudnessCache = LoudnessCache.None,
+    /** Camera-shake analysis and the correction tables the preview and the exporter read. */
+    private val stabiliser: Stabiliser = NoStabiliser,
+    /** Where stabiliser bookkeeping (reading cache headers, building tables) runs. */
+    private val stabDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** Writes bundles, EDLs and FCPXML files; the default cannot write anything. */
     private val interchange: InterchangeExporter = InterchangeExporter.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
@@ -294,6 +304,10 @@ class EditorViewModel(
             is EditorIntent.ApplyGrade -> applyGrade(intent.values, intent.curves)
             is EditorIntent.SetBlendMode -> withSelection { execute(EditCommand.SetBlendMode(it, intent.mode)) }
             is EditorIntent.SetClipColor -> withSelection { execute(EditCommand.SetColorOverride(it, intent.space)) }
+            is EditorIntent.SetStabilise -> withSelection { execute(EditCommand.SetStabilise(it, intent.stabilise)) }
+            EditorIntent.AnalyseStabilise -> analyseStabilise()
+            EditorIntent.CancelStabilise -> stabiliser.cancel()
+            EditorIntent.RefreshStabilise -> refreshStabilise()
             is EditorIntent.UpdateMask -> updateMask(intent.mask)
             is EditorIntent.EndFxEdit -> endFxEdit(intent.commit)
             EditorIntent.ClearFx -> withSelection { execute(EditCommand.ClearFx(it)) }
@@ -423,6 +437,7 @@ class EditorViewModel(
     // region loading and saving
 
     private fun load() {
+        stabiliser.releaseAll()  // tables of an earlier project must never be read by this one
         viewModelScope.launch {
             try {
                 val project = store.load(projectId)
@@ -442,6 +457,7 @@ class EditorViewModel(
                         assets = project.mediaLibrary,
                     )
                 }
+                refreshStabilise()  // a reopened project's stabilised clips need their tables again
                 verifyAssets(project.mediaLibrary)
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false, loadError = e.message) }
@@ -779,7 +795,57 @@ class EditorViewModel(
                     ?: committed.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
             )
         }
+        refreshStabilise()
     }
+
+    // region stabiliser
+
+    private var stabJob: Job? = null
+
+    /**
+     * Makes the correction tables of every stabilised clip available to the preview and the exporter, and refreshes the
+     * selected clip's status for the inspector. Runs off the main thread (it reads cache files).
+     */
+    private fun refreshStabilise() {
+        val timeline = history.timeline
+        val assets = state.value.assets
+        val fps = state.value.fps
+        val selected = state.value.selectedClipId?.let { timeline.trackOfClip(it)?.clip(it) }
+        val stabilised = timeline.tracks.flatMap { it.clips }.filter { it.stabilise != null }
+        if (stabilised.isEmpty() && selected?.stabilise == null) {
+            if (state.value.stab.status != StabStatus.Off || state.value.stab.clipId != null) {
+                reduce { copy(stab = StabUiState(progress = stab.progress)) }
+            }
+            return
+        }
+        viewModelScope.launch(stabDispatcher) {
+            for (clip in stabilised) assets.firstOrNull { it.id == clip.assetId }?.let { stabiliser.register(it, clip, fps) }
+            val asset = selected?.let { clip -> assets.firstOrNull { it.id == clip.assetId } }
+            val status = if (selected != null && asset != null) stabiliser.statusOf(asset, selected, fps) else StabStatus.Off
+            reduce { copy(stab = StabUiState(clipId = selected?.id, status = status, progress = stab.progress)) }
+        }
+    }
+
+    private fun analyseStabilise() {
+        if (stabJob?.isActive == true) return
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
+        if (clip == null || clip.stabilise == null || asset == null) {
+            emit(EditorEffect.ShowMessage("Turn the stabiliser on for a video clip first"))
+            return
+        }
+        val fps = state.value.fps
+        reduce { copy(stab = StabUiState(clipId = clip.id, status = stab.status.takeIf { it != StabStatus.Off } ?: StabStatus.NotAnalysed, progress = 0f)) }
+        stabJob = viewModelScope.launch {
+            val outcome = stabiliser.analyse(asset, clip, fps) { progress -> reduce { copy(stab = stab.copy(progress = progress)) } }
+            if (outcome is StabOutcome.Failed) emit(EditorEffect.ShowMessage(outcome.message))
+            reduce { copy(stab = stab.copy(progress = null)) }
+            refreshStabilise()
+        }
+    }
+
+    // endregion
 
     // endregion
 

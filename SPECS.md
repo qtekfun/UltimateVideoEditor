@@ -33,6 +33,7 @@ app/                        Android app module (Compose UI, MVI, navigation)
     timeline_view/ SurfaceView renderer for the timeline canvas (blocks, waveforms, thumbnails, playhead)
     thumbnail/     Thumbnail tile generation, atlas, disk store
     audio/         Oboe playback, mixer, master clock, PCM decoder, waveform extractor
+    stabilise/     Classical tracker, motion analyser, path smoothing, analysis cache, table registry (SPECS 5.21)
     encode/        Export: offline render loop, MediaCodec encoder, AAC, muxer
     jni/           JNI bindings only
     tests/         Host-built tests (no GoogleTest; see section 8)
@@ -604,6 +605,60 @@ second (a late redraw keeps a paused scope current). Nothing is read back to the
 1000 nit marks in an HLG project) are Compose text over the surface (`ui/editor/ScopeScale.kt`).
 
 **Not included:** secondary HSL qualifiers (see `DECISIONS.md`).
+
+### 5.21 Stabiliser and the shared tracker
+
+Camera-shake correction of a video clip, computed on the device with classical computer vision only: no
+models, no third-party libraries, no network. Settings per clip (`Clip.stabilise`, JSON optional field
+`stabilise: { strength, crop }`): **strength** 0..1 (stored in percent) and **crop** `tight` / `medium` / `full`.
+
+**Pipeline.**
+1. *Analysis* (once per media file, background, cancellable). `stabilise/LumaDecoder` decodes the clip's source
+   range plus a 1 s margin on each side sequentially with its own `AMediaCodec` (no output surface, one hardware
+   decoder, released when the job ends; the same approach as the thumbnail decoder) and reads only the luma plane,
+   rotated upright and scaled to at most 480 px (`stabilise/luma.h`). `MotionAnalyser` detects Shi-Tomasi corners
+   (spread over an 8x6 grid) in the previous frame, tracks them with pyramidal Lucas-Kanade (3 levels, 15x15
+   window, forward-backward check) and fits a similarity transform with RANSAC (2-point hypotheses, deterministic
+   seed, 1 px threshold, least-squares refit), so a moving subject does not drag the estimate. A frame with too
+   little to track counts as no motion. Result: one `FrameMotion` per decoded frame (translation in height units,
+   rotation, log scale, quality).
+2. *Cache* `stab/<assetId>.<hash>` under the project folder (`stabilise/stab_cache.h` has the byte layout; checksum
+   CRC-32; written through a temporary file and renamed). The file holds the **raw** motion, so strength and crop
+   changes never need a new analysis. The hash covers the asset's URI, length, frame rate and the analysis version, so
+   relinking or a tracker change finds no cache. The header records the analysed range: a clip that now reaches
+   outside it (extended by a trim) is `Stale` and must be analysed again; the new analysis merges with the old range.
+3. *Table*. `registerFromCache` builds the correction table: compose the camera path `P_t`, resample it to the
+   project frame rate (the frame numbering of the preview decoder, which counts from the media's first frame),
+   low-pass its parameters with a Gaussian (sigma from 0.1 s to 2.5 s, mirrored odd extension at the ends so a
+   steady drift stays steady), take `C_t = Q_t o P_t^-1`, then scale by one constant zoom per clip: `tight` is the
+   largest zoom any frame needs so that no frame edge shows (at most 2x), `medium` half of it, `full` none. Strength 0
+   is an identity table.
+4. *Registry*. Tables live in `StabRegistry`, keyed by `StabKey.of(assetId, settings)` (24 bits, so it travels as a
+   float). The render plan puts the key into `ClipFx.stabKey`; `FxWire` writes it as an effect of type 15 that always
+   runs first. The preview (`PreviewEngine::maybeDraw`) and the exporter (`renderFrame`) call
+   `resolveStabilisation(fx, sourceFrame)`, which looks the table up by the **source frame** being drawn and fills the
+   effect's per-frame values (dx, dy, theta, scale). Retiming, reverse and transitions therefore need no special case,
+   and preview and export draw the same picture. An unregistered key drops the effect (the clip draws unstabilised).
+   The preview redraws when the registry changes (`drawnStabRevision_`).
+5. *Warp*. Effect type 15 in the effect fragment shader samples the layer through the inverse of
+   `Xo = scale * R(theta) * X + (dx, dy)` (positions in height units; `stabilise/stab_warp.h` is the CPU reference), with
+   edges repeating the border pixels. It runs before the user's effects, mask and blend, at the layer's own size.
+
+**Cost.** Analysis is bounded by decoding plus roughly 5 ms of tracking per frame at 480 px; it runs at background
+priority and never blocks the render, UI or preview decoder threads. Drawing a stabilised layer adds one effect pass.
+
+**UI.** Inspector section for video clips: switch, strength slider (one undo step on release), crop chips, an
+*Analyse* button with progress and cancel, and the status (`Not analysed`, `Ready`, `Stale`). Everything is one
+`SetStabilise` command; the analysis itself is not an edit.
+
+**Out of scope:** rolling-shutter correction, 3D camera reconstruction, using gyroscope metadata.
+
+**Reusable tracker (for WP-V1 motion tracking).** `stabilise/tracker.h` has `detectCorners`, `trackLk`,
+`trackPoint(prev, next, point, &out)` and `BoxTracker(firstFrame, box)` with `update(nextFrame)` returning a
+confidence (0 means lost and the box stays); `stabilise/similarity.h` has `Similarity`, `fitSimilarity` and
+`estimateSimilarityRansac`. All take `Gray` float images (`stabilise/gray.h`, pyramids with `buildPyramid`) and are
+covered by `tests/stabilise_host_tests.cpp`. Frames come from `LumaDecoder::run`, which hands each decoded frame to a
+callback with its time from the media's first frame.
 
 ### 5.20 Parameter keyframes (WP-K)
 
