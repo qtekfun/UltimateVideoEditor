@@ -245,8 +245,14 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 - **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview).
 - **Volume**: gain in dB for clips with audio.
 - **Sound tools** (clips with audio): pan, fades, equaliser, noise suppression and loudness, see [Sound](#sound).
-- **Speed**: presets and a slider (0.1x to 8x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
-  the playhead**. Audio follows the speed between 0.25x and 4x and is muted outside that range.
+- **Speed**: presets and a slider (0.1x to 100x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
+  the playhead**. Audio follows the speed between 0.25x and 4x and is muted outside that range. The **speed curve**
+  editor sets the speed at points along the clip (drag, add or remove points, smooth or hold between them) and has
+  presets: montage, hero, bullet and eased in / out. **Smooth slow motion** fills the frames between two source frames
+  by following the motion in the picture (no AI, all on the device); the preview lowers its quality if the phone cannot
+  keep up, the export always uses the full quality. Fast or complex motion falls back to blending the two frames.
+- **Denoise** and **Deflicker** (effects): Denoise reduces video noise (strength and how much of the previous frame
+  is used); Deflicker evens out brightness that pulses from frame to frame (strength).
 - **Stabilise** (video clips): a switch, **Strength**, **Crop** (tight, medium, full) and an **Analyse** button. See
   [Stabilising shaky footage](#stabilising-shaky-footage).
 - **Keyframes**: diamond button to add or remove a keyframe at the playhead, previous / next keyframe, and the

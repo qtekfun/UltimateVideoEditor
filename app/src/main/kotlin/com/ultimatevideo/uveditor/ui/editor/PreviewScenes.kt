@@ -106,11 +106,13 @@ internal fun previewRequestsOnCanvas(
                     null
                 } else {
                     val source = sourceOf(asset)
+                    val shown = clip.sourceMixAt(playhead.value)
                     PreviewRequest(
                         assetKey = assetKeyOf(asset.id) + clip.lane * LANE_STRIDE,
                         uri = source.uri,
                         proxyAssetId = source.proxyAssetId,
-                        sourceFrame = clip.sourceFrameAt(playhead.value),
+                        sourceFrame = shown.frame,
+                        mix = if (shown.blended) shown.mixPermille / 1000f else 0f,
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,

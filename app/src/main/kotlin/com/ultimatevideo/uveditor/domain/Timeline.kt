@@ -266,6 +266,11 @@ data class Clip(
     val reverse: Boolean = false,
     /** Relative speed over the clip, in clip frames; empty means constant speed. */
     val speedRamp: List<SpeedKey> = emptyList(),
+    /**
+     * Smooth slow motion: where the clip plays slower than real time, in-between frames are made by
+     * optical-flow interpolation of the two source frames around the moment shown instead of repeating one.
+     */
+    val smoothSlowMo: Boolean = false,
     /** Effects, blend mode and mask of a video or title clip; neutral by default. */
     val fx: ClipFx = ClipFx.NONE,
     /** Set for photos and stickers; see [StillKind]. */

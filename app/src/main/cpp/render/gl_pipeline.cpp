@@ -40,6 +40,7 @@ Status compile(GLenum type, const char* source, GLuint* shader, Error* error) {
 }  // namespace
 
 GlPipeline::~GlPipeline() {
+    releaseRepairResources();
     for (auto& entry : frameTextures_) destroy(entry.second);
     for (auto& entry : sourceTextures_) destroy(entry.second);
     for (auto& entry : titleTextures_) glDeleteTextures(1, &entry.second.texture);
@@ -124,6 +125,12 @@ Status GlPipeline::init(Error* error) {
     effectGradeLoc_ = glGetUniformLocation(effectProgram_, "uG");
     effectCurveLoc_ = glGetUniformLocation(effectProgram_, "uCurve");
     glUniform1i(glGetUniformLocation(effectProgram_, "uLut"), 1);  // the LUT lives on texture unit 1
+    glUniform1i(glGetUniformLocation(effectProgram_, "uPrev"), 2);  // noise reduction: the previous frame
+    glUniform1i(glGetUniformLocation(effectProgram_, "uMeanPrev"), 3);  // flicker removal: mean luma of previous, current, next
+    glUniform1i(glGetUniformLocation(effectProgram_, "uMeanCur"), 4);
+    glUniform1i(glGetUniformLocation(effectProgram_, "uMeanNext"), 5);
+    effectHasPrevLoc_ = glGetUniformLocation(effectProgram_, "uHasPrev");
+    effectHasNextLoc_ = glGetUniformLocation(effectProgram_, "uHasNext");
     glGenVertexArrays(1, &vao_);
     glGenFramebuffers(1, &fbo_);
     glGenFramebuffers(1, &fxFbo_);
@@ -372,6 +379,23 @@ void GlPipeline::effectPass(unsigned sourceTexture, const FxTarget& destination,
         glUniform1fv(effectGradeLoc_, core::kGradeParams, op.grade.data());
         glUniform4fv(effectCurveLoc_, core::kGradeCurveSamples, op.grade.data() + core::kGradeParams);
     }
+    if (op.type == core::EffectType::Denoise || op.type == core::EffectType::Deflicker) {
+        glUniform1i(effectHasPrevLoc_, repairBinds_.hasPrev ? 1 : 0);
+        glUniform1i(effectHasNextLoc_, repairBinds_.hasNext ? 1 : 0);
+        if (op.type == core::EffectType::Denoise && repairBinds_.hasPrev) {
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, repairBinds_.prev);
+        }
+        if (op.type == core::EffectType::Deflicker) {
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, repairBinds_.meanPrev);
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, repairBinds_.meanCur);
+            glActiveTexture(GL_TEXTURE5);
+            glBindTexture(GL_TEXTURE_2D, repairBinds_.meanNext);
+        }
+        glActiveTexture(GL_TEXTURE0);
+    }
     if (op.type == core::EffectType::Lut) {
         const auto lut = lutTextures_.find(static_cast<uint32_t>(op.v[0]));
         if (lut != lutTextures_.end()) {
@@ -384,8 +408,8 @@ void GlPipeline::effectPass(unsigned sourceTexture, const FxTarget& destination,
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
-Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture, int layerWidth, int layerHeight,
-                                  unsigned* result, Error* error) {
+Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture, unsigned prevTexture, unsigned nextTexture,
+                                  int layerWidth, int layerHeight, unsigned* result, Error* error) {
     // The layer is rendered at the size it covers on the canvas (more when it is scaled up), so effects
     // see what the viewer sees and blur radii are the same in preview and export.
     GLint maxSize = 0;
@@ -402,8 +426,16 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
     }
     const int width = std::max(8, static_cast<int>(std::lround(w)));
     const int height = std::max(8, static_cast<int>(std::lround(h)));
-    for (FxTarget& target : fxTargets_) {
-        if (Status s = ensureFxTarget(target, width, height, error); s != Status::Ok) return s;
+    const bool wantPrev = prevTexture != 0;
+    const bool wantNext = nextTexture != 0;
+    for (int i = 0; i < 2; ++i) {
+        if (Status s = ensureFxTarget(fxTargets_[i], width, height, error); s != Status::Ok) return s;
+    }
+    if (wantPrev) {
+        if (Status s = ensureFxTarget(fxTargets_[2], width, height, error); s != Status::Ok) return s;
+    }
+    if (wantNext) {
+        if (Status s = ensureFxTarget(fxTargets_[3], width, height, error); s != Status::Ok) return s;
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, fxFbo_);
@@ -414,25 +446,45 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
     glDisable(GL_BLEND);
     glBindVertexArray(vao_);
 
-    // Pass 0: the source layer (colour mode, rotation, title alpha) into the first intermediate.
-    glViewport(0, 0, width, height);
-    glUseProgram(compositeProgram_);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, sourceTexture);
-    const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, identity);
-    glUniform1f(compositeOpacityLoc_, 1.0f);
-    glUniform1i(compositeModeLoc_, static_cast<int>(layer.titleKey != 0 ? titleMode() : layer.mode));
-    glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
-    glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
-    glUniform1i(compositeSrcGlLoc_, 0);
-    glUniform1i(compositeOutPremulLoc_, 1);
-    glUniform1i(compositeMaskShapeLoc_, 0);
-    glUniform1i(compositeBlendLoc_, 0);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    // Pass 0: the source layer (colour mode, rotation, title alpha) into an intermediate. The neighbouring
+    // source frames of the repair effects go through the same pass into their own intermediates.
+    const auto pass0 = [&](unsigned source, const FxTarget& destination) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, destination.texture, 0);
+        glViewport(0, 0, width, height);
+        glUseProgram(compositeProgram_);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, source);
+        const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, identity);
+        glUniform1f(compositeOpacityLoc_, 1.0f);
+        glUniform1i(compositeModeLoc_, static_cast<int>(layer.titleKey != 0 ? titleMode() : layer.mode));
+        glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
+        glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
+        glUniform1i(compositeSrcGlLoc_, 0);
+        glUniform1i(compositeOutPremulLoc_, 1);
+        glUniform1i(compositeMaskShapeLoc_, 0);
+        glUniform1i(compositeBlendLoc_, 0);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    };
+    pass0(sourceTexture, fxTargets_[0]);
+    if (wantPrev) pass0(prevTexture, fxTargets_[2]);
+    if (wantNext) pass0(nextTexture, fxTargets_[3]);
 
-    int current = 0;
+    // Noise reduction and flicker removal read the untouched neighbours, so they run first, whatever
+    // order the list is in.
+    std::vector<const core::EffectOp*> order;
+    order.reserve(layer.fx.effects.size());
     for (const core::EffectOp& op : layer.fx.effects) {
+        if (op.type == core::EffectType::Denoise || op.type == core::EffectType::Deflicker) order.push_back(&op);
+    }
+    for (const core::EffectOp& op : layer.fx.effects) {
+        if (op.type != core::EffectType::Denoise && op.type != core::EffectType::Deflicker) order.push_back(&op);
+    }
+
+    bool neighbourMeans = false;
+    int current = 0;
+    for (const core::EffectOp* opPtr : order) {
+        const core::EffectOp& op = *opPtr;
         const int other = 1 - current;
         // A LUT that was never uploaded (a missing file) leaves the pixels as they are.
         if (op.type == core::EffectType::Lut && !hasLut(static_cast<uint32_t>(op.v[0]))) continue;
@@ -443,6 +495,28 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
             effectPass(fxTargets_[current].texture, fxTargets_[other], op, 1.0f, 0.0f, sigma, step);
             effectPass(fxTargets_[other].texture, fxTargets_[current], op, 0.0f, 1.0f, sigma, step);
             continue;
+        }
+        if (op.type == core::EffectType::Denoise || op.type == core::EffectType::Deflicker) {
+            repairBinds_ = RepairBinds{};
+            repairBinds_.hasPrev = wantPrev;
+            repairBinds_.hasNext = wantNext && op.type == core::EffectType::Deflicker;
+            if (op.type == core::EffectType::Denoise) {
+                repairBinds_.prev = wantPrev ? fxTargets_[2].texture : 0;
+            } else {
+                if (!neighbourMeans) {
+                    neighbourMeans = true;
+                    if (wantPrev) {
+                        if (Status s = reduceMeanLuma(fxTargets_[2].texture, means_[0], error); s != Status::Ok) return s;
+                    }
+                    if (wantNext) {
+                        if (Status s = reduceMeanLuma(fxTargets_[3].texture, means_[2], error); s != Status::Ok) return s;
+                    }
+                }
+                if (Status s = reduceMeanLuma(fxTargets_[current].texture, means_[1], error); s != Status::Ok) return s;
+                repairBinds_.meanPrev = means_[0].id;
+                repairBinds_.meanCur = means_[1].id;
+                repairBinds_.meanNext = means_[2].id;
+            }
         }
         effectPass(fxTargets_[current].texture, fxTargets_[other], op, 0.0f, 0.0f, 1.0f, 1.0f);
         current = other;
@@ -481,9 +555,15 @@ void GlPipeline::snapshotDestination(const Viewport& vp) {
 Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWidth, int canvasHeight,
                              int surfaceWidth, int surfaceHeight, Error* error) {
     // Resolve every texture first: a failure must not leave a half-drawn frame on the surface.
+    GLint targetFramebuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &targetFramebuffer);
     std::vector<unsigned> textures;
+    std::vector<unsigned> blendTextures(layers.size(), 0);  // the second frame of a smooth slow-motion layer
+    std::vector<unsigned> prevTextures(layers.size(), 0);   // neighbours for the repair effects
+    std::vector<unsigned> nextTextures(layers.size(), 0);
     textures.reserve(layers.size());
-    for (const LayerDraw& layer : layers) {
+    for (size_t i = 0; i < layers.size(); ++i) {
+        const LayerDraw& layer = layers[i];
         unsigned texture = 0;
         bool created = false;
         if (layer.titleKey != 0) {
@@ -501,10 +581,35 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
         }
         if (Status s = frameTexture(*layer.frame, &texture, &created, error); s != Status::Ok) return s;
         textures.push_back(texture);
+        if (layer.blendWith != nullptr && layer.blendMix > 0.0f) {
+            if (Status s = frameTexture(*layer.blendWith, &blendTextures[i], &created, error); s != Status::Ok) return s;
+        }
+        const core::NeighbourNeeds needs = core::neighbourNeeds(layer.fx);
+        if (needs.prev && layer.prev != nullptr) {
+            if (Status s = frameTexture(*layer.prev, &prevTextures[i], &created, error); s != Status::Ok) return s;
+        }
+        if (needs.next && layer.next != nullptr) {
+            if (Status s = frameTexture(*layer.next, &nextTextures[i], &created, error); s != Status::Ok) return s;
+        }
     }
 
-    GLint targetFramebuffer = 0;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &targetFramebuffer);
+    // Smooth slow motion: replace the frame texture of every blended layer with the interpolated picture.
+    {
+        size_t slot = 0;
+        for (size_t i = 0; i < layers.size(); ++i) {
+            if (blendTextures[i] == 0) continue;
+            unsigned out = 0;
+            if (Status s = interpolateFrames(layers[i], textures[i], blendTextures[i], slot++, &out, error); s != Status::Ok) {
+                glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+                return s;
+            }
+            textures[i] = out;
+        }
+        if (slot > 0) {
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
     glViewport(0, 0, surfaceWidth, surfaceHeight);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -543,7 +648,7 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
         bool fromIntermediate = false;
         if (!layer.fx.effects.empty()) {
             unsigned result = 0;
-            const Status chain = runEffectChain(layer, texture, layerW, layerH, &result, error);
+            const Status chain = runEffectChain(layer, texture, prevTextures[i], nextTextures[i], layerW, layerH, &result, error);
             // Whatever happened, hand back the target and the state this loop relies on.
             glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(targetFramebuffer));
             glViewport(vp.x, vp.y, vp.w, vp.h);

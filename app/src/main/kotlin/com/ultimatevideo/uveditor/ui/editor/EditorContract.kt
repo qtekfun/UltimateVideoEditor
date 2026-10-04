@@ -262,7 +262,7 @@ data class EditorState(
 data class TitleLayerRef(val clipId: String, val index: Int)
 
 /** How the speed is spread over the selected clip; [NONE] is a constant speed. */
-enum class SpeedRampShape { NONE, EASE_IN, EASE_OUT, BELL }
+enum class SpeedRampShape { NONE, EASE_IN, EASE_OUT, BELL, EASE_IN_SMOOTH, EASE_OUT_SMOOTH, MONTAGE, HERO, BULLET }
 
 /** Where the finger is relative to the lanes during a drag. */
 enum class DragZone { LANES, ABOVE_LANES, OUTSIDE }
@@ -471,13 +471,19 @@ sealed interface EditorIntent : UiIntent {
     data class SelectParamKey(val paramId: String?, val frame: Long?) : EditorIntent
 
     /**
-     * Plays the selected clip at [num]/[den] times normal speed (0.1x to 8x). The clip keeps its source
+     * Plays the selected clip at [num]/[den] times normal speed (0.1x to 100x). The clip keeps its source
      * range and changes length; later clips on its track follow (slowing down pushes them later,
      * speeding up pulls them earlier).
      */
     data class SetSpeed(val num: Long, val den: Long) : EditorIntent
     data object ToggleReverse : EditorIntent
     data class SetSpeedRamp(val shape: SpeedRampShape) : EditorIntent
+
+    /** Sets the selected clip's speed curve to exactly these keys (the graphical editor); empty removes the curve. One undo step. */
+    data class SetSpeedKeys(val keys: List<com.ultimatevideo.uveditor.domain.SpeedKey>) : EditorIntent
+
+    /** Turns smooth slow motion (optical-flow interpolation of the frames of a slowed clip) on or off for the selected clip. */
+    data object ToggleSmoothSlowMo : EditorIntent
 
     /** Holds the frame under the playhead of the selected video clip for a couple of seconds, splitting the clip there. */
     data object FreezeFrame : EditorIntent

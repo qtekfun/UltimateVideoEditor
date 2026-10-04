@@ -68,6 +68,11 @@ add_executable(uv_effects_host_tests effects_host_tests.cpp)
 target_include_directories(uv_effects_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_effects_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# Image repair maths (CPU reference): block-matching flow, slow-motion interpolation, denoise, deflicker.
+add_executable(uv_repair_host_tests repair_host_tests.cpp)
+target_include_directories(uv_repair_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_repair_host_tests PRIVATE -Wall -Wextra -Werror)
+
 # Colour grade maths (CPU reference of the grade shader) and its wire format.
 add_executable(uv_grade_host_tests grade_host_tests.cpp)
 target_include_directories(uv_grade_host_tests PRIVATE ${ENGINE_DIR})
@@ -119,6 +124,7 @@ add_test(NAME uv_track_host_tests COMMAND uv_track_host_tests)
 add_test(NAME uv_stabilise_host_tests COMMAND uv_stabilise_host_tests)
 add_test(NAME uv_hdr_host_tests COMMAND uv_hdr_host_tests)
 add_test(NAME uv_effects_host_tests COMMAND uv_effects_host_tests)
+add_test(NAME uv_repair_host_tests COMMAND uv_repair_host_tests)
 add_test(NAME uv_grade_host_tests COMMAND uv_grade_host_tests)
 add_test(NAME uv_scope_host_tests COMMAND uv_scope_host_tests)
 add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)

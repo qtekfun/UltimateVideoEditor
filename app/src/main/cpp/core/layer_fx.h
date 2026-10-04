@@ -42,6 +42,12 @@ enum class EffectType : int {
     // v[2..5] = dx, dy (height units), theta (radians, clockwise), scale: the correction of the frame being
     // drawn, filled in by resolveStabilisation() from the registered table (the wire carries placeholders).
     Stabilise = 15,
+    // Noise reduction: v[0] = spatial strength 0..1, v[1] = temporal strength 0..1 (blend with the previous
+    // source frame, faded out where the picture moved). See render/repair_math.h.
+    Denoise = 16,
+    // Flicker removal: v[0] = strength 0..1; scales the frame so its mean luma follows the mean over the
+    // previous, current and next source frame.
+    Deflicker = 17,
 };
 
 inline constexpr int kMaxEffectValues = 6;
@@ -95,6 +101,23 @@ struct LayerFx {
     }
 };
 
+// Which neighbouring source frames a layer's effects read besides the frame shown: the previous one for noise
+// reduction with a temporal part and for flicker removal, the next one for flicker removal. The preview and
+// the exporter fetch them (when decoded) and hand them to the compositor.
+struct NeighbourNeeds {
+    bool prev = false;
+    bool next = false;
+};
+
+inline NeighbourNeeds neighbourNeeds(const LayerFx& fx) {
+    NeighbourNeeds needs;
+    for (const EffectOp& op : fx.effects) {
+        if (op.type == EffectType::Denoise && op.v[1] > 0.0f && op.v[0] + op.v[1] > 0.0f) needs.prev = true;
+        if (op.type == EffectType::Deflicker && op.v[0] > 0.0f) needs.prev = needs.next = true;
+    }
+    return needs;
+}
+
 constexpr size_t kLayerFxHeaderDoubles = 9;
 
 // Reads one layer's blob from `data[*offset...]` (of `size` doubles) and advances `*offset`.
@@ -126,7 +149,7 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
         const int type = static_cast<int>(data[at]);
         const int n = static_cast<int>(data[at + 1]);
         at += 2;
-        if (type < 1 || type > 15 || n < 0 || size - at < static_cast<size_t>(n)) return false;
+        if (type < 1 || type > 17 || n < 0 || size - at < static_cast<size_t>(n)) return false;
         EffectOp op;
         op.type = static_cast<EffectType>(type);
         if (type == static_cast<int>(EffectType::ColorGrade)) {

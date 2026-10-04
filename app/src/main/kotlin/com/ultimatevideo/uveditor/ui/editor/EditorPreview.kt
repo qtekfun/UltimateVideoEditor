@@ -56,6 +56,8 @@ data class PreviewRequest(
     val still: StillRef? = null,
     /** The clip's colour space override as a native index (0 SDR, 1 HLG, 2 PQ), or -1 for the file's own. */
     val sourceOverride: Int = -1,
+    /** Smooth slow motion: how far the shown moment is from [sourceFrame] towards its neighbour, 0..1 (0 shows the frame alone). */
+    val mix: Float = 0f,
     /** Set when [uri] is a proxy of this asset (see `ProxyPlanner`), so a failure to open it can be traced back. */
     val proxyAssetId: String? = null,
 )
@@ -287,6 +289,8 @@ class EditorPreview(
                     reverse = request.reverse,
                     fx = request.fx,
                     sourceOverride = request.sourceOverride,
+                    mix = request.mix,
+                    mixTowardsPrevious = request.reverse,
                 )
             }
     }

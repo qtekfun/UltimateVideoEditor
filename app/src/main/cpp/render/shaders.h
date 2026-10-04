@@ -228,9 +228,35 @@ uniform float uSigma; // blur sigma in pixels
 uniform float uStep;  // blur tap spacing in texels
 uniform float uG[21];       // type 14: the grade parameters (render/grade_math.h)
 uniform vec4 uCurve[33];    // type 14: baked curve samples (master, red, green, blue)
+uniform sampler2D uPrev;    // unit 2: the previous source frame, in the same state as uTex (type 16)
+uniform sampler2D uMeanPrev; // units 3-5: 1x1 mean-luma textures of the previous, current and next frame (type 17)
+uniform sampler2D uMeanCur;
+uniform sampler2D uMeanNext;
+uniform int uHasPrev;
+uniform int uHasNext;
 out vec4 outColor;
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+// Mirrors denoiseSpatial in render/repair_math.h: 5 x 5 bilateral filter, sigma_s 1.4 px, sigma_r from the strength.
+vec3 denoiseSpatial(sampler2D t, vec2 uv, float strength) {
+    vec3 centre = texture(t, uv).rgb;
+    if (strength <= 0.0) return centre;
+    float sigmaR = 0.02 + 0.2 * strength;
+    vec3 sum = vec3(0.0);
+    float wsum = 0.0;
+    for (int dy = -2; dy <= 2; ++dy) {
+        for (int dx = -2; dx <= 2; ++dx) {
+            vec3 c = texture(t, uv + vec2(float(dx), float(dy)) * uTexel).rgb;
+            float ds = float(dx * dx + dy * dy) / (2.0 * 1.4 * 1.4);
+            vec3 d = c - centre;
+            float w = exp(-ds - dot(d, d) / (2.0 * sigmaR * sigmaR));
+            sum += c * w;
+            wsum += w;
+        }
+    }
+    return mix(centre, sum / wsum, strength);
+}
 
 float curveAt(float x, int ch) {
     float pos = clamp(x, 0.0, 1.0) * 32.0;
@@ -275,6 +301,30 @@ void main() {
         bool inside = suv.x >= 0.0 && suv.x <= 1.0 && suv.y >= 0.0 && suv.y <= 1.0;
         vec4 warped = texture(uTex, clamp(suv, vec2(0.0), vec2(1.0)));
         outColor = (uP[1] > 0.5 || inside) ? warped : vec4(0.0);
+        return;
+    }
+    if (uType == 16) {
+        // Noise reduction (mirrors denoisePixel in render/repair_math.h): uP = spatial strength, temporal strength.
+        vec3 spatial = denoiseSpatial(uTex, uv, uP[0]);
+        vec3 result = spatial;
+        if (uHasPrev != 0 && uP[1] > 0.0) {
+            vec3 previous = denoiseSpatial(uPrev, uv, uP[0]);
+            float motion = smoothstep(0.015, 0.10, abs(luma(spatial) - luma(previous)));
+            result = mix(spatial, previous, uP[1] * 0.5 * (1.0 - motion));
+        }
+        outColor = vec4(clamp(result, vec3(0.0), vec3(c.a)), c.a);
+        return;
+    }
+    if (uType == 17) {
+        // Flicker removal (mirrors deflickerGain): scale towards the mean luma of the previous, current and next frame.
+        float cur = texture(uMeanCur, vec2(0.5)).r;
+        float sum = cur;
+        float n = 1.0;
+        if (uHasPrev != 0) { sum += texture(uMeanPrev, vec2(0.5)).r; n += 1.0; }
+        if (uHasNext != 0) { sum += texture(uMeanNext, vec2(0.5)).r; n += 1.0; }
+        float gain = clamp((sum / n) / max(cur, 0.001), 0.5, 2.0);
+        gain = mix(1.0, gain, clamp(uP[0], 0.0, 1.0));
+        outColor = vec4(clamp(c.rgb * gain, vec3(0.0), vec3(c.a)), c.a);
         return;
     }
     if (uType == 7) {
@@ -346,6 +396,148 @@ void main() {
     }
     rgb = clamp(rgb, vec3(0.0), vec3(1.0));
     outColor = vec4(rgb * a, a);
+}
+)";
+
+// ---- Smooth slow motion: block-matching optical flow and interpolation (render/repair_math.h) ----
+
+// Averages the frame down into a luma-only target (uSize pixels): uTaps x uTaps samples per destination pixel.
+// The target keeps the frame's own row order, so flow vectors are in texture-row space like the frames.
+inline constexpr const char* kLumaDownFragment = R"(#version 320 es
+precision highp float;
+in vec2 vPos;
+uniform sampler2D uTex;
+uniform vec2 uSize;
+uniform int uTaps;
+out vec4 outColor;
+void main() {
+    vec2 uv = vPos * 0.5 + 0.5;
+    vec2 cell = vec2(1.0) / uSize;
+    float sum = 0.0;
+    for (int j = 0; j < uTaps; ++j) {
+        for (int i = 0; i < uTaps; ++i) {
+            vec2 p = uv + ((vec2(float(i), float(j)) + 0.5) / float(uTaps) - 0.5) * cell;
+            sum += dot(texture(uTex, p).rgb, vec3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    outColor = vec4(sum / float(uTaps * uTaps), 0.0, 0.0, 1.0);
+}
+)";
+
+// Mirrors blockMatch in render/repair_math.h: 3 x 3 SAD, search -uRadius..uRadius, scan order dy then dx,
+// strict improvement so ties keep the shortest earlier candidate, then a parabola fit refines the best
+// displacement to a fraction of a pixel. Output: dx, dy (flow pixels, A to B), confidence.
+inline constexpr const char* kFlowFragment = R"(#version 320 es
+precision highp float;
+in vec2 vPos;
+uniform sampler2D uA;
+uniform sampler2D uB;
+uniform ivec2 uSize;
+uniform int uRadius;
+out vec4 outColor;
+float fetchA(ivec2 p) { return texelFetch(uA, clamp(p, ivec2(0), uSize - 1), 0).r; }
+float fetchB(ivec2 p) { return texelFetch(uB, clamp(p, ivec2(0), uSize - 1), 0).r; }
+float a[9];
+float meanSad(ivec2 p, ivec2 d) {
+    float sad = 0.0;
+    for (int by = -1; by <= 1; ++by) {
+        for (int bx = -1; bx <= 1; ++bx) {
+            sad += abs(a[(by + 1) * 3 + bx + 1] - fetchB(p + ivec2(bx, by) + d));
+        }
+    }
+    return sad / 9.0;
+}
+float parabolic(float before, float centre, float after) {
+    float den = before - 2.0 * centre + after;
+    if (den < 1e-6) return 0.0;
+    return clamp(0.5 * (before - after) / den, -0.5, 0.5);
+}
+void main() {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    for (int by = -1; by <= 1; ++by) {
+        for (int bx = -1; bx <= 1; ++bx) a[(by + 1) * 3 + bx + 1] = fetchA(p + ivec2(bx, by));
+    }
+    float best = 1e30;
+    float bestMean = 0.0;
+    ivec2 bestD = ivec2(0);
+    for (int dy = -uRadius; dy <= uRadius; ++dy) {
+        for (int dx = -uRadius; dx <= uRadius; ++dx) {
+            float mean = meanSad(p, ivec2(dx, dy));
+            float cost = mean + 0.0005 * float(abs(dx) + abs(dy));
+            if (cost < best) {
+                best = cost;
+                bestMean = mean;
+                bestD = ivec2(dx, dy);
+            }
+        }
+    }
+    float conf = 1.0 - smoothstep(0.03, 0.12, bestMean);
+    vec2 d = vec2(bestD);
+    if (max(abs(bestD.x), abs(bestD.y)) >= uRadius) {
+        conf = 0.0;
+    } else {
+        d.x += parabolic(meanSad(p, bestD + ivec2(-1, 0)), bestMean, meanSad(p, bestD + ivec2(1, 0)));
+        d.y += parabolic(meanSad(p, bestD + ivec2(0, -1)), bestMean, meanSad(p, bestD + ivec2(0, 1)));
+    }
+    outColor = vec4(d, conf, 0.0);
+}
+)";
+
+// Mirrors interpolatePixel: A from where the content was, B from where it is going, along the flow of the content that
+// is at this pixel at time uT (the flow lives on A's grid, so it is looked up again where the content came from), mixed by
+// uT; plain blending where the flow has no confidence (or uUseFlow is 0).
+inline constexpr const char* kInterpFragment = R"(#version 320 es
+precision highp float;
+in vec2 vPos;
+uniform sampler2D uA;
+uniform sampler2D uB;
+uniform sampler2D uFlow;
+uniform vec2 uFlowSize;
+uniform float uT;
+uniform int uUseFlow;
+out vec4 outColor;
+void main() {
+    vec2 uv = vPos * 0.5 + 0.5;
+    vec3 plain = mix(texture(uA, uv).rgb, texture(uB, uv).rgb, uT);
+    if (uUseFlow == 0) {
+        outColor = vec4(plain, 1.0);
+        return;
+    }
+    vec3 first = texture(uFlow, uv).xyz;
+    vec3 f = texture(uFlow, uv - uT * first.xy / uFlowSize).xyz;
+    vec2 d = f.xy / uFlowSize;
+    vec3 fromA = texture(uA, uv - uT * d).rgb;
+    vec3 fromB = texture(uB, uv + (1.0 - uT) * d).rgb;
+    outColor = vec4(mix(plain, mix(fromA, fromB, uT), f.z), 1.0);
+}
+)";
+
+// Mean luma of an effect intermediate in two passes: uMode 0 averages each cell of a 16 x 16 target over 8 x 8
+// taps, uMode 1 averages those 256 values into a 1 x 1 target.
+inline constexpr const char* kReduceFragment = R"(#version 320 es
+precision highp float;
+in vec2 vPos;
+uniform sampler2D uTex;
+uniform int uMode;
+out vec4 outColor;
+void main() {
+    vec2 uv = vPos * 0.5 + 0.5;
+    float sum = 0.0;
+    if (uMode == 0) {
+        vec2 cell = floor(uv * 16.0);
+        for (int j = 0; j < 8; ++j) {
+            for (int i = 0; i < 8; ++i) {
+                vec2 p = (cell + (vec2(float(i), float(j)) + 0.5) / 8.0) / 16.0;
+                sum += dot(texture(uTex, p).rgb, vec3(0.2126, 0.7152, 0.0722));
+            }
+        }
+        outColor = vec4(sum / 64.0, 0.0, 0.0, 1.0);
+    } else {
+        for (int j = 0; j < 16; ++j) {
+            for (int i = 0; i < 16; ++i) sum += texelFetch(uTex, ivec2(i, j), 0).r;
+        }
+        outColor = vec4(sum / 256.0, 0.0, 0.0, 1.0);
+    }
 }
 )";
 

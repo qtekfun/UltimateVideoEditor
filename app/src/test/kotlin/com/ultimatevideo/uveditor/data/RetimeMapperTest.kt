@@ -49,6 +49,30 @@ class RetimeMapperTest {
     }
 
     @Test
+    fun `smooth slow motion and eased speed keys round trip`() {
+        val dto = project(
+            ClipDto(
+                "A", "a1", 0, 10, 110,
+                timelineFrames = 200,
+                smoothSlowMo = true,
+                speedRamp = listOf(SpeedKeyDto(0, 400, smooth = true), SpeedKeyDto(100, 1500, smooth = true), SpeedKeyDto(199, 600)),
+            ),
+        )
+        val clip = TimelineMapper.toTimeline(dto).track("v")!!.clip("A")!!
+        assertTrue(clip.smoothSlowMo)
+        assertEquals(listOf(SpeedKey(0, 400, true), SpeedKey(100, 1500, true), SpeedKey(199, 600, false)), clip.speedRamp)
+        assertEquals(dto.tracks, roundTrip(dto).tracks)
+    }
+
+    @Test
+    fun `projects written before slow motion load with it off and linear keys`() {
+        val dto = project(ClipDto("A", "a1", 0, 0, 100, timelineFrames = 200, speedRamp = listOf(SpeedKeyDto(0, 400), SpeedKeyDto(199, 600))))
+        val clip = TimelineMapper.toTimeline(dto).track("v")!!.clip("A")!!
+        assertFalse(clip.smoothSlowMo)
+        assertFalse(clip.speedRamp.any { it.smooth })
+    }
+
+    @Test
     fun `a freeze frame round trips`() {
         val dto = project(ClipDto("A", "a1", 0, 42, 43, timelineFrames = 30))
         val clip = TimelineMapper.toTimeline(dto).track("v")!!.clip("A")!!
