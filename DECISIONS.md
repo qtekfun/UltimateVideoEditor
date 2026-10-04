@@ -1008,6 +1008,26 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Why:** every edit rule stays in one place and is already tested; sharing structure only keeps `.uvtemplate` files tiny and private. A separate wizard needs the media importer and creates the project in one step, which does not fit the sheet's format selectors.
 **Alternative:** a Template start mode inside the New project sheet (one flow, but entangled with the selectors and the match-first-clip probing), or placeholder clips with retained stand-in media references (they would break when the media is missing).
 
+## HSL qualifier as an effect with its own matte (leftovers)
+
+**Decision:** secondary colour correction is a new effect type `QUALIFIER` (wire code 18, 14 values) that builds its own matte from the pixel's HSL (hue centre and half width on the wheel with wrap-around, saturation range, Rec.709 luma range, each with a softness; optional invert and a "show matte" grey view) and corrects hue, saturation and lightness only where the matte is open (`mix(in, corrected, matte)`). It reuses the grade's `grade` wire vector and `uG` uniform array (more than the 6 values an ordinary effect carries), so only the type range, one uniform upload and a shader branch were added; CPU reference in `render/qualifier_math.h` mirrors the GLSL and is pinned by host tests (hue wrap, softness monotonic, neutral correction identity, hue shift red to green, range clamp, wire parsing). It sits in the effect chain, so the clip's mask and blend modes still apply after it.
+**Why:** the spec asked for a qualifier that limits a second grade; a self-contained effect needs no change to the mask pipeline and works with keyframes/params tracks and looks the same in preview and export.
+**Alternative:** a mask source feeding the existing mask machinery and any effect (more general, but the pipeline has a geometric mask only, and every effect would need a matte input), or extending the colour grade with qualifier fields (one more tab in an already big effect).
+**Not done / next:** a dedicated editor section and the eyedropper (tap the preview to key on a colour): `Qualifier.keyedOn(values, r, g, b)` already turns a picked colour into key values (tested), but sampling the pixel needs a frame sampler (MediaMetadataRetriever / ImageDecoder behind an interface, the tap mapped with `TrackMath.fromCanvas` like the motion tracking pick). Until then the qualifier is edited with the generic effect sliders. Not seen on a device: the shader is compiled and run only on a GPU.
+
+## Lane headers and reordering lanes by dragging (leftovers)
+
+**Decision:** the native timeline draws a 22dp header column over the left edge of every lane (name V3/V2/V1/A1/T1 computed in `lane_header.h` with the same rule as the editor's lane names; red M and yellow S on muted and soloed audio lanes). The header takes the touch before clips (hit kind `LaneHeader`); a tap selects the lane, a long press picks it up. The moves are read from the touch events because the platform gesture detector stops reporting scrolls after a long press. The native side only draws (tinted lane plus a bar at the landing edge); the target is decided in `LaneOps.laneDropTarget` (nearest lane of the same kind, never the base) and applied on release as one `EditCommand.MoveTrackTo`, so the buttons and the drag share the lane rules. Mute/solo flags travel in the high bits of each track's type word (type in the low byte), so there is no snapshot version bump and old snapshots read as no flags.
+**Why:** reordering overlay lanes only by buttons was a LumaFusion gap; the header column also gives the lanes names and shows mute/solo state.
+**Alternative:** shifting the whole timeline right by the header width (cleaner, but changes every x coordinate and hit test), or a Compose overlay for the headers (breaks the rule that the canvas is drawn natively, and recomposes while scrolling vertically).
+**Trade-off:** the header covers the first 22dp of the lanes; the first frames of a clip scrolled to the very left can only be grabbed after scrolling the timeline a little. Mute/solo are shown, not toggled, in the header (the Mixer sheet toggles them). Not seen on a device: host and JVM tests and the NDK build only.
+
+## Marker colours and note indicator on the native ruler (leftovers)
+
+**Decision:** the colour code (0 none, 1..6 in `MarkerColor` order) and a has-note bit travel in the marker's last wire word, which snapshot version 5 reserved as zero, so there is no snapshot version bump and old snapshots read as unstyled. The renderer colours the ruler flag and the lane line (alpha kept) and draws a small light square under the flag for a note; beats are unchanged. Colour table and parsing live in `timeline_view/marker_style.h` (host-tested); `SnapshotMarker` validates the code range.
+**Why:** colours and notes existed in the model, the EDL/FCPXML export and the dialog but were invisible on the ruler.
+**Alternative:** a new snapshot version with a dedicated field (cleaner but forces a format bump for four bits), or drawing the note text on the ruler (needs a glyph atlas for arbitrary text).
+
 ## Launcher icon (leftovers)
 
 **Decision:** an original adaptive icon: three timeline clips (two in periwinkle, one in sky blue) and an amber playhead with a downward triangular head, on a deep blue-violet vertical gradient; layers `ic_launcher_background`, `ic_launcher_foreground`, `ic_launcher_monochrome` under `mipmap-anydpi` (also used as the round icon); manifest points to `@mipmap/ic_launcher` and `ic_launcher_round`. All foreground points are within about 30 units of the canvas centre, inside the 33-unit safe-zone radius, checked by `IconGeometryTest` from the path data (paths use only absolute M/L/Q/Z for that reason).
@@ -1027,3 +1047,36 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 - **Audio fallback** only when the platform fails to open the audio, with a proper downmix through libswresample (the MediaCodec path takes the first two channels).
 - **Software decode is flagged, not hidden:** the editor says the clip is decoded on the CPU and, above a 1080p30 pixel rate, advises a proxy and reduces the look-ahead.
 - **AV1 left out:** needs dav1d/libaom built separately and the platform decodes AV1 since Android 12.
+
+## 2026-10-04 · Final cleanup
+
+**Flaky test root cause and fix.** `AudioToolsViewModelTest > a measurement that fails…` failed now and then with
+`UncaughtExceptionsBeforeTest`, which means an earlier test left an exception on a real thread. Reproduced under CPU load
+(1 failure in 15 runs, none in 40 unloaded): the proxy tests (`ProxyManagerTest`, `ProxyViewModelTest`, `ProxyWorkerTest`) shut
+their executor down with `shutdownNow()` without waiting, so the worker thread was still inside `ProxyWorker.runOne` when
+JUnit deleted the temporary folder; `index.flush()` then threw `FileNotFoundException`, which the worker did not catch
+(it caught `ProxyException`, `InterruptedException` and `RuntimeException`, but an `IOException` is none of them), so the
+exception escaped the coroutine and was reported at the start of the next `runTest`.
+**Chosen:** fix both ends. Production: `ProxyWorker` now treats an `IOException` like any failure of a job (the job is marked
+FAILED, the queue goes on) and its post-job housekeeping (evict, flush) can no longer end the loop; before, one full disk or
+vanished folder would have stopped every later proxy for the rest of the session. Tests: the three proxy tests wait for the
+executor to terminate before the folder is deleted, and two new `ProxyWorkerTest` cases fail on the old code and pass on the new
+one. **Alternative:** only waiting in the tests, which would have left the worker fragile. Stability after the fix: see the pull request.
+
+**SPECS renumbering.** Section 5 had duplicate and out-of-order numbers from parallel pull requests (two 5.21, two 5.22,
+two 5.25, a 5.6b, and Proxy media sitting after section 6). They are now 5.1 to 5.31 in order, with a table of contents. Commit
+and pull-request texts written before this cleanup use the old numbers; the mapping (old to new, by title) is: 5.6b 3D LUT
+effect to 5.7; 5.7 Titles and transitions to 5.8; 5.8 Undo/redo to 5.9; 5.9 Export to 5.10; 5.10 Captions to 5.11; 5.11 Keyframes,
+canvas formats to 5.12; 5.12 Effects to 5.13; 5.13 Retiming to 5.14; 5.14 Lane layout to 5.15; 5.15 Animated captions to 5.16;
+5.16 Still clips to 5.17; 5.17 Markers and beats to 5.18; 5.18 Colour grade to 5.20; 5.20 Parameter keyframes to 5.23; the second
+5.21 Interchange to 5.24; 5.23 Auto cut to 5.25; the first 5.25 Multilayer titles to 5.26; 5.24 Filter pack to 5.27; the second
+5.25 Transition pack to 5.28; 5.26 Multicam to 5.29; 5.27 Project templates to 5.30; the stray 5.22 Proxy media to 5.31.
+5.19 (multiselection), 5.21 (stabiliser) and 5.22 (motion tracking) keep their numbers.
+
+**PLAN convention.** A checked box now means "implemented and covered by the automated tests that pass in CI"; what has been seen on
+a phone is tracked separately in the *Verification debt* table so the owner can walk through it on the reference phone.
+**Alternative:** leave boxes unticked until seen on a device, which hid how much was actually built.
+
+**Dead code.** Removed the unused `Stills` constant object. Kept on purpose: `CaptionPlanner` and the `Transcript` types (the `.srt`
+and `.vtt` importer builds its captions with them), `previewTargetAt` (used by tests as a convenience over `previewLayersAt`), and the
+null-object test doubles `NoLayoutStore` and `InMemoryProxyPrefs`. All helper scripts are referenced from the docs, tests or CI.

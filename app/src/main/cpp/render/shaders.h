@@ -286,6 +286,66 @@ vec3 applyGrade(vec3 c) {
     return clamp(vec3(curveAt(mr, 1), curveAt(mg, 2), curveAt(mb, 3)), 0.0, 1.0);
 }
 
+// Mirrors the HSL qualifier in render/qualifier_math.h (type 18; the 14 parameters are uG[0..13]).
+float qualSmooth(float e0, float e1, float x) {
+    float t = clamp((x - e0) / max(e1 - e0, 0.0001), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+float qualBand(float v, float lo, float hi, float soft) {
+    return qualSmooth(lo - soft, lo, v) * (1.0 - qualSmooth(hi, hi + soft, v));
+}
+
+vec3 qualRgbToHsl(vec3 c) {
+    float mx = max(c.r, max(c.g, c.b));
+    float mn = min(c.r, min(c.g, c.b));
+    float d = mx - mn;
+    float l = 0.5 * (mx + mn);
+    if (d <= 0.00001) return vec3(0.0, 0.0, l);
+    float s = d / max(1.0 - abs(2.0 * l - 1.0), 0.00001);
+    float h;
+    if (mx == c.r) h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+    else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+    else h = (c.r - c.g) / d + 4.0;
+    return vec3(h / 6.0, s, l);
+}
+
+vec3 qualHslToRgb(vec3 hsl) {
+    float c = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
+    float hp = fract(hsl.x) * 6.0;
+    float x = c * (1.0 - abs(mod(hp, 2.0) - 1.0));
+    vec3 rgb = vec3(0.0);
+    if (hp < 1.0) rgb = vec3(c, x, 0.0);
+    else if (hp < 2.0) rgb = vec3(x, c, 0.0);
+    else if (hp < 3.0) rgb = vec3(0.0, c, x);
+    else if (hp < 4.0) rgb = vec3(0.0, x, c);
+    else if (hp < 5.0) rgb = vec3(x, 0.0, c);
+    else rgb = vec3(c, 0.0, x);
+    return rgb + vec3(hsl.z - 0.5 * c);
+}
+
+float qualifierMatte(vec3 rgb) {
+    vec3 hsl = qualRgbToHsl(rgb);
+    float hueTerm = 1.0;
+    if (uG[1] < 0.5) {
+        float d = abs(hsl.x - uG[0]);
+        d = min(d, 1.0 - d);
+        hueTerm = 1.0 - qualSmooth(uG[1], uG[1] + uG[2], d);
+    }
+    float satTerm = qualBand(hsl.y, uG[3], uG[4], uG[5]);
+    float lumaTerm = qualBand(luma(rgb), uG[6], uG[7], uG[8]);
+    float matte = hueTerm * satTerm * lumaTerm;
+    return uG[9] > 0.5 ? 1.0 - matte : matte;
+}
+
+vec3 applyQualifier(vec3 rgb) {
+    float matte = qualifierMatte(rgb);
+    if (uG[10] > 0.5) return vec3(matte);
+    vec3 hsl = qualRgbToHsl(rgb);
+    vec3 corrected = qualHslToRgb(vec3(hsl.x + uG[11], clamp(hsl.y * uG[12], 0.0, 1.0), clamp(hsl.z + uG[13], 0.0, 1.0)));
+    return clamp(rgb + (corrected - rgb) * matte, vec3(0.0), vec3(1.0));
+}
+
 void main() {
     vec2 uv = vPos * 0.5 + 0.5;
     vec4 c = texture(uTex, uv);
@@ -380,6 +440,8 @@ void main() {
         rgb = mix(rgb, texture(uLut, coord).rgb, uP[1]);
     } else if (uType == 14) {
         rgb = applyGrade(rgb);
+    } else if (uType == 18) {
+        rgb = applyQualifier(rgb);
     } else if (uType == 12) {
         vec3 key = vec3(uP[0], uP[1], uP[2]);
         float ky = luma(key);

@@ -36,6 +36,34 @@ class TimelineSnapshotTest {
     }
 
     @Test
+    fun `lane flags ride in the high bits of the track word`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO, SnapshotTrackType.AUDIO, SnapshotTrackType.AUDIO, SnapshotTrackType.AUDIO),
+            listOf(clip(1)),
+            trackFlags = listOf(0, TimelineSnapshot.TRACK_MUTED, TimelineSnapshot.TRACK_SOLO, TimelineSnapshot.TRACK_MUTED or TimelineSnapshot.TRACK_SOLO),
+        )
+        val b = snapshot.encode()
+        val first = TimelineSnapshot.HEADER_BYTES
+        assertEquals(0, b.getInt(first))
+        assertEquals(1 or (1 shl 8), b.getInt(first + 4))
+        assertEquals(1 or (1 shl 9), b.getInt(first + 8))
+        assertEquals(1 or (3 shl 8), b.getInt(first + 12))
+        // The type is still the low byte, and without flags the words are the plain types.
+        val plain = TimelineSnapshot(30, 1, listOf(SnapshotTrackType.AUDIO, SnapshotTrackType.TITLE), listOf(clip(1))).encode()
+        assertEquals(1, plain.getInt(TimelineSnapshot.HEADER_BYTES))
+        assertEquals(2, plain.getInt(TimelineSnapshot.HEADER_BYTES + 4))
+    }
+
+    @Test
+    fun `lane flags need one entry per track and known bits`() {
+        val tracks = listOf(SnapshotTrackType.VIDEO, SnapshotTrackType.AUDIO)
+        assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(1)), trackFlags = listOf(0)) }
+        assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(1)), trackFlags = listOf(0, 4)) }
+        assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(1)), trackFlags = listOf(0, -1)) }
+    }
+
+    @Test
     fun `fields land at their wire offsets`() {
         val snapshot = TimelineSnapshot(
             30000, 1001,
@@ -210,6 +238,33 @@ class TimelineSnapshotTest {
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(duration = 0))) }
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(start = -1))) }
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(0, 1, tracks, emptyList()) }
+    }
+
+    @Test
+    fun `marker colour and note travel in the last wire word`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(clip(1)),
+            markers = listOf(
+                SnapshotMarker(30),
+                SnapshotMarker(60, colorCode = 3),
+                SnapshotMarker(90, beat = true, colorCode = 6, hasNote = true),
+                SnapshotMarker(120, hasNote = true),
+            ),
+        )
+        val b = snapshot.encode()
+        val first = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - 4 * TimelineSnapshot.MARKER_BYTES
+        assertEquals(0, b.getInt(first + 12))
+        assertEquals(3, b.getInt(first + 16 + 12))
+        assertEquals(6 or 8, b.getInt(first + 32 + 12))
+        assertEquals(8, b.getInt(first + 48 + 12))
+    }
+
+    @Test
+    fun `a marker colour code outside 0 to 6 is refused`() {
+        assertThrows(IllegalArgumentException::class.java) { SnapshotMarker(10, colorCode = 7) }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotMarker(10, colorCode = -1) }
     }
 
     @Test
