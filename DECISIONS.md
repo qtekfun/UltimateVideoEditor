@@ -770,3 +770,31 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Alternative:** keep the specific types and strip the doubled extension afterwards (not possible through the picker).
 
 **Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).
+
+## Proxy media (WP-P)
+
+**Decision:** proxies are made with the existing offline export engine (a one-clip, no-audio, H.264 movie at the source's own frame rate and length, short side 720 or 1080) instead of a separate transcoder.
+**Why:** it reuses the tested decode, GLES and encoder path and the colour conversion, and guarantees the same frame count so every timeline frame maps to the same frame of the proxy.
+**Alternative:** a Kotlin MediaCodec decoder-to-encoder loop with its own GL scaling (more code, a second pipeline to maintain). Costs: proxy generation is as slow as an export of that clip, and the engine's fixed 1 s keyframe interval is used rather than all-intra.
+
+**Decision:** the proxy of an HDR source is a tone-mapped SDR Rec.709 file, read as SDR in the preview.
+**Why:** an 8-bit H.264 proxy is the cheap, universal case; HDR projects only need the picture to be plausible while editing, export uses the original.
+**Alternative:** a 10-bit HEVC HLG proxy (not every device encodes it, and it is heavier to decode).
+
+**Decision:** the side index and the proxy files live in `cacheDir/proxies`, and the per-project switch, the budget and the proxy size live in local preferences, never in `project.json`.
+**Why:** bundles, EDL/FCPXML and old builds see no change; the system may clear the cache, and the index self-heals (`recoverAfterKill`, `validate`).
+**Alternative:** `filesDir` (survives cache clears but is never reclaimed by the system) or an optional field per asset in the project file.
+
+**Decision:** an interrupted job restarts from the beginning after the process dies (the part file is deleted); "resumable" means the queue survives, not the half-written file.
+**Why:** an MP4 muxer cannot be reopened mid-stream; proxies are a cache.
+**Alternative:** fragmented MP4 segments (a much larger change in the encoder).
+
+**Decision:** the app never makes proxies on its own: heavy media or three preview stalls raise a dismissible suggestion (the stall signal is detected from the preview's error messages).
+**Why:** proxies cost disk and time, and the user asked for consent.
+**Alternative:** automatic proxies above a threshold.
+
+**Decision:** the proxy badges, the banner and the sheet read the live proxy state through a `State` in a composition local, not through the editor screen.
+**Why:** a proxy's progress changes many times a second; reading it in the screen root would recompose the whole editor.
+
+**Not verified:** see the PR description (device checks were limited to what is listed there).
+
