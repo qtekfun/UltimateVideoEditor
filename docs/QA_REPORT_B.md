@@ -10,13 +10,15 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
 
 | Area | Result |
 |---|---|
-| 11 Release/About/tips/crash report | PARTIAL (tips, reopen offer, About, native and Java crash reports PASS; one defect fixed, PR #84; minified release build NOT RUN yet) |
+| 11 Release/About/tips/crash report | PASS (tips, reopen offer, About, native and Java crash reports, minified R8 release run; one defect fixed, PR #84) |
 | 1 Titles, captions, fonts, animated images | PARTIAL (animated GIF/WebP, SRT import, layer editor, shapes, imported font PASS; VTT, caption styles, presets, photos, stickers NOT RUN) |
 | 3 Speed, reverse | PARTIAL (reverse in preview PASS; curve editor, smooth slow motion, denoise, freeze, export of speed NOT RUN) |
 | 5 Markers and beats | PARTIAL (beat detection on a 120 BPM click track, marker colour PASS; note drawing, cut to beat NOT RUN) |
 | 10 Relink | PASS (detect, hatched clip, relink picker) |
 | Export dialog, ETA, ffprobe | PASS |
-| 2, 4, 6, 7, 8, 9 Keyframes, stabiliser/tracking, multiselect, multicam/templates/auto cut, proxies, interchange | NOT RUN in this pass |
+| 4 Stabiliser | PARTIAL (inspector section and analysis flow PASS; steadiness of the result and motion tracking NOT RUN) |
+| 6 Multiselect | PARTIAL (select mode, 2 selected, selection bar, duplicate and undo PASS; cut, paste attributes, align, transitions, group speed NOT RUN) |
+| 2, 7, 8, 9 Keyframes, multicam/templates/auto cut, proxies, interchange | NOT RUN in this pass |
 
 ## Setup
 
@@ -97,3 +99,28 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
   the Missing media dialog lists "clip_b.mp4 - File not found - 1 clip". PASS.
 - **Relink** to a replacement file through the picker: the banner disappears, thumbnails and waveform return and the clip plays.
   PASS. Recover from `.bak` NOT RUN.
+
+## 4. Stabiliser
+
+- Imported `shaky.mp4` (synthetic camera shake); the base track inserted it at the start and the later clips and the overlay captions
+  shifted right by its length, as designed.
+- Inspector > Stabilise: switch, Strength (30 %), Crop (Tight / Medium / Full, with a hint text), "Not analysed yet ... Analyse".
+  Analyse shows "Analysing camera motion... 97 %" with Cancel and, about 12 s later, "Ready: the correction follows the camera path."
+  PASS for the flow. The visual result and the export were not compared on this pass (the earlier demo export measured 21.5 to 42.6 dB).
+
+## 6. Multiselect
+
+- The select-mode button highlights, tapping two clips shows "2 selected", the primary clip has the yellow outline and the other a
+  blue one, and the selection bar shows copy, cut, paste, duplicate, delete, paste attributes and align left/right. PASS.
+- **Duplicate** of the two selected base clips added copies after them and a single Undo removed them. PASS.
+
+## 11. Release build on the minified APK (continued)
+
+- `./gradlew :app:assembleRelease` gave a 6.9 MB `app-release-unsigned.apk` (R8 + resource shrinking). It was zip-aligned and signed with the
+  debug key (`apksigner verify` OK), `aapt2` shows `com.ultimatevideo.uveditor` 0.1.0 (100) and the only permission is the internal
+  AndroidX `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. Installed, exercised, then uninstalled.
+- On the minified build: first-run tips, new project (project.json written and read back through the serialization models), open,
+  import `clip_a.mp4` through the picker (native probe, thumbnails, waveform), preview decode, play with the stereo level meter moving
+  (timecode 5:03 after about 4 s), force-stop and reopen (the project is listed with its 0:10 length and the reopen offer shows),
+  `am crash` and the Java crash report in About. All PASS: no JNI lookup failure, no serialization failure.
+- Not possible on a release build: `run-as ... kill -SEGV` (not debuggable), so the native crash report was verified on the debug build only.
