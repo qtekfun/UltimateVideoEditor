@@ -96,7 +96,20 @@ target_include_directories(uv_stabilise_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_stabilise_host_tests PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(uv_stabilise_host_tests PRIVATE Threads::Threads)
 
+# Motion tracking: pure runner (forward/backward/merge/loss), packed frames and the track cache format.
+add_executable(uv_track_host_tests
+    track_host_tests.cpp
+    ${ENGINE_DIR}/track/track_path.cpp
+    ${ENGINE_DIR}/stabilise/tracker.cpp
+    ${ENGINE_DIR}/stabilise/stab_cache.cpp
+    ${ENGINE_DIR}/stabilise/path.cpp
+)
+target_include_directories(uv_track_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_track_host_tests PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(uv_track_host_tests PRIVATE Threads::Threads)
+
 enable_testing()
+add_test(NAME uv_track_host_tests COMMAND uv_track_host_tests)
 add_test(NAME uv_stabilise_host_tests COMMAND uv_stabilise_host_tests)
 add_test(NAME uv_hdr_host_tests COMMAND uv_hdr_host_tests)
 add_test(NAME uv_effects_host_tests COMMAND uv_effects_host_tests)

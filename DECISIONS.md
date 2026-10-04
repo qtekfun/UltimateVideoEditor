@@ -820,3 +820,44 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Alternative:** keep the specific types and strip the doubled extension afterwards (not possible through the picker).
 
 **Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).
+
+## Export and preview reliability (device pass 2)
+
+**Decision:** the decoder keeps ONE frame in flight (released to the image reader but not yet acquired by the consumer). A frame is only given up as lost when the consumer drained the reader more than 400 ms after its release, or after a hard limit of 5 s.
+**Why:** the buffer queue between the codec and the AImageReader keeps only the newest frame queued since the consumer last acquired one, so releasing a second frame silently discards the first. With four in flight, frames were lost and recovered 400 ms later by a backward seek and a re-decode from the key frame. Measured on a Pixel 8 (not the reference device): export of a long-GOP 1080p30 clip 0.35x -> 1.8x real time, two layers 0.06x -> 1.3x, 4K60 H.264 preview 429-513 of 600 frames with 118-227 stalls -> 606 of 600 with none.
+**Alternative:** raise the image reader queue or use acquireLatestImage (the queue still drops), or decode ahead into our own ring (more memory, same copy cost). Do not raise the in-flight limit without re-measuring on a device.
+
+**Decision:** every reader of a media file gets its own descriptor through /proc/self/fd/N (new open file description), falling back to dup().
+**Why:** dup() shares the file offset; video, audio and thumbnail extractors on different threads disturbed each other (a clip lost its tail after 177 of 300 samples, then every later frame repeated the last good one). That was the likely root of the intermittent decoder stalls and undecodable-audio errors reported earlier. Frame-exact retime check on the Pixel: 133 mismatched frames and failing audio -> 0 mismatches, all segments correct.
+**Alternative:** pread-only extraction or a single reader thread (larger refactor). Files whose /proc reopen is refused (some provider descriptors) fall back to dup() and keep the old risk.
+
+**Decision:** a reversed audio clip remembers the sample its block must reach after a seek and keeps filling instead of seeking again; the export checks audio faults on every frame.
+**Why:** if the codec had nothing ready right after the seek, each following call seeked to the same place again (the gap exceeded the continue limit), flushing the codec every time, so the clip never became ready (export failed with the audio of clip N not ready after 30 s). Each stalled frame also blocked for 30 s while faults were only polled every 30 frames.
+**Alternative:** a larger continue gap (hides the problem for fast codecs only).
+
+
+## Motion tracking (WP-V1)
+
+**Decision:** the tracker is the stabiliser's `BoxTracker` (pyramidal Lucas-Kanade on Shi-Tomasi corners inside the box, similarity fit per frame, no models), analysed in one decode pass at 320 px: frames before the seed are buffered (8-bit, at most 900) and tracked backward when the seed frame arrives, then the decoder goes on forward.
+**Why:** a second tracker would duplicate tested code; one pass means one hardware decoder for a short time and no seeking backwards; 320 px is plenty for a box and keeps the buffer near 50 MB.
+**Alternative:** two decode passes (seek back for the backward run: slower and a second decoder session), or storing float frames (about four times the memory).
+
+**Decision:** a frame is *lost* when the box tracker's confidence is below 0.15; the box then holds its last believable position and the path keeps going, so the target can be found again.
+**Why:** a blank or blurred stretch must not end the track, and the user sees exactly which frames were guesses (red on the preview, counted in the status).
+**Alternative:** stop at the first lost frame (the rest of the clip would be untracked) or interpolate across the gap (invents motion).
+
+**Decision:** a target is stored in the project (`Timeline.motionTracks`: clip, name, seed) while the analysed path lives only in a cache file named from the media and the seed.
+**Why:** the project stays small and portable and a cleared cache costs one re-analysis; the seed alone reproduces the path.
+**Alternative:** saving every path sample in `project.json` (large files, stale after a relink).
+
+**Decision:** following writes ordinary position keyframes (reduced to within 1 px by Douglas-Peucker, merged with the clip's existing key frames) instead of a live link to the track.
+**Why:** preview and export need no new code path, the result stays editable with the keyframe tools, and one undo step undoes it; a straight drift is two keys.
+**Alternative:** a `TrackedPose` evaluated by `RenderPlan` (stays in sync if the track is re-analysed, but needs native and export changes and cannot be hand-tweaked).
+
+**Decision:** only the position follows the path (no scale or rotation), the attached clip is centred on the target, and the tracked clip's stabiliser correction is ignored.
+**Why:** scale and rotation from a small box are noisy; centring is what "put this label on that face" means and the offset can be moved afterwards with keyframes; the stabiliser warp is a few pixels at most.
+**Alternative:** following scale/rotation as options, keeping the attached clip's offset, or composing the stabiliser table into the path.
+
+**Decision:** picking is a tap (box of 7, 12 or 20 % of the frame height by chip) or a dragged box on the preview, at the playhead's frame, which must be on the clip.
+**Why:** a tap is the common case and the chips cover sizes without a second gesture; the playhead frame is what the user is looking at.
+**Alternative:** a draggable box with handles over the preview (more precise, more code to keep out of the gesture layer used for moving clips).
