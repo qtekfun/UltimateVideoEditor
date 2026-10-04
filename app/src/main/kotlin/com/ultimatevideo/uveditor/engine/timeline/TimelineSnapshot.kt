@@ -52,6 +52,14 @@ data class SnapshotLabel(val clipKey: Long, val text: String) {
 
     companion object {
         const val MAX_CHARS = 24
+
+        /** A marker's name travels as a label under a negative key, which never clashes with a clip key; see `marker_style.h`. */
+        private const val MARKER_KEY_BASE = -2L
+
+        fun markerKey(markerIndex: Int): Long = MARKER_KEY_BASE - markerIndex
+
+        /** The marker index a label key stands for, or null when it is a clip's key. */
+        fun markerIndexOf(key: Long): Int? = if (key <= MARKER_KEY_BASE) (MARKER_KEY_BASE - key).toInt() else null
     }
 }
 
@@ -105,7 +113,14 @@ data class TimelineSnapshot(
         for (flags in trackFlags) require(flags in 0..(TRACK_MUTED or TRACK_SOLO)) { "unknown lane flags $flags" }
         for (marker in markers) require(marker.frame >= 0) { "a marker is before frame 0" }
         val clipKeys = clips.mapTo(HashSet()) { it.clipKey }
-        for (label in labels) require(label.clipKey in clipKeys) { "a label references missing clip ${label.clipKey}" }
+        for (label in labels) {
+            val markerIndex = SnapshotLabel.markerIndexOf(label.clipKey)
+            if (markerIndex != null) {
+                require(markerIndex < markers.size) { "a label references missing marker $markerIndex" }
+            } else {
+                require(label.clipKey in clipKeys) { "a label references missing clip ${label.clipKey}" }
+            }
+        }
         require(labels.mapTo(HashSet()) { it.clipKey }.size == labels.size) { "a clip has two labels" }
         for (retime in retimes) {
             require(retime.clipKey in clipKeys) { "a retime references missing clip ${retime.clipKey}" }

@@ -1200,3 +1200,31 @@ within the existing grab radius of that point; a drag that starts anywhere else 
 Taps still place a puck, add a curve point or (long press) remove one, and a double tap still centres a wheel. **Why:** the old drags consumed every
 swipe that began on a wheel or plot, which are most of the panel's width, so scrolling needed a narrow margin. **Alternative:** a dead zone on the
 panel edge or a long-press-to-drag (two gestures to learn, and long press already removes a curve point). Implemented in `detectGrabbedDrag`.
+
+## Quick markers, LumaFusion style
+**Chosen:** one tap on the marker button drops a marker at the playhead (one `AddMarker`, nothing else runs) and shows a
+state-based "Marker added · Edit" chip for 3 s; a marker within 2 frames of the playhead opens its popup instead of
+adding a second one (it used to remove it, which made a double tap undo itself). The beat tools, previous / next marker
+and marker snapping moved behind a long press of the same button. **Why:** the old flow was flag → dropdown → "Add or
+remove a marker" (a menu animation and a second tap) and the button was a tooltip-wrapped `ToolButton`; the user found it
+slow. **Alternative:** keep the menu and add a second button (more toolbar width on a phone). The marker button is a
+`combinedClickable`, not a `ToolButton`, because the Material tooltip also reacts to a long press.
+**Hint, not a snackbar:** the chip is state in `EditorState` (`markerHint`, cleared by a 3 s job), so it is drawn in the
+frame of the tap and can never queue up behind older messages. **Alternative:** the existing message snackbar (queued, and
+its Undo action was not wired to this step).
+**Popup:** a compact card over the top of the timeline, under the ruler, not at the marker's x. **Why:** Kotlin does not
+know the canvas viewport (scroll and zoom live in native code), so it cannot place a popup at the marker without a new
+round trip; the card is under the ruler so the marker stays visible. **Alternative:** a native-computed anchor (a bigger
+JNI surface and a moving popup while scrolling). **One undo step:** the draft shows live through `dragPreview` and
+commits one `EditMarker` on close, on stepping to another marker, or on a tap elsewhere.
+**Drag:** a drag that starts on a marker moves it (integer frames, snapping to clip edges, the playhead and other
+markers; a taken frame keeps the last valid spot). Releasing is one `MoveMarker`. Long press does not start it: a plain
+drag already does, and the long press belongs to nothing on the ruler. **Navigation:** previous / next arrows in the
+popup and "Previous marker" / "Next marker" in the long-press menu; the edit-point buttons also include markers when
+"Snap to markers" is on (it is on by default).
+**Hit target and labels stay native:** `HitKind.Marker` and the 40 dp target are in `hit_test.cpp` / `layout.h` (the viewport is
+native); the marker name is a snapshot label under `-2 - index` drawn with the existing ASCII font, so names lose accents
+and symbols on the canvas only (the stored name is intact). No snapshot version bump. **Name:** at most 40 characters,
+one line; the note keeps 200 and several lines. **Exports:** the EDL has no marker events; FCPXML markers use the name,
+then the note, then "Marker" / "Beat". **Measured:** the add-marker step in a JVM test is about 0.2 ms median (see the PR).
+

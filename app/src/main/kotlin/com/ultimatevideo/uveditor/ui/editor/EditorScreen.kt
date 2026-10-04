@@ -1012,6 +1012,9 @@ private fun EditorMain(
                         selecting = selecting,
                         modifier = Modifier.fillMaxSize(),
                     )
+                    // Under the ruler, so the marker being edited stays in view above the popup.
+                    state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 40.dp)) }
+                    state.markerPopup?.let { MarkerPopupCard(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 36.dp, start = 8.dp, end = 8.dp)) }
                     if (state.inspectorOpen && inspectorOverlay) {
                         Surface(
                             color = MaterialTheme.colorScheme.surface,
@@ -1066,7 +1069,7 @@ private fun <K> StateEffect(holder: State<EditorState>, key: (EditorState) -> K,
 
 /** Where the finger is during a drag: over the lanes, in the room above them, or off the panel (cancel). */
 private fun dragZoneOf(hit: TimelineHit): DragZone = when (hit.kind) {
-    HitKind.ABOVE_LANES, HitKind.RULER -> DragZone.ABOVE_LANES
+    HitKind.ABOVE_LANES, HitKind.RULER, HitKind.MARKER -> DragZone.ABOVE_LANES
     HitKind.OUTSIDE -> DragZone.OUTSIDE
     else -> DragZone.LANES
 }
