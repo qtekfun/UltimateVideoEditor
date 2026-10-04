@@ -31,6 +31,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // `-Puveditor.appIdSuffix=name` installs this build next to others on the same device (separate
+            // data), so several people or agents can test at once without replacing each other's app.
+            providers.gradleProperty("uveditor.appIdSuffix").orNull?.let { applicationIdSuffix = ".$it" }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "audio/waveform_peaks.h"
 #include "timeline_view/drop_hint.h"
@@ -57,6 +58,12 @@ public:
     void invalidate();
     // The live indicator of what releasing a dragged clip would do; DropHintKind::None clears it.
     void setDropHint(const DropHint& hint);
+    // The selection rectangle dragged over empty space in select mode, in view pixels; `active` false hides it.
+    void setMarquee(bool active, float x0, float y0, float x1, float y1);
+    // Keys of the clips intersecting a view-pixel rectangle (see clipsInRect).
+    std::vector<int64_t> clipsInRect(float x0, float y0, float x1, float y1) const;
+    // Lane height as a multiple of the default (see Layout::forDensity); redraws and keeps the scroll valid.
+    void setLaneScale(float scale);
     HitResult hitTest(float x, float y) const;
 
     class Gl;  // render-thread only (public so file-local helpers can name it)

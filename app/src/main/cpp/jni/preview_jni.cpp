@@ -133,6 +133,34 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     fromHandle(handle)->engine->surfaceChanged();
 }
 
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeAttachScopeSurface(
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jobject surface) {
+    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+    if (window == nullptr) {
+        throwPreview(env, Status::InvalidArgument, "Scope surface is not valid");
+        return;
+    }
+    Error error{Status::Ok, ""};
+    const Status status = fromHandle(handle)->engine->attachScopeSurface(window, &error);
+    ANativeWindow_release(window);
+    if (status != Status::Ok) throwPreview(env, error.code, error.message);
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeDetachScopeSurface(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    fromHandle(handle)->engine->detachScopeSurface();
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeScopeSurfaceChanged(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    fromHandle(handle)->engine->scopeSurfaceChanged();
+}
+
+JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScopeMode(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint mode) {
+    fromHandle(handle)->engine->setScopeMode(static_cast<int>(mode));
+}
+
 // Returns {width, height, durationFrames, fpsNum, fpsDen, colorTransfer, rotationDegrees}. Takes ownership of fd.
 JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeOpenAsset(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint assetId, jint fd, jint fpsNum, jint fpsDen) {

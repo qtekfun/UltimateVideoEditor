@@ -29,6 +29,11 @@ internal object NativeTimeline {
     external fun nativeEnsureVisible(handle: Long, frame: Long)
 
     external fun nativeSetDropHint(handle: Long, kind: Int, trackIndex: Int, startFrame: Long, endFrame: Long)
+
+    external fun nativeSetMarquee(handle: Long, active: Boolean, x0: Float, y0: Float, x1: Float, y1: Float)
+    external fun nativeClipsInRect(handle: Long, x0: Float, y0: Float, x1: Float, y1: Float): LongArray?
+
+    external fun nativeSetLaneScale(handle: Long, scale: Float)
     external fun nativeHitTest(handle: Long, x: Float, y: Float): LongArray?
     external fun nativeRequestWaveform(handle: Long, assetKey: Long, fd: Int, cachePath: String): Int
 }

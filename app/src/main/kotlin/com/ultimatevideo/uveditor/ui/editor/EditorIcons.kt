@@ -14,6 +14,12 @@ import androidx.compose.ui.unit.dp
 internal object EditorIcons {
     val Play = icon("Play", "M8,5v14l11,-7z")
 
+    /** A stack of clips with a play triangle: the media library. */
+    val Library = icon(
+        "Library",
+        "M4,6H2v14c0,1.1 0.9,2 2,2h14v-2H4V6zM20,2H8C6.9,2 6,2.9 6,4v12c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V4C22,2.9 21.1,2 20,2zM12,14.5v-9l6,4.5 -6,4.5z",
+    )
+
     val Export = icon("Export", "M9,16h6v-6h4l-7,-7 -7,7h4zM5,18h14v2H5z")
 
     val Add = icon("Add", "M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z")
@@ -36,6 +42,15 @@ internal object EditorIcons {
     )
 
     val Minus = icon("Minus", "M19,13H5v-2h14v2z")
+
+    val ChevronLeft = icon("ChevronLeft", "M15.41,7.41L14,6l-6,6 6,6 1.41,-1.41L10.83,12z")
+
+    val ChevronUp = icon("ChevronUp", "M7.41,15.41L12,10.83l4.59,4.58L18,14l-6,-6 -6,6z")
+
+    val ChevronRight = icon("ChevronRight", "M10,6L8.59,7.41 13.17,12l-4.58,4.59L10,18l6,-6z")
+
+    /** A window split into panes: the layout controls. */
+    val LayoutPanes = icon("LayoutPanes", "M3,3h18v18H3V3zM5,5v4h14V5H5zM5,11v8h5v-8H5zM12,11v8h7v-8h-7z")
 
     val Pause = icon("Pause", "M6,19h4V5H6v14zM14,5v14h4V5h-4z")
 
@@ -114,6 +129,11 @@ internal object EditorIcons {
 
     /** A flag: markers and beats on the ruler. */
     val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
+
+    /** Two vertical faders: the track mixer. */
+    val Mixer = icon("Mixer", "M7,4v7H5v2h2v7h2v-7h2v-2H9V4H7zM15,4v3h-2v2h2v11h2V9h2V7h-2V4h-2z")
+    /** Four bars of different heights: the video scopes. */
+    val Scopes = icon("Scopes", "M4,14h3v6H4zM9,8h3v12H9zM14,11h3v9h-3zM19,4h3v16h-3z")
 
     /** Large and small letters: the text templates. */
     val TextTemplate = icon("TextTemplate", "M2.5,4v3h5v12h3V7h5V4h-13zM21.5,9h-9v3h3v7h3v-7h3V9z")

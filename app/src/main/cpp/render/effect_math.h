@@ -10,6 +10,7 @@
 #include <cmath>
 
 #include "core/layer_fx.h"
+#include "render/grade_math.h"
 
 namespace uv::render {
 
@@ -141,6 +142,18 @@ inline Rgba applyColorEffect(const core::EffectOp& op, Rgba c, float u, float v)
             break;  // neighbourhood effects, see sharpenPremultiplied
         case EffectType::Lut:
             break;  // needs the LUT table, see applyLut
+        case EffectType::Stabilise:
+            break;  // moves pixels instead of changing them, see stabilise/stab_warp.h
+        case EffectType::ColorGrade: {
+            if (op.grade.size() == static_cast<size_t>(core::kGradeWireValues)) {
+                float rgb[3] = {c.r, c.g, c.b};
+                applyGrade(op.grade.data(), rgb);
+                c.r = rgb[0];
+                c.g = rgb[1];
+                c.b = rgb[2];
+            }
+            break;
+        }
     }
     c.r = clamp01(c.r);
     c.g = clamp01(c.g);

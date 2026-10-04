@@ -49,6 +49,39 @@ enum class EffectType(val code: Int, val label: String, val params: List<EffectP
      * will look off; this is by design, the same assumption editors make for a creative LUT).
      */
     LUT(13, "LUT", listOf(EffectParam("LUT", 1.0, MAX_LUT_KEY, 1.0), EffectParam("Intensity", 0.0, 1.0, 1.0))),
+
+    /**
+     * The colour grade: lift / gamma / gain wheels (red, green, blue and master each), offset, contrast
+     * about a pivot, saturation, vibrance, temperature and tint, then the tone curves in [Effect.curves].
+     * The value order is the wire format (`render/grade_math.h` documents each index and the maths).
+     */
+    COLOR_GRADE(
+        14,
+        "Colour grade",
+        listOf(
+            EffectParam("Lift red", -1.0, 1.0, 0.0),
+            EffectParam("Lift green", -1.0, 1.0, 0.0),
+            EffectParam("Lift blue", -1.0, 1.0, 0.0),
+            EffectParam("Lift master", -1.0, 1.0, 0.0),
+            EffectParam("Gamma red", -1.0, 1.0, 0.0),
+            EffectParam("Gamma green", -1.0, 1.0, 0.0),
+            EffectParam("Gamma blue", -1.0, 1.0, 0.0),
+            EffectParam("Gamma master", -1.0, 1.0, 0.0),
+            EffectParam("Gain red", -1.0, 1.0, 0.0),
+            EffectParam("Gain green", -1.0, 1.0, 0.0),
+            EffectParam("Gain blue", -1.0, 1.0, 0.0),
+            EffectParam("Gain master", -1.0, 1.0, 0.0),
+            EffectParam("Offset red", -0.5, 0.5, 0.0),
+            EffectParam("Offset green", -0.5, 0.5, 0.0),
+            EffectParam("Offset blue", -0.5, 0.5, 0.0),
+            EffectParam("Contrast", 0.0, 2.0, 1.0),
+            EffectParam("Pivot", 0.0, 1.0, 0.5),
+            EffectParam("Saturation", 0.0, 2.0, 1.0),
+            EffectParam("Vibrance", -1.0, 1.0, 0.0),
+            EffectParam("Temperature", -1.0, 1.0, 0.0),
+            EffectParam("Tint", -1.0, 1.0, 0.0),
+        ),
+    ),
     ;
 
     val defaults: List<Double> get() = params.map { it.default }
@@ -58,15 +91,23 @@ enum class EffectType(val code: Int, val label: String, val params: List<EffectP
     }
 }
 
-/** A configured effect. [values] follows `type.params`. Values are static for the whole clip. */
+/**
+ * A configured effect. [values] follows `type.params`. Values are static for the whole clip. [curves] only
+ * belongs to [EffectType.COLOR_GRADE] (null means identity curves).
+ */
 data class Effect(
     val id: String,
     val type: EffectType,
     val values: List<Double> = type.defaults,
+    val curves: GradeCurves? = null,
 ) {
     /** Reason this effect cannot be rendered, or null when it is valid. */
     fun problem(): String? {
         if (id.isBlank()) return "effect id must not be blank"
+        if (curves != null) {
+            if (type != EffectType.COLOR_GRADE) return "only a colour grade has curves"
+            curves.problem()?.let { return it }
+        }
         if (values.size != type.params.size) return "${type.label} takes ${type.params.size} values, got ${values.size}"
         for ((index, param) in type.params.withIndex()) {
             val v = values[index]
@@ -135,9 +176,15 @@ data class ClipFx(
     val effects: List<Effect> = emptyList(),
     val blendMode: BlendMode = BlendMode.NORMAL,
     val mask: ClipMask? = null,
+    /**
+     * Key of the stabiliser's correction table (see [StabKey]); null when the clip is not stabilised. It is
+     * derived from the clip's [Stabilise] settings when the render plan is built and is not stored, so it is
+     * not part of [problem] or of any project file.
+     */
+    val stabKey: Int? = null,
 ) {
     /** True when rendering the clip needs nothing beyond the plain draw. */
-    val isNeutral: Boolean get() = effects.isEmpty() && blendMode == BlendMode.NORMAL && mask == null
+    val isNeutral: Boolean get() = effects.isEmpty() && blendMode == BlendMode.NORMAL && mask == null && stabKey == null
 
     fun effect(id: String): Effect? = effects.firstOrNull { it.id == id }
 

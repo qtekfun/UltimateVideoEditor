@@ -135,6 +135,26 @@ void topLayerWinsAndGapsAreEmpty() {
     CHECK_EQ(clipAt(clips, -1) == nullptr ? 1 : 0, 1);
 }
 
+void keyframedEffectsPickTheFrameOfTheClip() {
+    VideoClip c = makeClip(40, 5, 0, 1, 0);
+    uv::core::LayerFx fixed;
+    fixed.blend = uv::core::BlendMode::Add;
+    c.fx = fixed;
+    // No table: the fixed effects hold for every frame, even outside the clip.
+    CHECK_EQ(fxAt(c, 42).blend == uv::core::BlendMode::Add ? 1 : 0, 1);
+    for (int i = 0; i < 5; ++i) {
+        uv::core::LayerFx f;
+        f.blend = i == 3 ? uv::core::BlendMode::Screen : uv::core::BlendMode::Multiply;
+        c.fxFrames.push_back(f);
+    }
+    // Index = frame - startFrame, clamped to the table at both ends (a transition's window can ask outside).
+    CHECK_EQ(fxAt(c, 40).blend == uv::core::BlendMode::Multiply ? 1 : 0, 1);
+    CHECK_EQ(fxAt(c, 43).blend == uv::core::BlendMode::Screen ? 1 : 0, 1);
+    CHECK_EQ(fxAt(c, 44).blend == uv::core::BlendMode::Multiply ? 1 : 0, 1);
+    CHECK_EQ(fxAt(c, 10).blend == uv::core::BlendMode::Multiply ? 1 : 0, 1);   // before the clip: first entry
+    CHECK_EQ(fxAt(c, 900).blend == uv::core::BlendMode::Multiply ? 1 : 0, 1);  // after: last entry
+}
+
 void outputFramesMapToProjectFrames() {
     const Fps p30{30, 1};
     const Fps p60{60, 1};
@@ -341,6 +361,7 @@ int main() {
     audioSamplesTileWithVideoFrames();
     progressIsClampedAndMonotonic();
     layersAreListedBottomFirst();
+    keyframedEffectsPickTheFrameOfTheClip();
     topLayerWinsAndGapsAreEmpty();
     outputFramesMapToProjectFrames();
     sourceFrameMapsAndClamps();

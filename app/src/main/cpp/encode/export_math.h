@@ -59,6 +59,10 @@ struct VideoClip {
     bool reverse = false;
     // Effects, blend mode and mask; the same blob the preview gets (core/layer_fx.h).
     core::LayerFx fx = {};
+    // Effect values that change over the clip (keyframed parameters): the effects of each of the clip's
+    // project frames, index = frame - startFrame, evaluated by the Kotlin side (domain/ParamTracks.kt) so the
+    // preview and the export agree. Empty means `fx` holds for the whole clip.
+    std::vector<core::LayerFx> fxFrames;
 };
 
 // Frame index -> nanoseconds, rounded half up. Monotonic and exact for any realistic length.
@@ -118,6 +122,14 @@ inline std::vector<const VideoClip*> layersAt(const std::vector<VideoClip>& clip
 inline core::Pose poseAt(const VideoClip& clip, int64_t frame) {
     const core::Pose base{clip.posX, clip.posY, clip.scaleX, clip.scaleY, clip.rotationDeg, clip.opacity};
     return core::evaluateKeyframes(clip.keyframes, frame - clip.keyOriginFrame, base);
+}
+
+// The effects of `clip` at project frame `frame`: the keyframed table when the clip has one (clamped to its
+// first and last entry outside the clip, as a transition's extended window can ask), else the fixed ones.
+inline const core::LayerFx& fxAt(const VideoClip& clip, int64_t frame) {
+    if (clip.fxFrames.empty()) return clip.fx;
+    const int64_t last = static_cast<int64_t>(clip.fxFrames.size()) - 1;
+    return clip.fxFrames[static_cast<size_t>(std::clamp<int64_t>(frame - clip.startFrame, 0, last))];
 }
 
 // Opacity of `clip` at project frame `frame`: its own (animated) opacity times the crossfade ramp.

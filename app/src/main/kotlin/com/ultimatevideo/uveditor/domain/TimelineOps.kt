@@ -43,6 +43,27 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(gainDb = gainDb) }
     }
 
+    /** Replaces the audio tools (pan, fades, EQ, noise suppression, normalise) of a clip that has sound. */
+    fun setClipAudio(timeline: Timeline, clipId: String, audio: ClipAudio): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (!clip.hasMedia) return failure(EditError.InvalidAudio("only clips with media have audio settings"))
+        audio.problem(clip.durationFrames)?.let { return failure(EditError.InvalidAudio(it)) }
+        return updateClip(timeline, clipId) { it.copy(audio = audio) }
+    }
+
+    /** Replaces the mixer settings of a track (volume, mute, solo, ducking role, bus compressor). */
+    fun setTrackAudio(timeline: Timeline, trackId: String, audio: TrackAudio): EditResult<Timeline> {
+        val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))
+        audio.problem()?.let { return failure(EditError.InvalidAudio(it)) }
+        return success(timeline.withTrack(track.copy(audio = audio)))
+    }
+
+    /** Turns sidechain ducking on, changes it, or removes it (null). */
+    fun setDucking(timeline: Timeline, ducking: Ducking?): EditResult<Timeline> {
+        ducking?.problem()?.let { return failure(EditError.InvalidAudio(it)) }
+        return success(timeline.copy(ducking = ducking))
+    }
+
     /** Sets transform and gain together, so one edit changes both or neither. */
     fun setAppearance(timeline: Timeline, clipId: String, transform: ClipTransform, gainDb: Double): EditResult<Timeline> {
         transform.problem()?.let { return failure(EditError.InvalidAppearance(it)) }
@@ -64,7 +85,7 @@ object TimelineOps {
             is EditResult.Success -> {
                 val next = change(target.value.fx)
                 next.problem()?.let { return failure(EditError.InvalidEffect(it)) }
-                return updateClip(timeline, clipId) { it.copy(fx = next) }
+                return updateClip(timeline, clipId) { it.copy(fx = next).withoutDanglingParams() }
             }
         }
     }
@@ -90,6 +111,40 @@ object TimelineOps {
         }
     }
 
+    /** Replaces the curves of a colour grade ([curves] null or identity means no curves); the values stay. */
+    fun setEffectCurves(timeline: Timeline, clipId: String, effectId: String, curves: GradeCurves?): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        val effect = (target as EditResult.Success).value.fx.effect(effectId) ?: return failure(EditError.EffectNotFound(effectId))
+        if (effect.type != EffectType.COLOR_GRADE) return failure(EditError.InvalidEffect("only a colour grade has curves"))
+        val stored = curves?.takeUnless { it.isIdentity }
+        return updateFx(timeline, clipId) { fx ->
+            fx.copy(effects = fx.effects.map { if (it.id == effectId) it.copy(curves = stored) else it })
+        }
+    }
+
+    /**
+     * Sets a colour grade in one step: values and curves of the clip's grade [effectId] when it exists, else
+     * a new grade effect with that id is appended. This is how a look is applied and a grade is pasted.
+     */
+    fun setGrade(timeline: Timeline, clipId: String, effectId: String, values: List<Double>, curves: GradeCurves?): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        val fx = (target as EditResult.Success).value.fx
+        val stored = curves?.takeUnless { it.isIdentity }
+        val existing = fx.effect(effectId)
+        if (existing != null && existing.type != EffectType.COLOR_GRADE) {
+            return failure(EditError.InvalidEffect("effect $effectId is not a colour grade"))
+        }
+        return updateFx(timeline, clipId) {
+            if (existing == null) {
+                it.copy(effects = it.effects + Effect(effectId, EffectType.COLOR_GRADE, values, stored))
+            } else {
+                it.copy(effects = it.effects.map { e -> if (e.id == effectId) e.copy(values = values, curves = stored) else e })
+            }
+        }
+    }
+
     /** Moves an effect to [toIndex] in the chain (clamped), which changes how effects combine. */
     fun moveEffect(timeline: Timeline, clipId: String, effectId: String, toIndex: Int): EditResult<Timeline> {
         val target = fxTarget(timeline, clipId)
@@ -108,6 +163,21 @@ object TimelineOps {
             return failure(EditError.InvalidClip("only a video clip has a source colour space"))
         }
         return updateClip(timeline, clipId) { it.copy(colorOverride = space) }
+    }
+
+    /**
+     * Turns the stabiliser on with [stabilise] (strength rounded to a percent, so equal settings share one table), or
+     * off when null. Only clips that play a video file can be stabilised.
+     */
+    fun setStabilise(timeline: Timeline, clipId: String, stabilise: Stabilise?): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (stabilise == null) return updateClip(timeline, clipId) { it.copy(stabilise = null) }
+        stabilise.problem()?.let { return failure(EditError.InvalidClip(it)) }
+        if (!clip.hasMedia || timeline.trackOfClip(clipId)?.type != TrackType.VIDEO) {
+            return failure(EditError.InvalidClip("only a video clip can be stabilised"))
+        }
+        val normalised = stabilise.copy(strength = Math.round(stabilise.strength * 100) / 100.0)
+        return updateClip(timeline, clipId) { it.copy(stabilise = normalised) }
     }
 
     fun setBlendMode(timeline: Timeline, clipId: String, mode: BlendMode): EditResult<Timeline> =
@@ -211,6 +281,7 @@ object TimelineOps {
         val updated = clip.copy(
             retimedFrames = newDuration.takeIf { it != span },
             keyframes = Keyframes.scaled(clip.keyframes, clip.durationFrames, newDuration),
+            params = ParamTracks.scaledTracks(clip.params, clip.durationFrames, newDuration),
             speedRamp = SpeedRamps.scaled(clip.speedRamp, clip.durationFrames, newDuration),
         )
         val others = track.clips.filter { it.id != clipId }
@@ -280,10 +351,10 @@ object TimelineOps {
             retimedFrames = durationFrames.takeIf { it != 1L },
         )
         val later = clip.cropped(offset, clip.durationFrames).copy(timelineStart = at + durationFrames)
-        val right = if (splitting) later.copy(id = rightClipId) else later
+        val right = if (splitting) later.withoutFadeIn().copy(id = rightClipId) else later
         val kept = track.clips.mapNotNull { other ->
             when {
-                other.id == clip.id -> if (splitting) clip.cropped(0, offset) else null
+                other.id == clip.id -> if (splitting) clip.cropped(0, offset).withoutFadeOut() else null
                 other.timelineStart >= clip.timelineEnd -> other.copy(timelineStart = other.timelineStart + durationFrames)
                 else -> other
             }
@@ -314,8 +385,9 @@ object TimelineOps {
         val clip = track.clips.firstOrNull { at > it.timelineStart && at < it.timelineEnd }
             ?: return failure(EditError.SplitOutsideClip)
         val offset = at - clip.timelineStart
-        val left = clip.cropped(0, offset)
-        val rightRaw = clip.cropped(offset, clip.durationFrames).copy(id = newClipId, timelineStart = at)
+        // A fade handle stays on the side that holds the clip's own start or end; a cut inside it must not restart it.
+        val left = clip.cropped(0, offset).withoutFadeOut()
+        val rightRaw = clip.cropped(offset, clip.durationFrames).withoutFadeIn().copy(id = newClipId, timelineStart = at)
         // A title, photo or sticker has no media length, so [cropped] gives both halves a range starting at 0.
         val right = rightRaw
         // The right half is the one now adjacent to whatever followed the clip, so it inherits the
@@ -419,11 +491,11 @@ object TimelineOps {
             }
             if (existing.timelineStart < start) {
                 val keptFrames = start - existing.timelineStart
-                result += existing.cropped(0, keptFrames)
+                result += existing.cropped(0, keptFrames).withoutFadeOut()
             }
             if (existing.timelineEnd > end) {
                 val cutFrames = end - existing.timelineStart
-                result += existing.cropped(cutFrames, existing.durationFrames).copy(id = "${existing.id}~${clip.id}", timelineStart = end)
+                result += existing.cropped(cutFrames, existing.durationFrames).withoutFadeIn().copy(id = "${existing.id}~${clip.id}", timelineStart = end)
             }
         }
         result += clip

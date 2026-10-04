@@ -33,6 +33,7 @@ app/                        Android app module (Compose UI, MVI, navigation)
     timeline_view/ SurfaceView renderer for the timeline canvas (blocks, waveforms, thumbnails, playhead)
     thumbnail/     Thumbnail tile generation, atlas, disk store
     audio/         Oboe playback, mixer, master clock, PCM decoder, waveform extractor
+    stabilise/     Classical tracker, motion analyser, path smoothing, analysis cache, table registry (SPECS 5.21)
     encode/        Export: offline render loop, MediaCodec encoder, AAC, muxer
     jni/           JNI bindings only
     tests/         Host-built tests (no GoogleTest; see section 8)
@@ -534,6 +535,261 @@ a resting pose in canvas fractions and `TemplateKey`s (seconds from the start or
 interpolation) that become ordinary keyframes in clip frames, so preview and export are identical for free. Text goes on a title lane and bars
 on an overlay lane (never the base); a lane is reused only when it is free over the template's range, otherwise a new one is added, so
 nothing is overwritten. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar.
+
+### 5.19 Multi-selection and group edits
+
+State (`EditorState`): `selectedClipId` stays the primary clip (the inspector's); `selectedClipIds` holds the whole
+group when more than one clip is selected and always contains the primary one; `selectMode` and `clipboardCount`
+complete it. `EditorState.selection` is the effective set: the group if it still holds the primary clip, else just
+the primary. Every plain tap, empty-space tap and ClearSelection resets `selectedClipIds`, so a stale group can
+never come back. Intents live in `SelectionIntent` (a sealed sub-interface of `EditorIntent`).
+
+Gestures (Kotlin, `TimelineSurfaceView`): in select mode a tap toggles a clip and a drag that starts on empty lane
+space draws a marquee; a long press toggles a clip in any mode. The marquee rectangle is native state
+(`nativeSetMarquee`), and on release `nativeClipsInRect` returns the clip keys it touches (`clipsInRect` in
+`hit_test.cpp`, host-tested; the ruler never counts). Dragging any selected clip with more than one selected moves
+the group (`GroupMove`, snapped as a block by `GroupOps.snappedDelta`; the lane delta counts lanes of the same
+kind under the finger; dragging off the panel cancels).
+
+Snapshot version 6: the per-clip flags gain bit 3 = primary (the layout is the same as version 5, and a version 5
+clip is its own primary when selected). The canvas outlines the primary clip in yellow and the others in blue.
+
+Domain (`GroupOps`, `Clipboard`, `ClipSelection`, commands in `GroupCommands.kt`): every operation maps a
+`Timeline` to a new `Timeline` or a typed `GroupEditUnavailable` with a message for the user, so each is
+all-or-nothing and one undo step.
+
+| Operation | Rule |
+|---|---|
+| Move | Same delta and lane delta for all; no clip may land on one that stays or on one that moves with it; frame >= 0. A base selection must touch and be only base clips: the run is reordered like `MagneticBase.reorderBlock`. |
+| Delete | Other lanes first (gaps stay), then base clips last to first (each closes its gap, overlays follow); clips already removed by a base deletion are skipped. |
+| Copy / paste / duplicate | `Clipboard.capture` keeps clips, lane ids, relative offsets and transitions between copied clips. Paste puts the earliest clip at the playhead; overlay clips go to their lane (else the first lane of the kind) and fail on overlap; base clips are inserted as a run at the nearest cut. Fresh ids (`<id>~cN`). Duplicate pastes at the end of the last selected clip. |
+| Paste attributes | Transform and effects on picture clips, gain on clips with sound, speed and reverse on clips with media; fails when nothing can take any. Keyframes and ramps are not copied. |
+| Speed / gain / opacity | Per clip through the single-clip rules (`MagneticBase.setSpeed` ripples as for one clip); opacity also sets the keyframes of an animated clip. |
+| Align | Starts or ends on the first start / last end; clips of one lane that would stack are refused; refused for the base. |
+| Transitions | BETWEEN: crossfade at the cut after each selected clip that touches the next (shortened to what clips and media allow, an existing one is resized). HEAD_AND_TAIL: opacity keyframes fade a picture clip in and out. |
+
+### 5.18 Colour grade, looks and video scopes
+
+**The effect.** `EffectType.COLOR_GRADE` (code 14) is a normal effect of the chain with 21 values, in this
+order (also documented in `render/grade_math.h`): lift R G B master (0..3), gamma R G B master (4..7), gain
+R G B master (8..11), each -1..1; offset R G B (12..14, -0.5..0.5); contrast (15, 0..2), pivot (16, 0..1),
+saturation (17, 0..2), vibrance (18, -1..1), temperature (19) and tint (20), -1..1. `Effect.curves`
+(optional, only for a grade) holds four `GradeCurve`s (master, red, green, blue), each 2..8 control points in
+0..1 with increasing x; the curve is the monotone cubic (Fritsch-Carlson) through them and flat outside the
+end points. JSON: `EffectDto.curves` with a list of `{x, y}` per curve, omitted/empty meaning identity.
+
+**Maths** (straight display-referred RGB in the project's working space): white balance (temperature and tint
+as the standalone effects), plus offset, contrast about the pivot, then lift (`x + lift (1 - x)`, lift =
+0.5 x (master + channel)), gain (`x 2^(master + channel)`), gamma (`x^(2^-(master + channel))`), saturation and
+vibrance (`mix(luma, x, sat x (1 + vibrance (1 - chroma)))`), then the master curve and the channel curve.
+`render/grade_math.h` is the CPU reference and `kEffectFragment` (type 14) the GLSL.
+
+**Wire.** The grade writes 153 values: the 21 values then 33 curve samples x (master, red, green, blue)
+(`FxWire.effectValues`, `core::kGradeWireValues`). The shader holds them in `uG[21]` and `uCurve[33]` and
+interpolates linearly between samples.
+
+**Edits.** Wheel, slider and curve drags send `EditorIntent.UpdateGrade` (shown live, committed by
+`EndFxEdit` as one undo step like every effect slider); `ApplyGrade` applies a saved look or a pasted grade
+to the selected clip (`EditCommand.SetGrade`, one step: replaces the clip's first grade or appends one).
+Looks are `looks/<id>.json` in the app's private storage (`LookStore`), listed by `LookLibraryViewModel`
+together with the in-memory copy/paste clipboard.
+
+**Scopes.** `render/scope_renderer.cpp`: while a scope surface is attached, `PreviewEngine::maybeDraw` blits
+the letterboxed picture from the window framebuffer (before the swap) into a 320 x 180 texture; a vertex
+shader turns each of its pixels into one point added to a half-float accumulation texture (waveform and
+vectorscope into alpha, parade into the channel's own colour, histogram into R, G, B and luma); a display
+pass draws the picture and graticule on a second EGL window surface of the same context, at most 30 times a
+second (a late redraw keeps a paused scope current). Nothing is read back to the CPU. Modes:
+`ScopeMode.WAVEFORM / PARADE / VECTORSCOPE / HISTOGRAM` (`scope::Mode`). The maths of where a sample lands is
+`render/scope_math.h` (with a CPU accumulator used by the host tests). The scale labels (percent, and 203 and
+1000 nit marks in an HLG project) are Compose text over the surface (`ui/editor/ScopeScale.kt`).
+
+**Not included:** secondary HSL qualifiers (see `DECISIONS.md`).
+
+### 5.21 Stabiliser and the shared tracker
+
+Camera-shake correction of a video clip, computed on the device with classical computer vision only: no
+models, no third-party libraries, no network. Settings per clip (`Clip.stabilise`, JSON optional field
+`stabilise: { strength, crop }`): **strength** 0..1 (stored in percent) and **crop** `tight` / `medium` / `full`.
+
+**Pipeline.**
+1. *Analysis* (once per media file, background, cancellable). `stabilise/LumaDecoder` decodes the clip's source
+   range plus a 1 s margin on each side sequentially with its own `AMediaCodec` (no output surface, one hardware
+   decoder, released when the job ends; the same approach as the thumbnail decoder) and reads only the luma plane,
+   rotated upright and scaled to at most 480 px (`stabilise/luma.h`). `MotionAnalyser` detects Shi-Tomasi corners
+   (spread over an 8x6 grid) in the previous frame, tracks them with pyramidal Lucas-Kanade (3 levels, 15x15
+   window, forward-backward check) and fits a similarity transform with RANSAC (2-point hypotheses, deterministic
+   seed, 1 px threshold, least-squares refit), so a moving subject does not drag the estimate. A frame with too
+   little to track counts as no motion. Result: one `FrameMotion` per decoded frame (translation in height units,
+   rotation, log scale, quality).
+2. *Cache* `stab/<assetId>.<hash>` under the project folder (`stabilise/stab_cache.h` has the byte layout; checksum
+   CRC-32; written through a temporary file and renamed). The file holds the **raw** motion, so strength and crop
+   changes never need a new analysis. The hash covers the asset's URI, length, frame rate and the analysis version, so
+   relinking or a tracker change finds no cache. The header records the analysed range: a clip that now reaches
+   outside it (extended by a trim) is `Stale` and must be analysed again; the new analysis merges with the old range.
+3. *Table*. `registerFromCache` builds the correction table: compose the camera path `P_t`, resample it to the
+   project frame rate (the frame numbering of the preview decoder, which counts from the media's first frame),
+   low-pass its parameters with a Gaussian (sigma from 0.1 s to 2.5 s, mirrored odd extension at the ends so a
+   steady drift stays steady), take `C_t = Q_t o P_t^-1`, then scale by one constant zoom per clip: `tight` is the
+   largest zoom any frame needs so that no frame edge shows (at most 2x), `medium` half of it, `full` none. Strength 0
+   is an identity table.
+4. *Registry*. Tables live in `StabRegistry`, keyed by `StabKey.of(assetId, settings)` (24 bits, so it travels as a
+   float). The render plan puts the key into `ClipFx.stabKey`; `FxWire` writes it as an effect of type 15 that always
+   runs first. The preview (`PreviewEngine::maybeDraw`) and the exporter (`renderFrame`) call
+   `resolveStabilisation(fx, sourceFrame)`, which looks the table up by the **source frame** being drawn and fills the
+   effect's per-frame values (dx, dy, theta, scale). Retiming, reverse and transitions therefore need no special case,
+   and preview and export draw the same picture. An unregistered key drops the effect (the clip draws unstabilised).
+   The preview redraws when the registry changes (`drawnStabRevision_`).
+5. *Warp*. Effect type 15 in the effect fragment shader samples the layer through the inverse of
+   `Xo = scale * R(theta) * X + (dx, dy)` (positions in height units; `stabilise/stab_warp.h` is the CPU reference), with
+   edges repeating the border pixels. It runs before the user's effects, mask and blend, at the layer's own size.
+
+**Cost.** Analysis is bounded by decoding plus roughly 5 ms of tracking per frame at 480 px; it runs at background
+priority and never blocks the render, UI or preview decoder threads. Drawing a stabilised layer adds one effect pass.
+
+**UI.** Inspector section for video clips: switch, strength slider (one undo step on release), crop chips, an
+*Analyse* button with progress and cancel, and the status (`Not analysed`, `Ready`, `Stale`). Everything is one
+`SetStabilise` command; the analysis itself is not an edit.
+
+**Out of scope:** rolling-shutter correction, 3D camera reconstruction, using gyroscope metadata.
+
+**Reusable tracker (for WP-V1 motion tracking).** `stabilise/tracker.h` has `detectCorners`, `trackLk`,
+`trackPoint(prev, next, point, &out)` and `BoxTracker(firstFrame, box)` with `update(nextFrame)` returning a
+confidence (0 means lost and the box stays); `stabilise/similarity.h` has `Similarity`, `fitSimilarity` and
+`estimateSimilarityRansac`. All take `Gray` float images (`stabilise/gray.h`, pyramids with `buildPyramid`) and are
+covered by `tests/stabilise_host_tests.cpp`. Frames come from `LumaDecoder::run`, which hands each decoded frame to a
+callback with its time from the media's first frame.
+
+### 5.20 Parameter keyframes (WP-K)
+
+Any single value of a clip can be animated, not only its pose. A clip carries `params: List<ParamTrack>`; each
+track is a `paramId` and strictly increasing `ParamKey(frame, value, interpolation, out, inn)` in clip frames
+(0 is the clip's first frame, so keys travel with the clip and are cropped by split, trim and overwrite, and
+stretched by a speed change, like the pose keyframes). Before the first key and after the last the value holds.
+
+**Parameters** (`domain/ParamTracks.kt`, ids in `ParamIds`):
+
+| Id | Value | Range |
+|---|---|---|
+| `fx.<effectId>.<index>` | value `index` of an effect (colour grade, LUT intensity, chroma key, ...); the LUT library key is not animatable | the effect parameter's range |
+| `audio.gainDb` | volume (the loudness-normalise gain is added when mixing) | -96..24 dB |
+| `audio.pan` | balance | -1..1 |
+| `audio.eq.<band>.gainDb` | gain of EQ band 0..4 | -18..18 dB |
+| `pose.positionX`, `pose.positionY`, `pose.scaleX`, `pose.scaleY`, `pose.rotation`, `pose.opacity` | the pose, a **per-parameter view** of the joint pose keyframes | the transform ranges |
+
+The pose stays stored as the clip's joint `Keyframe`s (native exporter, snapshot and older projects are
+unchanged); `Clip.paramKeys("pose.x")` projects them, and setting a pose component at a frame writes the joint
+keyframe with the pose the clip already has there for the other components. Removing a pose key removes the
+whole keyframe. A track in `params` never has a `pose.*` id.
+
+**Interpolation.** `LINEAR`, `EASE` (smoothstep), `HOLD`, and `BEZIER`: a cubic between the two keys shaped by
+the earlier key's `out` handle and the later key's `inn` handle, the CSS `cubic-bezier(x1, y1, x2, y2)`
+convention in the segment's unit square (`x` is a fraction of the segment's length in 0..1, `y` a fraction of the
+value change and may overshoot, -2..3). Missing handles default to an ease in-out. The curve parameter is solved
+by bisection (48 steps), so the result is deterministic. A Bezier segment that a crop cuts in the middle keeps its
+handles over what remains (like an ease it changes shape slightly; linear and hold are exact).
+
+**Evaluation is in Kotlin and identical in preview and export**, at integer frames:
+
+- *Video parameters.* `RenderClip.fxAt(frame)` evaluates the effect values; the preview scene is built from it at
+  the playhead and (like an animated pose) re-anchors the native clock every tick when a value moves. The exporter
+  receives `VideoClipSpec.fxFrames`, the effects of every project frame of the clip, encoded as consecutive
+  `core/layer_fx.h` blobs (`parseFxFrameTables` validates index, count and size before allocating); the native
+  loop picks `fxFrames[frame - startFrame]` (`encode/export_math.h` `fxAt`). A Bezier segment of the *pose* is
+  sent to the native evaluator as one linear key per frame (`Keyframes.bakedForNative`), exact at every frame.
+- *Audio parameters.* `automationLanesOf` turns each audio track into a lane of (frame, value) points
+  (`ParamTracks.audioPoints`: two points for a linear segment, one per frame for an ease or a Bezier, a hold keeps
+  its value to the last frame before the next key) in the audio snapshot (**version 5**, still reading 4; layout in
+  `audio/audio_snapshot.h`). The mixer interpolates linearly between points per sample for the volume and in
+  32-sample chunks aligned to the clip for pan and EQ band gains (the chunk is the unit, never the block, so the
+  realtime stream and the offline export render the same samples whatever the block size). EQ chains with an
+  animated band keep all five band stages (`EqChain::designAll`) so the filter states never shift.
+
+**Editing.** The inspector shows the clip as `Clip.displayedAt(frame)` (volume, pan, EQ and effect values
+evaluated at the playhead). A control that edits an animated value writes a key at the playhead (keeping the
+shape of the key already there) and leaves the fixed value as the base (`ParamOps.setFxAt`, `setClipAudioAt`,
+`setGainAt`); an unanimated control edits in place as before. Removing the last key of a parameter writes that
+key's value back as its fixed value, so nothing jumps; removing an effect drops its tracks (`withoutDanglingParams`).
+Commands: `SetParamKey`, `RemoveParamKey`, `MoveParamKey`, `ClearParamTrack`, `PasteParamKeys`,
+`SetParamKeyShape`, `SetFxAt`, `SetClipAudioAt`, `SetGainAt`, each one undo step. A key drag in the lane is shown
+live and committed on release (`UpdateParamKey` / `EndParamKeyEdit`).
+
+**UI** (`ui/editor/ParamKeyframeUi.kt`): a diamond at the end of every animatable slider; a *Keyframes* section
+under the inspector with one row per animated value (curve over the clip, playhead, draggable diamonds: sideways
+moves the key in time, up or down changes its value), previous / next key, copy, paste (the first copied key lands
+on the playhead, values clamped to the target range) and clear; tapping a key selects it and shows the curve
+controls (Linear / Ease / Hold / Bezier and the four handle coordinates). The pose row only moves keys in time.
+The colour wheels (three values each) have no diamond; their sliders do.
+
+**JSON** (`ClipDto.params`, optional): `[{ "paramId": "fx.c1.0", "keys": [{ "frame": 0, "value": 0.5,
+"interpolation": "bezier", "out": {"x": 0.3, "y": 0.0}, "inn": null }] }]`; pose `KeyframeDto` gains optional
+`out` / `inn` and the `bezier` mode. Projects written before load unchanged.
+
+**Copy and paste of clips** (WP-S): `Clip.params` travels with the clip like `keyframes`; a pasted clip's tracks
+are relative to its own start, so they need no change.
+
+### 5.21 Interchange and media library (WP-I)
+
+Implemented in `data/interchange/` (pure formats, repository entry points) and `ui/library/` (library
+model and sheet). Everything is local: files go through the system picker, nothing is fetched or uploaded.
+
+**Project bundle (`.uvbundle`).** A zip (`ProjectBundle`):
+
+| Entry | Content |
+|---|---|
+| `bundle.json` | manifest: `format` = `uveditor-bundle`, `formatVersion` (1), app, project name, schema version, one `media` item per library file (`assetId`, `name`, `sizeBytes`, `entry` when the bytes are inside) and the thumbnail entry names |
+| `project.json` | the raw text of the project file, so fields this build does not know survive |
+| `thumbnails/<file>` | the project card picture (JPEG) when one exists |
+| `media/<assetId>-<name>` | the media files, only for "with media files"; stored, not recompressed |
+
+- Writing: entries carry no timestamps, so the same input gives the same bytes; media that cannot be read
+  are named in the result and left out; the manifest still lists their name and size.
+- Reading (`ProjectBundle.extract`) never writes outside its target directory: names must be relative, use `/`,
+  contain no `..`, `.`, empty parts, NUL or drive letters, and `media/` and `thumbnails/` entries must be a
+  single leaf (anything else is `UnsafePath`); duplicate names are refused. Limits (`BundleLimits`): 20 000
+  entries, 64 MB for each JSON entry, 8 MB per thumbnail, 64 GB per media file, 128 GB in total; a truncated or
+  non-bundle zip becomes a typed `BundleError`, shown to the user through `ProjectError.Bundle`.
+- Importing (`ProjectRepository.importWithReport`, also what `importFrom` uses) sniffs the first four bytes
+  (`PK\x03\x04`) to tell a bundle from a project file, unpacks into a scratch folder `.import-<id>` under
+  the projects folder, rewrites the project (new id when needed, "Name (2)" on a clash), points assets whose
+  bytes came along at `file://<project folder>/media/<file>`, relinks the rest, writes `project.json` inside
+  the scratch folder and moves the whole folder into place with one atomic rename; the scratch folder is
+  always removed, so a failure leaves nothing behind. Folders starting with `.` are never listed as projects.
+- Auto-relink (`AutoRelink`): among the assets of the other local projects, a file matches when its name
+  (ignoring case) **and** size equal the bundle's entry; a name alone never matches, unknown sizes never match,
+  the first candidate wins. There is no search outside those libraries and no new permission.
+
+**EDL (`Edl`).** CMX3600, one document per video or audio track, named `<project>-<label>.edl` (labels as the
+editor shows them: `V1` base, `V2` above it, `A1`, ...). `FCM:` is drop frame (`;`) for 29.97 and 59.94 and
+non-drop frame otherwise (23.976 at 24 with a note); one event per clip with source and record timecodes
+(`B` channel for video with audio, `V` video only, `AA` audio tracks), `M2` line for constant speed (negative for
+reverse, 0 for a freeze), `* FROM CLIP NAME` and `* CLIP ID` comments. Titles, stickers, photos, effects,
+transforms, keyframes and transitions are not carried; `EdlExport.notes` says what was left out. With more than
+one track the editor writes a zip of the files (`Edl.zip`, reproducible bytes).
+
+**FCPXML 1.9 (`Fcpxml`).** Resources: one `format` (project size and rate, Rec. 709 or Rec. 2020 HLG colour
+space), one `asset` per file used (`media-rep` with the stored address), a `Basic Title` effect when titles
+exist. The base track is the spine (a `gap` fills holes); other tracks are connected clips (`lane` = overlay
+number counting up from the base, titles above the overlays, audio below counting down) attached to the base
+clip they start in, with `offset` in that clip's time (as if it played at normal speed). Clips carry
+`start`/`duration` in rational seconds, a `timeMap` for retime, `adjust-transform` (position as a percentage
+of the frame height with y flipped, rotation negated, scale), `adjust-blend` for opacity and `adjust-volume`
+for gain; titles are `title` generators with a text style; markers are `marker` elements on the spine item
+they fall in (colour as a `[colour]` prefix, note in `note`). Not exported: effects, LUTs, grades, masks,
+keyframes, speed ramps, stickers, transitions, audio tools; `FcpxmlExport.notes` lists them and the sequence
+`<note>` repeats them. Unverified against a real Final Cut Pro or DaVinci Resolve import.
+
+**Media library.** `Library` (pure) filters and searches (`LibraryQuery`: text over name, tags and note, kind
+filter, tag), counts tags, normalises tags (trim, no commas, 32 characters, 16 per file, duplicates ignoring
+case) and notes (280), lists where a file is used (`uses`, `nextUse` for stepping through them, `assetOfClip` for
+find in library) and finds unused files. Tags and notes are optional `MediaAssetDto` fields (`tags`, `note`);
+editing them, like reordering the tray, is saved with the project and is not an undo step. "Remove unused"
+considers a file used if it appears in the timeline, in any state undo or redo can reach (`EditHistory.reachableTimelines`)
+or on the clipboard, so an undo can never meet a file that is no longer in the library.
+
+**Markers.** `MarkerDto` and `Marker` gain optional `note` (200 characters) and `color` (red, orange, yellow,
+green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
+a snapshot version bump); the colour shows in the dialog and in exports.
 
 ## 6. Timeline operations (specification for tests)
 

@@ -43,6 +43,24 @@ uint64_t hashKnots(const std::vector<RetimeKnot>& knots) {
     return h;
 }
 
+// Identity of a clip's noise suppression: strength and every profile bin.
+uint64_t hashDenoise(float strength, const std::vector<float>& profile) {
+    if (strength <= 0.0f) return 0;
+    uint64_t h = 1469598103934665603ull;
+    const auto mix = [&h](uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    uint32_t bits = 0;
+    std::memcpy(&bits, &strength, sizeof(bits));
+    mix(bits);
+    for (float v : profile) {
+        std::memcpy(&bits, &v, sizeof(bits));
+        mix(bits);
+    }
+    return h | 1ull;  // never 0, so "no denoise" and "denoise" cannot collide
+}
+
 int32_t pow2Ceil(int64_t v) {
     int64_t p = 1;
     while (p < v) p <<= 1;
@@ -87,21 +105,45 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
     prepared->fps = data.fps;
     prepared->generation = ++generation_;
 
+    // Tracks: bus compressor and volume/mute, plus the roles the ducker listens to and ducks.
+    bool hasVoice = false, hasMusic = false;
+    for (const AudioTrackDesc& t : data.tracks) {
+        PreparedTrack pt;
+        pt.key = t.trackKey;
+        pt.gain = dbToLinear(t.gainDb);
+        pt.muted = t.muted;
+        pt.role = t.role;
+        pt.comp.configure(t.comp, rate);
+        pt.smoothedGain = pt.muted ? 0.0 : pt.gain;
+        hasVoice = hasVoice || t.role == TrackRole::Voice;
+        hasMusic = hasMusic || t.role == TrackRole::Music;
+        prepared->tracks.push_back(pt);
+    }
+    if (prepared->tracks.empty()) prepared->tracks.push_back(PreparedTrack{});
+    prepared->duckEnabled = data.ducking.amountDb > 0.0f && hasVoice && hasMusic;
+    prepared->ducker.configure(data.ducking, rate);
+    prepared->limiterOn = !data.limiterOff;
+    prepared->limiter.configure(-1.0f, rate);
+    prepared->meter = &meter_;
+    prepared->allocateScratch();
+
     std::map<SourceKey, std::shared_ptr<ClipSource>> next;
     std::set<int64_t> clipKeys;
     for (const AudioClipDesc& d : data.clips) {
         if (!clipKeys.insert(d.clipKey).second) return Status::BadSnapshot;  // duplicate clip key
+        if (d.trackIndex < 0 || static_cast<size_t>(d.trackIndex) >= prepared->tracks.size()) return Status::BadSnapshot;
         const int64_t start = framesToSamples(d.startFrame, data.fps, rate);
         const int64_t end = framesToSamples(d.startFrame + d.durationFrames, data.fps, rate);
         if (end <= start) continue;  // shorter than one output sample
 
-        const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den, hashKnots(d.knots)};
+        const uint64_t denoiseHash = hashDenoise(d.denoiseStrength, d.noiseProfile);
+        const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den, hashKnots(d.knots), denoiseHash};
         std::shared_ptr<ClipSource> source;
         if (auto it = sources_.find(key); it != sources_.end()) {
             source = it->second;
         } else {
             source = std::make_shared<ClipSource>(d.clipKey, d.assetKey, sourceFramesToMicros(d.sourceInFrame, d.sourceFps),
-                                                  bufferFrames_, d.knots, d.sourceFps);
+                                                  bufferFrames_, d.knots, d.sourceFps, d.denoiseStrength, d.noiseProfile, denoiseHash);
         }
         next[key] = source;
 
@@ -109,6 +151,37 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         pc.startSample = start;
         pc.endSample = end;
         pc.gain = dbToLinear(d.gainDb);
+        pc.track = d.trackIndex;
+        pc.pan = d.pan;
+        bool bandAnimated = false;
+        for (const AutoLane& lane : d.lanes) {
+            if (lane.points.empty()) return Status::BadSnapshot;
+            PreparedLane pl;
+            pl.param = lane.param;
+            pl.samples.reserve(lane.points.size());
+            pl.values.reserve(lane.points.size());
+            for (const AutoPoint& pt : lane.points) {
+                // Points sit on the same sample grid as the clip edges, counted from the clip's own start.
+                pl.samples.push_back(framesToSamples(d.startFrame + pt.frame, data.fps, rate) - start);
+                pl.values.push_back(lane.param == AutoParam::GainDb ? dbToLinear(pt.value) : pt.value);
+            }
+            // Distinct frames can land on one sample at an extreme rate: keep the later point only.
+            for (size_t i = pl.samples.size(); i-- > 1;) {
+                if (pl.samples[i] <= pl.samples[i - 1]) {
+                    pl.samples.erase(pl.samples.begin() + static_cast<std::ptrdiff_t>(i - 1));
+                    pl.values.erase(pl.values.begin() + static_cast<std::ptrdiff_t>(i - 1));
+                }
+            }
+            bandAnimated = bandAnimated || static_cast<int32_t>(lane.param) >= static_cast<int32_t>(AutoParam::EqGain0);
+            pc.lanes.push_back(std::move(pl));
+        }
+        pc.eqParams = d.eq;
+        pc.sampleRate = rate;
+        pc.eq = bandAnimated ? dsp::EqChain::designAll(d.eq, rate) : dsp::EqChain::design(d.eq, rate);
+        if (d.userFadeInFrames > 0) pc.userFadeInSamples = framesToSamples(d.startFrame + d.userFadeInFrames, data.fps, rate) - start;
+        if (d.userFadeOutFrames > 0) {
+            pc.userFadeOutSamples = end - framesToSamples(d.startFrame + d.durationFrames - d.userFadeOutFrames, data.fps, rate);
+        }
         // Fade lengths are measured on the same sample grid as the clip edges, so a fade-out
         // and the fade-in of the clip it hands over to cover exactly the same samples.
         if (d.fadeInFrames > 0) {
@@ -219,7 +292,10 @@ void AudioCore::render(float* out, int32_t frames) {
 }
 
 void AudioCore::renderBlock(float* out, int32_t frames) {
-    if (const PreparedSnapshot* np = pending_.exchange(nullptr, std::memory_order_acq_rel)) current_ = np;
+    if (const PreparedSnapshot* np = pending_.exchange(nullptr, std::memory_order_acq_rel)) {
+        if (current_ != nullptr) np->adoptStateFrom(*current_);  // filters/envelopes keep running across an edit
+        current_ = np;
+    }
     if (current_ != nullptr) ackGeneration_.store(current_->generation, std::memory_order_release);
 
     const int32_t rate = sampleRate_.load(std::memory_order_acquire);
@@ -431,6 +507,7 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
             return;
         }
         src.resampler->reset();
+        if (src.denoiser) src.denoiser->reset();
         src.buffer.reset(needStart);
         src.decodedEnd = needStart;
         src.hitEof = false;
@@ -450,15 +527,31 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
         if (r.frames > 0) {
             src.outScratch.clear();
             src.resampler->process(src.srcScratch.data(), static_cast<size_t>(r.frames), &src.outScratch);
-            const int64_t produced = std::min<int64_t>(static_cast<int64_t>(src.outScratch.size() / 2), len - src.decodedEnd);
+            std::vector<float>* ready = &src.outScratch;
+            if (src.denoiser) {
+                src.denoisedScratch.clear();
+                src.denoiser->process(src.outScratch.data(), src.outScratch.size() / 2, &src.denoisedScratch);
+                ready = &src.denoisedScratch;
+            }
+            const int64_t produced = std::min<int64_t>(static_cast<int64_t>(ready->size() / 2), len - src.decodedEnd);
             if (produced > 0) {
-                src.buffer.append(src.outScratch.data(), static_cast<int32_t>(produced));
+                src.buffer.append(ready->data(), static_cast<int32_t>(produced));
                 src.decodedEnd += produced;
                 src.failures.store(0, std::memory_order_release);
             }
             if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to decode
         }
         if (r.eof) {
+            if (src.denoiser && src.decodedEnd < len) {
+                // The suppressor holds back a few hundred samples: let the tail out before the media ends.
+                src.denoisedScratch.clear();
+                src.denoiser->flush(&src.denoisedScratch);
+                const int64_t produced = std::min<int64_t>(static_cast<int64_t>(src.denoisedScratch.size() / 2), len - src.decodedEnd);
+                if (produced > 0) {
+                    src.buffer.append(src.denoisedScratch.data(), static_cast<int32_t>(produced));
+                    src.decodedEnd += produced;
+                }
+            }
             src.hitEof = true;
             src.eofAt.store(src.decodedEnd, std::memory_order_release);  // media ends before the clip does
         }
@@ -475,8 +568,10 @@ void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, in
     if (!inWindow || !src.decoder) {
         if (!src.decoder && !openDecoder(src, rate)) return;
         src.retimed->reset();
+        if (src.denoiser) src.denoiser->reset();
         src.buffer.reset(needStart);
         src.decodedEnd = needStart;
+        src.renderedEnd = needStart;
         src.hitEof = false;
         src.eofAt.store(INT64_MAX, std::memory_order_release);
         src.failed.store(false, std::memory_order_release);
@@ -484,17 +579,28 @@ void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, in
     if (src.failed.load(std::memory_order_acquire) || !src.decoder || !src.retimed) return;
 
     const int64_t len = clip.endSample - clip.startSample;
-    for (int guard = 0; guard < 64 && src.decodedEnd < needEnd && src.decodedEnd < len; ++guard) {
-        const int32_t n = static_cast<int32_t>(std::min<int64_t>(kRetimeBlock, len - src.decodedEnd));
+    // With a noise suppressor the buffer (decodedEnd) lags what was asked of the reader (renderedEnd).
+    for (int guard = 0; guard < 64 && src.decodedEnd < needEnd && src.renderedEnd < len; ++guard) {
+        const int32_t n = static_cast<int32_t>(std::min<int64_t>(kRetimeBlock, len - src.renderedEnd));
         src.outScratch.resize(static_cast<size_t>(n) * 2);
-        const RetimedReader::Result r = src.retimed->render(src.decodedEnd, n, src.outScratch.data());
+        const RetimedReader::Result r = src.retimed->render(src.renderedEnd, n, src.outScratch.data());
         if (r == RetimedReader::Result::Error) {
             failClip(src, src.retimed->lastStatus());
             return;
         }
         if (r == RetimedReader::Result::NotReady) break;  // nothing decoded yet; try again next pass
-        src.buffer.append(src.outScratch.data(), n);
-        src.decodedEnd += n;
+        src.renderedEnd += n;
+        if (src.denoiser) {
+            src.denoisedScratch.clear();
+            src.denoiser->process(src.outScratch.data(), static_cast<size_t>(n), &src.denoisedScratch);
+            if (src.renderedEnd >= len) src.denoiser->flush(&src.denoisedScratch);
+            const int32_t out = static_cast<int32_t>(src.denoisedScratch.size() / 2);
+            if (out > 0) src.buffer.append(src.denoisedScratch.data(), out);
+            src.decodedEnd += out;
+        } else {
+            src.buffer.append(src.outScratch.data(), n);
+            src.decodedEnd += n;
+        }
         src.failures.store(0, std::memory_order_release);
     }
     if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to render
@@ -513,6 +619,9 @@ bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
         return false;
     }
     src.decoder = std::move(dec);
+    if (src.denoiseStrength > 0.0f && src.noiseProfile.size() == static_cast<size_t>(kDenoiseBins)) {
+        src.denoiser = std::make_unique<SpectralDenoiser>(src.noiseProfile.data(), src.denoiseStrength);
+    }
     if (!src.knots.empty()) {
         src.retimed = std::make_unique<RetimedReader>(src.decoder.get(), RetimeMap(src.knots, src.fps, rate, srcRate));
     } else {
@@ -523,6 +632,7 @@ bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
 
 void AudioCore::releaseClip(ClipSource& src) {
     src.retimed.reset();  // before the decoder it reads from
+    src.denoiser.reset();
     src.decoder.reset();
     src.resampler.reset();
     src.hitEof = false;
@@ -540,6 +650,7 @@ void AudioCore::failClip(ClipSource& src, Status status) {
     src.failed.store(true, std::memory_order_release);
     src.retryAfter = Clock::now() + kRetryCooldown;
     src.retimed.reset();
+    src.denoiser.reset();
     src.decoder.reset();
     src.resampler.reset();
     src.hitEof = false;

@@ -215,6 +215,15 @@ data class Clip(
      * metadata that really is HLG, or the reverse). Null means the asset's own detected space.
      */
     val colorOverride: SourceColorSpace? = null,
+    /** Pan, fade handles, EQ, noise suppression and loudness normalisation; neutral by default. */
+    val audio: ClipAudio = ClipAudio.NONE,
+    /** Camera-shake correction of a video clip; null is off. */
+    val stabilise: Stabilise? = null,
+    /**
+     * Keyframes of single parameters (effect values, volume, pan, EQ gains), by clip frame; see [ParamIds].
+     * A parameter without a track keeps its static value. The pose is animated by [keyframes] instead.
+     */
+    val params: List<ParamTrack> = emptyList(),
 ) {
     /** True for a clip that plays media with a length of its own (not a title, photo or sticker). */
     val hasMedia: Boolean get() = title == null && still == null
@@ -236,6 +245,8 @@ data class Track(
     val id: String,
     val type: TrackType,
     val clips: List<Clip> = emptyList(),
+    /** Volume, mute, solo, ducking role and bus compressor; neutral by default. */
+    val audio: TrackAudio = TrackAudio.NONE,
 ) {
     val end: FrameIndex get() = clips.lastOrNull()?.timelineEnd ?: FrameIndex.ZERO
 
@@ -249,6 +260,8 @@ data class Timeline(
     val transitions: List<Transition> = emptyList(),
     /** Ruler markers (manual and detected beats), sorted by frame with unique frames; see [MarkerOps]. */
     val markers: List<Marker> = emptyList(),
+    /** Sidechain ducking of the MUSIC tracks by the VOICE tracks; null is off. */
+    val ducking: Ducking? = null,
 ) {
     fun track(id: String): Track? = tracks.firstOrNull { it.id == id }
 
@@ -333,6 +346,7 @@ data class Timeline(
                 Keyframes.problem(clip.keyframes, clip.durationFrames)?.let { violations += "clip ${clip.id} $it" }
                 ClipGain.problem(clip.gainDb)?.let { violations += "clip ${clip.id} $it" }
                 clip.fx.problem()?.let { violations += "clip ${clip.id} fx: $it" }
+                violations += clip.paramProblems().map { "clip ${clip.id} $it" }
                 if (track.type == TrackType.AUDIO && !clip.fx.isNeutral) violations += "audio clip ${clip.id} has visual effects"
                 when {
                     track.type == TrackType.TITLE && clip.title == null -> violations += "clip ${clip.id} on a title track has no title"

@@ -642,4 +642,166 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** a card should identify the project at a glance; the cache directory may be cleared by the system and is regenerated, so there is nothing to migrate or clean up, and nothing leaves the device.
 **Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).
 
+## Colour grade: one effect, curves sent as 33 baked samples (WP-C)
+
+**Decision:** the grade is one effect type (`COLOR_GRADE`, code 14) with 21 values (lift/gamma/gain wheels with master, offset, contrast + pivot, saturation, vibrance, temperature, tint) plus four tone curves. The curves are baked on the CPU (monotone cubic through up to 8 points) into 33 samples per channel and travel on the existing effect wire as 132 extra doubles; the shader reads them from a `uniform vec4 uCurve[33]` and interpolates linearly. Order inside the pass: white balance, offset, contrast about the pivot, lift, gain (in stops), gamma, saturation and vibrance, then master curve followed by the channel curve. `render/grade_math.h` is the CPU reference, pinned by host tests; `domain/Grade.kt` does the baking.
+**Why:** it reuses the whole effect pipeline (undo, JSON, preview/export parity, ordering) with no new texture upload path, and 33 samples keep the interpolation error under half an 8-bit step for ordinary curves. The spec asked for a 256-entry 1D LUT texture; a uniform array avoids a texture per grade and per clip.
+**Alternative:** a 256x1 RGBA texture per grade (more precise for extreme curves, but needs upload and lifetime handling in the preview and export paths); spline control points as uniforms (64 floats, evaluated per pixel, slower). The standalone Temperature/Tint effects stay for old projects; the grade has its own with the same formulas.
+
+## Colour wheels: +-0.5 per channel plus a master slider (WP-C)
+
+**Decision:** a wheel is a unit disk (red at 0 degrees, green at 120, blue at 240, clockwise on screen); the puck sets the three channel values so they sum to zero and span +-0.5, and the master slider (-1..1) carries the rest. Lift = 0.5 x (master + channel), gain = 2^(master + channel) stops, gamma exponent = 2^-(master + channel). Double tap resets a wheel.
+**Why:** it matches how colourists use wheels (hue and strength with the puck, level with the master) and keeps the sums neutral so a wheel never changes brightness by itself.
+**Alternative:** independent R/G/B sliders (precise but not how the tool is used); a wheel range of +-1 (twitchy on a phone).
+
+## Looks and copy/paste are app-wide and local (WP-C)
+
+**Decision:** saved looks are JSON files in the app's private storage (`looks/<id>.json`), shared by all projects, validated when listed and ignored when corrupt. Copy and paste of a grade use an in-memory clipboard of the screen session. Applying a look or pasting replaces the clip's first colour grade (or adds one) as one undo step. Names that collide get a number.
+**Why:** a look is a convenience that should follow the user across projects, and nothing leaves the device.
+**Alternative:** store looks inside each project (portable but not reusable); persist the clipboard (surprising after a restart).
+
+## Video scopes: GPU point accumulation on a second surface (WP-C)
+
+**Decision:** while the scopes panel is open the preview blits the letterboxed picture from the window framebuffer, before the swap, into a 320 x 180 texture; each of its pixels becomes one point (vertex shader, `gl_VertexID`, additive blending) in a half-float accumulation texture; a display pass turns counts into the picture and graticule on a second EGL window surface of the same context (a `SurfaceView` stacked above the preview). Waveform (luma), RGB parade, vectorscope with skin-tone line and primary targets, and histogram with a luma line. At most 30 Hz, a late redraw is scheduled so a paused scope never goes stale, nothing is read back to the CPU, and everything stops when the panel closes. Scale labels are Compose text and depend on the project space (percent, and 203/1000 nit marks for HLG). `render/scope_math.h` is the CPU reference used by the host tests.
+**Why:** no pixel readback, no extra decode, cost proportional to 57,600 points, and the scope shows exactly what the preview shows. Sharing the context avoids copying textures between threads.
+**Alternative:** CPU histogram from a readback (stalls the GPU), a compute shader (more GLES 3.1 surface area for the same result), a separate engine with its own context (cannot see the preview frame).
+
+## Colour qualifiers (HSL keys) deferred (WP-C)
+
+**Decision:** the secondary HSL qualifiers of the spec are not part of this package; the primary grade, curves, looks and scopes are.
+**Why:** they need a mask or key output channel in the effect chain, which is a larger change than the rest together.
+**Alternative:** approximate with the chroma-key effect (not the same tool).
+
 **Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.
+
+## Resizable layout (WP-U3)
+
+**Decisions:**
+- `LayoutState` is pure data with a reducer and is saved as one `key=value` line per window class and orientation in a private preferences file; reading is forgiving and the result is clamped to the window. Why: unit-testable, no new dependency (no DataStore). Alternative: DataStore.
+- Dividers read the layout while measuring (custom `Layout` containers), so a drag re-measures instead of recomposing the editor; drags are coalesced to one update per 40 ms and flushed at the end, and preferences are written once per gesture. Alternative: `weight` modifiers (recompose per step).
+- The lane height is a scale (0.75, 1, 1.4) applied by the native timeline (`setLaneScale`), so waveforms, thumbnails and diamonds follow without Kotlin knowing about them. Alternative: scale in Compose (not possible, the lanes are drawn natively).
+- Side docks need a window of at least 600 dp; below that docks fall back to bottom / over the timeline. The editor keeps at least 30 % of the width.
+- The bottom tray's collapsed state is a thin bar of the layout (the tray's own snap heights stay inside it).
+- Lane height has +/- and chips but no vertical pinch: a two-finger vertical gesture would conflict with the timeline's pinch-zoom, and it can be added later in the native gesture code.
+- Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
+**Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
+
+## Multi-selection and group edits (WP-S)
+
+**Decision:** selection is `selectedClipId` (primary) plus `selectedClipIds` (the group, when more than one); a plain tap, an empty-space tap or Clear resets the group, long press toggles a clip in any mode, and select mode adds taps and a marquee on empty lane space. The marquee is native state and `clipsInRect` runs natively. Group operations are pure `Timeline -> Timeline` functions (`GroupOps`) behind one command each, so they are all-or-nothing and one undo step.
+**Why:** it reuses the immutable-snapshot undo and the single-clip rules (magnetic base, ClipDeletion), keeps the primary clip for the inspector, and needs no new native selection model beyond a primary flag (snapshot version 6) and the marquee.
+**Alternative:** a native selection set owned by the canvas (more state to keep in step), or moving group selection logic into the view layer.
+
+**Decision:** moving base clips together is only allowed for a run that touches and contains only base clips; it reorders the run (`MagneticBase.reorderBlock`). Mixed base and overlay selections only support attribute operations, with a message.
+**Why:** the base has no gaps, so a free offset move has no meaning there, and mixing would need a rule for what the overlays do.
+**Alternative:** allow mixed moves by reordering the base and shifting the overlays by the same delta.
+
+**Decision:** paste puts overlay clips back on their lane (or the first lane of their kind) and refuses to land on an existing clip; duplicate pastes right after the last selected clip. Nothing is overwritten.
+**Why:** a group edit that silently replaces footage is destructive and hard to see; a message is cheap.
+**Alternative:** overwrite on overlay lanes like a single drop, or put colliding copies on a new lane.
+
+**Decision:** "head and tail" transitions are opacity keyframes (a fade in and a fade out of each picture clip), because the model has transitions only between two clips; audio fades come with the audio tools.
+**Why:** it gives the same visible result as LumaFusion's head and tail dissolves without a new transition type.
+**Alternative:** a one-sided transition type in the domain, rendered by the compositor and exporter.
+
+**Decision:** a group drag shows no insert/overwrite indicator, only the live preview and the cancel tint off the lanes.
+**Why:** group moves on overlays are free-form, and a base run reorders like a single clip, whose insertion marker would be ambiguous for a block.
+**Alternative:** extend `DropPlan` with group decisions.
+
+**Found on the Pixel 8:** a plain tap on a clip that was part of the group left the group alive, and the canvas did not redraw the outlines when only the group changed (the snapshot key lacked `selectedClipIds`). Both are fixed, with a regression test for the first.
+
+## Audio tools (WP-A)
+
+**Decisions:**
+- One per-sample DSP path (biquad EQ, balance pan, bus compressor, sidechain ducker, -1 dBFS brickwall limiter) is used by the realtime engine and the offline export mixer, so they are identical by construction; a host test compares the two. Block size never changes the result. Alternative: separate offline code (drift risk).
+- Pan is a balance law (mono is placed with equal power, stereo is attenuated on one side) so a centred stereo clip is untouched. The limiter is a sample-peak limiter at -1 dBFS, not a true-peak one (spec says dBTP); oversampling can be added later.
+- Noise suppression is STFT spectral subtraction (1024 window, hop 256) with the profile from a user-marked quiet stretch, run in the decode worker so playback and export share it. No Wiener/neural option. Alternative: Wiener filter (more musical noise control, more tuning).
+- Loudness is BS.1770 K-weighted, gated, measured by the native engine on IO and cached by source identity and range; normalise stores a gain (`normalizeDb`) in the clip so it is cheap at playback.
+- Ducking is computed gain automation from the voice track envelope (roles Voice and Music on tracks), never baked into clips.
+- Audio snapshot is version 4 with strict native validation; the new JSON fields are optional so old projects load unchanged and old readers ignore them.
+- Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
+**Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
+
+## Stabiliser (WP-X)
+
+- **Classical computer vision, written here, no OpenCV.** Shi-Tomasi corners, pyramidal Lucas-Kanade with a
+  forward-backward check and a RANSAC similarity fit are about 600 lines of C++ with no dependencies, no models and no
+  network (the project's privacy rule). OpenCV would add several MB per ABI and a dependency for three functions.
+  Alternative: OpenCV's `calcOpticalFlowPyrLK` + `estimateAffinePartial2D`.
+- **The cache holds the raw frame-to-frame motion, not the smoothed correction.** Strength and crop then change
+  instantly (the table is rebuilt in milliseconds) and the cache key does not depend on them. The spec said "output
+  per-frame correction stored in a cache file"; the correction is what the registry holds.
+- **One 24-bit key per (asset, strength percent, crop); the table is looked up by the source frame being drawn.** The
+  scene description and the JNI signatures did not change: the effect only carries the key and the native side
+  resolves the per-frame values in the draw loop (preview and exporter), so retime, reverse, transitions and export
+  parity come for free. Alternative: bake the correction into per-frame keyframes (thousands of keys, and it would fight
+  the user's own keyframes) or pass a table per layer through the scene.
+- **Stabilise is a clip property, not an entry of the effect list.** It does not use one of the 8 effect slots, cannot
+  be reordered or added twice, and always runs first (it moves pixels; the colour effects, mask and blend come after).
+  The wire allows 9 effects per layer for this (`kMaxWireEffectsPerLayer`).
+- **Frames are numbered at the project frame rate, from the media's first frame**, the same as the preview decoder
+  (it is opened with the project rate as override). The analysis stores presentation times and the table resamples the
+  path to project frames, so a 60 fps source in a 30 fps project works.
+- **Gaussian smoothing of the camera path's parameters with a mirrored *odd* extension at the ends.** Simple,
+  deterministic and tunable with one number (sigma from 0.1 s at strength 0 to 2.5 s at 1; the default strength 0.3 is
+  about 0.8 s). The odd extension keeps a steady drift steady up to the first and last frame. Alternative: L1-optimal
+  paths (better at separating pans from shake, much more code).
+- **A constant zoom per clip** (tight = what the worst frame needs, capped at 2x; medium = half; full = none) instead of
+  an adaptive per-frame zoom, which makes the picture "breathe". Edge fill always repeats the border pixels (edge mode
+  1); transparent edges (mode 0) are in the shader for a later "show the background" option.
+- **The analysis covers the clip plus 1 s on each side and merges with what exists.** A trim outwards within the
+  margin needs nothing; further out the clip is *Stale* and one tap re-analyses the union. The cache lives with the
+  project (`projects/<id>/stab`), not in the system cache folder, so it is not lost when the system trims caches.
+- **Progress by polling, not callbacks.** The native job exposes a packed state long that Kotlin polls every 150 ms;
+  no JNI callbacks, no thread attachment, nothing to leak.
+- **The preview redraws when the table registry changes** (a revision counter in the draw signature), so a finished
+  analysis or a new strength shows without scrubbing.
+
+
+## Generalised keyframes (WP-K)
+
+**Decisions:**
+- Pose stays as joint `Keyframe`s; `pose.*` parameters are a per-parameter view over them (`Clip.paramKeys`). `Clip.params` never holds `pose.*` ids, so old projects load unchanged and the new JSON field is optional. Alternative: split pose into per-component tracks (migration and native evaluator change).
+- Keys are in clip frames (0 = first frame of the clip), so they travel with the clip; split/trim/overwrite crop them, speed changes stretch them. Multiselect copy/paste must treat `Clip.params` exactly like `keyframes`: tracks are relative to the clip start and are copied and pasted with the clip.
+- Bezier uses CSS `cubic-bezier` handles (x in 0..1, y in -2..3, default 0.42/0.0) solved by bisection. The native pose evaluator only knows linear/ease/hold, so Bezier pose segments are baked to per-frame linear keys at export.
+- Effect values are exported as a per-frame table (`fxFrames`, concatenated `layer_fx.h` blobs) evaluated in Kotlin, the same function the preview uses, instead of porting track evaluation to native. Alternative: native keyframe evaluation (second implementation, parity risk).
+- Audio snapshot is version 5 (still parses 4): per-clip lanes for gain, pan and EQ gains. The mixer processes in absolute 32-sample chunks (gain ramps linearly per chunk; pan/EQ evaluated at the chunk middle; all five EQ band stages are kept so filter state is stable), so realtime and offline are identical and block size does not matter. Hold ramps over its last frame before the next key.
+- Inspector shows the clip as it is at the playhead (`displayedClip`); a control change on an animated parameter writes a key at the playhead (keeping that key's shape), otherwise the static base value changes. Removing the last key writes its value back to the static field; removing an effect drops its tracks.
+- Colour wheels have no diamond (three-component control); sliders for grade values do.
+**Not verified:** on the Pixel 8 only install and reaching the editor were done (the device was heavily shared); adding a keyframe through the diamond, the lane drag, and an export compared against the preview were NOT exercised on device. Covered by JVM and native host tests only (interpolation vectors, cropping, migration round trips, preview/export parity at frame boundaries, audio block-size independence).
+
+## Interchange and media library (WP-I)
+
+**Decision:** a project bundle is a zip (`bundle.json` manifest, raw `project.json`, optional card thumbnail, optional `media/`), imported by unpacking into a scratch folder under the projects folder and moving it into place with one atomic rename.
+**Why:** a bundle with media can be gigabytes and an import can fail halfway; the scratch-and-rename keeps the projects folder free of half projects, and the raw `project.json` keeps fields a newer build wrote.
+**Alternative:** unpack straight into the final folder and clean up on failure (a crash would leave a broken project), or keep media outside the bundle always.
+
+**Decision:** auto-relink looks only among the assets of the other local projects and needs name (ignoring case) and size to match; it never searches the device.
+**Why:** a MediaStore search needs a new storage permission; privacy and "no new access" win, and name plus size avoids picking a different file with the same name.
+**Alternative:** query MediaStore (more matches, a new permission) or match by name only (wrong files).
+
+**Decision:** the EDL is one file per track (a zip when there are several) and transitions are written as cuts; FCPXML puts the base on the spine and the rest as connected clips with the offset computed as if the parent played at normal speed.
+**Why:** CMX3600 has one video channel and importers expect one track per EDL; FCPXML's connected-clip model matches the base-plus-overlays model of the app, and the notes list every approximation.
+**Alternative:** one merged EDL (breaks importers), or a gap-only spine with every clip connected (works everywhere but loses the primary storyline).
+
+**Decision:** FCPXML positions are written as a percentage of the frame height (y flipped, rotation negated) and retimes as a two-point `timeMap`; both are listed as unchecked in the sequence note.
+**Why:** the exact Final Cut Pro units could not be verified without the application; the note keeps the export honest.
+**Alternative:** omit transforms and retimes from FCPXML.
+
+**Decision:** tags and notes on library files, like the library order, are saved with the project but are not part of Undo; "Remove unused" keeps any file that the timeline, an undo or redo state or the clipboard still uses.
+**Why:** they are library data, not timeline edits, and undoing a deletion must never meet a file that is gone.
+**Alternative:** make library edits undoable (needs the history to cover the asset list), or remove strictly by current usage (an undo could bring back a clip with no file).
+
+**Decision:** marker colours are stored and exported but not drawn on the native ruler.
+**Why:** drawing them needs a timeline snapshot version bump that other work is also changing; the dialog and the exports carry them.
+**Alternative:** bump the snapshot to draw coloured markers.
+
+**Decision:** the bundle carries only the project card picture; importing keeps it in the project folder but the app does not use it yet.
+**Why:** the format reserves `thumbnails/` so a viewer without the media can show something; per-asset pictures would grow the bundle for little use.
+**Alternative:** include a picture per asset and use them as fallbacks for missing media.
+
+**Decision:** the pickers that ask where to write a bundle, an FCPXML or a single EDL use the generic type `application/octet-stream`; only the zip of several EDLs uses `application/zip`.
+**Why:** seen on the Pixel 8: with a specific type the system file picker appends its own extension to the suggested name (`.uvbundle.zip`, `.fcpxml.xml`), which other tools do not recognise.
+**Alternative:** keep the specific types and strip the doubled extension afterwards (not possible through the picker).
+
+**Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).

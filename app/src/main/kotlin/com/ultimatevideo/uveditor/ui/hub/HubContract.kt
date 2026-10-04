@@ -148,6 +148,10 @@ sealed interface HubIntent : UiIntent {
     data class ExportTo(val projectId: String, val uri: String) : HubIntent
     data class ImportFrom(val uri: String) : HubIntent
 
+    /** A `.uvbundle` of the project: with [includeMedia] the media files are copied in, else only their names and sizes. */
+    data class RequestExportBundle(val project: ProjectSummary, val includeMedia: Boolean) : HubIntent
+    data class ExportBundleTo(val projectId: String, val uri: String, val includeMedia: Boolean) : HubIntent
+
     data class RecoverProject(val projectId: String) : HubIntent
     data class DeleteUnreadable(val projectId: String) : HubIntent
     data object ResumeSession : HubIntent
@@ -159,5 +163,6 @@ sealed interface HubIntent : UiIntent {
 sealed interface HubEffect : UiEffect {
     data class ShowMessage(val text: String) : HubEffect
     data class LaunchExportPicker(val projectId: String, val suggestedFileName: String) : HubEffect
+    data class LaunchBundleExportPicker(val projectId: String, val suggestedFileName: String, val includeMedia: Boolean) : HubEffect
     data class OpenEditor(val projectId: String) : HubEffect
 }
