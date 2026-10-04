@@ -1,4 +1,5 @@
 #include "audio/audio_engine.h"
+#include "core/fd_util.h"
 
 #include <android/log.h>
 #include <time.h>
@@ -48,11 +49,11 @@ AudioEngine::~AudioEngine() {
 int AudioEngine::dupAsset(int64_t key) {
     std::lock_guard<std::mutex> lock(assetMutex_);
     const auto it = assets_.find(key);
-    return it == assets_.end() ? -1 : dup(it->second);
+    return it == assets_.end() ? -1 : core::openIndependent(it->second);
 }
 
 int32_t AudioEngine::setAssetFd(int64_t assetKey, int fd) {
-    const int copy = dup(fd);
+    const int copy = core::openIndependent(fd);
     if (copy < 0) return static_cast<int32_t>(Status::IoError);
     std::lock_guard<std::mutex> lock(assetMutex_);
     if (auto it = assets_.find(assetKey); it != assets_.end()) close(it->second);

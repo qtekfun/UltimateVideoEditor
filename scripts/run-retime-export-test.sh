@@ -7,14 +7,16 @@ set -euo pipefail
 serial="$1"
 runs="${2:-1}"
 here="$(cd "$(dirname "$0")" && pwd)"
+# PKG: application id of the installed build (default; com.ultimatevideo.uveditor.x for a -PappIdSuffix=.x build).
+pkg="${PKG:-com.ultimatevideo.uveditor}"
 work="$(mktemp -d)"
 # `am instrument` restarts the app's process: never do that while someone is using the app on the device.
-if adb -s "$serial" shell dumpsys window | grep -m1 mCurrentFocus | grep -q "com.ultimatevideo.uveditor"; then
+if adb -s "$serial" shell dumpsys window | grep -m1 mCurrentFocus | grep -q "$pkg/"; then
     echo "the app is in the foreground on $serial; not running (set FORCE=1 to override)" >&2
     [ "${FORCE:-0}" = "1" ] || exit 3
 fi
 trap 'rm -rf "$work"' EXIT
-dir=/sdcard/Android/data/com.ultimatevideo.uveditor/files
+dir="/sdcard/Android/data/$pkg/files"
 
 python3 "$here/check-retime-export.py" gen "$work/retime_src.mp4"
 adb -s "$serial" push "$work/retime_src.mp4" "$dir/retime_src.mp4" > /dev/null
@@ -22,7 +24,7 @@ failures=0
 for i in $(seq 1 "$runs"); do
     adb -s "$serial" logcat -c
     if adb -s "$serial" shell am instrument -w -e class com.ultimatevideo.uveditor.engine.export.RetimeExportInstrumentedTest \
-        com.ultimatevideo.uveditor.test/androidx.test.runner.AndroidJUnitRunner | tee "$work/run.txt" | grep -q "^OK"; then
+        $pkg.test/androidx.test.runner.AndroidJUnitRunner | tee "$work/run.txt" | grep -q "^OK"; then
         for f in retime_out.mp4 retime_expected.txt retime_segments.txt plain_out.mp4 plain_expected.txt plain_segments.txt; do
             adb -s "$serial" pull "$dir/$f" "$work/$f" > /dev/null
         done
