@@ -11,8 +11,10 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class ProxyWorkerTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -30,7 +32,9 @@ class ProxyWorkerTest {
 
     @After
     fun tearDown() {
+        // Wait for the worker thread to finish before the temporary folder is deleted under it.
         executor.shutdownNow()
+        executor.awaitTermination(5, TimeUnit.SECONDS)
     }
 
     private fun job(n: Int) = ProxyJob("content://m$n", 300, 30, 1, "Rec709-SDR")
@@ -124,6 +128,7 @@ class ProxyWorkerTest {
         // The process dies here: the index says RUNNING and QUEUED, a part file may be on disk.
         index.partFileFor(running.key).writeBytes(ByteArray(20))
         executor.shutdownNow()
+        executor.awaitTermination(5, TimeUnit.SECONDS)
 
         val restartedExecutor = Executors.newSingleThreadExecutor()
         try {
@@ -140,6 +145,7 @@ class ProxyWorkerTest {
             assertEquals(setOf(running.key, waiting.key), resumed.order.toSet())
         } finally {
             restartedExecutor.shutdownNow()
+            restartedExecutor.awaitTermination(5, TimeUnit.SECONDS)
         }
     }
 
@@ -171,5 +177,59 @@ class ProxyWorkerTest {
 
         waitUntil { index.get(entry.key)?.state == ProxyState.FAILED }
         assertEquals("boom", index.get(entry.key)!!.error)
+    }
+
+    @Test
+    fun `a failing save of the index does not end the queue`() {
+        // The folder vanishes after the first job and its pending index write fails; the second job must still run.
+        var calls = 0
+        // The first job waits until both jobs are queued: queueing writes the index, which the vanishing folder would break.
+        val bothQueued = CountDownLatch(1)
+        val vanishing = object : ProxyTranscoder {
+            override fun generate(entry: ProxyEntry, onProgress: (Int) -> Unit): ProxyEntry {
+                calls++
+                if (calls == 1) bothQueued.await(10, TimeUnit.SECONDS)
+                if (calls == 2) dir.mkdirs()
+                val result = transcoder.generate(entry, onProgress)
+                if (calls == 1) {
+                    index.touch(entry.key) // leaves a write pending for the worker's housekeeping
+                    dir.deleteRecursively()
+                }
+                return result
+            }
+
+            override fun cancelCurrent() = Unit
+        }
+        val resilient = ProxyWorker(index, vanishing, scope, executor.asCoroutineDispatcher(), { Long.MAX_VALUE }, { emptySet() })
+
+        resilient.enqueue(job(1), 720)
+        val second = resilient.enqueue(job(2), 720)
+        bothQueued.countDown()
+
+        waitUntil(timeoutMs = 20_000) { index.get(second.key)?.state == ProxyState.READY }
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `a job whose write fails is marked failed and the next job still runs`() {
+        val flaky = object : ProxyTranscoder {
+            private var calls = 0
+
+            override fun generate(entry: ProxyEntry, onProgress: (Int) -> Unit): ProxyEntry {
+                calls++
+                if (calls == 1) throw IOException("disk full")
+                return transcoder.generate(entry, onProgress)
+            }
+
+            override fun cancelCurrent() = Unit
+        }
+        val resilient = ProxyWorker(index, flaky, scope, executor.asCoroutineDispatcher(), { Long.MAX_VALUE }, { emptySet() })
+
+        val first = resilient.enqueue(job(1), 720)
+        val second = resilient.enqueue(job(2), 720)
+
+        waitUntil(timeoutMs = 20_000) { index.get(second.key)?.state == ProxyState.READY }
+        assertEquals(ProxyState.FAILED, index.get(first.key)!!.state)
+        assertEquals("disk full", index.get(first.key)!!.error)
     }
 }
