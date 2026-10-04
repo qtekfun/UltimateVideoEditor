@@ -123,6 +123,14 @@ class WebpTest {
     }
 
     @Test
+    fun `the plays of a WebP are its ANIM loop count and 0 is forever`() {
+        assertEquals(0, WebpAnimationScan.plays(file { frame(0, 0, 8, 6, 40, red) }))
+        assertEquals(3, WebpAnimationScan.plays(file { loop = 3; frame(0, 0, 8, 6, 40, red) }))
+        assertEquals(65535, WebpAnimationScan.plays(file { loop = 65535; frame(0, 0, 8, 6, 40, red) }))
+        assertEquals(0, WebpAnimationScan.plays(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
     fun `the existing delay scan agrees with the container parser`() {
         val bytes = file { frame(0, 0, 8, 6, 40, red); frame(0, 0, 8, 6, 60, blue) }
         assertEquals(listOf(40, 60), WebpAnimationScan.delaysMs(bytes))
