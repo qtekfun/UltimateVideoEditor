@@ -140,6 +140,8 @@ the Pixel 8 is named; the Pixel 8 is a debug device, not the reference).
 | Speed and slow motion | Export of freeze/2x/reverse/ramp/0.5x checked frame by frame (OPPO); 0.25x interpolation PSNR 43.9 dB vs 35.9 dB (Pixel) | Inspector and curve editor, reverse in preview, denoise/deflicker on real footage |
 | Stabiliser and tracking | Stabiliser demo export 21.5 to 42.6 dB (Pixel) | Inspector sections, live preview, tracking on real clips, attaching a title to a path |
 | Markers and beats | Not seen | Ruler markers, beat detection on music, cut to beat, templates look |
+| Dark theme and pure black | Not seen (Pixel locked; JVM contrast tests only) | Pure black switch live, no white flash at start, every sheet and dialog dark, system bars icons |
+| Timeline canvas redesign | Not seen (Pixel locked; host and JVM tests only) | Sharp text at 2800x1840 and 1080x2400, accents and emoji in titles, ruler zoom steps, rounded blocks, selection handles; frame stats before/after with `scripts/perf-timeline.sh` (limit 5 % on p99) |
 | Proxies | One 4K clip became a 720p proxy in 7.9 s (Pixel) | Sheet, badges, preview switching to the proxy and back, scrub smoothness with proxies |
 | Multiselect | Select mode, marquee, group move, copy/paste (Pixel) | Cut, paste attributes, align, transitions, group speed/volume/opacity |
 | Multicam, auto cut, reframe, templates, filter and transition packs | Not seen | Everything: sheets, sync on two real recordings, cuts, shader looks, wizard |

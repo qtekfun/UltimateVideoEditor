@@ -22,7 +22,7 @@ automated tests so far; see [Known limits](#known-limits).
 14. [Proxy media](#proxy-media)
 15. [Multicam](#multicam)
 16. [Missing media and recovery](#missing-media-and-recovery)
-17. [About, privacy, tips and crash reports](#about-privacy-tips-and-crash-reports)
+17. [About, privacy, tips and crash reports](#about-privacy-tips-and-crash-reports) and [Appearance](#appearance-dark-and-pure-black)
 18. [Known limits](#known-limits)
 
 ## Project hub
@@ -193,16 +193,26 @@ panel on the left.
 - **Overlay tracks** sit above the base, stacked upward. They are free: clips can be placed anywhere and gaps
   are kept. Higher lanes are drawn on top.
 - **Audio tracks** are below the base. **Title** tracks hold text and caption clips.
-- **Lane headers**: a small name tab (V3, V2, V1 for the base, A1, T1...) sits over the left edge of every lane;
-  audio lanes also show a red **M** when muted and a yellow **S** when soloed. **Tap** a header to select the lane.
+- **Lane headers**: a small name tab (V3, V2, V1 for the base, A1, T1...) sits over the left edge of every lane, with a
+  stripe in the lane's colour down its edge; audio lanes also show a red **M** chip when muted and a yellow **S** chip when soloed. **Tap** a header to select the lane.
   **Long press and drag** a header up or down to reorder the lane: a bar shows where it will land and releasing
   applies it as one undo step. Lanes only reorder among their own kind (overlay videos together, audio together, titles
   together) and the base never moves; the ▲ / ▼ buttons do the same one step at a time. The header covers the first
   22dp of every lane, so scroll the timeline slightly if you need to grab the very start of a clip.
 
+### What the timeline shows
+
+- **Ruler.** The time labels follow the zoom: `0:05`, `1:00`, `1:02:05` for whole seconds, minutes and hours; zoomed in
+  far enough they become `0:05:12` (minutes, seconds, frames) and every frame gets a tick. Small ticks between the
+  labels appear when there is room. The red tag at the top of the playhead shows the exact time under it.
+- **Blocks** are rounded and coloured by what they are: blue video, green audio, violet titles, orange photos, pink
+  stickers, teal multicam. The strip at the top of a block holds its name, a speed label (`2x`, `0.5x`, `<` reverse,
+  `||` freeze), the keyframe diamonds and the effects badge.
+- All text is drawn with the phone's own font and sizes, so it stays sharp on dense screens; nothing is downloaded.
+
 ### Gestures
 
-- **Tap** a clip to select it (yellow outline). Tap an empty lane to select that track.
+- **Tap** a clip to select it (yellow outline and a handle at each end, the edges you can drag to trim). Tap an empty lane to select that track.
 - **Drag the ruler or the red playhead** to scrub.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
 - **Pinch** on the timeline to zoom, **drag** on an empty area to scroll, **fling** to coast.
@@ -295,7 +305,7 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
   cut, like the crossfade, and the preview and the exported movie draw them identically.
 - **Reset** restores the clip's appearance; **Done** closes the panel.
 
-Title and sticker blocks on the timeline show their text or name (capital letters and digits only; other scripts show "TEXT").
+Title and sticker blocks on the timeline show their text or name, in the system font: accents, other scripts, symbols and emoji all come out as typed (a long text is cut with …). Video, audio and photo blocks show the name of their file in the strip at the top of the block.
 
 Photos and stickers behave like clips with no source length: stretch them freely from either edge. Speed and
 reverse do not apply to them.
@@ -442,8 +452,8 @@ undo step.
 flag). A small panel opens under the ruler with:
 
 - a **name** (one line, up to 40 characters) and a **note** (several lines, up to 200 characters). When the
-  timeline is zoomed in far enough, the name is written next to the flag; the canvas draws capital letters A-Z,
-  digits and "-" only, so accents are dropped there (the full name stays in the project and in exports);
+  timeline is zoomed in far enough, the name is written next to the flag, in the system font (accents, symbols and emoji
+  included; a long name is cut where the next marker starts);
 - six **colours**; tap the chosen one again to clear it. The flag and the faint line through the lanes take the
   colour (pink when there is none), and a small light square under the flag shows that there is a note;
 - **‹ ›** go to the previous or next marker (the playhead follows);
@@ -657,6 +667,7 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 
 Open the **⋮ menu** in the project list and choose **About, privacy and help**.
 
+- **Appearance**: the **Pure black backgrounds** switch (see [Appearance](#appearance-dark-and-pure-black)).
 - **Version** of the build, the **licence** (GPL-3.0) with the full text, and where the source code lives.
 - **Privacy**: what the app stores and why it needs no permissions, the same text as `docs/PRIVACY.md`.
 - **Third-party software**: the libraries inside the app and their licences.
@@ -671,6 +682,14 @@ Open the **⋮ menu** in the project list and choose **About, privacy and help**
   function names the system recorded. This all stays on the phone.
 - **Show tips again**: three short tips (import, cut and arrange, export and help) appear on first launch and can be
   brought back here.
+
+## Appearance: dark and pure black
+
+ultimateVE is dark, always: it does not follow the system light theme (a light screen next to a video preview was hard on
+the eyes and made colours harder to judge). Open **About, privacy and help** and switch on **Pure black backgrounds** to
+make the backgrounds black instead of dark grey, which saves power on OLED screens. It applies at once, the timeline
+and the other canvases included, and is remembered on this phone only. The app does not use the wallpaper colours either:
+the colours are the app's own, so the screens look the same on every phone.
 
 ## Known limits
 

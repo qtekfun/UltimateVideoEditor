@@ -5,6 +5,10 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import android.graphics.drawable.ColorDrawable
+import com.ultimatevideo.uveditor.ui.theme.Palette
+import com.ultimatevideo.uveditor.ui.theme.PreferencesAppearanceStore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -74,7 +78,11 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Dark only: light system-bar icons on a transparent bar whatever the system theme says.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         val transferIO = ContentResolverTransferIO(applicationContext.contentResolver)
         val projectThumbnails = AndroidProjectThumbnails(applicationContext)
         val repository = ProjectRepository(
@@ -96,6 +104,8 @@ class MainActivity : ComponentActivity() {
         val newProjectDefaults = PreferencesNewProjectDefaults(applicationContext)
         val clipPeeker = AndroidClipPeeker(applicationContext)
         val onboardingStore = PreferencesOnboardingStore(applicationContext)
+        val appearance = PreferencesAppearanceStore(applicationContext)
+        window.setBackgroundDrawable(ColorDrawable(Palette.of(appearance.amoled).background))
         val aboutController = AboutController(
             version = AppVersion.of(this),
             crashStore = CrashReportStore(File(filesDir, "crash")),
@@ -110,7 +120,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            UVEditorTheme {
+            val amoled = appearance.amoled
+            // The window behind Compose follows the choice, so no grey shows during transitions or on rotation.
+            LaunchedEffect(amoled) { window.setBackgroundDrawable(ColorDrawable(Palette.of(amoled).background)) }
+            UVEditorTheme(amoled = amoled) {
                 val hubViewModel: HubViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
@@ -141,7 +154,7 @@ class MainActivity : ComponentActivity() {
                 var showAbout by rememberSaveable { mutableStateOf(false) }
                 val projectId = openProjectId
                 if (projectId == null && showAbout) {
-                    AboutScreen(aboutController, onBack = { showAbout = false })
+                    AboutScreen(aboutController, appearance, onBack = { showAbout = false })
                 } else if (projectId == null) {
                     // Project timestamps and names may have changed while editing.
                     LaunchedEffect(Unit) { hubViewModel.onIntent(HubIntent.Refresh) }

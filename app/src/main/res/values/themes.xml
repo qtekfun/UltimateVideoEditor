@@ -1,3 +1,15 @@
 <resources>
-    <style name="Theme.UVEditor" parent="android:Theme.Material.NoActionBar" />
+    <!-- Dark only. The colours repeat Palette.Dark (ui/theme/Palette.kt); the window background is replaced at start
+         with the pure-black one when that option is on. -->
+    <color name="uv_background">#0F1115</color>
+
+    <style name="Theme.UVEditor" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/uv_background</item>
+        <item name="android:colorBackground">@color/uv_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowSplashScreenBackground">@color/uv_background</item>
+    </style>
 </resources>
