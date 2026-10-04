@@ -40,7 +40,8 @@ public:
     const VideoStreamInfo& info() const { return info_; }
 
     // Repositions the demuxer so the next decode() returns a picture at or before `frame` (the previous key
-    // frame); the caller decodes forward and drops what it does not need. False with *error on failure.
+    // frame; with open GOPs, further back if needed); the caller decodes forward and drops what it does not
+    // need. False with *error on failure.
     bool seek(int64_t frame, std::string* error);
 
     // Decodes the next picture in presentation order and returns its frame index. Indices increase strictly
@@ -53,6 +54,7 @@ public:
 
 private:
     SoftwareVideoReader();
+    bool seekDemuxer(int64_t frame, std::string* error);
     struct Impl;
     std::unique_ptr<Impl> impl_;
     VideoStreamInfo info_;
