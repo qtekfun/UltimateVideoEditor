@@ -1,5 +1,8 @@
 package com.ultimatevideo.uveditor.domain
 
+import com.ultimatevideo.uveditor.domain.multicam.MulticamClip
+import com.ultimatevideo.uveditor.domain.multicam.MulticamOps
+
 enum class TrackType { VIDEO, AUDIO, TITLE }
 
 /**
@@ -321,7 +324,11 @@ data class Timeline(
     val ducking: Ducking? = null,
     /** Targets the user asked to track on video clips (SPECS.md 9.15); the analysed paths live in cache files. */
     val motionTracks: List<MotionTrack> = emptyList(),
+    /** Synchronised multi-angle clips (SPECS.md 9.9); their programme is realised as ordinary clips on the tracks. */
+    val multicams: List<MulticamClip> = emptyList(),
 ) {
+    fun multicam(id: String): MulticamClip? = multicams.firstOrNull { it.id == id }
+
     fun track(id: String): Track? = tracks.firstOrNull { it.id == id }
 
     fun motionTrack(id: String): MotionTrack? = motionTracks.firstOrNull { it.id == id }
@@ -377,7 +384,9 @@ data class Timeline(
             if (broken == null) {
                 // A motion track whose clip is gone has nothing to follow.
                 val alive = current.motionTracks.filter { current.trackOfClip(it.clipId) != null }
-                return if (alive.size == current.motionTracks.size) current else current.copy(motionTracks = alive)
+                val kept = if (alive.size == current.motionTracks.size) current else current.copy(motionTracks = alive)
+                // A multicam group follows its clips when they move together and is forgotten when they were edited one by one.
+                return MulticamOps.settle(kept)
             }
             current = current.copy(transitions = current.transitions - broken)
         }
@@ -432,6 +441,7 @@ data class Timeline(
             transitionProblem(transition)?.let { violations += "transition ${transition.id}: $it" }
         }
         violations += MarkerOps.violations(markers)
+        violations += MulticamOps.violations(this)
         return violations
     }
 }

@@ -17,6 +17,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.IconButton
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamController
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamIntent
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamSheet
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipDefaults
@@ -751,6 +754,14 @@ private fun EditorMain(
         }
     }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
+    if (state.multicam.open) {
+        MulticamSheet(
+            state = state,
+            group = MulticamController.groupOf(state.timeline, state.selectedClipId),
+            feedsOf = viewModel::multicamFeeds,
+            onIntent = { viewModel.onIntent(EditorIntent.Multicam(it)) },
+        )
+    }
     LibraryOverlays(state) { viewModel.onIntent(it) }
     LocalProxyUi.current?.let { ProxySheetHost(it, LocalProxyIntent.current) }
     var scopesOpen by remember { mutableStateOf(false) }
@@ -922,6 +933,9 @@ private fun EditorMain(
                         proxyIntent(ProxyIntent.OpenSheet)
                     }
                     ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
+                    ToolButton(EditorIcons.Multicam, "Multicam: line up several cameras by their sound and cut between them") {
+                        viewModel.onIntent(EditorIntent.Multicam(MulticamIntent.Open))
+                    }
                     ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
                         scopesOpen = !scopesOpen
                     }
