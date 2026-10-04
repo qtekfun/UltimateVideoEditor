@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "core/codec_config.h"
 #include "decode/decoder_ladder.h"
 #include "decode/log.h"
 #include "decode/pending_policy.h"
@@ -191,6 +192,7 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
         AImageReader_delete(d->reader_);
         d->reader_ = nullptr;
     }
+    if (started) d->codecConfig_ = core::captureCodecConfig(format);  // queued again after every flush
     AMediaFormat_delete(format);
     if (!started) {
         return Error{Status::CodecError, "this device could not start a " + mimeCopy + " decoder for " +
@@ -397,6 +399,7 @@ void VideoDecoder::seekTo(int64_t frame) {
         reportError(Status::CodecError, "AMediaCodec_flush failed (" + describe() + ")");
         return;
     }
+    resubmitCodecConfig();
     decoderPrimed_ = true;
     awaitingFirstOutput_ = true;
     seekGoal_ = frame;
@@ -404,6 +407,10 @@ void VideoDecoder::seekTo(int64_t frame) {
     sharedPrimed_.store(true);
     sharedInputEos_.store(false);
     sharedSeeks_.fetch_add(1);
+}
+
+void VideoDecoder::resubmitCodecConfig() {
+    if (!core::queueCodecConfig(codec_, codecConfig_)) UV_LOGW("could not queue the codec config again after a flush");
 }
 
 void VideoDecoder::pump(int64_t lo, int64_t hi) {
