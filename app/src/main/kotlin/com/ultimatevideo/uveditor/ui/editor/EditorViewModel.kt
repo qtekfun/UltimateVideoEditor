@@ -114,7 +114,16 @@ import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.domain.MotionTrack
+import com.ultimatevideo.uveditor.domain.sourceFrameAtProjectFrame
+import kotlinx.coroutines.withContext
+import com.ultimatevideo.uveditor.domain.TrackMath
+import com.ultimatevideo.uveditor.domain.TrackSeed
 import com.ultimatevideo.uveditor.engine.stabilise.NoStabiliser
+import com.ultimatevideo.uveditor.engine.track.MotionTracker
+import com.ultimatevideo.uveditor.engine.track.NoMotionTracker
+import com.ultimatevideo.uveditor.engine.track.TrackOutcome
+import com.ultimatevideo.uveditor.engine.track.TrackStatus
 import com.ultimatevideo.uveditor.engine.stabilise.StabOutcome
 import com.ultimatevideo.uveditor.engine.stabilise.StabStatus
 import com.ultimatevideo.uveditor.engine.stabilise.Stabiliser
@@ -151,6 +160,10 @@ class EditorViewModel(
     private val stabiliser: Stabiliser = NoStabiliser,
     /** Where stabiliser bookkeeping (reading cache headers, building tables) runs. */
     private val stabDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Motion tracking of a point or box through a video clip (SPECS.md 9.15). */
+    private val motionTracker: MotionTracker = NoMotionTracker,
+    /** Where motion-track bookkeeping (reading cache files, building the overlay) runs. */
+    private val trackDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** Writes bundles, EDLs and FCPXML files; the default cannot write anything. */
     private val interchange: InterchangeExporter = InterchangeExporter.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
@@ -309,6 +322,19 @@ class EditorViewModel(
             EditorIntent.AnalyseStabilise -> analyseStabilise()
             EditorIntent.CancelStabilise -> stabiliser.cancel()
             EditorIntent.RefreshStabilise -> refreshStabilise()
+            EditorIntent.RefreshTrack -> refreshTrack()
+            EditorIntent.BeginTrackPick -> beginTrackPick()
+            EditorIntent.CancelTrackPick -> reduce { copy(track = track.copy(picking = false)) }
+            is EditorIntent.SetTrackBox -> reduce { copy(track = track.copy(boxSide = intent.side.coerceIn(TrackSeed.MIN_SIZE, 0.5))) }
+            is EditorIntent.PickTrackTarget -> pickTrackTarget(intent.x, intent.y, intent.w, intent.h)
+            EditorIntent.CancelTrack -> motionTracker.cancel()
+            is EditorIntent.ReanalyseTrack -> startTrackAnalysis(intent.trackId)
+            is EditorIntent.RemoveMotionTrack -> removeMotionTrack(intent.trackId)
+            is EditorIntent.ShowTrack -> {
+                reduce { copy(track = track.copy(activeId = intent.trackId, overlay = if (intent.trackId == null) emptyList() else track.overlay)) }
+                refreshTrack()
+            }
+            is EditorIntent.FollowTrack -> followTrack(intent.trackId)
             is EditorIntent.UpdateMask -> updateMask(intent.mask)
             is EditorIntent.EndFxEdit -> endFxEdit(intent.commit)
             EditorIntent.ClearFx -> withSelection { execute(EditCommand.ClearFx(it)) }
@@ -462,6 +488,7 @@ class EditorViewModel(
                     )
                 }
                 refreshStabilise()  // a reopened project's stabilised clips need their tables again
+                refreshTrack()
                 verifyAssets(project.mediaLibrary)
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false, loadError = e.message) }
@@ -800,6 +827,7 @@ class EditorViewModel(
             )
         }
         refreshStabilise()
+        refreshTrack()
     }
 
     // region stabiliser
@@ -850,6 +878,199 @@ class EditorViewModel(
     }
 
     // endregion
+
+    // endregion
+
+    // region motion tracking
+
+    private var trackJob: Job? = null
+
+    private fun clipWithAsset(clipId: String?): Pair<Clip, MediaAssetDto>? {
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) } ?: return null
+        val asset = state.value.assets.firstOrNull { it.id == clip.assetId } ?: return null
+        return clip to asset
+    }
+
+    /** The selected clip when it is a video clip that plays a video file (the only kind that can be tracked). */
+    private fun trackableSelection(): Pair<Clip, MediaAssetDto>? {
+        val id = state.value.selectedClipId ?: return null
+        if (history.timeline.trackOfClip(id)?.type != TrackType.VIDEO) return null
+        val found = clipWithAsset(id) ?: return null
+        return found.takeIf { it.first.hasMedia && it.first.still == null && it.second.hasVideo && !it.second.isImage }
+    }
+
+    /**
+     * Re-reads the selected clip's tracks and their analysis status, the tracks of other clips it could follow, and the
+     * path of the track shown on the preview. Runs off the main thread (it reads cache files).
+     */
+    private fun refreshTrack() {
+        val timeline = history.timeline
+        val s = state.value
+        val selectedId = s.selectedClipId?.takeIf { timeline.trackOfClip(it) != null }
+        val trackable = trackableSelection()
+        val selectedType = selectedId?.let { timeline.trackOfClip(it)?.type }
+        val canFollow = selectedId != null && selectedType != null && selectedType != TrackType.AUDIO
+        if (timeline.motionTracks.isEmpty() && s.track.items.isEmpty() && s.track.followable.isEmpty() && s.track.overlay.isEmpty() && s.track.activeId == null) {
+            if (s.track.clipId != selectedId || s.track.canTrack != (trackable != null) || (s.track.picking && trackable == null)) {
+                reduce { copy(track = track.copy(clipId = selectedId, canTrack = trackable != null, picking = track.picking && trackable != null)) }
+            }
+            return
+        }
+        val fps = s.fps
+        val assets = s.assets
+        val canvasW = s.canvasWidth
+        val canvasH = s.canvasHeight
+        val activeWanted = s.track.activeId?.takeIf { timeline.motionTrack(it) != null }
+        viewModelScope.launch(trackDispatcher) {
+            val items = if (trackable != null) {
+                timeline.motionTracks.filter { it.clipId == trackable.first.id }.map { TrackItem(it, motionTracker.statusOf(trackable.second, trackable.first, it, fps)) }
+            } else {
+                emptyList()
+            }
+            val follow = if (canFollow) {
+                timeline.motionTracks.filter { it.clipId != selectedId }.mapNotNull { t ->
+                    val clip = timeline.trackOfClip(t.clipId)?.clip(t.clipId) ?: return@mapNotNull null
+                    val asset = assets.firstOrNull { it.id == clip.assetId } ?: return@mapNotNull null
+                    FollowItem(t, motionTracker.statusOf(asset, clip, t, fps) is TrackStatus.Ready)
+                }
+            } else {
+                emptyList()
+            }
+            val overlay = activeWanted?.let { id ->
+                val t = timeline.motionTrack(id) ?: return@let emptyList()
+                val clip = timeline.trackOfClip(t.clipId)?.clip(t.clipId) ?: return@let emptyList()
+                val asset = assets.firstOrNull { it.id == clip.assetId } ?: return@let emptyList()
+                motionTracker.load(asset, t, fps)?.let { TrackMath.canvasPath(it, clip, canvasW, canvasH) } ?: emptyList()
+            } ?: emptyList()
+            reduce {
+                copy(
+                    track = track.copy(
+                        clipId = selectedId, canTrack = trackable != null, items = items, followable = follow,
+                        activeId = activeWanted, overlay = overlay, picking = track.picking && trackable != null,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun beginTrackPick() {
+        val found = trackableSelection()
+        if (found == null) {
+            emit(EditorEffect.ShowMessage("Select a video clip to track"))
+            return
+        }
+        val clip = found.first
+        val playhead = state.value.playhead
+        if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
+            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            return
+        }
+        pausePlayback()
+        reduce { copy(track = track.copy(picking = true)) }
+    }
+
+    /**
+     * The pick on the preview ([x], [y] in canvas pixels from the centre, a box when [w] and [h] are given) becomes a
+     * seed in the clip's own picture at the playhead's source frame, is remembered as a motion track (one undo step)
+     * and analysed in the background.
+     */
+    private fun pickTrackTarget(x: Double, y: Double, w: Double?, h: Double?) {
+        val found = trackableSelection()
+        if (found == null) {
+            emit(EditorEffect.ShowMessage("Select a video clip to track"))
+            return
+        }
+        val (clip, asset) = found
+        val s = state.value
+        val playhead = s.playhead
+        if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
+            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            return
+        }
+        viewModelScope.launch {
+            val aspect = withContext(trackDispatcher) { motionTracker.frameAspect(asset) } ?: (s.canvasWidth.toDouble() / s.canvasHeight)
+            val pose = Keyframes.evaluate(clip.keyframes, playhead.value - clip.timelineStart.value, clip.transform)
+            val (u, v) = TrackMath.fromCanvas(x, y, aspect, s.canvasWidth, s.canvasHeight, pose)
+            if (u !in 0.0..1.0 || v !in 0.0..1.0) {
+                emit(EditorEffect.ShowMessage("Tap on the picture of the clip"))
+                return@launch
+            }
+            val (fitW, fitH) = TrackMath.fitSize(aspect, s.canvasWidth, s.canvasHeight)
+            val boxW = if (w != null) w / (fitW * pose.scaleX) else s.track.boxSide / aspect
+            val boxH = if (h != null) h / (fitH * pose.scaleY) else s.track.boxSide
+            val seed = TrackSeed(
+                sourceFrame = clip.sourceFrameAtProjectFrame(playhead),
+                cx = u.coerceIn(0.0, 1.0),
+                cy = v.coerceIn(0.0, 1.0),
+                w = boxW.coerceIn(TrackSeed.MIN_SIZE, TrackSeed.MAX_SIZE),
+                h = boxH.coerceIn(TrackSeed.MIN_SIZE, TrackSeed.MAX_SIZE),
+            )
+            val existing = history.timeline.motionTracks.count { it.clipId == clip.id }
+            val motion = MotionTrack("mt-${idGenerator()}", clip.id, "Track ${existing + 1}", seed)
+            if (!execute(EditCommand.AddMotionTrack(motion))) return@launch
+            reduce { copy(track = track.copy(picking = false, activeId = motion.id)) }
+            startTrackAnalysis(motion.id)
+        }
+    }
+
+    private fun startTrackAnalysis(trackId: String) {
+        if (trackJob?.isActive == true) {
+            emit(EditorEffect.ShowMessage("Another tracking analysis is running"))
+            return
+        }
+        val motion = history.timeline.motionTrack(trackId) ?: return
+        val (clip, asset) = clipWithAsset(motion.clipId) ?: return
+        val fps = state.value.fps
+        reduce { copy(track = track.copy(progress = 0f, analysingId = trackId)) }
+        trackJob = viewModelScope.launch {
+            val outcome = motionTracker.analyse(asset, clip, motion, fps) { progress -> reduce { copy(track = track.copy(progress = progress)) } }
+            when (outcome) {
+                is TrackOutcome.Failed -> emit(EditorEffect.ShowMessage(outcome.message))
+                TrackOutcome.Cancelled -> emit(EditorEffect.ShowMessage("Tracking cancelled"))
+                TrackOutcome.Done -> Unit
+            }
+            reduce { copy(track = track.copy(progress = null, analysingId = null, activeId = if (outcome == TrackOutcome.Done) trackId else track.activeId)) }
+            refreshTrack()
+        }
+    }
+
+    private fun removeMotionTrack(trackId: String) {
+        val motion = history.timeline.motionTrack(trackId) ?: return
+        val owner = clipWithAsset(motion.clipId)
+        if (!execute(EditCommand.RemoveMotionTrack(trackId))) return
+        if (owner != null) viewModelScope.launch(trackDispatcher) { motionTracker.forget(owner.second, motion) }
+        if (state.value.track.activeId == trackId) reduce { copy(track = track.copy(activeId = null, overlay = emptyList())) }
+        refreshTrack()
+    }
+
+    /** Position keyframes along the tracked path for the selected clip, replacing its keyframes in one undo step. */
+    private fun followTrack(trackId: String) {
+        val selectedId = state.value.selectedClipId
+        val attached = selectedId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        val motion = history.timeline.motionTrack(trackId)
+        if (attached == null || motion == null) {
+            emit(EditorEffect.ShowMessage("Select the clip that should follow the track"))
+            return
+        }
+        if (attached.id == motion.clipId) {
+            emit(EditorEffect.ShowMessage("A clip cannot follow its own track: select an overlay"))
+            return
+        }
+        val (trackedClip, asset) = clipWithAsset(motion.clipId) ?: return
+        val s = state.value
+        viewModelScope.launch {
+            val path = withContext(trackDispatcher) { motionTracker.load(asset, motion, s.fps) }
+            if (path == null) {
+                emit(EditorEffect.ShowMessage("Analyse ${motion.name} first"))
+                return@launch
+            }
+            val keys = TrackMath.attachKeyframes(path, trackedClip, attached, s.canvasWidth, s.canvasHeight)
+            if (execute(EditCommand.AttachToMotionTrack(attached.id, keys))) {
+                val lost = if (path.lostCount > 0) " (lost in ${path.lostCount} frames, it holds the last position there)" else ""
+                emit(EditorEffect.ShowMessage("Now follows ${motion.name}: ${keys.size} keyframes$lost"))
+            }
+        }
+    }
 
     // endregion
 
