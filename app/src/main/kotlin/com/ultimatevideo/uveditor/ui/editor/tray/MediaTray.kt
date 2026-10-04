@@ -45,6 +45,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.ultimatevideo.uveditor.ui.editor.proxy.badgeLabel
+import com.ultimatevideo.uveditor.ui.editor.proxy.proxyStatusOf
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
@@ -367,6 +369,7 @@ private fun TileContent(item: TrayItem, thumbnail: ImageBitmap?, showName: Boole
         Badge(durationLabel(item.asset), Alignment.BottomEnd)
         colourBadge(item.asset)?.let { Badge(it, Alignment.TopStart, MaterialTheme.colorScheme.tertiary) }
         if (item.usage > 0) Badge("×${item.usage}", Alignment.TopEnd, MaterialTheme.colorScheme.primary)
+        proxyStatusOf(item.asset.id).badgeLabel()?.let { Badge(it, Alignment.CenterEnd, MaterialTheme.colorScheme.secondary) }
         if (showName) {
             Text(
                 item.name,

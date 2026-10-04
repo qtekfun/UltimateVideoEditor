@@ -28,6 +28,12 @@ internal object EditorIcons {
 
     val Back = icon("Back", "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z")
 
+    /** A lightning bolt: fast, light copies of heavy video (proxy media). */
+    val Proxy = icon(
+        "Proxy",
+        "M11,21h-1l1,-7H7.5c-0.88,0 -0.33,-0.75 -0.31,-0.78C8.48,10.94 10.42,7.54 13.01,3h1l-1,7h3.51c0.4,0 0.62,0.19 0.4,0.66C12.97,17.55 11,21 11,21z",
+    )
+
     val Layers = icon(
         "Layers",
         "M11.99,18.54l-7.37,-5.73L3,14.07l9,7 9,-7 -1.63,-1.27 -7.38,5.74zM12,16l7.36,-5.73L21,9l-9,-7 -9,7 1.63,1.25L12,16z",

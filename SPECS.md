@@ -529,7 +529,7 @@ as the aim, choose the nearest marker after its start (a tie goes to the earlier
 only grow as far as its media; titles and stills freely), and trim its end there with `MagneticBase.trim`, so later base clips ripple and
 overlays follow. A clip with no reachable marker is left alone. The first clip keeps its start; every cut between the clips lands on a marker.
 
-**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). Since WP-T a template is a multilayer title preset (section 5.22):
+**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). Since WP-T a template is a multilayer title preset (section 5.25):
 one title clip on a title lane (a lane is reused only when it is free over the template's range, otherwise a new one is added above;
 never the base, so nothing is overwritten), whose layers are a bar shape and the text, with an in and out `MotionPreset` turned into
 ordinary clip keyframes (`TitleMotion`), so preview and export are identical for free. The text typed in the tray goes into the first text
@@ -851,7 +851,7 @@ or on the clipboard, so an undo can never meet a file that is no longer in the l
 green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
 a snapshot version bump); the colour shows in the dialog and in exports.
 
-### 5.22 Multilayer titles, fonts and presets
+### 5.25 Multilayer titles, fonts and presets
 
 A title is either a **plain** title (the single-text fields of `TitleContent`, used by captions and old projects) or a **multilayer** one:
 `TitleContent.layers` holds `TitleLayer`s drawn in list order, so the first is at the bottom and the last on top (the editor lists them
@@ -919,6 +919,42 @@ cover collisions, gaps, and boundaries:
 | Freeze frame | Splits the video clip at the playhead and inserts a one-frame still; later clips move by its length |
 
 Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
+
+
+### 5.22 Proxy media (WP-P)
+
+Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in files; export never uses them.
+
+- **Proxy file.** A one-clip movie made by the offline export engine (`ProxyGenerator` -> `NativeExportRunner`): the
+  source's own frame rate and length (so every timeline frame maps to the same frame of the proxy), scaled so the
+  short side is 720 or 1080 (never larger than the source, even sides, same aspect and display rotation), H.264,
+  about 0.15 bits per pixel (2-40 Mbps), a keyframe every second (the engine's setting), **no audio** (sound is
+  always read from the original). HDR sources are tone-mapped to SDR; the preview reads a proxy as SDR Rec.709
+  (`PreviewRequest.sourceOverride = 0`), so HDR looks flatter while editing with proxies.
+- **Side index** (`proxy/ProxyIndex`): `cacheDir/proxies/index.json` plus `<key>.mp4`; never in `project.json`, so
+  bundles and interchange files are unaffected. The key is a hash of source uri, length, frame rate and proxy size
+  (a relinked or re-proxied asset gets a new key). Entries carry their own job (uri, length, rate, colour space), so a
+  restarted process resumes the queue without any project open. States: QUEUED, RUNNING, READY, STALE, FAILED.
+  Atomic writes; a damaged index reads as empty; `recoverAfterKill` puts RUNNING back in the queue (part file
+  deleted, the job restarts from the beginning), drops READY entries whose file is missing or the wrong size, and
+  removes files nothing refers to.
+- **Queue** (`ProxyWorker`): one job at a time on one background-priority thread, outcomes kept in the index,
+  cache held to the budget after each job (least recently used first; proxies of the open project and anything
+  queued or running are kept), cancel for the running or a queued job.
+- **Choosing the file** (`ProxyPlanner`, pure): `MediaPurpose.PREVIEW` and `THUMBNAIL` may use a proxy, only when the
+  project switch is on, the asset is decoded video and the proxy is READY with its file present; `ANALYSIS`
+  (waveforms, beats, loudness) and `EXPORT` always get the original. Export code never references the proxy
+  package (a test scans for it). A proxy that fails to open in the preview is marked STALE and the original is shown.
+- **Preview.** `previewRequestsWithSources` builds the same requests as `previewRequestsAt` with a per-asset source;
+  `EditorPreview` reopens an asset when the file it was opened from changes (switch flipped, proxy finished).
+- **Per-project switch and settings** live in local preferences (`ProxyPrefs`): switch and dismissed suggestion per
+  project id, proxy size, storage budget (1-16 GB, default 4 GB).
+- **Suggestion** (`ProxySuggester`): while proxies are off and the offer has not been dismissed, heavy video (short
+  side >= 1440 or >= 50 Mbps) without a proxy, or three preview stalls, raises a dismissible banner. Nothing is made
+  without the user's consent.
+- **UI**: a toolbar button opens the proxy sheet (switch, size, make/cancel/remove per video, storage and budget,
+  clear cache with confirmation); proxy badges on the media tray tiles and in the library rows.
+- **Validation** (`ProxyManager.validate`): a proxy whose source changed size, or whose file is gone, becomes STALE.
 
 ### 6.1 Base track and overlays (LumaFusion model)
 
