@@ -150,7 +150,7 @@ waves of SPECS 9.20.
     compared by ear, fade handles on the clip, the inspector Sound tools on a device, the noise-region marking flow. Left unticked until those are checked.
 
 ### Wave 3
-- [ ] WP-T Multilayer titles and fonts
+- [x] WP-T Multilayer titles and fonts (SPECS 5.25). _Status:_ domain (layers, edits, in/out motion), JSON, presets (`.uvtitle`), font registry, layer bounds, editor view model, plan resolution and the library view model are covered by JVM tests; the 40 fonts under `/usr/share/fonts` parse with the font reader. Seen working on the Pixel 8 (not the reference phone): converting a title to layers, adding a rectangle, dragging only the selected layer on the preview (ring and outline follow it), importing a real `.otf` from Downloads through the system picker and the title redrawing in it (rounded Comfortaa letters against the system font), a fade-in leaving frame 0 transparent, and saving a preset (listed with Export and Delete). Not yet seen on a device: photo layers and stickers inside a title, shadows, borders and boxes, pinch and twist on a layer, preset export and import through the picker, the missing-font banner, the export of a layered title (preview and export share one plan and one rasteriser, checked only by tests), the instrumented rasteriser test (compiles, not run), anything on the OPPO.
 - [ ] WP-K Generalised keyframes (after WP-C and WP-A): implemented and covered by JVM and native host tests (tracks, Bezier, cropping, migration, preview/export parity, audio automation v5, lane UI, loudness cache wiring); NOT yet verified on the Pixel (diamond, lane drag, exported frames) so left unticked
 
 ### Wave 4

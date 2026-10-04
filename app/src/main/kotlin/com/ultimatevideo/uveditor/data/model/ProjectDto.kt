@@ -302,6 +302,8 @@ data class TitleDto(
     val animation: String = "none",
     /** Colour of the emphasised word, `#AARRGGBB`. */
     val highlight: String = "#FFFFE600",
+    /** A multilayer title: the layers bottom to top. When not empty the single-text fields above are ignored (but [text] mirrors the first text layer). */
+    val layers: List<TitleLayerDto> = emptyList(),
 )
 
 /** One word of a caption with its timing in clip frames. */

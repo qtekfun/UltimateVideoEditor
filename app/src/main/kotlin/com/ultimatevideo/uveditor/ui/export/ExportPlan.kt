@@ -10,6 +10,7 @@ import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLayers
 import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
 import com.ultimatevideo.uveditor.domain.captions.LookSegment
 import com.ultimatevideo.uveditor.domain.renderClips
@@ -144,7 +145,8 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
                 )
             }
             RenderKind.TITLE -> {
-                val content = clip.title ?: continue
+                // Photo layers of a multilayer title are pointed at their files, as in the preview.
+                val content = TitleLayers.resolved(clip.title ?: continue) { assetsById[it]?.uri }
                 // An animated caption is one spec per stretch over which its picture is the same.
                 for (part in clip.titleParts(content)) {
                     val titleKey = titles.getOrPut(part.content.withoutTiming()) { nextPictureKey++ }
