@@ -9,15 +9,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <vector>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <vector>
 #include <set>
 #include <string>
 #include <thread>
 
+#include "core/codec_config.h"
 #include "decode/frame_rate.h"
 #include "decode/status.h"
 #include "decode/video_decoder_api.h"
@@ -86,7 +87,7 @@ private:
     AMediaCodec* codec_ = nullptr;
     AImageReader* reader_ = nullptr;
     bool softwareDecoder_ = false;  // the codec that started is the platform's software decoder (a fallback)
-    std::vector<std::vector<uint8_t>> codecConfig_;  // csd-0..2 of the track, queued again after every flush
+    core::CodecConfig codecConfig_;  // csd-0..2 of the track, queued again after every flush (core/codec_config.h)
     std::string rungLabel_;  // which rung of the open ladder (decode/decoder_ladder.h) started the codec
     int fd_ = -1;
     AssetInfo info_;
