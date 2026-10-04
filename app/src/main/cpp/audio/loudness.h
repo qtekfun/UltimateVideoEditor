@@ -31,7 +31,6 @@ private:
         dsp::BiquadState shelf, highpass;
     };
 
-    int rate_;
     dsp::BiquadCoeffs shelf_, highpass_;
     Chan chan_[2];
     int64_t subLen_;                 // 100 ms in samples

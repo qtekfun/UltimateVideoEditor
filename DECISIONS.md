@@ -655,3 +655,16 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Lane height has +/- and chips but no vertical pinch: a two-finger vertical gesture would conflict with the timeline's pinch-zoom, and it can be added later in the native gesture code.
 - Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
 **Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
+
+## Audio tools (WP-A)
+
+**Decisions:**
+- One per-sample DSP path (biquad EQ, balance pan, bus compressor, sidechain ducker, -1 dBFS brickwall limiter) is used by the realtime engine and the offline export mixer, so they are identical by construction; a host test compares the two. Block size never changes the result. Alternative: separate offline code (drift risk).
+- Pan is a balance law (mono is placed with equal power, stereo is attenuated on one side) so a centred stereo clip is untouched. The limiter is a sample-peak limiter at -1 dBFS, not a true-peak one (spec says dBTP); oversampling can be added later.
+- Noise suppression is STFT spectral subtraction (1024 window, hop 256) with the profile from a user-marked quiet stretch, run in the decode worker so playback and export share it. No Wiener/neural option. Alternative: Wiener filter (more musical noise control, more tuning).
+- Loudness is BS.1770 K-weighted, gated, measured by the native engine on IO and cached by source identity and range; normalise stores a gain (`normalizeDb`) in the clip so it is cheap at playback.
+- Ducking is computed gain automation from the voice track envelope (roles Voice and Music on tracks), never baked into clips.
+- Audio snapshot is version 4 with strict native validation; the new JSON fields are optional so old projects load unchanged and old readers ignore them.
+- Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
+**Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
+

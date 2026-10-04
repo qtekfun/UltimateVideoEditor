@@ -14,10 +14,11 @@ automated tests so far; see [Known limits](#known-limits).
 6. [Inspector](#inspector)
 7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
 8. [Markers and beats](#markers-and-beats)
-9. [Colour spaces and HDR](#colour-spaces-and-hdr)
-10. [Exporting](#exporting)
-11. [Missing media and recovery](#missing-media-and-recovery)
-12. [Known limits](#known-limits)
+9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
+10. [Colour spaces and HDR](#colour-spaces-and-hdr)
+11. [Exporting](#exporting)
+12. [Missing media and recovery](#missing-media-and-recovery)
+13. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -114,6 +115,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
 | ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
+| ılı (bars) | Mixer | Opens the mixer sheet, see [Sound](#sound). |
 | ◫ (safe zone) | Safe zones | Shows TikTok, Reels or Shorts safe areas over the preview. |
 | ◈ (layers) | Add track | Adds a video track (above the others) or an audio track. |
 | – | Remove selected track | Removes the selected track if it is empty and not the last of its kind. |
@@ -185,6 +187,7 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 
 - **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview).
 - **Volume**: gain in dB for clips with audio.
+- **Sound tools** (clips with audio): pan, fades, equaliser, noise suppression and loudness, see [Sound](#sound).
 - **Speed**: presets and a slider (0.1x to 8x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
   the playhead**. Audio follows the speed between 0.25x and 4x and is muted outside that range.
 - **Keyframes**: diamond button to add or remove a keyframe at the playhead, previous / next keyframe, and the
@@ -221,6 +224,34 @@ The flag icon opens:
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
 - **Clear detected beats** and **Snap to markers** (on/off).
 
+## Sound
+
+Everything here is classical signal processing on the phone: no network, no AI models, nothing leaves the
+device. Every setting is non-destructive and one undo step (a slider drag is one step, not one per frame).
+
+**Per clip** (inspector, **Sound tools**; sliders change the sound while you drag during playback):
+
+- **Pan**: left to right, equal loudness across the arc. Mono clips are placed; stereo clips are balanced.
+- **Fade in / Fade out**: lengths in frames. Fades follow the clip edge when you trim it. Split or overwrite
+  clears the fade at the new cut.
+- **Equaliser**: low cut, low shelf (100 Hz), peaking bands at 400 Hz, 1.5 kHz and 5 kHz, high shelf (10 kHz) and
+  high cut. **Flat** resets it.
+- **Noise suppression**: **Mark start** and **Mark end** at the playhead to choose a stretch with only background
+  noise, then **Remove noise** and set the **Strength**. It learns the noise from that stretch (spectral
+  gating), so it works best on steady hiss or hum. Speech in the marked stretch will be partly removed.
+- **Loudness**: measures the clip (ITU-R BS.1770 / EBU R128) and **Normalise to** a target such as -16 LUFS by
+  adding gain. **Measure again** after you change the clip. The measurement is cached on the device.
+- **Reset sound** restores all of the above.
+
+**Mixer** (toolbar bars icon): for every track a **Mute**, **Solo**, **Volume** (dB), **Role** (Normal, Voice,
+Music) and a **Compressor** switch (**Threshold**, **Ratio**, **Make-up**). Solo plays only the soloed tracks.
+**Duck music under voice** lowers Music tracks by **Amount** while a Voice track speaks (**Trigger**
+threshold, **Recovery** time). It needs one Voice and one Music track. The ducking is a gain curve computed
+from the voice: your clips are never changed, and preview and export are the same.
+
+A master limiter at -1 dBFS stops clipping. The level meter above the toolbar shows left and right peaks while
+playing. Exported audio is produced by the same mixer as the preview.
+
 ## Colour spaces and HDR
 
 - The **project colour space** (Rec.709 SDR or Rec.2020 HLG) is the working and export space.
@@ -249,6 +280,8 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 - Several recent features are covered by automated tests but have had little time on a real device:
   captions and animated styles, photos and stickers, beat detection, text templates, relink flow and
   HDR export. Report anything odd with the steps you used.
+- Sound tools and the mixer are covered by automated tests; they have had only a short check on a real device
+  (the mixer sheet and meter opened and playback ran). Listen to a noise-suppressed clip before exporting.
 - Slow motion repeats frames (no blending). Audio speed change is varispeed.
 - Animated GIF and WebP use their first frame.
 - Reverse playback of long-GOP 4K footage is slow.

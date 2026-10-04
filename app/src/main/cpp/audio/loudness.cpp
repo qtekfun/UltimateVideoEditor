@@ -48,8 +48,7 @@ double lufsOf(double meanEnergy) { return -0.691 + 10.0 * std::log10(std::max(me
 }  // namespace
 
 LoudnessMeter::LoudnessMeter(int sampleRate)
-    : rate_(sampleRate),
-      shelf_(shelfCoeffs(sampleRate)),
+    : shelf_(shelfCoeffs(sampleRate)),
       highpass_(highpassCoeffs(sampleRate)),
       subLen_(std::max(1, sampleRate / 10)) {}
 
