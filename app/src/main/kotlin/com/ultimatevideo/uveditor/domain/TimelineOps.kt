@@ -619,6 +619,19 @@ object TimelineOps {
         return success(candidate)
     }
 
+    /** Changes the look of an existing transition; its length and place stay as they are. */
+    fun setTransitionStyle(
+        timeline: Timeline,
+        transitionId: String,
+        type: TransitionType,
+        direction: TransitionDirection,
+    ): EditResult<Timeline> {
+        val existing = timeline.transition(transitionId) ?: return failure(EditError.TransitionNotFound(transitionId))
+        val changed = existing.copy(type = type, direction = direction)
+        if (changed == existing) return success(timeline)
+        return success(timeline.copy(transitions = timeline.transitions.map { if (it.id == transitionId) changed else it }))
+    }
+
     fun removeTransition(timeline: Timeline, transitionId: String): EditResult<Timeline> {
         if (timeline.transition(transitionId) == null) return failure(EditError.TransitionNotFound(transitionId))
         return success(timeline.copy(transitions = timeline.transitions.filter { it.id != transitionId }))

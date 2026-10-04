@@ -365,6 +365,14 @@ sealed interface EditCommand {
             TimelineOps.setTransitionDuration(timeline, transitionId, durationFrames, outgoingSourceLength)
     }
 
+    data class SetTransitionStyle(
+        val transitionId: String,
+        val type: TransitionType,
+        val direction: TransitionDirection,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setTransitionStyle(timeline, transitionId, type, direction)
+    }
+
     data class RemoveTransition(val transitionId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.removeTransition(timeline, transitionId)
     }

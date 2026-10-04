@@ -897,11 +897,29 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** a tap is the common case and the chips cover sizes without a second gesture; the playhead frame is what the user is looking at.
 **Alternative:** a draggable box with handles over the preview (more precise, more code to keep out of the gesture layer used for moving clips).
 
+## Silence auto cut and manual reframe (WP-V2)
+
+**Decision:** silence detection runs on the loudness envelope already cached for waveforms (no audio is decoded again) with a plain level threshold, minimum length and padding; the cuts are applied as one base-track edit that reuses the delete rules (ripple, overlays follow). Reframe is manual: the user marks the point of interest (sliders, one mark per moment) and the app writes cover-fit pose keyframes; there is no subject detection.
+**Why:** the privacy rule excludes models; peak envelopes are cheap and deterministic, and routing the cut through the existing base delete keeps every edit rule in one place. A manual point is predictable and editable afterwards as normal keyframes.
+**Alternative:** spectral voice-activity detection (better in noisy rooms, more code and tuning), letting the user drag a box on the preview to pick the point (nicer, but more gesture code next to the tracker picking), and supporting retimed clips by mapping spans through the retime table (deferred: speed-changed clips are refused with a message).
+
 ## Export speed on long-GOP clips: model instead of more code (third pass)
 
 **Decision:** no further production change to the decoder: the slowdown was already removed by keeping one frame in flight (second pass). This pass moves the constant to `decode/pending_policy.h` (`kMaxInFlightFrames`, shared by the decoder and a new host simulation) and adds `decode_sim_tests.cpp`, a deterministic simulation of the decoder worker with a sequential export consumer. It reproduces the old behaviour (138 backward seeks, 1.9 fps with 4 in flight) and guards the fix (1 seek, within 15% of the pipelined ideal), and checks that scrub and long jumps still seek once.
 **Why:** the Pixel was locked, so a decoder change could not be verified; the root cause was already identified and fixed, and a regression guard that fails if someone raises the in-flight limit is the cheapest protection.
 **Alternative:** allow two frames in flight with a reader that does not drop (would help the decode-bound case, 85% of ideal) or pre-arm the decoder targets of all layers before waiting for the first one (helps cuts with a new decoder). Both need a device to be measured; listed as follow-ups.
+
+## Filter pack (WP-V5)
+
+**Decision:** the 20 built-in looks are functions (a handful of ordered colour operations) in code, baked into 17-point `.cube` files on first use and stored in the existing LUT library; the picker shows them above imported LUTs with a computed swatch.
+**Why:** original work with a clear licence and no assets to ship or download; reusing the LUT library and effect keeps preview/export parity, intensity and keyframes for free. 17 points is enough for smooth looks and small to store.
+**Alternative:** shipping pre-baked `.cube` files in the APK (bigger, hard to review), a dedicated shader effect per look (more native code, no reuse of the LUT path), or 33-point cubes (smoother steep curves, 8x the data).
+
+## Transition pack (WP-V5)
+
+**Decision:** the new looks are a per-frame modification (pose, mask, effects) evaluated by one pure function that the preview calls directly and the exporter bakes into its existing pose keys and per-frame effect lists; no new shader or native code. Light leak is a warm exposure bloom on top of the crossfade rather than an overlay layer.
+**Why:** preview/export parity falls out of sharing the function (and is tested frame by frame); the compositor already has masks, blur, exposure and pose keys, and it re-anchors per frame for animated clips, so nothing else changes. A synthetic overlay layer would have needed new layer plumbing in the plan, the preview and the exporter.
+**Alternative:** a native two-input transition shader (true wipes with arbitrary shapes, real light leak textures, better glitch with channel split) with the picture of both clips composited in one pass, at the cost of new GLES code in preview and export and a texture for the outgoing frame; or a procedural overlay layer for the light leak.
 
 ## Release preparation (WP-R)
 

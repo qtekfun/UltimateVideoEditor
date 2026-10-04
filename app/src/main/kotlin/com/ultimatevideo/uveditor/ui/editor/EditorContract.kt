@@ -123,6 +123,8 @@ data class EditorState(
     val paramClipboard: ParamClipboard? = null,
     /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
     val selectedParamKey: Pair<String, Long>? = null,
+    /** Silence auto cut and manual reframe sheets (SPECS.md 9.16). */
+    val quickEdits: QuickEditsUiState = QuickEditsUiState(),
     /** The multicam sheet: angles being picked and synced, and live cutting between the angles of a multicam clip. */
     val multicam: com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState = com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState(),
 ) : UiState {
@@ -384,6 +386,12 @@ sealed interface EditorIntent : UiIntent {
     data object AddTransition : EditorIntent
     data class SetTransitionDuration(val frames: Long) : EditorIntent
     data object RemoveTransition : EditorIntent
+
+    /** Changes the look (crossfade, slide, push, zoom, spin, glitch, wipe, whip pan, light leak) of the selected clip's transition. */
+    data class SetTransitionStyle(
+        val type: com.ultimatevideo.uveditor.domain.TransitionType,
+        val direction: com.ultimatevideo.uveditor.domain.TransitionDirection,
+    ) : EditorIntent
 
     /**
      * Edits of the selected clip's look and sound. A session is Begin, any number of Update/Gesture

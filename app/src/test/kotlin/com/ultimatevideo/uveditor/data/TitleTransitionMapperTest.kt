@@ -117,7 +117,7 @@ class TitleTransitionMapperTest {
 
     @Test
     fun `an unknown transition type is reported as corrupt`() {
-        val dto = project(listOf(videoTrack), listOf(TransitionDto("x", "wipe", "A", "B", 8)))
+        val dto = project(listOf(videoTrack), listOf(TransitionDto("x", "page-curl", "A", "B", 8)))
 
         assertThrows(ProjectError.Corrupt::class.java) { TimelineMapper.toTimeline(dto) }
     }
