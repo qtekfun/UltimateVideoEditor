@@ -21,6 +21,21 @@ data class ProjectDto(
     val markers: List<MarkerDto> = emptyList(),
     /** Sidechain ducking of music tracks by voice tracks; absent means off. */
     val ducking: DuckingDto? = null,
+    /** Tracking targets on video clips (SPECS.md 9.15); absent in projects written before motion tracking existed. */
+    val motionTracks: List<MotionTrackDto> = emptyList(),
+)
+
+/** A tracking target: where [clipId]'s picture was pointed at, in fractions of the upright frame. See `domain/MotionTrack`. */
+@Serializable
+data class MotionTrackDto(
+    val id: String,
+    val clipId: String,
+    val name: String,
+    val seedFrame: Long,
+    val cx: Double,
+    val cy: Double,
+    val w: Double,
+    val h: Double,
 )
 
 /** See `domain/Ducking`. */

@@ -259,6 +259,28 @@ It works best on handheld footage with plenty of detail. A mostly flat picture (
 where something big fills the frame and moves cannot be measured reliably; a clip with nothing to follow reports
 that it has too little picture or movement to analyse. Rolling-shutter wobble is not corrected.
 
+## Tracking a moving object
+
+Make a title, a sticker or another clip follow something that moves in a video clip. Everything is measured on the
+device from the video's own picture; nothing is sent anywhere.
+
+1. Select the **video clip** and move the playhead onto a frame where the object is clearly visible.
+2. Open the inspector, find **Track motion** and tap **Track an object**. Pick the box size (Small, Medium or Large) and
+   **tap** the object on the preview, or **drag a box** around it. Choose something with detail (an edge, a logo, a
+   face); a flat area cannot be followed.
+3. The app follows it forward and backward through the clip in the background (a progress bar and a Cancel button show
+   up; you can keep editing). When it is **Ready**, **Show path** draws the route on the preview: red parts are where the
+   object was lost (hidden, blurred or out of the picture); there the marker holds its last position and the following
+   frames pick it up again if the object comes back.
+4. Select the **title, sticker or overlay clip** that should follow, open its inspector and tap **Follow** next to the
+   track. The clip is placed on the object and gets position keyframes along the path, in one undo step. A few keyframes
+   describe the route, and you can still move, delete or change them like any other keyframes.
+
+You can keep several targets on a clip and delete the ones you do not need. If you extend the clip beyond the analysed
+part the target says it needs **Analyse again**. The clip that follows keeps its own size, rotation and opacity, and
+only its position follows the object. Tracking a stabilised clip works on the original picture, so on very shaky
+footage the marker can be a few pixels away. Photos and stickers cannot be tracked.
+
 ## Colour grading and scopes
 
 ### Colour grade
