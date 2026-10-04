@@ -118,6 +118,23 @@ class ProcessExitTest {
         assertNotNull(withUri.single())
     }
 
+    private fun protoField(tag: Int, text: String): ByteArray {
+        val body = text.toByteArray()
+        require(body.size < 128)
+        return byteArrayOf(tag.toByte(), body.size.toByte()) + body
+    }
+
+    @Test
+    fun `protobuf text fields are read without their tag and length bytes`() {
+        // Seen on a real tombstone: the 84-byte symbol is preceded by the tag 0x22 and the length 0x54 ('"T').
+        val long = "std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)"
+        assertEquals(84, long.length)
+        val short = "uv::render::RenderThread::run()"
+        val inner = protoField(0x22, short)
+        val stream = protoField(0x22, long) + byteArrayOf(0x1a, inner.size.toByte()) + inner
+        assertEquals(listOf(long, short), TombstoneSummary.extract(stream))
+    }
+
     @Test
     fun `reason names are readable`() {
         assertEquals("native crash", ExitReason.name(ExitReason.CRASH_NATIVE))

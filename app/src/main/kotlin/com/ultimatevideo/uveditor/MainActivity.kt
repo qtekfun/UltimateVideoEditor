@@ -35,10 +35,13 @@ import android.graphics.Bitmap
 import com.ultimatevideo.uveditor.data.ContentResolverTransferIO
 import com.ultimatevideo.uveditor.data.ProjectOverview
 import com.ultimatevideo.uveditor.data.interchange.ContentResolverMediaAccess
+import com.ultimatevideo.uveditor.data.interchange.StoreResourceLibrary
 import com.ultimatevideo.uveditor.data.interchange.RepositoryInterchangeExporter
 import java.io.ByteArrayOutputStream
 import com.ultimatevideo.uveditor.data.PreferencesSessionStore
 import com.ultimatevideo.uveditor.data.ProjectDirMediaCaches
+import com.ultimatevideo.uveditor.data.FontRegistry
+import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.data.trimPersistedUris
 import com.ultimatevideo.uveditor.engine.NativeEngineClient
@@ -78,6 +81,8 @@ class MainActivity : ComponentActivity() {
             rootDir = File(filesDir, "projects"),
             transferIO = transferIO,
             mediaAccess = ContentResolverMediaAccess(applicationContext.contentResolver),
+            // A bundle carries the imported LUTs and fonts the project uses, and installs the ones that come inside it.
+            resourceLibrary = StoreResourceLibrary(LutStore(File(filesDir, "luts")), FontRegistry(File(filesDir, "fonts"))),
             // The card picture goes into exported bundles; it is made on this device from the project's own first clip.
             cardThumbnail = { project ->
                 projectThumbnails.load(project.id, ProjectOverview.thumbnailSource(project))?.let { bitmap ->
