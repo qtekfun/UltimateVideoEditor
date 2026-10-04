@@ -104,7 +104,7 @@ class TimelineSnapshotTest {
             ),
         )
         val b = snapshot.encode()
-        assertEquals(7, TimelineSnapshot.VERSION)
+        assertEquals(8, TimelineSnapshot.VERSION)
         val first = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES
         fun flags(index: Int) = b.getInt(first + index * TimelineSnapshot.CLIP_BYTES + 52)
         assertEquals(0b1001, flags(0)) // selected + primary
@@ -319,14 +319,51 @@ class TimelineSnapshotTest {
     }
 
     @Test
-    fun `a label must be short printable ASCII for a clip that exists`() {
+    fun `a label is UTF-8 text of at most 96 bytes for a clip that exists`() {
         val tracks = listOf(SnapshotTrackType.TITLE)
-        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "A".repeat(25)) }
-        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "CAFÉ") }
+        SnapshotLabel(1, "Café ☕ 🎬 日本語") // accents, symbols, emoji and other scripts are fine
+        SnapshotLabel(1, "A".repeat(96))
+        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "A".repeat(97)) }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "語".repeat(33)) } // 99 bytes
+        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "two\nlines") }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "broken \uD83C") } // an unpaired surrogate
         assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(1)), labels = listOf(SnapshotLabel(2, "A"))) }
         assertThrows(IllegalArgumentException::class.java) {
             TimelineSnapshot(30, 1, tracks, listOf(clip(1)), labels = listOf(SnapshotLabel(1, "A"), SnapshotLabel(1, "B")))
         }
+    }
+
+    @Test
+    fun `a label travels as UTF-8 and its length is the byte count`() {
+        val text = "Café ☕" // C a f (3) + é (2) + space (1) + ☕ (3) = 9 bytes
+        val snapshot = TimelineSnapshot(30, 1, listOf(SnapshotTrackType.TITLE), listOf(clip(1)), labels = listOf(SnapshotLabel(1, text)))
+        val b = snapshot.encode()
+        val labels = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - (TimelineSnapshot.LABEL_FIXED_BYTES + 12)
+        assertEquals(1, b.getInt(labels))
+        assertEquals(9, b.getInt(labels + 12))
+        val bytes = ByteArray(9) { b.get(labels + 16 + it) }
+        assertEquals(text, String(bytes, Charsets.UTF_8))
+        assertEquals(12, TimelineSnapshot.paddedLength(text))
+        assertEquals(12, TimelineSnapshot.paddedLength("Café ☕!!!")) // exactly 12 bytes
+        assertEquals(16, TimelineSnapshot.paddedLength("Café ☕!!!!"))
+    }
+
+    @Test
+    fun `the clip kind rides in bits 4 to 6 of the clip flags`() {
+        val snapshot = TimelineSnapshot(
+            30, 1, listOf(SnapshotTrackType.VIDEO),
+            listOf(
+                clip(key = 1, selected = true).copy(primary = true, kind = SnapshotClipKind.STICKER),
+                clip(key = 2, start = 100).copy(kind = SnapshotClipKind.MULTICAM),
+                clip(key = 3, start = 200),
+            ),
+        )
+        val b = snapshot.encode()
+        val first = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES
+        fun flags(index: Int) = b.getInt(first + index * TimelineSnapshot.CLIP_BYTES + 52)
+        assertEquals(0b0010_1001, flags(0)) // sticker (2) in bits 4..6, selected + primary
+        assertEquals(0b0011_0000, flags(1)) // multicam (3)
+        assertEquals(0, flags(2))
     }
 
     @Test

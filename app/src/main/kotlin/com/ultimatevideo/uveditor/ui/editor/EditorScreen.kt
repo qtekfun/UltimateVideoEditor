@@ -115,6 +115,7 @@ import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.still.AndroidStillRasterizer
 import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
+import com.ultimatevideo.uveditor.ui.theme.LocalPalette
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.ThumbnailCache
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
@@ -337,6 +338,9 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         }
     }
     DisposableEffect(engine) { onDispose { engine.close() } }
+    // The canvas takes its colours from the same palette as the rest of the app, so it follows the pure-black option live.
+    val palette = LocalPalette.current
+    LaunchedEffect(engine, palette) { engine.setPalette(palette.nativeColours()) }
 
     // Proxy media: small copies the preview and the thumbnails use while editing. Export never asks for them.
     val proxyManager = remember(context) { ProxyManager.of(context.applicationContext) }
