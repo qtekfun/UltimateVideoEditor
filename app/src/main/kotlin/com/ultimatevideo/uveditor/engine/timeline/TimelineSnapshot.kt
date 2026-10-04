@@ -40,6 +40,21 @@ data class SnapshotKeyframe(val clipKey: Long, val frame: Long)
  */
 data class SnapshotRetime(val clipKey: Long, val sourceSpanFrames: Long, val reverse: Boolean = false, val freeze: Boolean = false)
 
+/**
+ * A short text drawn on the block of the clip with key [clipKey] (a title's text, a sticker's name). The native
+ * canvas can only draw printable ASCII in its tiny font, and at most [MAX_CHARS] characters (see `ClipLabels`).
+ */
+data class SnapshotLabel(val clipKey: Long, val text: String) {
+    init {
+        require(text.length <= MAX_CHARS) { "a label is longer than $MAX_CHARS characters" }
+        require(text.all { it.code in 0x20..0x7E }) { "a label has a character that is not printable ASCII" }
+    }
+
+    companion object {
+        const val MAX_CHARS = 24
+    }
+}
+
 /** A ruler marker at timeline [frame]; [beat] marks one found by beat detection rather than placed by hand. */
 data class SnapshotMarker(val frame: Long, val beat: Boolean = false)
 
@@ -57,10 +72,13 @@ data class TimelineSnapshot(
     val keyframes: List<SnapshotKeyframe> = emptyList(),
     val retimes: List<SnapshotRetime> = emptyList(),
     val markers: List<SnapshotMarker> = emptyList(),
+    val labels: List<SnapshotLabel> = emptyList(),
 ) {
     init {
         for (marker in markers) require(marker.frame >= 0) { "a marker is before frame 0" }
         val clipKeys = clips.mapTo(HashSet()) { it.clipKey }
+        for (label in labels) require(label.clipKey in clipKeys) { "a label references missing clip ${label.clipKey}" }
+        require(labels.mapTo(HashSet()) { it.clipKey }.size == labels.size) { "a clip has two labels" }
         for (retime in retimes) {
             require(retime.clipKey in clipKeys) { "a retime references missing clip ${retime.clipKey}" }
             require(retime.sourceSpanFrames >= 1) { "clip ${retime.clipKey} has an empty source span" }
@@ -89,7 +107,8 @@ data class TimelineSnapshot(
     fun encode(): ByteBuffer {
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + clips.size * CLIP_BYTES +
             TRAILER_BYTES + transitions.size * TRANSITION_BYTES + KEYFRAME_TRAILER_BYTES + keyframes.size * KEYFRAME_BYTES +
-            RETIME_TRAILER_BYTES + retimes.size * RETIME_BYTES + MARKER_TRAILER_BYTES + markers.size * MARKER_BYTES
+            RETIME_TRAILER_BYTES + retimes.size * RETIME_BYTES + MARKER_TRAILER_BYTES + markers.size * MARKER_BYTES +
+            LABEL_TRAILER_BYTES + labels.sumOf { LABEL_FIXED_BYTES + paddedLength(it.text) }
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -137,13 +156,20 @@ data class TimelineSnapshot(
             buffer.putInt(if (marker.beat) 1 else 0)
             buffer.putInt(0)
         }
+        buffer.putInt(labels.size)
+        for (label in labels) {
+            buffer.putLong(label.clipKey)
+            buffer.putInt(label.text.length)
+            for (ch in label.text) buffer.put(ch.code.toByte())
+            repeat(paddedLength(label.text) - label.text.length) { buffer.put(0) }
+        }
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53545655 // "UVTS"
-        const val VERSION = 6
+        const val VERSION = 7
         const val HEADER_BYTES = 24
         const val TRACK_BYTES = 4
         const val CLIP_BYTES = 56
@@ -163,5 +189,12 @@ data class TimelineSnapshot(
         /** The marker count that follows the retimes (version 5). */
         const val MARKER_TRAILER_BYTES = 4
         const val MARKER_BYTES = 16
+
+        /** The label count that follows the markers (version 7); each label is [LABEL_FIXED_BYTES] plus its text padded to 4. */
+        const val LABEL_TRAILER_BYTES = 4
+        const val LABEL_FIXED_BYTES = 12
+
+        /** Length of [text] padded with zeros to a multiple of 4, as it is written. */
+        fun paddedLength(text: String): Int = (text.length + 3) / 4 * 4
     }
 }

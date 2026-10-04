@@ -237,6 +237,8 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 - **Crossfade**: duration of the transition at the cut.
 - **Reset** restores the clip's appearance; **Done** closes the panel.
 
+Title and sticker blocks on the timeline show their text or name (capital letters and digits only; other scripts show "TEXT").
+
 Photos and stickers behave like clips with no source length: stretch them freely from either edge. Speed and
 reverse do not apply to them.
 
