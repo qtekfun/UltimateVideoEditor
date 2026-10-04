@@ -18,10 +18,12 @@
 #include "thumbnail/thumb_atlas.h"
 #include "thumbnail/thumbnail_service.h"
 #include "thumbnail/tile_math.h"
+#include "timeline_view/fade_curve.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/lane_header.h"
 #include "timeline_view/marker_style.h"
 #include "timeline_view/ruler_ticks.h"
+#include "timeline_view/snap_guide.h"
 #include "timeline_view/text_atlas.h"
 #include "timeline_view/timeline_theme.h"
 
@@ -62,6 +64,10 @@ constexpr Color kHeaderSolo{1.0f, 0.84f, 0.25f, 1.0f};
 constexpr Color kLaneDragBar{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kLaneDragGlow{1.0f, 0.78f, 0.1f, 0.25f};
 constexpr Color kBeat{0.4f, 0.95f, 0.8f, 0.9f};
+constexpr Color kSnapGuide{1.0f, 0.3f, 0.78f, 0.95f};      // the line at the frame a dragged edge snapped to
+constexpr Color kSnapGuideGlow{1.0f, 0.3f, 0.78f, 0.22f};
+constexpr Color kDragShadow{0.0f, 0.0f, 0.0f, 1.0f};       // rgb of the soft shadow under a dragged block; alpha comes from shadowLayer()
+constexpr float kDragShadowPeak = 0.5f;                    // opacity of the shadow next to the block
 
 constexpr int kLabelAtlasW = 2048;                          // text atlas: 2048 x 1024 RGBA (8 MB), see text_atlas.h
 constexpr int kLabelAtlasH = 1024;
@@ -127,21 +133,26 @@ void main() { outColor = vColor; }
 constexpr const char* kTexVertexShader = R"(#version 300 es
 layout(location = 0) in vec2 aPos;
 layout(location = 1) in vec2 aUV;
+layout(location = 2) in float aAlpha;
 uniform vec2 uSize;
 out vec2 vUV;
+out float vAlpha;
 void main() {
     gl_Position = vec4(aPos.x / uSize.x * 2.0 - 1.0, 1.0 - aPos.y / uSize.y * 2.0, 0.0, 1.0);
     vUV = aUV;
+    vAlpha = aAlpha;
 }
 )";
 
-// Thumbnails are dimmed slightly so the clip header and the waveform on top stay legible.
+// Thumbnails are dimmed slightly so the clip header and the waveform on top stay legible. The per-vertex alpha fades a
+// tile in over the block colour when it has just been uploaded (fade_curve.h); it is 1 for every settled tile.
 constexpr const char* kTexFragmentShader = R"(#version 300 es
 precision mediump float;
 uniform sampler2D uTex;
 in vec2 vUV;
+in float vAlpha;
 out vec4 outColor;
-void main() { outColor = vec4(texture(uTex, vUV).rgb * 0.88, 1.0); }
+void main() { outColor = vec4(texture(uTex, vUV).rgb * 0.88, vAlpha); }
 )";
 
 // Text: one quad per bitmap from the label atlas. The bitmap is white-on-transparent (premultiplied) and is tinted by the
@@ -214,6 +225,9 @@ struct TimelineRenderer::State {
     int width = 0, height = 0;
     int64_t playhead = 0;
     DropHint dropHint;
+    int64_t snapGuideFrame = kNoSnapGuide;  // the frame a dragged edge snapped to, or kNoSnapGuide
+    std::vector<int64_t> draggedKeys;       // keys of the clips being dragged or trimmed, sorted
+    std::vector<uint64_t> evictedLabels;    // text bitmaps the atlas dropped, waiting for Kotlin to take them
     int laneDragFrom = -1, laneDragTo = -1;  // lane header drag: the lane being moved and where it would land
     bool marqueeActive = false;
     float marqueeX0 = 0.0f, marqueeY0 = 0.0f, marqueeX1 = 0.0f, marqueeY1 = 0.0f;
@@ -292,6 +306,7 @@ public:
         verts_.clear();
         gverts_.clear();
         if (verts_.capacity() == 0) verts_.reserve(6 * 21000);
+        if (tverts_.capacity() == 0) tverts_.reserve(kTexFloats * 6 * 512);
         if (gverts_.capacity() == 0) gverts_.reserve(8 * 6 * 512);
         draws_ = 0;
         vertCount_ = 0;
@@ -351,13 +366,15 @@ public:
     }
 
     // ---- text (see text_atlas.h) ----
-    // Places a bitmap in the atlas and uploads it. A full atlas is emptied first (the generation moves on and Kotlin
-    // sends again what it still needs); a bitmap that cannot fit even then is dropped.
+    // Places a bitmap in the atlas and uploads it. Room is made by evicting the least recently used bitmaps (reported to
+    // Kotlin through takeEvictedLabels); only when all of them are in use is the atlas emptied (the generation moves on and
+    // Kotlin sends again what it still needs). A bitmap that cannot fit even then is dropped.
     void addLabel(const PendingLabel& p) {
         if (labelTex_ == 0) return;
         int x = 0, y = 0;
         LabelTable::Result r = labels_.place(p.hash, p.w, p.h, p.colour, &x, &y);
         if (r == LabelTable::Result::Full) {
+            // Everything in the atlas was used in the last two frames and there is still no room: start over.
             labels_.reset();
             r = labels_.place(p.hash, p.w, p.h, p.colour, &x, &y);
         }
@@ -367,8 +384,10 @@ public:
     }
 
     uint32_t labelGeneration() const { return labels_.generation(); }
+    void beginLabelFrame() { labels_.beginFrame(); }
+    void takeEvictedLabels(std::vector<uint64_t>* out) { labels_.takeEvicted(out); }
 
-    const LabelEntry* label(uint64_t hash) const { return textProgram_ != 0 ? labels_.find(hash) : nullptr; }
+    const LabelEntry* label(uint64_t hash) { return textProgram_ != 0 ? labels_.find(hash) : nullptr; }
 
     // Draws a bitmap with its top-left corner at (x, y), snapped to whole pixels so it stays sharp, cut to the clip
     // rectangle. Returns false when the bitmap is not in the atlas (yet).
@@ -380,7 +399,7 @@ public:
     }
 
     // The width of a run of single-glyph bitmaps (ruler digits, lane names); -1 when one of them is missing.
-    float runWidth(const char* s, size_t n, int sizeClass) const {
+    float runWidth(const char* s, size_t n, int sizeClass) {
         float w = 0.0f;
         for (size_t i = 0; i < n; ++i) {
             const LabelEntry* e = label(labelHash(s + i, 1, sizeClass));
@@ -498,7 +517,7 @@ public:
     thumb::ThumbAtlas& atlas() { return atlas_; }
 
     // Queues a textured quad from the thumbnail atlas, clipped like rect().
-    void texQuad(float x0, float y0, float x1, float y1, const float uv[4]) {
+    void texQuad(float x0, float y0, float x1, float y1, const float uv[4], float alpha = 1.0f) {
         const float w = x1 - x0, h = y1 - y0;
         if (w <= 0.0f || h <= 0.0f) return;
         const float cx0 = std::max(x0, clip_[0]), cy0 = std::max(y0, clip_[1]);
@@ -509,7 +528,13 @@ public:
         const float v0 = uv[1] + (cy0 - y0) / h * dv, v1 = uv[1] + (cy1 - y0) / h * dv;
         const float quad[6][4] = {{cx0, cy0, u0, v0}, {cx1, cy0, u1, v0}, {cx0, cy1, u0, v1},
                                   {cx1, cy0, u1, v0}, {cx1, cy1, u1, v1}, {cx0, cy1, u0, v1}};
-        for (const auto& p : quad) tverts_.insert(tverts_.end(), {p[0], p[1], p[2], p[3]});
+        const size_t at = tverts_.size();
+        tverts_.resize(at + 6 * kTexFloats);
+        float* o = tverts_.data() + at;
+        for (const auto& p : quad) {
+            o[0] = p[0]; o[1] = p[1]; o[2] = p[2]; o[3] = p[3]; o[4] = alpha;
+            o += kTexFloats;
+        }
     }
 
     // Draws the queued tiles. Coloured geometry queued earlier is flushed first so it stays underneath.
@@ -527,8 +552,8 @@ public:
             glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(tverts_.size() * sizeof(float)), tverts_.data(),
                          GL_STREAM_DRAW);
             ++draws_;
-            vertCount_ += static_cast<uint32_t>(tverts_.size() / 4);
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(tverts_.size() / 4));
+            vertCount_ += static_cast<uint32_t>(tverts_.size() / kTexFloats);
+            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(tverts_.size() / kTexFloats));
         }
         tverts_.clear();
     }
@@ -555,6 +580,7 @@ public:
 
 private:
     static constexpr int kCornerSegments = 3;
+    static constexpr size_t kTexFloats = 5;  // thumbnail vertex: x, y, u, v, alpha
 
     // Appends `n` vertices to the coloured batch and returns where to write them (6 floats each: x, y, r, g, b, a).
     float* growColoured(size_t n) {
@@ -737,10 +763,13 @@ private:
         glBindVertexArray(texVao_);
         glBindBuffer(GL_ARRAY_BUFFER, texVbo_);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), nullptr);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, kTexFloats * sizeof(float), nullptr);
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, kTexFloats * sizeof(float),
                               reinterpret_cast<const void*>(2 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, kTexFloats * sizeof(float),
+                              reinterpret_cast<const void*>(4 * sizeof(float)));
         if (!atlas_.init(kAtlasBudgetBytes)) LOGE("thumbnail atlas unavailable; thumbnails disabled");
     }
 
@@ -796,6 +825,9 @@ struct RenderThreadCtx {
     // Optional frame statistics (system property debug.uveditor.timeline_stats=1): CPU time to build and submit a
     // frame, up to but not including the buffer swap, and the draw calls and vertices per frame.
     std::vector<PendingLabel> uploads;  // text bitmaps taken from the shared queue for this frame (kept to reuse its storage)
+    std::vector<int64_t> dragKeys;      // this frame's copy of the dragged clips' keys (kept to reuse its storage)
+    std::vector<uint64_t> evicted;      // text bitmaps the atlas evicted this frame
+    uint32_t labelResend = 0;           // bumped when the eviction backlog overflowed: Kotlin must send everything again
     bool statsOn = false;
     std::vector<float> statMs;
     double statDraws = 0.0, statVerts = 0.0, statUploadMs = 0.0, statUploads = 0.0;
@@ -899,6 +931,31 @@ void TimelineRenderer::setDropHint(const DropHint& hint) {
         state_->dirty = true;
     }
     wake();
+}
+
+void TimelineRenderer::setDragOverlay(int64_t snapGuideFrame, const int64_t* clipKeys, size_t count) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const int64_t guide = snapGuideFrame < 0 ? kNoSnapGuide : snapGuideFrame;
+        std::vector<int64_t>& keys = state_->draggedKeys;
+        // Called on every drag step, nearly always with the same keys: only a change needs a frame.
+        const bool sameKeys = keys.size() == count && (count == 0 || std::is_permutation(keys.begin(), keys.end(), clipKeys));
+        if (guide == state_->snapGuideFrame && sameKeys) return;
+        state_->snapGuideFrame = guide;
+        keys.assign(clipKeys, clipKeys + count);
+        std::sort(keys.begin(), keys.end());
+        state_->dirty = true;
+    }
+    wake();
+}
+
+size_t TimelineRenderer::takeEvictedLabels(uint64_t* out, size_t capacity) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<uint64_t>& list = state_->evictedLabels;
+    const size_t n = std::min(capacity, list.size());
+    std::copy(list.begin(), list.begin() + static_cast<std::ptrdiff_t>(n), out);
+    list.erase(list.begin(), list.begin() + static_cast<std::ptrdiff_t>(n));
+    return n;
 }
 
 void TimelineRenderer::setLaneDrag(int from, int to) {
@@ -1155,6 +1212,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     int width, height;
     int64_t playhead;
     DropHint dropHint;
+    int64_t snapGuide = kNoSnapGuide;
     int laneDragFrom = -1, laneDragTo = -1;
     bool marqueeActive = false;
     float marquee[4] = {0, 0, 0, 0};
@@ -1187,6 +1245,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         layout = s.layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(s.height));
         th = s.theme;
         dropHint = s.dropHint;
+        snapGuide = s.snapGuideFrame;
+        ctx.dragKeys.assign(s.draggedKeys.begin(), s.draggedKeys.end());
         laneDragFrom = s.laneDragFrom;
         laneDragTo = s.laneDragTo;
         marqueeActive = s.marqueeActive;
@@ -1218,6 +1278,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     }
     if (freedLabels) cv_.notify_all();  // a sender may be waiting for room
     Gl& g = *ctx.gl;
+    g.beginLabelFrame();
     if (!ctx.uploads.empty()) {
         const auto upStart = std::chrono::steady_clock::now();
         for (const PendingLabel& p : ctx.uploads) g.addLabel(p);
@@ -1225,7 +1286,21 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         ctx.statUploads += ctx.uploads.size();
         ctx.uploads.clear();
     }
-    labelGeneration_.store(g.labelGeneration());
+    g.takeEvictedLabels(&ctx.evicted);
+    if (!ctx.evicted.empty()) {
+        // Bitmaps the atlas made room by dropping: Kotlin takes the list and sends again what it still needs. A backlog that
+        // nobody collects is cut and answered with a full resend instead of growing.
+        constexpr size_t kMaxEvictedBacklog = 4096;
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<uint64_t>& list = state_->evictedLabels;
+        list.insert(list.end(), ctx.evicted.begin(), ctx.evicted.end());
+        if (list.size() > kMaxEvictedBacklog) {
+            list.clear();
+            ++ctx.labelResend;
+        }
+        ctx.evicted.clear();
+    }
+    labelGeneration_.store(g.labelGeneration() + ctx.labelResend);
     if (width <= 0 || height <= 0) return;
 
     const std::shared_ptr<thumb::ThumbnailService> thumbs = thumbWeak.lock();
@@ -1233,7 +1308,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     bool moreTilesReady = false;
     if (thumbs && atlas.ready()) {
         // Finished tiles go into the atlas here, on the GL thread, a few per frame.
-        atlas.beginFrame();
+        atlas.beginFrame(frameTimeNanos);
         std::vector<thumb::ThumbnailService::ReadyTile> ready;
         moreTilesReady = thumbs->takeReady(&ready, kUploadsPerFrame) > 0;
         for (const auto& tile : ready) atlas.upload(tile.key, tile.pixels.data());
@@ -1289,7 +1364,13 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     const float colW = std::max(1.0f, 2.0f * density);
     const float cornerR = 4.0f * density;
     const float headerStrip = 18.0f * density;
+    // While clips are dragged or trimmed they are drawn in a second pass, over the others and with a soft shadow, so they
+    // read as lifted. Without a drag there is one pass and one cheap test per clip.
+    const bool dragging = !ctx.dragKeys.empty();
+    for (int pass = 0; pass < (dragging ? 2 : 1); ++pass)
     for (const ClipSnapshot& c : snap->clips) {
+        const bool lifted = dragging && std::binary_search(ctx.dragKeys.begin(), ctx.dragKeys.end(), c.clipKey);
+        if (dragging && lifted != (pass == 1)) continue;
         const float top = layout.trackTop(c.trackIndex) - static_cast<float>(vp.scrollY);
         const float bottom = top + layout.trackHeight;
         if (bottom < layout.rulerHeight || top > H) continue;
@@ -1309,9 +1390,19 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         float ix0 = fx0, ix1 = fx1, itop = top, ibottom = bottom;
         float radius = std::max(0.0f, std::min({cornerR, (fx1 - fx0) * 0.5f, (bottom - top) * 0.5f}));
         Color cutColour = laneBg;
-        if (c.selected) {
-            const Color outline = c.primary ? th.selection : th.primary;
-            const float b = std::max(1.0f, (c.primary ? 2.0f : 1.5f) * density);
+        if (lifted) {
+            // Soft shadow: nested rounded rectangles growing outwards, a little lower than the block.
+            const float spread = 9.0f * density, drop = 3.0f * density;
+            for (int i = 0; i < kShadowLayers; ++i) {
+                const ShadowLayer layer = shadowLayer(i, spread, kDragShadowPeak);
+                g.roundedRect(fx0 - layer.grow, top - layer.grow + drop, fx1 + layer.grow, bottom + layer.grow + drop,
+                              cornerR + layer.grow, withAlpha(kDragShadow, layer.alpha));
+            }
+        }
+        if (c.selected || lifted) {
+            // A lifted clip that is not selected gets a light rim; opaque, since the corner cuts are painted in it.
+            const Color outline = c.selected ? (c.primary ? th.selection : th.primary) : mix(laneBg, th.onClip, 0.7f);
+            const float b = std::max(1.0f, ((c.selected && c.primary) ? 2.0f : 1.5f) * density);
             if (fx1 - fx0 > 2.0f * b + 2.0f) {
                 g.roundedRect(fx0, top, fx1, bottom, radius, outline);
                 ix0 += b;
@@ -1349,10 +1440,24 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             for (const thumb::CellPlan& cell : cells) {
                 thumb::TileKey got;
                 float uv[4];
+                int64_t readyAt = 0;
                 const bool resolved = thumb::resolveTile(
                     cell.key, [&atlas](const thumb::TileKey& k) { return atlas.contains(k); }, &got);
-                if (resolved && atlas.find(got, uv)) {
-                    g.texQuad(static_cast<float>(cell.x0), bodyTop, static_cast<float>(cell.x1), ibottom, uv);
+                if (resolved && atlas.find(got, uv, &readyAt)) {
+                    // A tile that has just arrived fades in. The picture it replaces (a coarser or finer tile of the same
+                    // instant) stays underneath while it does, so the cell never dips to the plain block colour.
+                    const float alpha = readyAt > 0 ? fadeAlpha(frameTimeNanos - readyAt, kThumbFadeNanos) : 1.0f;
+                    if (alpha < 1.0f) {
+                        keepAnimating = true;
+                        thumb::TileKey under;
+                        float uvUnder[4];
+                        if (thumb::resolveTile(
+                                cell.key, [&atlas, &got](const thumb::TileKey& k) { return !(k == got) && atlas.contains(k); }, &under) &&
+                            atlas.find(under, uvUnder)) {
+                            g.texQuad(static_cast<float>(cell.x0), bodyTop, static_cast<float>(cell.x1), ibottom, uvUnder);
+                        }
+                    }
+                    g.texQuad(static_cast<float>(cell.x0), bodyTop, static_cast<float>(cell.x1), ibottom, uv, alpha);
                 }
                 if (!resolved || !(got == cell.key)) {
                     want.level = cell.key.level;
@@ -1660,6 +1765,16 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         g.rect(mx0, my1 - e, mx1, my1, edge);
         g.rect(mx0, my0, mx0 + e, my1, edge);
         g.rect(mx1 - e, my0, mx1, my1, edge);
+    }
+
+    // Snap guide: a line through the lanes at the frame a dragged or trimmed edge snapped to.
+    if (snapGuide != kNoSnapGuide) {
+        g.setClip(0, layout.rulerHeight, W, H);
+        const float lineW = std::max(1.0f, std::round(1.5f * density));
+        const HintRect glow = snapGuideRect(snapGuide, vp, layout, W, H, lineW * 5.0f);
+        if (glow.valid) g.rect(glow.x0, glow.y0, glow.x1, glow.y1, kSnapGuideGlow);
+        const HintRect line = snapGuideRect(snapGuide, vp, layout, W, H, lineW);
+        if (line.valid) g.rect(line.x0, line.y0, line.x1, line.y1, kSnapGuide);
     }
 
     // A faint line through the lanes at each user marker, so cuts can be lined up against it.
