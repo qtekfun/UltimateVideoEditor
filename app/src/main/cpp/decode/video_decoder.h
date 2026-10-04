@@ -83,6 +83,8 @@ private:
     AMediaExtractor* extractor_ = nullptr;
     AMediaCodec* codec_ = nullptr;
     AImageReader* reader_ = nullptr;
+    bool softwareDecoder_ = false;  // the codec that started is the platform's software decoder (a fallback)
+    std::string rungLabel_;  // which rung of the open ladder (decode/decoder_ladder.h) started the codec
     int fd_ = -1;
     AssetInfo info_;
     Callbacks callbacks_;

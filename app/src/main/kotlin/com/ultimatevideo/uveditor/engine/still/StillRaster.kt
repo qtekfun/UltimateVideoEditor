@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.net.Uri
+import com.ultimatevideo.uveditor.data.readAtMost
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.engine.title.TitleBitmap
 import java.io.FileNotFoundException
@@ -171,7 +172,7 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
     private fun animationOf(uri: String): AnimatedPicture? = synchronized(animations) {
         if (animations.containsKey(uri)) return animations[uri]
         val animation = try {
-            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readNBytes(MAX_ANIMATION_BYTES) }
+            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readAtMost(MAX_ANIMATION_BYTES) }
             when {
                 bytes == null -> null
                 AnimationSniff.isGif(bytes) -> GifAnimation.parse(bytes)

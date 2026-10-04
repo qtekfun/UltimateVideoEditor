@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.editor.captions
 import android.content.ContentResolver
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
+import com.ultimatevideo.uveditor.data.readAtMost
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
 import com.ultimatevideo.uveditor.domain.captions.CaptionCue
@@ -27,7 +28,7 @@ class ContentResolverSubtitleSource(private val resolver: ContentResolver) : Sub
     override suspend fun read(uri: String): ByteArray {
         val input = resolver.openInputStream(Uri.parse(uri)) ?: throw IOException("The file could not be opened")
         input.use { stream ->
-            val bytes = stream.readNBytes((Subtitles.MAX_BYTES + 1).toInt())
+            val bytes = stream.readAtMost((Subtitles.MAX_BYTES + 1).toInt())
             if (bytes.size > Subtitles.MAX_BYTES) throw IOException("This file is too large to be a subtitle file")
             return bytes
         }
