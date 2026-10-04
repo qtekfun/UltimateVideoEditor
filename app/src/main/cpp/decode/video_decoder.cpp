@@ -191,6 +191,17 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
         AImageReader_delete(d->reader_);
         d->reader_ = nullptr;
     }
+    if (started) {
+        // Kept for resubmission after a flush (see resubmitCodecConfig).
+        for (const char* key : {"csd-0", "csd-1", "csd-2"}) {
+            void* data = nullptr;
+            size_t size = 0;
+            if (AMediaFormat_getBuffer(format, key, &data, &size) && data != nullptr && size > 0) {
+                const auto* bytes = static_cast<const uint8_t*>(data);
+                d->codecConfig_.emplace_back(bytes, bytes + size);
+            }
+        }
+    }
     AMediaFormat_delete(format);
     if (!started) {
         return Error{Status::CodecError, "this device could not start a " + mimeCopy + " decoder for " +
@@ -397,6 +408,7 @@ void VideoDecoder::seekTo(int64_t frame) {
         reportError(Status::CodecError, "AMediaCodec_flush failed (" + describe() + ")");
         return;
     }
+    resubmitCodecConfig();
     decoderPrimed_ = true;
     awaitingFirstOutput_ = true;
     seekGoal_ = frame;
@@ -404,6 +416,29 @@ void VideoDecoder::seekTo(int64_t frame) {
     sharedPrimed_.store(true);
     sharedInputEos_.store(false);
     sharedSeeks_.fetch_add(1);
+}
+
+// The Huawei hisi H.264 decoder forgets its SPS/PPS on flush: every packet after a seek is rejected ("PPS or SPS of this
+// slice not valid") and the preview stays black, because MP4 keeps the parameter sets only in the track format. The
+// MediaCodec documentation asks for the codec-specific data to be queued again after a flush; other decoders ignore it.
+void VideoDecoder::resubmitCodecConfig() {
+    for (const std::vector<uint8_t>& config : codecConfig_) {
+        const ssize_t index = AMediaCodec_dequeueInputBuffer(codec_, 100000);
+        if (index < 0) {
+            UV_LOGW("no input buffer to resubmit codec config after flush (%zd)", index);
+            return;
+        }
+        size_t capacity = 0;
+        uint8_t* buffer = AMediaCodec_getInputBuffer(codec_, static_cast<size_t>(index), &capacity);
+        if (buffer == nullptr || capacity < config.size()) {
+            AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(index), 0, 0, 0, 0);
+            UV_LOGW("codec config (%zu bytes) does not fit the input buffer (%zu)", config.size(), capacity);
+            return;
+        }
+        std::memcpy(buffer, config.data(), config.size());
+        AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(index), 0, config.size(), 0,
+                                     AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG);
+    }
 }
 
 void VideoDecoder::pump(int64_t lo, int64_t hi) {
