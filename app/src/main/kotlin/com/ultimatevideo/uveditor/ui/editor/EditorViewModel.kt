@@ -72,6 +72,15 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.BezierHandle
+import com.ultimatevideo.uveditor.domain.ParamIds
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.ParamTracks
+import com.ultimatevideo.uveditor.domain.displayedAt
+import com.ultimatevideo.uveditor.domain.fxAt
+import com.ultimatevideo.uveditor.domain.paramKeys
+import com.ultimatevideo.uveditor.domain.paramSpec
+import com.ultimatevideo.uveditor.domain.paramValueAt
 import com.ultimatevideo.uveditor.domain.Snap
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
@@ -153,7 +162,7 @@ class EditorViewModel(
     )
 
     /** An effect or mask slider drag in progress: shown live, committed as one undo step. */
-    private class FxSession(val clipId: String, val base: ClipFx, var fx: ClipFx)
+    private class FxSession(val clipId: String, val base: ClipFx, var fx: ClipFx, val frame: Long? = null)
 
     /** A title text/style edit in progress: shown live, committed as one undo step. */
     private class TitleSession(val clipId: String, val base: TitleContent, var content: TitleContent)
@@ -189,6 +198,8 @@ class EditorViewModel(
     override fun onIntent(intent: EditorIntent) {
         // Typing in the title field is only provisional: any other action first makes it final.
         if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
+        // A key drag in the keyframe lane is provisional until released.
+        if (intent !is EditorIntent.UpdateParamKey && intent !is EditorIntent.EndParamKeyEdit) endParamKeyEdit(commit = true)
         // Same for an effect slider: it stays provisional until released or until something else happens.
         if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateGrade && intent !is EditorIntent.UpdateMask &&
             intent !is EditorIntent.EndFxEdit
@@ -202,7 +213,10 @@ class EditorViewModel(
             endAudioEdit(commit = true)
         }
         when (intent) {
-            is EditorIntent.UpdateClipAudio -> withSelection { id -> updateAudioEdit("clip:$id", EditCommand.SetClipAudio(id, intent.audio)) }
+            is EditorIntent.UpdateClipAudio -> withSelection { id ->
+                // The controls show pan and EQ gains as they are at the playhead; keyframed ones that changed become keys.
+                updateAudioEdit("clip:$id", EditCommand.SetClipAudioAt(id, intent.audio, state.value.selectedFrame))
+            }
             is EditorIntent.UpdateTrackAudio -> updateAudioEdit("track:${intent.trackId}", EditCommand.SetTrackAudio(intent.trackId, intent.audio))
             is EditorIntent.UpdateDucking -> updateAudioEdit("ducking", EditCommand.SetDucking(intent.ducking))
             is EditorIntent.EndAudioEdit -> endAudioEdit(intent.commit)
@@ -277,6 +291,16 @@ class EditorViewModel(
             is EditorIntent.JumpToKeyframe -> jumpToKeyframe(intent.forward)
             is EditorIntent.SetKeyframeInterpolation -> setKeyframeInterpolation(intent.interpolation)
             EditorIntent.ClearKeyframes -> clearKeyframes()
+            is EditorIntent.ToggleParamKey -> toggleParamKey(intent.paramId)
+            is EditorIntent.JumpToParamKey -> jumpToParamKey(intent.paramId, intent.forward)
+            is EditorIntent.ClearParamTrack -> withSelection { execute(EditCommand.ClearParamTrack(it, intent.paramId)) }
+            is EditorIntent.CopyParamKeys -> copyParamKeys(intent.paramId)
+            is EditorIntent.PasteParamKeys -> pasteParamKeys(intent.paramId)
+            is EditorIntent.SetParamKeyShape ->
+                withSelection { execute(EditCommand.SetParamKeyShape(it, intent.paramId, intent.frame, intent.interpolation, intent.out, intent.inn)) }
+            is EditorIntent.UpdateParamKey -> updateParamKey(intent.paramId, intent.fromFrame, intent.toFrame, intent.value)
+            is EditorIntent.EndParamKeyEdit -> endParamKeyEdit(intent.commit)
+            is EditorIntent.SelectParamKey -> reduce { copy(selectedParamKey = intent.paramId?.let { it to (intent.frame ?: 0L) }) }
             is EditorIntent.SetSpeed -> setSpeed(intent.num, intent.den)
             EditorIntent.ToggleReverse -> toggleReverse()
             is EditorIntent.SetSpeedRamp -> setSpeedRamp(intent.shape)
@@ -370,7 +394,11 @@ class EditorViewModel(
             }
         }
         val keyframes = timeline.tracks.flatMap { track ->
-            track.clips.flatMap { clip -> clip.keyframes.map { SnapshotKeyframe(clipKeys.keyFor(clip.id), it.frame) } }
+            // One diamond per frame that carries a key of any kind: the pose and every animated parameter.
+            track.clips.flatMap { clip ->
+                val frames = (clip.keyframes.map { it.frame } + clip.params.flatMap { t -> t.keys.map { it.frame } }).distinct().sorted()
+                frames.map { SnapshotKeyframe(clipKeys.keyFor(clip.id), it) }
+            }
         }
         val retimes = timeline.tracks.flatMap { track ->
             track.clips.filter { it.isRetimed || it.isFreeze }.map {
@@ -1408,9 +1436,19 @@ class EditorViewModel(
             return false
         }
         val pose = if (keyFrame != null) clip.transformAt(keyFrame) else clip.transform
-        appearance = AppearanceSession(clip.id, pose, clip.gainDb, pose, clip.gainDb, keyFrame)
+        // The volume slider shows the keyframed volume at the playhead when there is one.
+        val gain = clip.displayedAt(state.value.selectedFrame).gainDb
+        appearance = AppearanceSession(clip.id, pose, gain, pose, gain, keyFrame)
         return true
     }
+
+    /** The command that sets the volume: a key at the playhead when the volume is keyframed, else the fixed gain. */
+    private fun gainCommand(clip: Clip, gainDb: Double): EditCommand =
+        if (ParamTracks.track(clip.params, ParamIds.GAIN_DB) != null) {
+            EditCommand.SetGainAt(clip.id, gainDb, state.value.selectedFrame)
+        } else {
+            EditCommand.SetGain(clip.id, gainDb)
+        }
 
     /**
      * The edit an appearance session stands for. A fixed clip gets its transform and gain replaced;
@@ -1418,15 +1456,24 @@ class EditorViewModel(
      * edit never adds one) and the new gain.
      */
     private fun sessionCommand(session: AppearanceSession): EditCommand {
-        val frame = session.keyFrame ?: return EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
         val clip = history.timeline.trackOfClip(session.clipId)?.clip(session.clipId)
             ?: return EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
+        val frame = session.keyFrame
+            ?: return if (ParamTracks.track(clip.params, ParamIds.GAIN_DB) == null) {
+                EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
+            } else {
+                // A keyframed volume: the transform is replaced, the volume change becomes a key at the playhead.
+                val parts = ArrayList<EditCommand>()
+                parts += EditCommand.SetTransform(clip.id, session.transform)
+                if (session.gainDb != session.baseGain) parts += gainCommand(clip, session.gainDb)
+                EditCommand.Batch(parts)
+            }
         val parts = ArrayList<EditCommand>()
         if (session.transform != session.baseTransform) {
             val interpolation = Keyframes.at(clip.keyframes, frame)?.interpolation ?: Interpolation.LINEAR
             parts += EditCommand.SetKeyframe(clip.id, Keyframe(frame, session.transform, interpolation))
         }
-        if (session.gainDb != session.baseGain) parts += EditCommand.SetGain(clip.id, session.gainDb)
+        if (session.gainDb != session.baseGain) parts += gainCommand(clip, session.gainDb)
         return EditCommand.Batch(parts)
     }
 
@@ -1492,7 +1539,10 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("Select a video clip or title first"))
             return null
         }
-        return FxSession(clip.id, clip.fx, clip.fx).also { fxEdit = it }
+        // The controls show the effects as they are at the playhead; keyframed values changed here become keys there.
+        val frame = state.value.selectedFrame
+        val shown = if (frame != null) clip.fxAt(frame) else clip.fx
+        return FxSession(clip.id, shown, shown, frame).also { fxEdit = it }
     }
 
     private fun updateEffect(effectId: String, values: List<Double>) {
@@ -1542,14 +1592,14 @@ class EditorViewModel(
     }
 
     private fun showFx(session: FxSession) {
-        val result = EditCommand.SetFx(session.clipId, session.fx).apply(history.timeline)
+        val result = EditCommand.SetFxAt(session.clipId, session.fx, session.frame).apply(history.timeline)
         if (result is EditResult.Success) reduce { copy(dragPreview = result.value) }
     }
 
     private fun endFxEdit(commit: Boolean) {
         val session = fxEdit ?: return
         fxEdit = null
-        if (commit && session.fx != session.base && execute(EditCommand.SetFx(session.clipId, session.fx))) return
+        if (commit && session.fx != session.base && execute(EditCommand.SetFxAt(session.clipId, session.fx, session.frame))) return
         reduce { copy(dragPreview = null) }
     }
 
@@ -1606,6 +1656,111 @@ class EditorViewModel(
         val frame = state.value.selectedClipFrame
         val pose = if (frame != null) clip.transformAt(frame) else clip.keyframes.first().transform
         execute(EditCommand.Batch(listOf(EditCommand.ClearKeyframes(clipId), EditCommand.SetTransform(clipId, pose))))
+    }
+
+    // endregion
+
+    // region parameter keyframes
+
+    /** The key drag in progress in the keyframe lane, shown live and committed as one undo step on release. */
+    private var paramEdit: EditCommand? = null
+
+    private fun selectedParamClip(): Clip? = state.value.selectedClipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+
+    /** Adds a key holding the value shown at the playhead, or removes the one that is there. */
+    private fun toggleParamKey(paramId: String) = withSelection { clipId ->
+        val clip = selectedParamClip() ?: return@withSelection
+        val frame = state.value.selectedFrame
+        if (frame == null) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to set a keyframe"))
+            return@withSelection
+        }
+        val spec = clip.paramSpec(paramId)
+        if (spec == null) {
+            emit(EditorEffect.ShowMessage("That value cannot be animated"))
+            return@withSelection
+        }
+        if (ParamTracks.at(clip.paramKeys(paramId), frame) != null) {
+            execute(EditCommand.RemoveParamKey(clipId, paramId, frame))
+        } else {
+            val value = (clip.paramValueAt(paramId, frame) ?: spec.min).coerceIn(spec.min, spec.max)
+            execute(EditCommand.SetParamKey(clipId, paramId, ParamKey(frame, value)))
+        }
+    }
+
+    private fun jumpToParamKey(paramId: String, forward: Boolean) = withSelection {
+        val clip = selectedParamClip() ?: return@withSelection
+        val relative = state.value.playhead - clip.timelineStart
+        val keys = clip.paramKeys(paramId)
+        val target = if (forward) ParamTracks.nextFrame(keys, relative) else ParamTracks.previousFrame(keys, relative)
+        if (target == null) {
+            emit(EditorEffect.ShowMessage(if (forward) "No later keyframe on this value" else "No earlier keyframe on this value"))
+            return@withSelection
+        }
+        seekTo(clip.timelineStart.value + target)
+    }
+
+    private fun copyParamKeys(paramId: String) {
+        val clip = selectedParamClip() ?: return
+        val keys = clip.paramKeys(paramId)
+        if (keys.isEmpty()) {
+            emit(EditorEffect.ShowMessage("This value has no keyframes to copy"))
+            return
+        }
+        val first = keys.first().frame
+        reduce { copy(paramClipboard = ParamClipboard(paramId, keys.map { it.copy(frame = it.frame - first) })) }
+        emit(EditorEffect.ShowMessage("Copied ${keys.size} keyframes"))
+    }
+
+    /** Pastes the copied keys so the first lands on the playhead; values are clamped to this value's range. */
+    private fun pasteParamKeys(paramId: String) = withSelection { clipId ->
+        val clip = selectedParamClip() ?: return@withSelection
+        val clipboard = state.value.paramClipboard
+        if (clipboard == null) {
+            emit(EditorEffect.ShowMessage("Copy keyframes first"))
+            return@withSelection
+        }
+        val frame = state.value.selectedFrame
+        if (frame == null) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to paste keyframes"))
+            return@withSelection
+        }
+        val keys = ParamTracks.shiftedTo(clipboard.keys, frame, clip.durationFrames)
+        if (keys.isEmpty() || clip.paramSpec(paramId) == null) {
+            emit(EditorEffect.ShowMessage("The copied keyframes do not fit here"))
+            return@withSelection
+        }
+        execute(EditCommand.PasteParamKeys(clipId, paramId, keys))
+    }
+
+    /** Drags the key at [from] to [to] with [value]: shown live, kept provisional until [endParamKeyEdit]. */
+    private fun updateParamKey(paramId: String, from: Long, to: Long, value: Double) {
+        if (drag != null) return
+        val clipId = state.value.selectedClipId ?: return
+        val clip = selectedParamClip() ?: return
+        val existing = ParamTracks.at(clip.paramKeys(paramId), from) ?: return
+        val spec = clip.paramSpec(paramId) ?: return
+        val moved = existing.copy(frame = to.coerceIn(0L, clip.durationFrames - 1), value = value.coerceIn(spec.min, spec.max))
+        val parts = ArrayList<EditCommand>(2)
+        if (moved.frame != from) parts += EditCommand.MoveParamKey(clipId, paramId, from, moved.frame)
+        parts += EditCommand.SetParamKey(clipId, paramId, moved)
+        val command = EditCommand.Batch(parts)
+        when (val result = command.apply(history.timeline)) {
+            is EditResult.Success -> {
+                paramEdit = command
+                reduce { copy(dragPreview = result.value, selectedParamKey = paramId to moved.frame) }
+            }
+            is EditResult.Failure -> Unit // a position that is not allowed keeps the last valid preview
+        }
+    }
+
+    private fun endParamKeyEdit(commit: Boolean) {
+        val command = paramEdit ?: return
+        paramEdit = null
+        val result = command.apply(history.timeline)
+        val changed = result is EditResult.Success && result.value != history.timeline
+        if (commit && changed && execute(command)) return
+        reduce { copy(dragPreview = null) }
     }
 
     // endregion

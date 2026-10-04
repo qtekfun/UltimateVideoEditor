@@ -229,7 +229,7 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
         }
         w.put<float>(c.denoiseStrength);
         w.put<int32_t>(static_cast<int32_t>(c.noiseProfile.size()));
-        w.put<uint32_t>(0);
+        w.put<uint32_t>(static_cast<uint32_t>(c.lanes.size()));
     }
     for (const auto& c : clips) {
         for (const RetimeKnot& k : c.knots) {
@@ -239,6 +239,19 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
     }
     for (const auto& c : clips) {
         for (float v : c.noiseProfile) w.put<float>(v);
+    }
+    for (const auto& c : clips) {
+        for (const AutoLane& lane : c.lanes) {
+            w.put<int32_t>(static_cast<int32_t>(lane.param));
+            w.put<uint32_t>(static_cast<uint32_t>(lane.points.size()));
+            w.put<uint32_t>(0);
+            w.put<uint32_t>(0);
+            for (const AutoPoint& p : lane.points) {
+                w.put<int64_t>(p.frame);
+                w.put<float>(p.value);
+                w.put<uint32_t>(0);
+            }
+        }
     }
     return w;
 }
@@ -1428,6 +1441,161 @@ static void testEditsKeepDspStateRunning() {
     g_spec = FakeSpec{};
 }
 
+// ------------------------------------------------------------------ keyframed parameters (automation lanes)
+
+static AutoLane laneOf(AutoParam param, std::initializer_list<std::pair<int64_t, float>> points) {
+    AutoLane lane;
+    lane.param = param;
+    for (const auto& p : points) lane.points.push_back(AutoPoint{p.first, p.second});
+    return lane;
+}
+
+static void testAutomationSnapshotParsing() {
+    AudioSnapshotData out;
+    AudioClipDesc c = clipDesc(1, 0, 60);
+    c.lanes = {laneOf(AutoParam::GainDb, {{0, 0.0f}, {30, -12.0f}}), laneOf(AutoParam::Pan, {{10, -1.0f}, {50, 1.0f}}),
+               laneOf(AutoParam::EqGain2, {{0, 3.0f}})};
+    Buf ok = makeAudioSnapshot(30, 1, {c, clipDesc(2, 70, 10)});
+    CHECK(parseAudioSnapshot(ok.b.data(), ok.b.size(), &out) == Status::Ok);
+    CHECK(out.clips.size() == 2);
+    CHECK(out.clips[0].lanes.size() == 3);
+    CHECK(out.clips[0].lanes[0].param == AutoParam::GainDb);
+    CHECK(out.clips[0].lanes[0].points.size() == 2);
+    CHECK_NEAR(out.clips[0].lanes[0].points[1].value, -12.0f, 0);
+    CHECK(out.clips[0].lanes[1].points[0].frame == 10);
+    CHECK(out.clips[0].lanes[2].param == AutoParam::EqGain2);
+    CHECK(out.clips[1].lanes.empty());
+
+    // Version 4 buffers (no lanes, reserved field 0) still parse.
+    AudioClipDesc plain = clipDesc(3, 0, 20);
+    Buf v4 = makeAudioSnapshot(30, 1, {plain});
+    const uint32_t four = 4;
+    std::memcpy(v4.b.data() + 4, &four, sizeof(four));
+    CHECK(parseAudioSnapshot(v4.b.data(), v4.b.size(), &out) == Status::Ok);
+    const uint32_t six = 6;
+    std::memcpy(v4.b.data() + 4, &six, sizeof(six));
+    CHECK(parseAudioSnapshot(v4.b.data(), v4.b.size(), &out) == Status::BadSnapshot);
+
+    auto bad = [&](AudioClipDesc clip) {
+        Buf b = makeAudioSnapshot(30, 1, {clip});
+        return parseAudioSnapshot(b.b.data(), b.b.size(), &out) == Status::BadSnapshot;
+    };
+    AudioClipDesc dup = clipDesc(1, 0, 60);
+    dup.lanes = {laneOf(AutoParam::Pan, {{0, 0.0f}}), laneOf(AutoParam::Pan, {{5, 0.5f}})};
+    CHECK(bad(dup));  // one lane per parameter
+    AudioClipDesc unordered = clipDesc(1, 0, 60);
+    unordered.lanes = {laneOf(AutoParam::GainDb, {{10, 0.0f}, {10, 1.0f}})};
+    CHECK(bad(unordered));
+    AudioClipDesc outside = clipDesc(1, 0, 60);
+    outside.lanes = {laneOf(AutoParam::GainDb, {{0, 0.0f}, {61, 1.0f}})};
+    CHECK(bad(outside));
+    AudioClipDesc loud = clipDesc(1, 0, 60);
+    loud.lanes = {laneOf(AutoParam::GainDb, {{0, 99.0f}})};
+    CHECK(bad(loud));
+    AudioClipDesc panned = clipDesc(1, 0, 60);
+    panned.lanes = {laneOf(AutoParam::Pan, {{0, 1.5f}})};
+    CHECK(bad(panned));
+    AudioClipDesc eq = clipDesc(1, 0, 60);
+    eq.lanes = {laneOf(AutoParam::EqGain0, {{0, 30.0f}})};
+    CHECK(bad(eq));
+    AudioClipDesc nan = clipDesc(1, 0, 60);
+    nan.lanes = {laneOf(AutoParam::GainDb, {{0, std::nanf("")}})};
+    CHECK(bad(nan));
+
+    // A truncated lane region and trailing bytes are both rejected.
+    Buf whole = makeAudioSnapshot(30, 1, {c});
+    CHECK(parseAudioSnapshot(whole.b.data(), whole.b.size() - 4, &out) == Status::BadSnapshot);
+    Buf extra = whole;
+    extra.put<uint32_t>(0);
+    CHECK(parseAudioSnapshot(extra.b.data(), extra.b.size(), &out) == Status::BadSnapshot);
+    // A lane count above the limit is rejected before anything is allocated.
+    Buf many = makeAudioSnapshot(30, 1, {clipDesc(1, 0, 60)});
+    const uint32_t huge = 1000;
+    const size_t laneField = many.b.size() - 4;  // the clip record is the last block: its last u32 is the lane count
+    std::memcpy(many.b.data() + laneField, &huge, sizeof(huge));
+    CHECK(parseAudioSnapshot(many.b.data(), many.b.size(), &out) == Status::BadSnapshot);
+}
+
+static void testAutomationInTheMixer() {
+    g_spec = FakeSpec{};
+    g_spec.constant = 0.5f;
+    const int64_t frame = 1600;  // samples per frame at 30 fps and 48 kHz
+
+    // Volume: linear gain from 1.0 at frame 0 to 0.1 at frame 30 (-20 dB), held afterwards.
+    AudioClipDesc g = toolClip(1, 0, 60);
+    g.lanes = {laneOf(AutoParam::GainDb, {{0, 0.0f}, {30, -20.0f}})};
+    std::vector<float> out = playFor(snap30({g}), 2.0);
+    for (int64_t k : {int64_t{500}, int64_t{12000}, int64_t{24000}, int64_t{40000}}) {
+        const double t = static_cast<double>(k) / (30.0 * static_cast<double>(frame));
+        CHECK_NEAR(out[2 * static_cast<size_t>(k)], 0.5 * (1.0 + (0.1 - 1.0) * t), 2e-3);
+    }
+    CHECK_NEAR(out[2 * 60000], 0.05, 1e-4);  // held at the last point
+
+    // Pan: hard left at frame 10, hard right at frame 50 (centre in the middle); before and after it holds.
+    AudioClipDesc p = toolClip(1, 0, 60);
+    p.lanes = {laneOf(AutoParam::Pan, {{10, -1.0f}, {50, 1.0f}})};
+    out = playFor(snap30({p}), 2.0);
+    CHECK_NEAR(out[2 * 1000 + 1], 0.0, 1e-3);          // before the first point: hard left, right silent
+    CHECK(out[2 * 1000] > 0.49f);
+    CHECK_NEAR(out[2 * 30 * frame], out[2 * 30 * frame + 1], 5e-3);  // centre at frame 30
+    CHECK_NEAR(out[2 * 55 * frame], 0.0, 1e-3);        // after the last point: hard right, left silent
+
+    // EQ band gain: a +12 dB lane on band 1 behaves like the static +12 dB band at the band centre.
+    g_spec.constant = 0.0f;
+    g_spec.sineHz = 1000.0;
+    g_spec.sineAmp = 0.1f;
+    AudioClipDesc e = toolClip(1, 0, 60);
+    e.eq.bands[1].freqHz = 1000.0f;
+    e.eq.bands[1].gainDb = 0.0f;
+    e.eq.bands[1].q = 1.0f;
+    e.lanes = {laneOf(AutoParam::EqGain1, {{0, 12.0f}})};
+    out = playFor(snap30({e}), 1.0);
+    double peak = 0;
+    for (size_t i = 24000; i < 48000; ++i) peak = std::max(peak, static_cast<double>(std::fabs(out[2 * i])));
+    CHECK_NEAR(peak, 0.1 * std::pow(10.0, 12.0 / 20.0), 0.012);
+    // The same band animated from 0 to 12 dB grows over time instead of jumping.
+    e.lanes = {laneOf(AutoParam::EqGain1, {{0, 0.0f}, {40, 12.0f}})};
+    out = playFor(snap30({e}), 1.6);
+    auto peakOf = [&](size_t from, size_t to) {
+        double m = 0;
+        for (size_t i = from; i < to; ++i) m = std::max(m, static_cast<double>(std::fabs(out[2 * i])));
+        return m;
+    };
+    CHECK(peakOf(3200, 6400) < peakOf(30000, 33000));
+    CHECK(peakOf(30000, 33000) < peakOf(70000, 76000));
+    g_spec = FakeSpec{};
+}
+
+// The result must not depend on how the stream is cut into blocks: lanes are evaluated per absolute chunk.
+static void testAutomationIsBlockSizeIndependent() {
+    g_spec = FakeSpec{};
+    g_spec.sineHz = 500.0;
+    g_spec.sineAmp = 0.3f;
+    AudioClipDesc c = toolClip(1, 0, 90);
+    c.pan = 0.2f;
+    c.userFadeInFrames = 6;
+    c.eq.bands[2].freqHz = 800.0f;
+    c.eq.bands[2].q = 2.0f;
+    c.lanes = {laneOf(AutoParam::GainDb, {{0, -6.0f}, {20, 0.0f}, {44, -3.0f}, {89, -18.0f}}),
+               laneOf(AutoParam::Pan, {{0, -0.5f}, {60, 0.8f}}), laneOf(AutoParam::EqGain2, {{0, 0.0f}, {50, 9.0f}})};
+    AudioSnapshotData d = snap30({c});
+    const int64_t frames = 3 * 48000;
+    const std::vector<float> ref = renderOffline(d, frames, 480);
+    for (int block : {17, 64, 1000, 4096}) {
+        const std::vector<float> other = renderOffline(d, frames, block);
+        double diff = 0;
+        for (size_t i = 0; i < ref.size(); ++i) diff = std::max(diff, static_cast<double>(std::fabs(ref[i] - other[i])));
+        CHECK(diff < 1e-6);
+    }
+    const std::vector<float> live = playFor(d, 3.0);
+    double diff = 0;
+    for (int64_t i = 0; i < frames * 2 && i < static_cast<int64_t>(live.size()); ++i) {
+        diff = std::max(diff, static_cast<double>(std::fabs(ref[static_cast<size_t>(i)] - live[static_cast<size_t>(i)])));
+    }
+    CHECK(diff < 1e-5);
+    g_spec = FakeSpec{};
+}
+
 static double rmsRange(const std::vector<float>& v, int64_t from, int64_t to) {
     double s = 0;
     for (int64_t i = from; i < to; ++i) s += static_cast<double>(v[2 * static_cast<size_t>(i)]) * v[2 * static_cast<size_t>(i)];
@@ -1579,6 +1747,9 @@ int main() {
     testDuckingInTheMixer();
     testOfflineMatchesRealtimeAndBlockSizes();
     testEditsKeepDspStateRunning();
+    testAutomationSnapshotParsing();
+    testAutomationInTheMixer();
+    testAutomationIsBlockSizeIndependent();
     testNoiseSuppressionThroughTheCore();
     testMeterReportsPeaks();
     testAnalysis();

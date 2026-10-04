@@ -42,6 +42,7 @@ import com.ultimatevideo.uveditor.domain.Effect
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.GradeCurve
 import com.ultimatevideo.uveditor.domain.GradeCurves
+import com.ultimatevideo.uveditor.domain.ParamIds
 import kotlin.math.roundToInt
 
 /** What the colour section needs from the look library; null where no library is provided (looks are hidden). */
@@ -83,11 +84,11 @@ internal fun ColorGradeEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) 
     for (channel in 0 until 3) {
         val index = OFFSET + channel
         val param = EffectType.COLOR_GRADE.params[index]
-        GradeSlider(param.name, effect.values[index], param.min, param.max, onIntent, finish) { change(index, it) }
+        GradeSlider(param.name, effect.values[index], param.min, param.max, onIntent, finish, ParamIds.fx(effect.id, index)) { change(index, it) }
     }
     for (index in 15..20) {
         val param = EffectType.COLOR_GRADE.params[index]
-        GradeSlider(param.name, effect.values[index], param.min, param.max, onIntent, finish) { change(index, it) }
+        GradeSlider(param.name, effect.values[index], param.min, param.max, onIntent, finish, ParamIds.fx(effect.id, index)) { change(index, it) }
     }
     CurvesEditor(effect, onIntent)
     TextButton(
@@ -107,6 +108,7 @@ private fun GradeSlider(
     max: Double,
     onIntent: (EditorIntent) -> Unit,
     finish: EditorIntent,
+    paramId: String,
     onChange: (Double) -> Unit,
 ) {
     InspectorSlider(
@@ -116,6 +118,7 @@ private fun GradeSlider(
         readout = readout(value, max - min),
         onIntent = onIntent,
         finish = finish,
+        paramId = paramId,
     ) { onChange(it.toDouble()) }
 }
 

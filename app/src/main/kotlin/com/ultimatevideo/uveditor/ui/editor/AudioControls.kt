@@ -43,6 +43,7 @@ import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.EqBand
+import com.ultimatevideo.uveditor.domain.ParamIds
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackAudio
@@ -85,7 +86,9 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
     }
 
     // Pan.
-    InspectorSlider("Pan", audio.pan.toFloat(), -1f..1f, panReadout(audio.pan), onIntent, end) { change(audio.copy(pan = it.toDouble())) }
+    InspectorSlider("Pan", audio.pan.toFloat(), -1f..1f, panReadout(audio.pan), onIntent, end, paramId = ParamIds.PAN) {
+        change(audio.copy(pan = it.toDouble()))
+    }
 
     // Fade handles, in seconds.
     val fpsValue = state.fps.num.toDouble() / state.fps.den
@@ -147,6 +150,7 @@ private fun EqControls(audio: ClipAudio, change: (ClipAudio) -> Unit, commit: (C
             readout = "${signedDb(band.gainDb)} dB",
             onIntent = onIntent,
             finish = end,
+            paramId = ParamIds.eqGain(index),
         ) { change(audio.copy(eq = eq.withBand(index, band.copy(gainDb = it.toDouble().let { v -> (v * TENTH).roundToInt() / TENTH })))) }
     }
 }

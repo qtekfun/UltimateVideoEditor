@@ -722,3 +722,15 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
 **Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
 
+
+## Generalised keyframes (WP-K)
+
+**Decisions:**
+- Pose stays as joint `Keyframe`s; `pose.*` parameters are a per-parameter view over them (`Clip.paramKeys`). `Clip.params` never holds `pose.*` ids, so old projects load unchanged and the new JSON field is optional. Alternative: split pose into per-component tracks (migration and native evaluator change).
+- Keys are in clip frames (0 = first frame of the clip), so they travel with the clip; split/trim/overwrite crop them, speed changes stretch them. Multiselect copy/paste must treat `Clip.params` exactly like `keyframes`: tracks are relative to the clip start and are copied and pasted with the clip.
+- Bezier uses CSS `cubic-bezier` handles (x in 0..1, y in -2..3, default 0.42/0.0) solved by bisection. The native pose evaluator only knows linear/ease/hold, so Bezier pose segments are baked to per-frame linear keys at export.
+- Effect values are exported as a per-frame table (`fxFrames`, concatenated `layer_fx.h` blobs) evaluated in Kotlin, the same function the preview uses, instead of porting track evaluation to native. Alternative: native keyframe evaluation (second implementation, parity risk).
+- Audio snapshot is version 5 (still parses 4): per-clip lanes for gain, pan and EQ gains. The mixer processes in absolute 32-sample chunks (gain ramps linearly per chunk; pan/EQ evaluated at the chunk middle; all five EQ band stages are kept so filter state is stable), so realtime and offline are identical and block size does not matter. Hold ramps over its last frame before the next key.
+- Inspector shows the clip as it is at the playhead (`displayedClip`); a control change on an animated parameter writes a key at the playhead (keeping that key's shape), otherwise the static base value changes. Removing the last key writes its value back to the static field; removing an effect drops its tracks.
+- Colour wheels have no diamond (three-component control); sliders for grade values do.
+**Not verified:** on the Pixel 8 only install and reaching the editor were done (the device was heavily shared); adding a keyframe through the diamond, the lane drag, and an export compared against the preview were NOT exercised on device. Covered by JVM and native host tests only (interpolation vectors, cropping, migration round trips, preview/export parity at frame boundaries, audio block-size independence).
