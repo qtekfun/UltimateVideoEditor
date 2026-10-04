@@ -31,6 +31,15 @@ internal object WheelMath {
         return if (length <= 1.0) x to y else (x / length) to (y / length)
     }
 
+    /** A drag that starts within this distance of the puck (unit-disk units) grabs it; any other starts a scroll of the panel. */
+    const val GRAB_RADIUS = 0.3
+
+    /** Whether a touch at ([px], [py]) in a wheel of [size] pixels lands close enough to the puck at ([puckX], [puckY]) to grab it. */
+    fun grabs(px: Float, py: Float, size: Float, puckX: Double, puckY: Double): Boolean {
+        val (x, y) = fromTouch(px, py, size)
+        return hypot(x - puckX, y - puckY) <= GRAB_RADIUS
+    }
+
     /** Position of a touch at ([px], [py]) in a wheel of [size] pixels, as a point of the unit disk. */
     fun fromTouch(px: Float, py: Float, size: Float): Pair<Double, Double> {
         val half = size / 2.0
