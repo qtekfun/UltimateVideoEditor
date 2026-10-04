@@ -528,12 +528,12 @@ as the aim, choose the nearest marker after its start (a tie goes to the earlier
 only grow as far as its media; titles and stills freely), and trim its end there with `MagneticBase.trim`, so later base clips ripple and
 overlays follow. A clip with no reachable marker is left alone. The first clip keeps its start; every cut between the clips lands on a marker.
 
-**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). A template is data: layers of kind `TEXT` (a title clip) or `BAR`
-(a solid sticker clip, `shape:bar-dark` / `shape:bar-accent`, stretched to a canvas fraction using the sticker side of `StillFit`), each with
-a resting pose in canvas fractions and `TemplateKey`s (seconds from the start or the end, offsets as canvas fractions, scale, opacity,
-interpolation) that become ordinary keyframes in clip frames, so preview and export are identical for free. Text goes on a title lane and bars
-on an overlay lane (never the base); a lane is reused only when it is free over the template's range, otherwise a new one is added, so
-nothing is overwritten. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar.
+**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). Since WP-T a template is a multilayer title preset (section 5.19):
+one title clip on a title lane (a lane is reused only when it is free over the template's range, otherwise a new one is added above;
+never the base, so nothing is overwritten), whose layers are a bar shape and the text, with an in and out `MotionPreset` turned into
+ordinary clip keyframes (`TitleMotion`), so preview and export are identical for free. The text typed in the tray goes into the first text
+layer. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar. (Before WP-T a template was two clips: a text clip and a solid
+bar sticker on an overlay lane, each with its own keyframes; the bar stickers `shape:bar-dark` / `shape:bar-accent` are no longer used.)
 
 ### 5.18 Colour grade, looks and video scopes
 
@@ -572,6 +572,56 @@ second (a late redraw keeps a paused scope current). Nothing is read back to the
 1000 nit marks in an HLG project) are Compose text over the surface (`ui/editor/ScopeScale.kt`).
 
 **Not included:** secondary HSL qualifiers (see `DECISIONS.md`).
+
+### 5.19 Multilayer titles, fonts and presets
+
+A title is either a **plain** title (the single-text fields of `TitleContent`, used by captions and old projects) or a **multilayer** one:
+`TitleContent.layers` holds `TitleLayer`s drawn in list order, so the first is at the bottom and the last on top (the editor lists them
+top first). `TitleContent.text` mirrors the first text layer so lists and labels have something to show; `TitleLayerEdit.synced` keeps it
+so. Layer kinds: `TextLayer` (text, optional imported `fontId`, size, colour, alignment, bold, italic, letter spacing in em, line height,
+border `LayerStroke`, `LayerShadow`, background `LayerBox`), `ShapeLayer` (rect, rounded rect, ellipse, line; fill, outline, shadow,
+corner radius) and `ImageLayer` (a library photo or a built-in sticker, size, shadow). Every layer has a `LayerPlacement` (offset as
+canvas fractions from the centre, scale, rotation, opacity) inside the title, which the clip's own transform then moves. All sizes are
+fractions of the canvas, so a title is resolution independent. At most `TitleLayers.MAX_LAYERS` (16) layers; the last layer cannot be
+removed. `TitleLayerEdit` holds the pure edits (convert, add, remove, replace, move, duplicate); the editor commits each through
+`EditCommand.SetTitle`, so every change is one undo step. A plain title converts losslessly except a caption with word timing or an
+animation (`canConvert`).
+
+**Rendering.** `AndroidTitleRasterizer` sends a layered title to `LayeredTitleDrawer`, which rasterises the whole group into **one**
+premultiplied RGBA bitmap, so the compositor, the cache keys (`TitleKeyCache` by content equality) and the exporter are unchanged and
+preview and export draw the same picture. The bitmap is symmetric around the canvas centre (the compositor centres title bitmaps) and as
+small as the layers allow (`LayerBounds.halfExtents`, capped at 0.6 of the canvas beyond each side); a lower third is a thin strip. Text
+uses `StaticLayout` (wrapping at 90 % of the canvas width), shadows use `Paint.setShadowLayer` (a box carries the shadow when there is
+one), pictures come from `LayerImages` (`AndroidLayerImages`: `ImageDecoder` scaled to the drawn size, EXIF applied, a small LRU) and a
+photo that cannot be loaded is skipped. A photo layer stores the asset id; `TitleLayers.resolved` points it at the library file when the
+preview scene or the export plan is built (`ImageLayer.resolvedUri`, never stored), so relinking a photo changes the cache key and redraws it.
+
+**Fonts.** `FontRegistry` (app-private `filesDir/fonts`) stores fonts the user imports with the system picker: `FontMetaParser` validates
+the sfnt table directory (TrueType, OpenType/CFF; no collections; at most 25 MB) and reads the family name from the `name` table. A font's
+id is the first 16 hex digits of its SHA-256, so the same file has the same id on every device; there is no index to corrupt (the list is
+read from the files). `RegistryFontResolver` makes a `Typeface` (bold and italic are synthesised when the font lacks them); a missing or
+unloadable font falls back to the system font. Titles that name fonts this device lacks raise a banner with an "Import font" button
+(`EditorState.missingFonts`), and the title editor shows the same warning on the layer. Nothing is downloaded; the import dialog reminds
+the user to check the font's licence.
+
+**Motion.** `MotionPreset` (None, Fade, Slide from left/right/bottom/top, Pop) is turned by `TitleMotion.keyframes` into ease keyframes of
+the clip: the intro runs over the first `edgeFrames`, the outro over the last (shortened so they never meet), and `SetTitleMotion` replaces
+the clip's keyframes in one undo step.
+
+**Presets (`.uvtitle`).** A preset is a `TextTemplate`: layers, `intro`/`outro`, `edgeSeconds`, default text and length, fonts used (id and
+family). `TitlePresetCodec` reads and writes the file (JSON, `format: "uvtitle"`, `version: 1`, at most 256 KB; newer versions and other
+formats are refused with a message). Photos cannot travel (they are files of one project), stickers can; fonts are listed but not embedded.
+`TitlePresetStore` keeps the user's presets as `<id>.uvtitle` under `filesDir/title-presets` (the id is a hash of name and layers, so saving
+the same title twice replaces it); a damaged file is skipped. Import and export use the system picker (`OpenDocument` /
+`CreateDocument`). The tray's Titles tab lists the built-in templates and "My presets"; the title editor saves, exports and deletes them.
+
+**JSON.** `TitleDto.layers` (`TitleLayerDto`: `type` `text`, `shape` or `image`, plus the fields of that type, all optional), absent for plain
+titles, so older projects load unchanged and a plain title writes no layers. Unknown types, shapes, alignments and colours are corrupt-data
+errors, never guessed.
+
+**Editing on the preview.** With a layer selected, the preview's drag, pinch and twist gestures move, scale and turn that layer
+(`EditorIntent.LayerGesture`, part of the title edit session and committed by `EndAppearanceEdit`), and `LayerHandleOverlay` draws a ring
+and cross at its centre (plus its outline for a shape).
 
 ## 6. Timeline operations (specification for tests)
 

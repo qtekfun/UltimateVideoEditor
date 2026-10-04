@@ -38,6 +38,7 @@ import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLayerEdit
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
@@ -230,7 +231,8 @@ object TimelineMapper {
             else -> throw ProjectError.Corrupt("clip $clipId has unknown title animation '${dto.animation}'")
         },
         highlightArgb = parseColor(clipId, dto.highlight),
-    )
+        layers = dto.layers.map { TitleLayerMapper.toLayer("clip $clipId", it) },
+    ).let(TitleLayerEdit::synced)
 
     private fun parseColor(clipId: String, value: String): Int {
         val hex = value.removePrefix("#")
@@ -248,6 +250,7 @@ object TimelineMapper {
         words = title.words.map { TitleWordDto(it.text, it.startFrame, it.endFrame) },
         animation = title.animation.name.lowercase(),
         highlight = "#%08X".format(title.highlightArgb),
+        layers = title.layers.map(TitleLayerMapper::toDto),
     )
 
     private fun toTransition(dto: TransitionDto): Transition = Transition(

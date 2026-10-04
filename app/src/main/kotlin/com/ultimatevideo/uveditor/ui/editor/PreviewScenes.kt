@@ -7,6 +7,7 @@ import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.TitleLayers
 import com.ultimatevideo.uveditor.domain.captions.CaptionAnimator
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.domain.visualClipsAt
@@ -43,7 +44,8 @@ internal fun previewRequestsAt(
                     fpsDen = fps.den,
                     transform = transform,
                     // An animated caption shows the look of this frame; the preview keys its picture by it.
-                    title = CaptionAnimator.contentAt(content, playhead.value - clip.keyframeOriginFrame),
+                    // Photo layers of a multilayer title are pointed at their files, which also keys the cached picture.
+                    title = TitleLayers.resolved(CaptionAnimator.contentAt(content, playhead.value - clip.keyframeOriginFrame)) { assetsById[it]?.uri },
                     fx = clip.fx,
                 )
             }

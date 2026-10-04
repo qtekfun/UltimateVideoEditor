@@ -49,10 +49,16 @@ fun interface TitleRasterizer {
  * lines wrap at 90 % of the canvas width, and the bitmap is cropped to the text block plus a small
  * margin, so it stays small however large the canvas is.
  */
-class AndroidTitleRasterizer : TitleRasterizer {
+class AndroidTitleRasterizer(
+    images: LayerImages = LayerImages.NONE,
+    fonts: FontResolver = FontResolver.SYSTEM,
+) : TitleRasterizer {
+    private val layered = LayeredTitleDrawer(images, fonts)
 
     override fun rasterize(content: TitleContent, canvasWidth: Int, canvasHeight: Int): TitleBitmap {
         require(canvasWidth > 0 && canvasHeight > 0) { "canvas must be positive: ${canvasWidth}x$canvasHeight" }
+        // A multilayer title (text, shapes, pictures) has its own drawer; the plain one below also draws captions.
+        if (content.isLayered) return layered.draw(content, canvasWidth, canvasHeight)
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = (content.sizeFraction * canvasHeight).toFloat().coerceAtLeast(MIN_TEXT_PX)
             color = content.colorArgb
@@ -224,6 +230,12 @@ class TitleKeyCache(private val capacity: Int = DEFAULT_CAPACITY) {
 
     /** Keys evicted since the last call; their native textures can be released. */
     fun drain(): List<Int> = evicted.toList().also { evicted.clear() }
+
+    /** Forgets every title (a font or picture they use changed); all their keys come back from [drain]. */
+    fun clear() {
+        evicted += keys.values
+        keys.clear()
+    }
 
     companion object {
         // An animated phrase has a handful of looks (a typewriter one per letter), and a clip may hold several phrases.

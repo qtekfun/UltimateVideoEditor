@@ -290,8 +290,9 @@ class BeatTemplateViewModelTest {
         assertEquals(60L, title.timelineStart.value)
         assertEquals(h.state.selectedClipId, title.id)
         assertTrue(h.state.inspectorOpen)
-        // The accent bar went on a new overlay lane above the base.
-        assertEquals(2, timeline.tracks.count { it.type == TrackType.VIDEO })
+        // A template is one multilayer title: no extra overlay lane for the bar.
+        assertEquals(1, timeline.tracks.count { it.type == TrackType.VIDEO })
+        assertTrue(title.title.isLayered)
         assertTrue(timeline.invariantViolations().isEmpty())
 
         h.vm.onIntent(EditorIntent.Undo)
