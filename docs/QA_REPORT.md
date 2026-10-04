@@ -228,7 +228,20 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Media tray | Expanded tray: Media/Stickers/Titles/Audio tabs, search, All/Video/Photos/Unused filters, Import tile, thumbnails with duration and usage count | PASS | |
 | Media tray | Long-press drag of a tile onto the base lane junction inserts the clip there (`input draganddrop`) | PASS | 4 clips afterwards, usage count 1 -> 2, Undo enabled |
 | Audio | Stress for the audio-callback fix: 45 play/pause cycles, 11 backgroundings with audio running, 6 rapid toggle bursts, 7.6 minutes | PASS | `logcat -b crash` empty (no SIGSEGV), process alive at the end |
+| Inspector | Sections present: appearance with keyframe row, source colour, stabilise, effects, blend modes, mask, track motion, speed with curve editor/reverse/freeze, volume, sound tools, transition | PASS | UI dump of every section |
+| Audio UI | Sound tools: fade in/out (set 2.3 s), equaliser (low/high cut, four bands with keyframe diamonds), noise suppression (mark start/end, strength), loudness targets, Mixer entry | PASS | values change and the Flat button becomes active |
+| Audio UI | Voice effects: Chipmunk preset applies (Pitch +6.0 st), play with the effect, no crash | PASS | `logcat -b crash` empty; the sound itself cannot be judged over adb |
+| Colour | Video scopes panel: waveform ("Luma by column, Rec.709 signal %"), RGB parade, vectorscope chips | PASS | drawn over the preview |
+| Colour | Add menu lists 17 effects (LUT, brightness ... colour grade, noise reduction, flicker removal, HSL qualifier) | PASS | |
+| Colour | Colour grade: lift/gamma/gain wheels with master sliders and Reset, offsets with diamonds, contrast/pivot/saturation/vibrance/temperature/tint, curves (master, R, G, B) | PASS | moving the gain wheel to red warms the picture live |
+| Colour | Looks: Save look (count goes to 1), Copy grade, Paste grade | PASS | |
+| Colour | Filter pack picker with swatch thumbnails (Original, Cinematic, Teal and orange, Warm glow, Cool breeze, Faded film ...); applying Teal and orange changes the picture | PASS | effect count goes up |
+| Colour | Import a `.cube` through the system picker and apply it | PASS | a generated 17-point warm LUT: effects 2 -> 3 and the picture warms |
+| Colour | Per-clip source colour: forcing HLG shows "HLG is tone-mapped to SDR Rec.709 in this project." and the picture changes; Auto restores it | PASS | |
+| Colour | HSL qualifier section (hue/saturation/luma ranges, softness, hue shift, saturation, lightness, reset) | PARTIAL | the controls render; the eyedropper was not exercised |
 
 ### Defects and observations (pass A)
 
 - **A1, cosmetic, open:** after an export the dialog says "Saved New project.mp4." even when the file was saved under another name in the picker (it showed the suggested name, the file on disk had the chosen one).
+- **O1, usability:** with the media tray expanded the inspector shows only three controls (Position X/Y, Scale) and the timeline is hidden; collapsing the tray gives it room. Consider collapsing the tray when the inspector opens on a phone.
+- **O2, usability:** in the colour grade panel a vertical swipe that starts over a wheel or a curve moves the control instead of scrolling the panel (this is documented in the guide); scrolling needs a finger on a free margin, which is narrow. A grab strip or two-finger scroll over the widgets would help.
