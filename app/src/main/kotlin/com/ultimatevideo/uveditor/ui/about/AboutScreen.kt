@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.ui.Alignment
 import com.ultimatevideo.uveditor.ui.theme.AppearanceStore
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -56,10 +58,12 @@ fun AboutScreen(controller: AboutController, appearance: AppearanceStore, onBack
             )
         },
     ) { padding ->
+        // Lines stay readable on a 2800 px tablet: the text column is capped and centred.
+        Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
+                .widthIn(max = 640.dp)
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -119,6 +123,7 @@ fun AboutScreen(controller: AboutController, appearance: AppearanceStore, onBack
                 OutlinedButton(onClick = { controller.showTipsAgain(); tipsMessage = true }) { Text("Show tips again") }
                 if (tipsMessage) Text("The tips will appear the next time you open the project list.", style = MaterialTheme.typography.bodySmall)
             }
+        }
         }
     }
 
