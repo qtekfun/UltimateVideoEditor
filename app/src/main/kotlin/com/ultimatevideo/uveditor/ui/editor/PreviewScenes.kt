@@ -46,7 +46,7 @@ internal fun previewRequestsAt(
                     // An animated caption shows the look of this frame; the preview keys its picture by it.
                     // Photo layers of a multilayer title are pointed at their files, which also keys the cached picture.
                     title = TitleLayers.resolved(CaptionAnimator.contentAt(content, playhead.value - clip.keyframeOriginFrame)) { assetsById[it]?.uri },
-                    fx = clip.fx,
+                    fx = clip.fxAt(playhead.value),
                 )
             }
             RenderKind.VIDEO -> if (clip.still != null) {
@@ -60,7 +60,7 @@ internal fun previewRequestsAt(
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,
-                        fx = clip.fx,
+                        fx = clip.fxAt(playhead.value),
                         still = ref,
                     )
                 }
@@ -80,7 +80,7 @@ internal fun previewRequestsAt(
                         // retimed clip is re-anchored every tick at the frame its mapping gives, so it has no end.
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
-                        fx = clip.fx,
+                        fx = clip.fxAt(playhead.value),
                         sourceOverride = clip.colorOverride?.transferIndex ?: -1,
                     )
                 }

@@ -37,10 +37,17 @@ enum class EffectType : int {
     // The colour grade: kGradeParams values then kGradeCurveSamples x 4 baked curve samples, in `grade`
     // (not `v`). See render/grade_math.h for the layout and the maths.
     ColorGrade = 14,
+    // Camera-shake correction (stabiliser), always first in a layer's list. Wire values: v[0] = table key
+    // (stabilise/stab_registry.h), v[1] = edge mode (1 repeats the border pixels, 0 leaves them transparent),
+    // v[2..5] = dx, dy (height units), theta (radians, clockwise), scale: the correction of the frame being
+    // drawn, filled in by resolveStabilisation() from the registered table (the wire carries placeholders).
+    Stabilise = 15,
 };
 
 inline constexpr int kMaxEffectValues = 6;
 inline constexpr int kMaxEffectsPerLayer = 8;
+// A layer may also carry the stabiliser's effect on top of its user effects.
+inline constexpr int kMaxWireEffectsPerLayer = kMaxEffectsPerLayer + 1;
 
 // Colour grade wire layout: 21 parameters, then 33 curve samples of (master, red, green, blue).
 inline constexpr int kGradeParams = 21;
@@ -103,7 +110,7 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
     const int blend = static_cast<int>(h[0]);
     const int shape = static_cast<int>(h[1]);
     const int count = static_cast<int>(h[8]);
-    if (blend < 0 || blend > 4 || shape < 0 || shape > 2 || count < 0 || count > kMaxEffectsPerLayer) return false;
+    if (blend < 0 || blend > 4 || shape < 0 || shape > 2 || count < 0 || count > kMaxWireEffectsPerLayer) return false;
     LayerFx fx;
     fx.blend = static_cast<BlendMode>(blend);
     fx.mask.shape = shape;
@@ -119,7 +126,7 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
         const int type = static_cast<int>(data[at]);
         const int n = static_cast<int>(data[at + 1]);
         at += 2;
-        if (type < 1 || type > 14 || n < 0 || size - at < static_cast<size_t>(n)) return false;
+        if (type < 1 || type > 15 || n < 0 || size - at < static_cast<size_t>(n)) return false;
         EffectOp op;
         op.type = static_cast<EffectType>(type);
         if (type == static_cast<int>(EffectType::ColorGrade)) {
@@ -156,6 +163,33 @@ inline bool parseSceneFx(const double* data, size_t size, size_t layerCount, std
     size_t offset = 0;
     for (size_t i = 0; i < layerCount; ++i) {
         if (!parseLayerFx(data, size, &offset, &(*out)[i])) return false;
+    }
+    return offset == size;
+}
+
+// Keyframed effect values for the exporter: `pairs` lists {clipIndex, frameCount} for each clip whose effects
+// change over its length, and `data` holds, in that order, `frameCount` consecutive blobs per entry (one per
+// project frame of the clip). `(*out)[clipIndex]` receives the table; clips not listed get an empty one.
+// Returns false when an index is out of range or repeated, a count is negative, or the blobs do not fill
+// `data` exactly.
+inline bool parseFxFrameTables(const int64_t* pairs, size_t pairLongs, const double* data, size_t size, size_t clipCount,
+                               std::vector<std::vector<LayerFx>>* out) {
+    out->assign(clipCount, std::vector<LayerFx>{});
+    if (pairLongs == 0) return size == 0;
+    if (pairs == nullptr || pairLongs % 2 != 0) return false;
+    size_t offset = 0;
+    for (size_t p = 0; p < pairLongs; p += 2) {
+        const int64_t index = pairs[p];
+        const int64_t count = pairs[p + 1];
+        if (index < 0 || static_cast<uint64_t>(index) >= clipCount || count < 0) return false;
+        auto& table = (*out)[static_cast<size_t>(index)];
+        if (!table.empty()) return false;
+        // Never trust the count to size an allocation: every blob is at least a header long.
+        if (static_cast<uint64_t>(count) > (size - offset) / kLayerFxHeaderDoubles) return false;
+        table.resize(static_cast<size_t>(count));
+        for (auto& layer : table) {
+            if (!parseLayerFx(data, size, &offset, &layer)) return false;
+        }
     }
     return offset == size;
 }

@@ -41,6 +41,10 @@ import androidx.compose.ui.unit.dp
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipGain
 import com.ultimatevideo.uveditor.domain.Interpolation
+import com.ultimatevideo.uveditor.domain.ParamIds
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.PoseParams
+import androidx.compose.runtime.CompositionLocalProvider
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
 import com.ultimatevideo.uveditor.domain.SpeedLimits
 import com.ultimatevideo.uveditor.domain.SpeedRamps
@@ -70,7 +74,9 @@ fun InspectorPanel(
     transitionLimit: (Transition) -> Long = { 0L },
     titleTools: TitleTools = TitleTools.NONE,
 ) {
-    val clip = state.selectedClip
+    // The controls show keyframed values as they are at the playhead (volume, pan, EQ and effect values).
+    val clip = state.displayedClip
+    CompositionLocalProvider(LocalParamKeys provides { id: String -> state.keyUi(id) }) {
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -138,6 +144,7 @@ fun InspectorPanel(
             if (clip.hasMedia) {
                 val detected = SourceColorSpace.fromId(state.assets.firstOrNull { it.id == clip.assetId }?.colorSpace)
                 ClipColorControls(detected, clip.colorOverride, state.colorSpace, onIntent)
+                if (clip.still == null) StabiliseControls(clip, if (state.stab.clipId == clip.id) state.stab else StabUiState(), onIntent)
             }
             FxControls(clip.fx, onIntent)
         }
@@ -149,10 +156,13 @@ fun InspectorPanel(
                 range = GAIN_MIN..GAIN_MAX,
                 readout = if (clip.gainDb <= GAIN_MIN) "mute" else "${formatDb(clip.gainDb)} dB",
                 onIntent = onIntent,
+                paramId = ParamIds.GAIN_DB,
             ) { onIntent(EditorIntent.UpdateGain(if (it <= GAIN_MIN) ClipGain.MIN_DB else it.toDouble())) }
             AudioControls(state, clip, onIntent)
         }
+        KeyframeLane(state, onIntent)
         TransitionControls(state, onIntent, transitionLimit)
+    }
     }
 }
 
@@ -290,13 +300,28 @@ private fun KeyframeControls(state: EditorState, keyframeCount: Int, onIntent: (
     if (atPlayhead != null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text = "Then", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
-            for ((mode, label) in listOf(Interpolation.LINEAR to "Linear", Interpolation.EASE to "Ease", Interpolation.HOLD to "Hold")) {
+            for ((mode, label) in listOf(
+                Interpolation.LINEAR to "Linear",
+                Interpolation.EASE to "Ease",
+                Interpolation.HOLD to "Hold",
+                Interpolation.BEZIER to "Bezier",
+            )) {
                 FilterChip(
                     selected = atPlayhead.interpolation == mode,
                     onClick = { onIntent(EditorIntent.SetKeyframeInterpolation(mode)) },
                     label = { Text(label) },
                 )
             }
+        }
+        if (atPlayhead.interpolation == Interpolation.BEZIER) {
+            // The handles of a pose keyframe live on the joint keyframe; any pose parameter id addresses it.
+            CurveControls(
+                title = "Pose",
+                key = ParamKey(atPlayhead.frame, 0.0, atPlayhead.interpolation, atPlayhead.out, atPlayhead.inn),
+                onShape = { mode, out, inn ->
+                    onIntent(EditorIntent.SetParamKeyShape(PoseParams.POSITION_X.id, atPlayhead.frame, mode, out, inn))
+                },
+            )
         }
     }
 }
@@ -421,6 +446,8 @@ internal fun InspectorSlider(
     readout: String,
     onIntent: (EditorIntent) -> Unit,
     finish: EditorIntent = EditorIntent.EndAppearanceEdit(commit = true),
+    /** The parameter this slider drives, when it can be keyframed: a diamond appears at the end of the row. */
+    paramId: String? = null,
     onChange: (Float) -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -433,6 +460,8 @@ internal fun InspectorSlider(
             modifier = Modifier.weight(1f).semantics { contentDescription = "$label $readout" },
         )
         Text(text = readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        val keyUi = paramId?.let { LocalParamKeys.current(it) }
+        if (keyUi != null) KeyDiamond(keyUi, onIntent)
     }
 }
 

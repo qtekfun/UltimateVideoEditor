@@ -25,6 +25,7 @@ import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
+import com.ultimatevideo.uveditor.data.model.StabiliseDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
 import com.ultimatevideo.uveditor.data.model.TitleWordDto
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
@@ -46,9 +47,18 @@ import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.GradeCurve
 import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Keyframe
+import com.ultimatevideo.uveditor.domain.BezierHandle
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.ParamTrack
+import com.ultimatevideo.uveditor.data.model.HandleDto
+import com.ultimatevideo.uveditor.data.model.ParamKeyDto
+import com.ultimatevideo.uveditor.data.model.ParamTrackDto
 import com.ultimatevideo.uveditor.domain.Marker
+import com.ultimatevideo.uveditor.domain.MarkerColor
 import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.SpeedKey
+import com.ultimatevideo.uveditor.domain.StabCrop
+import com.ultimatevideo.uveditor.domain.Stabilise
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TitleAlignment
@@ -106,7 +116,7 @@ object TimelineMapper {
             )
         }
         val transitions = timeline.transitions.map { toTransitionDto(it) }
-        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind)) }
+        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind), it.note, it.color?.name?.lowercase()) }
         return base.copy(
             mediaLibrary = assets,
             tracks = tracks,
@@ -168,6 +178,8 @@ object TimelineMapper {
             "beat" -> MarkerKind.BEAT
             else -> throw ProjectError.Corrupt("marker ${dto.id} has unknown kind '${dto.kind}'")
         },
+        note = dto.note?.takeIf { it.isNotBlank() },
+        color = dto.color?.let { name -> MarkerColor.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } },
     )
 
     private fun markerKindName(kind: MarkerKind) = when (kind) {
@@ -196,7 +208,50 @@ object TimelineMapper {
         still = dto.still?.let { toStill(dto.id, it) },
         colorOverride = SourceColorSpace.fromIdOrNull(dto.colorOverride),
         audio = dto.audio?.let { toClipAudio(dto.id, it) } ?: ClipAudio.NONE,
+        stabilise = dto.stabilise?.let { toStabilise(dto.id, it) },
+        params = dto.params.map { toParamTrack(dto.id, it) },
     )
+
+    private fun toInterpolation(clipId: String, name: String): Interpolation = when (name) {
+        "linear" -> Interpolation.LINEAR
+        "ease" -> Interpolation.EASE
+        "hold" -> Interpolation.HOLD
+        "bezier" -> Interpolation.BEZIER
+        else -> throw ProjectError.Corrupt("clip $clipId has a keyframe with unknown interpolation '$name'")
+    }
+
+    private fun toParamTrack(clipId: String, dto: ParamTrackDto) = ParamTrack(
+        paramId = dto.paramId,
+        keys = dto.keys.map {
+            ParamKey(
+                frame = it.frame,
+                value = it.value,
+                interpolation = toInterpolation(clipId, it.interpolation),
+                out = it.out?.let { h -> BezierHandle(h.x, h.y) },
+                inn = it.inn?.let { h -> BezierHandle(h.x, h.y) },
+            )
+        },
+    )
+
+    private fun toParamTrackDto(track: ParamTrack) = ParamTrackDto(
+        paramId = track.paramId,
+        keys = track.keys.map {
+            ParamKeyDto(
+                frame = it.frame,
+                value = it.value,
+                interpolation = it.interpolation.name.lowercase(),
+                out = it.out?.let { h -> HandleDto(h.x, h.y) },
+                inn = it.inn?.let { h -> HandleDto(h.x, h.y) },
+            )
+        },
+    )
+
+    private fun toStabilise(clipId: String, dto: StabiliseDto): Stabilise {
+        val crop = StabCrop.fromId(dto.crop) ?: throw ProjectError.Corrupt("clip $clipId has unknown stabilise crop '${dto.crop}'")
+        return Stabilise(strength = dto.strength, crop = crop).also { stabilise ->
+            stabilise.problem()?.let { throw ProjectError.Corrupt("clip $clipId: $it") }
+        }
+    }
 
     private fun toStill(clipId: String, name: String): StillKind =
         StillKind.entries.firstOrNull { it.name.lowercase() == name }
@@ -269,18 +324,17 @@ object TimelineMapper {
     private fun toKeyframe(clipId: String, dto: KeyframeDto) = Keyframe(
         frame = dto.frame,
         transform = toTransform(clipId, dto.transform),
-        interpolation = when (dto.interpolation) {
-            "linear" -> Interpolation.LINEAR
-            "ease" -> Interpolation.EASE
-            "hold" -> Interpolation.HOLD
-            else -> throw ProjectError.Corrupt("clip $clipId has a keyframe with unknown interpolation '${dto.interpolation}'")
-        },
+        interpolation = toInterpolation(clipId, dto.interpolation),
+        out = dto.out?.let { BezierHandle(it.x, it.y) },
+        inn = dto.inn?.let { BezierHandle(it.x, it.y) },
     )
 
     private fun toKeyframeDto(key: Keyframe) = KeyframeDto(
         frame = key.frame,
         transform = toTransformDto(key.transform),
         interpolation = key.interpolation.name.lowercase(),
+        out = key.out?.let { HandleDto(it.x, it.y) },
+        inn = key.inn?.let { HandleDto(it.x, it.y) },
     )
 
     private fun toTitle(clipId: String, dto: TitleDto): TitleContent = TitleContent(
@@ -386,6 +440,8 @@ object TimelineMapper {
             still = clip.still?.name?.lowercase(),
             colorOverride = clip.colorOverride?.id,
             audio = clip.audio.takeUnless { it.isNeutral }?.let(::toClipAudioDto),
+            stabilise = clip.stabilise?.let { StabiliseDto(strength = it.strength, crop = it.crop.id) },
+            params = clip.params.map(::toParamTrackDto),
         )
 
     private const val COLOR_HEX_LENGTH = 8

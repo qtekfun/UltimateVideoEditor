@@ -14,6 +14,12 @@ import androidx.compose.ui.unit.dp
 internal object EditorIcons {
     val Play = icon("Play", "M8,5v14l11,-7z")
 
+    /** A stack of clips with a play triangle: the media library. */
+    val Library = icon(
+        "Library",
+        "M4,6H2v14c0,1.1 0.9,2 2,2h14v-2H4V6zM20,2H8C6.9,2 6,2.9 6,4v12c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V4C22,2.9 21.1,2 20,2zM12,14.5v-9l6,4.5 -6,4.5z",
+    )
+
     val Export = icon("Export", "M9,16h6v-6h4l-7,-7 -7,7h4zM5,18h14v2H5z")
 
     val Add = icon("Add", "M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z")

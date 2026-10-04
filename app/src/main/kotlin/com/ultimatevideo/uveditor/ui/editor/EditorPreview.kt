@@ -182,6 +182,8 @@ class EditorPreview(
                 reverse = request.reverse,
                 endFrame = request.endFrame,
                 transform = request.transform,
+                // An animated effect value changes the picture every frame, like an animated pose.
+                fx = request.fx,
             )
         }
         val reanchor = anchor.needsReanchor(composition, heardFrame, nowNanos, fps)
@@ -212,6 +214,7 @@ class EditorPreview(
         val reverse: Boolean,
         val endFrame: Long?,
         val transform: ClipTransform,
+        val fx: ClipFx,
     )
 
     /** Plans decoders for [scene], opens what is missing and returns the layers that can be drawn now. */

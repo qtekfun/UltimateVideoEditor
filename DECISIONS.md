@@ -737,3 +737,86 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
 **Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
 
+## Stabiliser (WP-X)
+
+- **Classical computer vision, written here, no OpenCV.** Shi-Tomasi corners, pyramidal Lucas-Kanade with a
+  forward-backward check and a RANSAC similarity fit are about 600 lines of C++ with no dependencies, no models and no
+  network (the project's privacy rule). OpenCV would add several MB per ABI and a dependency for three functions.
+  Alternative: OpenCV's `calcOpticalFlowPyrLK` + `estimateAffinePartial2D`.
+- **The cache holds the raw frame-to-frame motion, not the smoothed correction.** Strength and crop then change
+  instantly (the table is rebuilt in milliseconds) and the cache key does not depend on them. The spec said "output
+  per-frame correction stored in a cache file"; the correction is what the registry holds.
+- **One 24-bit key per (asset, strength percent, crop); the table is looked up by the source frame being drawn.** The
+  scene description and the JNI signatures did not change: the effect only carries the key and the native side
+  resolves the per-frame values in the draw loop (preview and exporter), so retime, reverse, transitions and export
+  parity come for free. Alternative: bake the correction into per-frame keyframes (thousands of keys, and it would fight
+  the user's own keyframes) or pass a table per layer through the scene.
+- **Stabilise is a clip property, not an entry of the effect list.** It does not use one of the 8 effect slots, cannot
+  be reordered or added twice, and always runs first (it moves pixels; the colour effects, mask and blend come after).
+  The wire allows 9 effects per layer for this (`kMaxWireEffectsPerLayer`).
+- **Frames are numbered at the project frame rate, from the media's first frame**, the same as the preview decoder
+  (it is opened with the project rate as override). The analysis stores presentation times and the table resamples the
+  path to project frames, so a 60 fps source in a 30 fps project works.
+- **Gaussian smoothing of the camera path's parameters with a mirrored *odd* extension at the ends.** Simple,
+  deterministic and tunable with one number (sigma from 0.1 s at strength 0 to 2.5 s at 1; the default strength 0.3 is
+  about 0.8 s). The odd extension keeps a steady drift steady up to the first and last frame. Alternative: L1-optimal
+  paths (better at separating pans from shake, much more code).
+- **A constant zoom per clip** (tight = what the worst frame needs, capped at 2x; medium = half; full = none) instead of
+  an adaptive per-frame zoom, which makes the picture "breathe". Edge fill always repeats the border pixels (edge mode
+  1); transparent edges (mode 0) are in the shader for a later "show the background" option.
+- **The analysis covers the clip plus 1 s on each side and merges with what exists.** A trim outwards within the
+  margin needs nothing; further out the clip is *Stale* and one tap re-analyses the union. The cache lives with the
+  project (`projects/<id>/stab`), not in the system cache folder, so it is not lost when the system trims caches.
+- **Progress by polling, not callbacks.** The native job exposes a packed state long that Kotlin polls every 150 ms;
+  no JNI callbacks, no thread attachment, nothing to leak.
+- **The preview redraws when the table registry changes** (a revision counter in the draw signature), so a finished
+  analysis or a new strength shows without scrubbing.
+
+
+## Generalised keyframes (WP-K)
+
+**Decisions:**
+- Pose stays as joint `Keyframe`s; `pose.*` parameters are a per-parameter view over them (`Clip.paramKeys`). `Clip.params` never holds `pose.*` ids, so old projects load unchanged and the new JSON field is optional. Alternative: split pose into per-component tracks (migration and native evaluator change).
+- Keys are in clip frames (0 = first frame of the clip), so they travel with the clip; split/trim/overwrite crop them, speed changes stretch them. Multiselect copy/paste must treat `Clip.params` exactly like `keyframes`: tracks are relative to the clip start and are copied and pasted with the clip.
+- Bezier uses CSS `cubic-bezier` handles (x in 0..1, y in -2..3, default 0.42/0.0) solved by bisection. The native pose evaluator only knows linear/ease/hold, so Bezier pose segments are baked to per-frame linear keys at export.
+- Effect values are exported as a per-frame table (`fxFrames`, concatenated `layer_fx.h` blobs) evaluated in Kotlin, the same function the preview uses, instead of porting track evaluation to native. Alternative: native keyframe evaluation (second implementation, parity risk).
+- Audio snapshot is version 5 (still parses 4): per-clip lanes for gain, pan and EQ gains. The mixer processes in absolute 32-sample chunks (gain ramps linearly per chunk; pan/EQ evaluated at the chunk middle; all five EQ band stages are kept so filter state is stable), so realtime and offline are identical and block size does not matter. Hold ramps over its last frame before the next key.
+- Inspector shows the clip as it is at the playhead (`displayedClip`); a control change on an animated parameter writes a key at the playhead (keeping that key's shape), otherwise the static base value changes. Removing the last key writes its value back to the static field; removing an effect drops its tracks.
+- Colour wheels have no diamond (three-component control); sliders for grade values do.
+**Not verified:** on the Pixel 8 only install and reaching the editor were done (the device was heavily shared); adding a keyframe through the diamond, the lane drag, and an export compared against the preview were NOT exercised on device. Covered by JVM and native host tests only (interpolation vectors, cropping, migration round trips, preview/export parity at frame boundaries, audio block-size independence).
+
+## Interchange and media library (WP-I)
+
+**Decision:** a project bundle is a zip (`bundle.json` manifest, raw `project.json`, optional card thumbnail, optional `media/`), imported by unpacking into a scratch folder under the projects folder and moving it into place with one atomic rename.
+**Why:** a bundle with media can be gigabytes and an import can fail halfway; the scratch-and-rename keeps the projects folder free of half projects, and the raw `project.json` keeps fields a newer build wrote.
+**Alternative:** unpack straight into the final folder and clean up on failure (a crash would leave a broken project), or keep media outside the bundle always.
+
+**Decision:** auto-relink looks only among the assets of the other local projects and needs name (ignoring case) and size to match; it never searches the device.
+**Why:** a MediaStore search needs a new storage permission; privacy and "no new access" win, and name plus size avoids picking a different file with the same name.
+**Alternative:** query MediaStore (more matches, a new permission) or match by name only (wrong files).
+
+**Decision:** the EDL is one file per track (a zip when there are several) and transitions are written as cuts; FCPXML puts the base on the spine and the rest as connected clips with the offset computed as if the parent played at normal speed.
+**Why:** CMX3600 has one video channel and importers expect one track per EDL; FCPXML's connected-clip model matches the base-plus-overlays model of the app, and the notes list every approximation.
+**Alternative:** one merged EDL (breaks importers), or a gap-only spine with every clip connected (works everywhere but loses the primary storyline).
+
+**Decision:** FCPXML positions are written as a percentage of the frame height (y flipped, rotation negated) and retimes as a two-point `timeMap`; both are listed as unchecked in the sequence note.
+**Why:** the exact Final Cut Pro units could not be verified without the application; the note keeps the export honest.
+**Alternative:** omit transforms and retimes from FCPXML.
+
+**Decision:** tags and notes on library files, like the library order, are saved with the project but are not part of Undo; "Remove unused" keeps any file that the timeline, an undo or redo state or the clipboard still uses.
+**Why:** they are library data, not timeline edits, and undoing a deletion must never meet a file that is gone.
+**Alternative:** make library edits undoable (needs the history to cover the asset list), or remove strictly by current usage (an undo could bring back a clip with no file).
+
+**Decision:** marker colours are stored and exported but not drawn on the native ruler.
+**Why:** drawing them needs a timeline snapshot version bump that other work is also changing; the dialog and the exports carry them.
+**Alternative:** bump the snapshot to draw coloured markers.
+
+**Decision:** the bundle carries only the project card picture; importing keeps it in the project folder but the app does not use it yet.
+**Why:** the format reserves `thumbnails/` so a viewer without the media can show something; per-asset pictures would grow the bundle for little use.
+**Alternative:** include a picture per asset and use them as fallbacks for missing media.
+
+**Decision:** the pickers that ask where to write a bundle, an FCPXML or a single EDL use the generic type `application/octet-stream`; only the zip of several EDLs uses `application/zip`.
+**Why:** seen on the Pixel 8: with a specific type the system file picker appends its own extension to the suggested name (`.uvbundle.zip`, `.fcpxml.xml`), which other tools do not recognise.
+**Alternative:** keep the specific types and strip the doubled extension afterwards (not possible through the picker).
+
+**Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).

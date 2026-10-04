@@ -24,7 +24,12 @@ import com.ultimatevideo.uveditor.data.AndroidMediaImporter
 import com.ultimatevideo.uveditor.data.AndroidProjectThumbnails
 import com.ultimatevideo.uveditor.data.PreferencesNewProjectDefaults
 import com.ultimatevideo.uveditor.data.AndroidPersistedUris
+import android.graphics.Bitmap
 import com.ultimatevideo.uveditor.data.ContentResolverTransferIO
+import com.ultimatevideo.uveditor.data.ProjectOverview
+import com.ultimatevideo.uveditor.data.interchange.ContentResolverMediaAccess
+import com.ultimatevideo.uveditor.data.interchange.RepositoryInterchangeExporter
+import java.io.ByteArrayOutputStream
 import com.ultimatevideo.uveditor.data.PreferencesSessionStore
 import com.ultimatevideo.uveditor.data.ProjectDirMediaCaches
 import com.ultimatevideo.uveditor.data.ProjectRepository
@@ -34,6 +39,7 @@ import com.ultimatevideo.uveditor.engine.timeline.WaveformBeatSource
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.editor.EditorScreen
 import com.ultimatevideo.uveditor.ui.editor.EditorViewModel
+import com.ultimatevideo.uveditor.ui.editor.loudnessCacheIn
 import com.ultimatevideo.uveditor.ui.hub.HubIntent
 import com.ultimatevideo.uveditor.ui.hub.HubScreen
 import com.ultimatevideo.uveditor.ui.hub.HubViewModel
@@ -41,21 +47,32 @@ import com.ultimatevideo.uveditor.ui.theme.UVEditorTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.ultimatevideo.uveditor.engine.stabilise.ContentResolverFdOpener
+import com.ultimatevideo.uveditor.engine.stabilise.FileStabiliser
 import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val transferIO = ContentResolverTransferIO(applicationContext.contentResolver)
+        val projectThumbnails = AndroidProjectThumbnails(applicationContext)
         val repository = ProjectRepository(
             rootDir = File(filesDir, "projects"),
-            transferIO = ContentResolverTransferIO(applicationContext.contentResolver),
+            transferIO = transferIO,
+            mediaAccess = ContentResolverMediaAccess(applicationContext.contentResolver),
+            // The card picture goes into exported bundles; it is made on this device from the project's own first clip.
+            cardThumbnail = { project ->
+                projectThumbnails.load(project.id, ProjectOverview.thumbnailSource(project))?.let { bitmap ->
+                    ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+                }
+            },
         )
+        val interchange = RepositoryInterchangeExporter(repository, transferIO)
         val mediaImporter = AndroidMediaImporter(applicationContext)
         val session = PreferencesSessionStore(applicationContext)
         val newProjectDefaults = PreferencesNewProjectDefaults(applicationContext)
         val clipPeeker = AndroidClipPeeker(applicationContext)
-        val projectThumbnails = AndroidProjectThumbnails(applicationContext)
         // Android drops the oldest persisted file permissions past its limit, which would leave old projects
         // with missing media: give back the ones no project uses before that can happen.
         lifecycleScope.launch {
@@ -103,6 +120,9 @@ class MainActivity : ComponentActivity() {
                                     mediaImporter,
                                     mediaCaches = ProjectDirMediaCaches(File(filesDir, "projects/$projectId")),
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
+                                    stabiliser = FileStabiliser(File(filesDir, "projects/$projectId/stab"), ContentResolverFdOpener(contentResolver)),
+                                    interchange = interchange,
+                                    loudnessCache = loudnessCacheIn(filesDir),
                                 )
                             }
                         },
