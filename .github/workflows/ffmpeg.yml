@@ -55,6 +55,12 @@ jobs:
           "$SDKMANAGER" "ndk;29.0.14206865"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
+      # dav1d (AV1) is built with meson and ninja; pkg-config lets FFmpeg's configure find it.
+      - name: Install the dav1d build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq meson ninja-build pkg-config
+
       # The result only depends on the build script (it pins the FFmpeg version and checksum).
       - name: Restore a previous build
         id: cache
@@ -85,6 +91,7 @@ jobs:
           path: |
             build/ffmpeg-android/install/include
             build/ffmpeg-android/install/lib/*.a
+            build/ffmpeg-android/install/licenses
             build/ffmpeg-android/install/BUILDINFO.txt
           if-no-files-found: error
           retention-days: 30
@@ -125,6 +132,8 @@ jobs:
           NM="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
           # FFmpeg's symbols are private (--exclude-libs); its decoder names are still in the binary.
           strings -a "$so" | grep -m3 -E 'prores|mpeg2video|FFmpeg' || true
+          # The AV1 decoder (dav1d) must be inside, not just FFmpeg.
+          strings -a "$so" | grep -m1 -E 'libdav1d|dav1d' || { echo "dav1d is not in the engine" && exit 1; }
           {
             echo "### libuveditor_engine.so with FFmpeg"
             echo '```'
