@@ -20,6 +20,9 @@ import com.ultimatevideo.uveditor.domain.captions.CAPTION_ID_PREFIX
 import com.ultimatevideo.uveditor.domain.AddMarker
 import com.ultimatevideo.uveditor.domain.AddTextTemplate
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipAudio
+import com.ultimatevideo.uveditor.domain.Denoise
+import com.ultimatevideo.uveditor.domain.retime
 import com.ultimatevideo.uveditor.domain.CutToBeat
 import com.ultimatevideo.uveditor.domain.Marker
 import com.ultimatevideo.uveditor.domain.MarkerKind
@@ -81,6 +84,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 
@@ -99,6 +103,8 @@ class EditorViewModel(
     /** Derived data kept per library file (waveforms, thumbnails), dropped when a file is relinked. */
     private val mediaCaches: MediaCaches = MediaCaches.None,
     private val beatSource: BeatSource = NoBeatSource,
+    /** Loudness measurements kept per file and range (normalising the same clip again does not decode it). */
+    private val loudnessCache: LoudnessCache = LoudnessCache.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
@@ -142,6 +148,9 @@ class EditorViewModel(
 
     /** Set by the screen once the audio engine is up. Until then the transport uses the system clock. */
     var playbackOutput: PlaybackOutput? = null
+
+    /** Measures loudness and noise profiles for the audio tools; null where the engine is unavailable. */
+    var audioAnalyzer: AudioAnalyzer? = null
     private var dirty = false
 
     init {
@@ -155,7 +164,26 @@ class EditorViewModel(
         if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateMask && intent !is EditorIntent.EndFxEdit) {
             endFxEdit(commit = true)
         }
+        // And for an audio slider (pan, EQ, track volume, ducking).
+        if (intent !is EditorIntent.UpdateClipAudio && intent !is EditorIntent.UpdateTrackAudio &&
+            intent !is EditorIntent.UpdateDucking && intent !is EditorIntent.EndAudioEdit
+        ) {
+            endAudioEdit(commit = true)
+        }
         when (intent) {
+            is EditorIntent.UpdateClipAudio -> withSelection { id -> updateAudioEdit("clip:$id", EditCommand.SetClipAudio(id, intent.audio)) }
+            is EditorIntent.UpdateTrackAudio -> updateAudioEdit("track:${intent.trackId}", EditCommand.SetTrackAudio(intent.trackId, intent.audio))
+            is EditorIntent.UpdateDucking -> updateAudioEdit("ducking", EditCommand.SetDucking(intent.ducking))
+            is EditorIntent.EndAudioEdit -> endAudioEdit(intent.commit)
+            EditorIntent.ResetClipAudio -> resetClipAudio()
+            is EditorIntent.NormalizeLoudness -> normalizeLoudness(intent.targetLufs)
+            EditorIntent.ClearNormalize -> clearNormalize()
+            is EditorIntent.MarkNoiseRegion -> markNoiseRegion(intent.atStart)
+            EditorIntent.ClearNoiseRegion -> reduce { copy(noiseRegion = null) }
+            is EditorIntent.AnalyzeNoise -> analyzeNoise(intent.strength)
+            EditorIntent.RemoveNoiseSuppression -> removeNoiseSuppression()
+            EditorIntent.CancelAudioAnalysis -> audioAnalyzer?.cancel()
+            EditorIntent.ToggleMixer -> reduce { copy(mixerOpen = !mixerOpen) }
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             is EditorIntent.DragStart -> dragStart(intent.hit)
@@ -623,6 +651,8 @@ class EditorViewModel(
     private fun syncFromHistory() {
         appearance = null  // the timeline changed under any edit in progress
         titleEdit = null
+        audioEdit = null
+        audioEditKey = null
         val committed = history.timeline
         val canUndo = history.canUndo
         val canRedo = history.canRedo
@@ -630,6 +660,8 @@ class EditorViewModel(
             copy(
                 timeline = committed,
                 dragPreview = null,
+                audioSessionActive = false,
+                noiseRegion = noiseRegion?.takeIf { committed.trackOfClip(it.clipId) != null },
                 dropHint = null,
                 canUndo = canUndo,
                 canRedo = canRedo,
@@ -843,6 +875,184 @@ class EditorViewModel(
     /** Snapping for a drag: clip edges and the playhead, plus the ruler markers while marker snapping is on. */
     private fun snapWith(timeline: Timeline, playhead: FrameIndex): Snap =
         Snap(playhead, SNAP_THRESHOLD_FRAMES, if (state.value.snapToMarkers) timeline.markers.map { it.frame } else emptyList())
+
+    // region audio tools
+
+    /** The audio edit in progress (a slider drag), shown and heard live and committed as one undo step. */
+    private var audioEdit: EditCommand? = null
+    private var audioEditKey: String? = null
+
+    private fun updateAudioEdit(key: String, command: EditCommand) {
+        if (drag != null) return
+        // A slider of another clip, track or the ducking: the previous one is final first.
+        if (audioEdit != null && audioEditKey != key) endAudioEdit(commit = true)
+        when (val result = command.apply(history.timeline)) {
+            is EditResult.Success -> {
+                audioEdit = command
+                audioEditKey = key
+                reduce { copy(dragPreview = result.value, audioSessionActive = true) }
+            }
+            is EditResult.Failure -> emit(EditorEffect.ShowMessage(describe(result.error)))
+        }
+    }
+
+    private fun endAudioEdit(commit: Boolean) {
+        val command = audioEdit ?: return
+        audioEdit = null
+        audioEditKey = null
+        val result = command.apply(history.timeline)
+        val changed = result is EditResult.Success && result.value != history.timeline
+        if (commit && changed && execute(command)) return
+        reduce { copy(dragPreview = null, audioSessionActive = false) }
+    }
+
+    private fun resetClipAudio() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.audio.isNeutral) {
+            emit(EditorEffect.ShowMessage("This clip has no audio changes to reset"))
+            return@withSelection
+        }
+        execute(EditCommand.SetClipAudio(clipId, ClipAudio.NONE))
+    }
+
+    /** The selected clip and its library file when both can be analysed for sound, else a message. */
+    private fun analysableSelection(what: String): Pair<Clip, MediaAssetDto>? {
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
+        if (clip == null || !clip.hasMedia || asset == null || !asset.hasAudio || clip.isFreeze) {
+            emit(EditorEffect.ShowMessage("Select a clip with audio to $what"))
+            return null
+        }
+        if (audioAnalyzer == null) {
+            emit(EditorEffect.ShowMessage("Audio measurements are not available right now"))
+            return null
+        }
+        if (state.value.audioBusy != null) return null
+        return clip to asset
+    }
+
+    private fun normalizeLoudness(targetLufs: Double) {
+        if (!targetLufs.isFinite() || targetLufs !in MIN_TARGET_LUFS..MAX_TARGET_LUFS) {
+            emit(EditorEffect.ShowMessage("The loudness target must be between $MIN_TARGET_LUFS and $MAX_TARGET_LUFS LUFS"))
+            return
+        }
+        val (clip, asset) = analysableSelection("normalise its loudness") ?: return
+        val analyzer = checkNotNull(audioAnalyzer)
+        val fps = state.value.fps
+        val key = LoudnessCache.keyOf(asset, clip.sourceIn.value, clip.sourceOut.value)
+        reduce { copy(audioBusy = "Measuring loudness…") }
+        viewModelScope.launch {
+            try {
+                val cached = loudnessCache.get(key)
+                val lufs = cached ?: analyzer.loudness(
+                    asset, assetKeys.keyFor(asset.id),
+                    fps.framesToMicros(clip.sourceIn.value), fps.framesToMicros(clip.sourceOut.value),
+                ).lufs?.also { loudnessCache.put(key, it) }
+                if (lufs == null) {
+                    emit(EditorEffect.ShowMessage("This clip is silent, so there is nothing to normalise"))
+                    return@launch
+                }
+                // The clip may have been edited while it was measured: act on what is there now.
+                val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id) ?: return@launch
+                if (now.sourceIn != clip.sourceIn || now.sourceOut != clip.sourceOut) {
+                    emit(EditorEffect.ShowMessage("The clip changed while it was measured; try again"))
+                    return@launch
+                }
+                val gain = (targetLufs - lufs).coerceIn(-ClipAudio.MAX_NORMALIZE_DB, ClipAudio.MAX_NORMALIZE_DB)
+                if (execute(EditCommand.SetClipAudio(now.id, now.audio.copy(normalizeDb = gain, targetLufs = targetLufs)))) {
+                    // The app's text is English, so numbers use a point whatever the phone's region is.
+                    val measured = "%.1f".format(Locale.US, lufs)
+                    emit(EditorEffect.ShowMessage("Measured $measured LUFS; ${"%+.1f".format(Locale.US, gain)} dB to reach ${"%.0f".format(Locale.US, targetLufs)}"))
+                }
+            } catch (e: AudioAnalysisException) {
+                emit(EditorEffect.ShowMessage(e.message ?: "The loudness could not be measured"))
+            } finally {
+                reduce { copy(audioBusy = null) }
+            }
+        }
+    }
+
+    private fun clearNormalize() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.audio.targetLufs == null && clip.audio.normalizeDb == 0.0) {
+            emit(EditorEffect.ShowMessage("This clip is not normalised"))
+            return@withSelection
+        }
+        execute(EditCommand.SetClipAudio(clipId, clip.audio.copy(normalizeDb = 0.0, targetLufs = null)))
+    }
+
+    private fun markNoiseRegion(atStart: Boolean) {
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        if (clip == null || !clip.hasMedia) {
+            emit(EditorEffect.ShowMessage("Select a clip with audio first"))
+            return
+        }
+        val offset = state.value.playhead - clip.timelineStart
+        if (offset < 0 || offset > clip.durationFrames) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to mark the quiet stretch"))
+            return
+        }
+        val current = state.value.noiseRegion?.takeIf { it.clipId == clip.id } ?: NoiseRegion(clip.id, null, null)
+        var next = if (atStart) current.copy(startFrame = offset) else current.copy(endFrame = offset)
+        // A start after the end (or the reverse) means the user is picking a new stretch.
+        val s = next.startFrame
+        val e = next.endFrame
+        if (s != null && e != null && s >= e) {
+            next = if (atStart) next.copy(endFrame = null) else next.copy(startFrame = null)
+        }
+        reduce { copy(noiseRegion = next) }
+    }
+
+    private fun analyzeNoise(strength: Double) {
+        if (!strength.isFinite() || strength <= 0.0 || strength > 1.0) {
+            emit(EditorEffect.ShowMessage("Noise suppression strength must be above 0 and at most 1"))
+            return
+        }
+        val (clip, asset) = analysableSelection("remove noise") ?: return
+        val region = state.value.noiseRegion?.takeIf { it.clipId == clip.id && it.isComplete }
+        if (region == null) {
+            emit(EditorEffect.ShowMessage("Mark a quiet stretch first: put the playhead at its start and tap Mark start, then at its end and tap Mark end"))
+            return
+        }
+        val fps = state.value.fps
+        val retime = clip.retime
+        val a = retime.sourceFrameAt(checkNotNull(region.startFrame))
+        val b = retime.sourceFrameAt(checkNotNull(region.endFrame))
+        val startMicros = fps.framesToMicros(minOf(a, b))
+        val endMicros = fps.framesToMicros(maxOf(a, b))
+        if (endMicros - startMicros < MIN_NOISE_SAMPLE_MICROS) {
+            emit(EditorEffect.ShowMessage("The quiet stretch must be at least 0.1 s long"))
+            return
+        }
+        val analyzer = checkNotNull(audioAnalyzer)
+        reduce { copy(audioBusy = "Listening to the noise…") }
+        viewModelScope.launch {
+            try {
+                val profile = analyzer.noiseProfile(asset, assetKeys.keyFor(asset.id), startMicros, endMicros)
+                val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id) ?: return@launch
+                if (execute(EditCommand.SetClipAudio(now.id, now.audio.copy(denoise = Denoise(strength, profile.toList()))))) {
+                    emit(EditorEffect.ShowMessage("Noise suppression is on"))
+                }
+            } catch (e: AudioAnalysisException) {
+                emit(EditorEffect.ShowMessage(e.message ?: "The noise could not be measured"))
+            } finally {
+                reduce { copy(audioBusy = null) }
+            }
+        }
+    }
+
+    private fun removeNoiseSuppression() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.audio.denoise == null) {
+            emit(EditorEffect.ShowMessage("Noise suppression is not on for this clip"))
+            return@withSelection
+        }
+        execute(EditCommand.SetClipAudio(clipId, clip.audio.copy(denoise = null)))
+    }
+
+    // endregion
 
     // region markers, beats and text templates
 
@@ -1506,6 +1716,9 @@ class EditorViewModel(
     }
 
     private companion object {
+        const val MIN_TARGET_LUFS = -40.0
+        const val MAX_TARGET_LUFS = -5.0
+        const val MIN_NOISE_SAMPLE_MICROS = 100_000L
         const val ID_LENGTH = 8
         const val DEFAULT_SAVE_DEBOUNCE_MILLIS = 500L
         const val SAVE_RETRY_MILLIS = 5_000L
