@@ -80,6 +80,15 @@ data class ClipAudioDto(
     val denoise: DenoiseDto? = null,
     val normalizeDb: Double = 0.0,
     val targetLufs: Double? = null,
+    /** A voice effect: its preset and slider values; absent for a clip without one. */
+    val voice: VoiceFxDto? = null,
+)
+
+/** A voice effect (`domain/VoiceFx`): [preset] is the lower-case preset name, [values] one value per slider. */
+@Serializable
+data class VoiceFxDto(
+    val preset: String,
+    val values: List<Double> = emptyList(),
 )
 
 @Serializable

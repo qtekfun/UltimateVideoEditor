@@ -16,6 +16,7 @@
 #include "audio/resampler.h"
 #include "audio/retime_source.h"
 #include "audio/spectral_denoise.h"
+#include "audio/voice_fx.h"
 
 namespace uv::audio {
 
@@ -24,7 +25,8 @@ namespace uv::audio {
 // re-gain a clip (the buffer is clip-local), so such edits never restart decoding.
 struct ClipSource {
     ClipSource(int64_t key, int64_t asset, int64_t srcInMicros, int32_t bufferFrames, std::vector<RetimeKnot> retimeKnots = {},
-               Rational projectFps = {}, float strength = 0.0f, std::vector<float> profile = {}, uint64_t hash = 0)
+               Rational projectFps = {}, float strength = 0.0f, std::vector<float> profile = {}, uint64_t hash = 0,
+               VoiceParams voiceParams = {}, uint64_t voiceHashValue = 0)
         : buffer(bufferFrames),
           clipKey(key),
           assetKey(asset),
@@ -33,7 +35,9 @@ struct ClipSource {
           fps(projectFps),
           denoiseStrength(strength),
           noiseProfile(std::move(profile)),
-          denoiseHash(hash) {}
+          denoiseHash(hash),
+          voice(voiceParams),
+          voiceHash(voiceHashValue) {}
 
     ClipBuffer buffer;
     const int64_t clipKey;
@@ -49,6 +53,10 @@ struct ClipSource {
     const float denoiseStrength;
     const std::vector<float> noiseProfile;
     const uint64_t denoiseHash;
+    // Voice effects run in the decode worker too, after the noise suppressor (see audio/voice_fx.h). Part of the
+    // source's identity like the denoise settings: a changed effect makes a new source and restarts decoding.
+    const VoiceParams voice;
+    const uint64_t voiceHash;
     std::atomic<int64_t> eofAt{INT64_MAX};  // clip-local sample where decoded audio ends
     std::atomic<bool> failed{false};
     std::atomic<int32_t> failures{0};  // consecutive failures; reset once the clip decodes again
@@ -58,6 +66,9 @@ struct ClipSource {
     std::optional<LinearResampler> resampler;
     std::unique_ptr<RetimedReader> retimed;  // set instead of `resampler` for a retimed clip
     std::unique_ptr<SpectralDenoiser> denoiser;
+    std::unique_ptr<VoiceProcessor> voiceFx;
+    std::vector<float> voiceScratch;
+    int64_t drainLeft = 0;  // silence still to feed the voice effect after the media ended, to let its tail sound
     int64_t decodedEnd = 0;    // clip-local samples appended to the buffer
     int64_t renderedEnd = 0;   // retimed path: clip-local samples already asked of the reader (decodedEnd lags with a denoiser)
     std::vector<float> denoisedScratch;

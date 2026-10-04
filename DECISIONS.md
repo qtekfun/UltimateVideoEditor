@@ -1007,3 +1007,28 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Decision:** a template is the project structure with media replaced by placeholders (clips with the asset id `slot:<id>`); filling it reuses the base-track rules (trim and ripple when a file is short, delete when an optional slot is empty, `Reframe` for the centre crop, transition clamping with `maxTransitionFrames`). The file is the `project.json` structure plus a placeholder list, never media. The entry point is the hub menu rather than a third mode of the New project sheet.
 **Why:** every edit rule stays in one place and is already tested; sharing structure only keeps `.uvtemplate` files tiny and private. A separate wizard needs the media importer and creates the project in one step, which does not fit the sheet's format selectors.
 **Alternative:** a Template start mode inside the New project sheet (one flow, but entangled with the selectors and the match-first-clip probing), or placeholder clips with retained stand-in media references (they would break when the media is missing).
+
+## Voice effects (WP-V3)
+
+**Decision:** the effects run in the decode worker, per clip, after the noise suppressor, as an input-aligned streaming processor (`audio/voice_fx.h`), not in the realtime mixer.
+**Why:** it reuses the proven pattern of the denoiser (alignment by priming, flush, source identity by hash), keeps the audio thread free of FFTs, makes realtime, offline and export identical by construction, and needs no look-ahead reads in the mixer to hide the 32 ms latency of the vocoder.
+**Alternative:** processing in the mixer would allow live slider changes without re-decoding, but needs the clip buffer to be read ahead by the latency, per-block FFT work on the audio thread and chunk-exact hop scheduling there.
+
+**Decision:** the sliders are not keyframable and a change restarts the clip's decode (the slider applies on release).
+**Why:** a changed effect is a new source (like a changed noise profile); live keyframing would need parameter interpolation inside the vocoder.
+**Alternative:** apply the effect in the mixer (see above) and reuse `Clip.params` lanes.
+
+**Decision:** pitch shifting by moving spectral peaks rigidly with identity phase locking, formants by a cepstral envelope split (lifter 1.6 ms), instead of time-stretch plus resampling.
+**Why:** it is streaming with a fixed hop and no resampler, keeps latency and CPU bounded (about 16x real time for the whole chain on the dev machine), and keeps the level of sinusoids (the simple bin-scatter variant lost up to 8 dB).
+**Alternative:** WSOLA or phase-vocoder time stretch plus a resampler: better on extreme shifts, but variable output length per frame and more state.
+
+**Decision:** Whisper uses the cepstral envelope with random phases (a noise vocoder), not the harmonic spectrum with random phases.
+**Why:** the harmonic version kept a clearly periodic structure (autocorrelation 0.71 at the pitch lag); the envelope version has none.
+**Alternative:** a separate noise generator filtered by an LPC envelope.
+
+**Decision:** presets define 1 to 3 sliders and resolve to a flat set of native settings in Kotlin; the native side knows no presets. Echo and reverb tails are fed progressively after the media ends, up to the clip's end or 8 s.
+**Why:** presets can change without an engine release or snapshot change; the tail must not be appended at once because the clip buffer is a 1.5 s window.
+**Alternative:** presets in C++ (smaller JSON, more engine coupling); a hard cut at the end of the media.
+
+**Decision:** no text to speech, no vocal isolation and no speaker-aware captions (privacy rule); Android's system TextToSpeech can use network voices.
+
