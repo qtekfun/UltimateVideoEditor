@@ -138,6 +138,16 @@ class EditorPreview(
     private val loadingLuts = HashSet<Int>()
     private val brokenLuts = HashSet<Int>()
 
+    /**
+     * Drops every cached title picture and shows the latest scene again. Called when an imported font
+     * changed: titles drawn with a missing font fall back to the default one and must be drawn again.
+     */
+    fun titlesChanged() {
+        titleKeys.clear()
+        brokenTitles.clear()
+        if (!following) latest?.let(::show)
+    }
+
     /** Shows [scene] as a still frame (paused, scrubbing, editing). Stops any native playback. */
     fun show(scene: PreviewScene) {
         val engine = engine ?: return

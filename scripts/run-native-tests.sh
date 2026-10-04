@@ -7,3 +7,7 @@ trap 'rm -rf "$out"' EXIT
 g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
     "$root/app/src/test/cpp/native_tests.cpp" -o "$out/native_tests" -pthread
 "$out/native_tests"
+# Deterministic simulation of the decoder worker and a sequential export consumer (long-GOP regression guard).
+g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
+    "$root/app/src/test/cpp/decode_sim_tests.cpp" -o "$out/decode_sim_tests"
+"$out/decode_sim_tests"
