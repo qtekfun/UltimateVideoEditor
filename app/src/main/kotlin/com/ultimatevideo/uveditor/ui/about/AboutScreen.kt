@@ -94,10 +94,10 @@ fun AboutScreen(controller: AboutController, appearance: AppearanceStore, onBack
             }
             Section("Privacy") {
                 Text("Nothing leaves your device: no network permission, no accounts, no analytics, no crash-reporting service.")
-                Expandable("Read the privacy statement", privacy)
+                Expandable("Read the privacy statement", privacy, markdown = true)
             }
             Section("Third-party software") {
-                Expandable("Notices", notices)
+                Expandable("Notices", notices, markdown = true)
             }
             Section("Storage") {
                 Text("Projects: ${AboutController.formatBytes(snapshot.usage.projectsBytes)}")
@@ -150,16 +150,14 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Expandable(label: String, text: String) {
+private fun Expandable(label: String, text: String, markdown: Boolean = false) {
     var open by remember { mutableStateOf(false) }
     TextButton(onClick = { open = !open }) { Text(if (open) "Hide" else label) }
-    if (open) SelectionContainer { Text(stripMarkdown(text), style = MaterialTheme.typography.bodySmall) }
+    if (!open) return
+    SelectionContainer {
+        if (markdown) MarkdownView(text) else Text(text, style = MaterialTheme.typography.bodySmall)
+    }
 }
-
-/** Good enough for our own documents: drops heading marks, bold marks and table rules so they read as text. */
-internal fun stripMarkdown(text: String): String = text.lines().joinToString("\n") { line ->
-    line.trimStart('#').trimStart().replace("**", "").replace("`", "")
-}.replace(Regex("(?m)^\\|?[-| ]{3,}\\|?$\\n?"), "")
 
 private fun readAsset(context: Context, path: String): String =
     runCatching { context.assets.open(path).bufferedReader().use { it.readText() } }.getOrDefault("(unavailable)")

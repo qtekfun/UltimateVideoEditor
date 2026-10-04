@@ -103,13 +103,4 @@ class AboutModelTest {
         assertEquals("3.00 GB", AboutController.formatBytes(3L * 1024 * 1024 * 1024, us))
         assertEquals("1,5 KB", AboutController.formatBytes(1536, java.util.Locale.GERMANY))
     }
-
-    @Test
-    fun `markdown is flattened for display`() {
-        val text = "# Title\n**bold** and `code`\n|a|b|\n|---|---|\n|1|2|"
-        val flat = stripMarkdown(text)
-        assertTrue(flat.startsWith("Title"))
-        assertTrue(flat.contains("bold and code"))
-        assertFalse(flat.contains("---"))
-    }
 }
