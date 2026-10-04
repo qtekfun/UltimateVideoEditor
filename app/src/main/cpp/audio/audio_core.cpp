@@ -208,14 +208,7 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
     }
     pending_.store(prepared.get(), std::memory_order_release);
 
-    // Free snapshots the audio thread has moved on from. With no stream running nobody can be
-    // using an old one, and the next render picks up pending_ before touching anything.
-    if (!streamRunning_) {
-        alive_.erase(alive_.begin(), alive_.end() - 1);
-    } else {
-        const uint64_t ack = ackGeneration_.load(std::memory_order_acquire);
-        std::erase_if(alive_, [ack](const auto& s) { return s->generation < ack; });
-    }
+    pruneAliveLocked();
     wake();
     return Status::Ok;
 }
@@ -269,7 +262,34 @@ void AudioCore::streamStopped() {
     std::lock_guard<std::mutex> lock(controlMutex_);
     streamRunning_ = false;
     rendering_.store(false, std::memory_order_release);
-    if (alive_.size() > 1) alive_.erase(alive_.begin(), alive_.end() - 1);
+    pruneAliveLocked();
+}
+
+// The audio thread keeps a raw pointer (`current_`) to the snapshot it last rendered with, whose
+// generation is `ackGeneration_`, and the first block of a NEW stream adopts DSP state from it. That
+// snapshot must therefore outlive the stream: it used to be freed here when edits arrived (or the
+// stream stopped) while no stream ran, and the next stream's first callback then read freed memory
+// (SIGSEGV in PreparedSnapshot::adoptStateFrom). Keep the acknowledged snapshot and the newest one;
+// with no stream running the ones in between were never adopted and can go, while a running stream
+// may still be about to adopt anything newer than the acknowledged one.
+void AudioCore::pruneAliveLocked() {
+    if (alive_.empty()) return;
+    const uint64_t ack = ackGeneration_.load(std::memory_order_acquire);
+    const uint64_t newest = alive_.back()->generation;
+    std::erase_if(alive_, [&](const std::shared_ptr<const PreparedSnapshot>& s) {
+        if (s->generation == ack || s->generation == newest) return false;
+        return !streamRunning_ || s->generation < ack;
+    });
+}
+
+bool AudioCore::audioThreadSnapshotIsAlive() const {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    const uint64_t ack = ackGeneration_.load(std::memory_order_acquire);
+    if (ack == 0) return true;  // the audio thread has not rendered with a snapshot yet
+    for (const auto& s : alive_) {
+        if (s->generation == ack) return true;
+    }
+    return false;
 }
 
 void AudioCore::resetStreamClock() {
