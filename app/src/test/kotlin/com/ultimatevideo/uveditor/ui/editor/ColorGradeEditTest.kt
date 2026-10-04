@@ -25,6 +25,17 @@ class ColorGradeEditTest {
     }
 
     @Test
+    fun `a touch near the puck grabs it and a touch far from it leaves the swipe to the panel`() {
+        // A 200 px wheel with the puck at its centre: the middle grabs, a point near the rim does not.
+        assertTrue(WheelMath.grabs(100f, 100f, 200f, 0.0, 0.0))
+        assertTrue(WheelMath.grabs(120f, 100f, 200f, 0.0, 0.0))
+        assertTrue(!WheelMath.grabs(100f, 190f, 200f, 0.0, 0.0))
+        // The puck moved to the right rim: now the rim grabs and the middle does not.
+        assertTrue(WheelMath.grabs(190f, 100f, 200f, 0.9, 0.0))
+        assertTrue(!WheelMath.grabs(100f, 100f, 200f, 0.9, 0.0))
+    }
+
+    @Test
     fun `pushing towards a colour raises it and lowers the others`() {
         val red = WheelMath.toRgb(1.0, 0.0)
         assertEquals(0.5, red.first, 1e-12)
