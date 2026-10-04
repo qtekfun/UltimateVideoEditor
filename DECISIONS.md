@@ -1301,3 +1301,9 @@ glyph. **Fix:** vertex batches are pre-sized and written through a pointer, corn
 
 p95 and p99 are below baseline. Max is a single-frame outlier in both builds. The four draws are blocks, clip text, overlays plus ruler, ruler text (order matters).
 The stats line also reports `uploads` and `upload_ms` (label bitmaps placed in the atlas and the time that took).
+
+## 2026-10-04 · The editor is always full screen (no split screen, no pop-up window)
+**Context:** the native timeline and preview SurfaceViews, the decoders and the audio clock are sized for one full-screen window; EMUI could not even be asked to enter split screen from adb, so it could not be verified, and a half-height editor leaves no room for the timeline.
+**Chosen:** `android:resizeableActivity="false"` on the application. Phones and the Huawei tablet (Android 12) then refuse split screen and free-form windows and show the system's "app does not support split screen" message.
+**Alternatives:** keep multi-window and test it (needs resize handling in the native surfaces and the layout controller); restrict only the editor activity (the app has one activity, so no difference).
+**Open:** from Android 16, apps targeting API 36 on screens of 600 dp or wider may ignore this flag (the platform ignores manifest resizability limits there until the opt-out ends at API 37). The Pixel 8 is below that width; the tablet runs Android 12, so both honour it. If a newer large-screen device splits the window anyway, the layout must cope with it: that is not handled today.
