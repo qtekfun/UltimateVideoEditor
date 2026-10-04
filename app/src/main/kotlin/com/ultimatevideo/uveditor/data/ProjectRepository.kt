@@ -2,10 +2,18 @@ package com.ultimatevideo.uveditor.data
 
 import com.ultimatevideo.uveditor.data.interchange.AutoRelink
 import com.ultimatevideo.uveditor.data.interchange.BundleError
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.data.interchange.BundleMediaSource
+import com.ultimatevideo.uveditor.data.interchange.BundlePreview
+import com.ultimatevideo.uveditor.data.interchange.BundleResourceInstaller
+import com.ultimatevideo.uveditor.data.interchange.BundleResources
 import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
 import com.ultimatevideo.uveditor.data.interchange.ProjectBundle
 import com.ultimatevideo.uveditor.data.interchange.RelinkCandidate
+import com.ultimatevideo.uveditor.data.interchange.ResourceImportReport
+import com.ultimatevideo.uveditor.data.interchange.ResourceKind
+import com.ultimatevideo.uveditor.data.interchange.ResourceLibrary
+import com.ultimatevideo.uveditor.data.interchange.ResourceRefs
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import kotlinx.coroutines.CoroutineDispatcher
@@ -32,8 +40,16 @@ data class ProjectSummary(
     val thumbnail: ThumbnailSource? = null,
 )
 
-/** What an import did with the media of a bundle: copied out of it, relinked to files already on this device, or still missing (by name). */
-data class BundleImportSummary(val mediaCopied: Int, val relinked: Int, val missing: List<String>)
+/**
+ * What an import did with the media of a bundle: copied out of it, relinked to files already on this device, or
+ * still missing (by name); and with its LUTs and fonts ([resources]).
+ */
+data class BundleImportSummary(
+    val mediaCopied: Int,
+    val relinked: Int,
+    val missing: List<String>,
+    val resources: ResourceImportReport = ResourceImportReport.EMPTY,
+)
 
 /** The imported project and, when it came from a bundle, [bundle]. */
 data class ImportReport(val project: ProjectDto, val bundle: BundleImportSummary? = null)
@@ -59,6 +75,8 @@ class ProjectRepository(
     private val mediaAccess: BundleMediaSource? = null,
     /** The picture of a project's card as JPEG bytes, put in the bundles it exports; null leaves bundles without one. */
     private val cardThumbnail: (suspend (ProjectDto) -> ByteArray?)? = null,
+    /** The app-wide LUT and font libraries: bundles carry the ones a project refers to, and installs them; null disables both. */
+    private val resourceLibrary: ResourceLibrary? = null,
 ) : ProjectStore {
     private val mutex = Mutex()
 
@@ -211,7 +229,11 @@ class ProjectRepository(
             val wanted = extracted.manifest.media.filter { it.assetId in missingIds }
             val relinked = AutoRelink.match(wanted, relinkCandidates())
             uris.putAll(relinked)
-            val withUris = ProjectJson.parseObject(ProjectJson.withMediaUris(raw, uris))
+            // The LUTs and fonts that came inside go into the app-wide libraries; a LUT that had to take another key
+            // (a hash clash with a different LUT already here) is rewritten in the project before it is stored.
+            val resources = BundleResourceInstaller.install(extracted.manifest, extracted.resourceFiles, ResourceRefs.collect(raw), resourceLibrary)
+            val remapped = ResourceRefs.withLutKeys(raw, resources.lutRemap)
+            val withUris = ProjectJson.parseObject(ProjectJson.withMediaUris(remapped, uris))
             val final = ProjectJson.withIdentity(withUris, id, name)
             val project = ProjectJson.decode(final)
             atomicWrite(File(scratch, PROJECT_FILE), final.toByteArray(Charsets.UTF_8), backupExisting = false)
@@ -219,7 +241,7 @@ class ProjectRepository(
                 Files.move(scratch.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
             }
             val stillMissing = missing.filter { it.id !in relinked }.map { MissingMedia.nameOf(it) }
-            return ImportReport(project, BundleImportSummary(extracted.mediaFiles.size, relinked.size, stillMissing))
+            return ImportReport(project, BundleImportSummary(extracted.mediaFiles.size, relinked.size, stillMissing, resources.report))
         } finally {
             if (scratch.exists()) scratch.deleteRecursively()
         }
@@ -250,18 +272,50 @@ class ProjectRepository(
         uri: String,
         includeMedia: Boolean,
         thumbnails: Map<String, ByteArray> = emptyMap(),
+    ): BundleWriteResult = exportBundle(id, uri, BundleChoice(includeMedia = includeMedia), thumbnails)
+
+    /**
+     * Like the overload above, and also puts the LUTs and fonts the project refers to into the bundle as [choice]
+     * says. A resource this device does not hold cannot be included and is named in the result.
+     */
+    suspend fun exportBundle(
+        id: String,
+        uri: String,
+        choice: BundleChoice,
+        thumbnails: Map<String, ByteArray> = emptyMap(),
     ): BundleWriteResult = withContext(ioDispatcher) {
         val file = projectFile(id)
         val text = readText(file)
         val project = ProjectJson.decode(text)
+        val resources = BundleResources.plan(ResourceRefs.collect(ProjectJson.parseObject(text)), resourceLibrary, choice)
         val pictures = thumbnails.ifEmpty { cardThumbnail?.invoke(project)?.let { mapOf("project.jpg" to it) } ?: emptyMap() }
         try {
             transferIO.openOutput(uri).use { out ->
-                ProjectBundle.write(text, project, mediaAccess, includeMedia, pictures, out)
+                ProjectBundle.write(text, project, mediaAccess, choice.includeMedia, pictures, out, resources)
             }
         } catch (e: IOException) {
             throw ProjectError.Io("export bundle to $uri", e)
         }
+    }
+
+    /** What a bundle of project [id] could contain, and how big: the media, the LUTs and the fonts it refers to. */
+    suspend fun bundlePreview(id: String): BundlePreview = withContext(ioDispatcher) {
+        val text = readText(projectFile(id))
+        val project = ProjectJson.decode(text)
+        var bytes = 0L
+        var readable = 0
+        val unreadable = ArrayList<String>()
+        for (asset in project.mediaLibrary) {
+            val size = mediaAccess?.sizeOf(asset.uri)
+            if (size == null) {
+                unreadable += MissingMedia.nameOf(asset)
+            } else {
+                readable++
+                bytes += size
+            }
+        }
+        val infos = BundleResources.infos(ResourceRefs.collect(ProjectJson.parseObject(text)), resourceLibrary)
+        BundlePreview(readable, bytes, unreadable, infos.filter { it.kind == ResourceKind.LUT }, infos.filter { it.kind == ResourceKind.FONT })
     }
 
     private fun storeRaw(raw: kotlinx.serialization.json.JsonObject, id: String, name: String): ProjectDto {
