@@ -1,5 +1,6 @@
 // GoogleTest-free host tests for the pure-logic parts of the timeline engine.
 // Build/run: see tests/CMakeLists.txt (documented in CLAUDE.md).
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -10,6 +11,7 @@
 #include "timeline_view/drop_hint.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/hit_test.h"
+#include "timeline_view/marker_style.h"
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
 
@@ -88,7 +90,7 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         for (const auto& m : markers) {
             w.put<int64_t>(m.frame);
             w.put<int32_t>(m.flags);
-            w.put<int32_t>(0);
+            w.put<int32_t>(m.extra);
         }
     }
     if (version >= 7) {
@@ -250,6 +252,28 @@ static void testRetimeBoundaries() {
     CHECK(timeline::retimeBoundary(&still, 30, 29) == 0);
 }
 
+static void testMarkerStyleColours() {
+    // Six distinct, bright colours in MarkerColor order (red, orange, yellow, green, blue, purple), and a default.
+    const timeline::MarkerRgb none = timeline::markerRgb(0);
+    CHECK(none.r == 1.0f && none.g > 0.4f && none.g < 0.5f && none.b == 0.80f);  // the original pink
+    for (int a = 1; a <= timeline::kMarkerColorCount; ++a) {
+        const timeline::MarkerRgb ca = timeline::markerRgb(a);
+        CHECK(ca.r >= 0.0f && ca.r <= 1.0f && ca.g >= 0.0f && ca.g <= 1.0f && ca.b >= 0.0f && ca.b <= 1.0f);
+        const float peak = std::max(ca.r, std::max(ca.g, ca.b));
+        CHECK(peak >= 0.99f);  // every flag colour is bright
+        for (int b = a + 1; b <= timeline::kMarkerColorCount; ++b) {
+            const timeline::MarkerRgb cb = timeline::markerRgb(b);
+            CHECK(ca.r != cb.r || ca.g != cb.g || ca.b != cb.b);
+        }
+    }
+    CHECK(timeline::markerRgb(1).r == 1.0f && timeline::markerRgb(1).g < 0.4f);   // red
+    CHECK(timeline::markerRgb(4).g > timeline::markerRgb(4).r);                    // green
+    CHECK(timeline::markerRgb(5).b == 1.0f && timeline::markerRgb(5).r < 0.4f);   // blue
+    CHECK(timeline::markerColorCode(0) == 0 && timeline::markerColorCode(6) == 6 && timeline::markerColorCode(7) == 0);
+    CHECK(timeline::markerColorCode(timeline::kMarkerNoteBit | 2) == 2);
+    CHECK(timeline::markerHasNote(timeline::kMarkerNoteBit) && !timeline::markerHasNote(6));
+}
+
 static void testSnapshotMarkers() {
     timeline::TimelineSnapshot s;
     // Markers come out sorted by frame with their flags; frames may be anywhere on the timeline.
@@ -260,6 +284,16 @@ static void testSnapshotMarkers() {
     CHECK(s.markers[0].frame == 30 && !s.markers[0].beat());
     CHECK(s.markers[1].frame == 60 && s.markers[1].beat());
     CHECK(s.markers[2].frame == 90 && s.markers[2].beat());
+
+    // The style word carries a colour code and a note bit; markers written without it read as unstyled.
+    auto styled = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {},
+                               {{30, 0, 0}, {60, 0, 3 | timeline::kMarkerNoteBit}, {90, 1, 6}, {120, 0, 7}});
+    CHECK(timeline::parseSnapshot(styled.b.data(), styled.b.size(), &s) == core::Status::Ok);
+    CHECK(s.markers.size() == 4);
+    CHECK(timeline::markerColorCode(s.markers[0].extra) == 0 && !timeline::markerHasNote(s.markers[0].extra));
+    CHECK(timeline::markerColorCode(s.markers[1].extra) == 3 && timeline::markerHasNote(s.markers[1].extra));
+    CHECK(timeline::markerColorCode(s.markers[2].extra) == 6 && !timeline::markerHasNote(s.markers[2].extra));
+    CHECK(timeline::markerColorCode(s.markers[3].extra) == 0);  // 7 is not a colour
 
     // Version 4 has no marker trailer and still parses, with no markers.
     auto v4 = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, 4);
@@ -720,6 +754,7 @@ int main() {
     testSnapshotTransitions();
     testSnapshotKeyframes();
     testSnapshotRetimes();
+    testMarkerStyleColours();
     testSnapshotMarkers();
     testSnapshotLabels();
     testGlyphFont();
