@@ -303,10 +303,11 @@ reverse do not apply to them.
 **Animated GIFs** import like photos and play: the clip starts at one pass of the animation and loops it for as long as
 you stretch it, with each frame shown for the delay the file states (delays of 10 ms or less count as 100 ms, as in
 browsers). The animation starts at the clip's first frame, so trimming the start does not skip into it. The export draws
-the same frame at every frame of the movie. **Animated WebP** files are recognised (their frame delays are read), but
-their pictures cannot be taken frame by frame yet, so they show their first frame. A GIF's own loop count is ignored
-(it always loops). Large GIFs use a lot of memory when exported, because each distinct frame is kept as a picture
-the size of the canvas: split a long, heavy animation or use a smaller one.
+the same frame at every frame of the movie. **Animated WebP** files work the same way (lossy, lossless and transparent
+frames, with their own durations and blend/dispose settings). The file's own loop count is ignored: an animation always loops.
+Pictures are kept at their own size and scaled by the GPU, and an export loads each frame only when the movie reaches it, so
+even an animation of hundreds of frames on a 4K canvas stays within a fixed memory budget (128 MB). The only cost of a very
+long animation is time: frames that fall out of the budget are decoded again when it loops.
 
 ## Stabilising shaky footage
 
@@ -646,7 +647,8 @@ Open the **⋮ menu** in the project list and choose **About, privacy and help**
 - Sound tools and the mixer are covered by automated tests; they have had only a short check on a real device
   (the mixer sheet and meter opened and playback ran). Listen to a noise-suppressed clip before exporting.
 - Slow motion repeats frames (no blending). Audio speed change is varispeed.
-- Animated GIFs play; animated WebP files show their first frame.
+- Animated GIFs and animated WebP files play and loop; their own loop count is ignored. A very long animation on a loop
+  re-decodes frames that no longer fit the 128 MB picture budget.
 - Reverse playback of long-GOP 4K footage is slow.
 - Beat detection only reads loudness, not pitch.
 - A vertical drag that starts on a colour wheel or a curve moves it instead of scrolling the panel: scroll

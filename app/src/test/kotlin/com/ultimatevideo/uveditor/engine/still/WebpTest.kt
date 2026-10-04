@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -319,6 +320,23 @@ class WebpTest {
         assertTrue(AnimationSniff.isGif("GIF87a....".toByteArray()))
         assertFalse(AnimationSniff.isWebp("GIF89a......".toByteArray()))
         assertFalse(AnimationSniff.isGif(ByteArray(3)) || AnimationSniff.isWebp(ByteArray(11)))
+    }
+
+    @Test
+    fun `webp delays become the same timing as a gif of equal delays`() {
+        val bytes = file {
+            frame(0, 0, 8, 6, 0, red)      // 0 ms is shown for the default 100 ms, like browsers do
+            frame(0, 0, 8, 6, 200, blue)
+            frame(0, 0, 8, 6, 3, red)      // below the minimum: also the default
+        }
+        val timing = com.ultimatevideo.uveditor.domain.AnimationTiming.ofRaw(WebpAnimation.parse(bytes, FakeWebpDecoder).rawDelaysMs)!!
+        assertEquals(listOf(100, 200, 100), timing.delaysMs)
+        val fps = com.ultimatevideo.uveditor.domain.FrameRate(30, 1)
+        // 30 fps: frames 0..2 are the first 100 ms, 3..8 the 200 ms frame, then the third, then the loop.
+        assertEquals(listOf(0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2), (0 until 12L).map { timing.frameIndexAt(it, fps) })
+        assertEquals(0, timing.frameIndexAt(12, fps))
+        // A file with one frame is a still, not an animation.
+        assertNull(com.ultimatevideo.uveditor.domain.AnimationTiming.ofRaw(listOf(100)))
     }
 
     @Test
