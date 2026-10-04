@@ -97,6 +97,41 @@ class AnimationTimingTest {
     }
 
     @Test
+    fun `a finite number of plays holds the last frame afterwards`() {
+        val twice = AnimationTiming(listOf(100, 200, 300), plays = 2)
+        // 30 fps: a pass is 18 frames; the second pass ends at frame 36 (1200 ms).
+        assertEquals(1, twice.frameIndexAt(21, fps30)) // second pass still plays
+        assertEquals(2, twice.frameIndexAt(35, fps30)) // 1166 ms: second pass, last frame
+        assertEquals(2, twice.frameIndexAt(36, fps30)) // 1200 ms: held on the last frame
+        assertEquals(2, twice.frameIndexAt(500, fps30))
+        val once = AnimationTiming(listOf(100, 200, 300), plays = 1)
+        assertEquals(listOf(0, 1, 2, 2), listOf(0L, 3L, 9L, 18L).map { once.frameIndexAt(it, fps30) })
+        // 0 plays means forever: the same as the default.
+        assertEquals(timing.frameIndexAt(18 * 50, fps30), AnimationTiming(listOf(100, 200, 300), 0).frameIndexAt(18 * 50, fps30))
+    }
+
+    @Test
+    fun `segments of a finite animation end in one long segment of the last frame`() {
+        val once = AnimationTiming(listOf(100, 200, 300), plays = 1)
+        assertEquals(
+            listOf(AnimationSegment(0, 3, 0), AnimationSegment(3, 9, 1), AnimationSegment(9, 100, 2)),
+            once.segments(0, 100, fps30),
+        )
+        val twice = AnimationTiming(listOf(100, 200, 300), plays = 2)
+        val s = twice.segments(0, 90, fps30)
+        assertEquals(2, s.last().index)
+        for (f in 0L until 90L) assertEquals(twice.frameIndexAt(f, fps30), s.first { f >= it.startFrame && f < it.endFrame }.index)
+    }
+
+    @Test
+    fun `plays from a file are clamped and negative plays are refused`() {
+        assertEquals(3, AnimationTiming.ofRaw(listOf(100, 100), 3)!!.plays)
+        assertEquals(AnimationTiming.MAX_PLAYS, AnimationTiming.ofRaw(listOf(100, 100), Int.MAX_VALUE)!!.plays)
+        assertEquals(AnimationTiming.INFINITE, AnimationTiming.ofRaw(listOf(100, 100))!!.plays)
+        assertThrows(IllegalArgumentException::class.java) { AnimationTiming(listOf(100, 100), -1) }
+    }
+
+    @Test
     fun `fewer than two frames is not an animation`() {
         assertNull(AnimationTiming.ofRaw(emptyList()))
         assertNull(AnimationTiming.ofRaw(listOf(80)))

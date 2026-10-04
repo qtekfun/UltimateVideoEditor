@@ -3046,6 +3046,7 @@ class EditorViewModel(
                 isImage = true,
                 displayName = probed.displayName,
                 animationDelaysMs = probed.animationDelaysMs,
+                animationPlays = probed.animationPlays.takeIf { probed.animationDelaysMs != null },
             )
             reduce { copy(assets = assets + image) }
             scheduleSave()

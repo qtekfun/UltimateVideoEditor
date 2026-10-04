@@ -241,6 +241,7 @@ int main(int argc, char** argv) {
     testVideoClip("mpeg2_gop100.mpg", 100, 10);  // a long GOP: seeks land far before the target
     testVideoClip("mpeg4.avi", 100, 10);
     testVideoClip("prores.mov", 100, 6);
+    testVideoClip("av1.mkv", 100, 10);  // libdav1d in the fallback build; skipped when the clip could not be generated
     testVideoClip("h264.mp4", 100, 8);  // MediaCodec handles H.264 on a phone; here it checks the reader on a B-frame stream
     testFrameRateOverride();
     testNtsc();

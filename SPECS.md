@@ -43,6 +43,7 @@ Status: v1, reconciled with the code after phases 1-4 and 6 · Date: 2026-10-03
   - [5.31 Proxy media (WP-P)](#531-proxy-media-wp-p)
   - [5.32 Appearance: dark only, optional pure black](#532-appearance-dark-only-optional-pure-black)
   - [5.33 Timeline canvas rendering: text atlas, ruler, blocks](#533-timeline-canvas-rendering-text-atlas-ruler-blocks)
+  - [5.34 Fullscreen preview](#534-fullscreen-preview)
 - [6. Timeline operations (specification for tests)](#6-timeline-operations-specification-for-tests)
   - [6.1 Base track and overlays (LumaFusion model)](#61-base-track-and-overlays-lumafusion-model)
 - [7. Error handling](#7-error-handling)
@@ -362,7 +363,8 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   (`UnsupportedFormat`, e.g. no ten-bit surface) is reported with a hint to export as SDR. The JNI codec
   argument carries the HDR flag as bit 0x100.
 - FFmpeg (static, NDK) is an optional fallback for formats not supported by MediaCodec: built behind
-  `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`.
+  `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`. The build includes libdav1d (BSD-2-Clause) for AV1; licence
+  notices in `THIRD_PARTY_NOTICES.md`.
 
 ### 5.11 Captions (typed or imported, no recognition)
 - There is no speech recognition and no model: the app is offline by design (`docs/PRIVACY.md`). An earlier
@@ -572,7 +574,8 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
   one frame per step; `CanvasSnapshots` keeps the canvas every N frames, N grown with the canvas size so snapshots stay within 32 MB, so a
   seek back replays less than N frames). WebP is read from its RIFF container (`WebpContainerParser`: VP8X, ANIM, ANMF with
   offset, duration, blend and dispose bits, with size and frame-count limits); every frame is wrapped as a standalone still WebP
-  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The file's loop count is ignored.
+  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The loop count is read from the container (WebP ANIM; GIF NETSCAPE2.0, repeat count + 1, none = once) into
+  `MediaAssetDto.animationPlays` and `AnimationTiming.plays` (0 = forever); after the last pass `frameIndexAt` holds the last frame.
   Frame timing is `AnimationTiming` for both (0 ms and 10 ms or less count as 100 ms).
 - **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
 
@@ -1255,6 +1258,32 @@ editor, then `logcat -s uv_timeline` shows every 240 frames the CPU milliseconds
 swap) as p50 / p95 / p99 / max plus the draw calls and vertices per frame; `scripts/perf-timeline.sh` drives a 110-clip project
 (`scripts/make-perf-project.py`) and prints them. Numbers are in DECISIONS.md.
 
+### 5.34 Fullscreen preview
+
+A double tap on the preview makes it fill the window; a double tap again, the on-screen exit icon or Back leaves.
+
+- **State.** `ui/editor/PreviewFullscreen.kt` is pure Kotlin: `FullscreenState(active, overlayVisible, overlayEpoch)` with a reducer
+  (`DoubleTap`, `Tap`, `Exit`, `Interact`, `Timeout(epoch)`) and `DoubleTapTracker` (gap `doubleTapTimeoutMillis`, distance 8 touch slops).
+  The screen holds it with `rememberSaveable`; only `active` is saved, so rotation and recreation keep the mode and the overlay starts
+  hidden. The overlay is shown on entering and on every single tap (a tap while it shows hides it), and a `LaunchedEffect` keyed on
+  the epoch hides it after `FULLSCREEN_OVERLAY_MS` = 2.5 s; a timeout for an older epoch is ignored.
+- **Gesture.** `Modifier.previewTapGestures` (`PreviewFullscreenUi.kt`) sits on the preview box and reads touches in the *initial* pass,
+  so it sees them before the drag/pinch/twist layer, the track picker and the eyedropper, and consumes nothing except the down of the
+  second tap of a double tap. Only a one-finger, short (long-press timeout), barely moving touch counts as a tap. Touches that start on
+  the overlay's own buttons are ignored (their bounds are reported by `FullscreenControls`). `PreviewGestureLayer` now holds back a
+  pan until it passes the touch slop (a second finger starts at once), so finger jitter during a tap never creates an edit. The first
+  tap of a double tap still acts like any tap (a pick layer picks once); the toggle works whatever layer is armed.
+- **Layout.** Nothing native is removed. `DockLayout` gives the side columns zero width and `PreviewTimelineLayout(fullscreen = true)`
+  measures the preview at the whole block and measures the handle, controls and timeline as usual but places them one block below, outside
+  the window. The editor's title row, banners and the bottom tray are plain Compose and are not composed while fullscreen. The preview
+  `SurfaceView`, the timeline `SurfaceView`, the engine, the audio and the playback state therefore stay alive and are only resized
+  (`surfaceChanged`); no layer is re-opened and the audio clock is not re-anchored. While fullscreen the layout controller is not told
+  about the few dp the bars give back, so it never re-picks a layout.
+- **System bars.** `ImmersiveWhile` hides them with `WindowInsetsControllerCompat` (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`: a swipe from
+  the edge shows them for a moment), re-hides on resume, and shows them again when fullscreen ends or the editor leaves. The preview keeps
+  its letterboxing and the HDR/SDR output-space logic (`wantedOutputSpace`, `DisplayHdr`) is untouched.
+- **Tests.** `PreviewFullscreenTest` (reducer, timer epochs, double-tap tracker). The gesture integration and the layout are verified on a device.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
@@ -1780,7 +1809,19 @@ strictness; see DECISIONS.md, "Privacy").
   `audio_snapshot.h`); versions 4 and 5 still parse. Kotlin: `domain/AudioTools.kt` (`VoicePreset`, `VoiceFx`,
   `VoiceParams`), `ClipAudio.voice`, JSON `voice: {preset, values}` (optional), `engine/audio/VoiceSpec`,
   inspector subsection in `AudioControls.kt`.
-- Not keyframable (changing a value restarts decoding of the clip); the effect belongs to the clip, so a split keeps it on both halves.
+- Keyframable: every slider is a parameter `audio.voice.<sliderIndex>` of the clip's `params` (same keys, interpolation, split/trim/speed
+  re-basing and undo as pan and EQ gains). `ui/editor/EditorAudio.kt` `voiceLanesOf` turns the animated sliders into one lane per engine
+  setting they drive: the presets map sliders to settings with affine maps, so the settings are evaluated at every frame where an animated
+  slider has a point (`ParamTracks.audioPoints`) and the engine's linear interpolation is exact. Snapshot version 7 appends the lanes after
+  the voice blocks (a lane count per clip, header and points like the automation lanes, field = position in the voice block) and a trailing
+  u32 with their byte size; versions 4 to 6 still parse. Native: `VoiceSchedule` (`audio/voice_fx.h`) holds the lanes in clip-local output
+  samples; `VoiceProcessor` takes it with the clip-local position of its first sample (`reset(position)`, so a seek reads the keys there).
+  The widest value of every setting over the keys (`envelope`) decides which stages exist, the delay line size and the tail. The spectral
+  stage reads the settings at the centre of each analysis frame; ring, band, drive, echo and reverb read them every 16 samples at the
+  absolute position, so output never depends on how the stream is cut. Echo delay is a fractional read ramped over a block (a moving delay
+  glides in pitch); reverb size moves the feedback, the comb lengths are fixed at the middle of the keyed range; the ring carrier is a
+  phase accumulator. Keys, like the static values, make a new source (decoding restarts); the effect belongs to the clip, so a split keeps
+  it on both halves.
 
 ### 9.18 WP-V4 Optical-flow slow motion, video denoise and deflicker
 

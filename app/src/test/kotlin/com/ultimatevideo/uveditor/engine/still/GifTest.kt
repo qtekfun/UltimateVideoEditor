@@ -31,6 +31,7 @@ private object GifWriter {
         frames: List<Frame>,
         minCode: Int = 8,
         loopExtension: Boolean = true,
+        repeatCount: Int = 0,
     ): ByteArray {
         val out = ByteArrayOutputStream()
         out.write("GIF89a".toByteArray(Charsets.ISO_8859_1))
@@ -43,7 +44,7 @@ private object GifWriter {
         if (loopExtension) {
             out.write(byteArrayOf(0x21, 0xFF.toByte(), 11))
             out.write("NETSCAPE2.0".toByteArray(Charsets.ISO_8859_1))
-            out.write(byteArrayOf(3, 1, 0, 0, 0))
+            out.write(byteArrayOf(3, 1, repeatCount.toByte(), (repeatCount shr 8).toByte(), 0))
         }
         for (f in frames) {
             out.write(byteArrayOf(0x21, 0xF9.toByte(), 4))
@@ -365,6 +366,32 @@ class GifTest {
         assertEquals(listOf(70, 300), GifDelayScan.delaysMs(bytes))
         assertEquals(emptyList<Int>(), GifDelayScan.delaysMs(byteArrayOf(1, 2, 3)))
         assertEquals(emptyList<Int>(), GifDelayScan.delaysMs(bytes.copyOf(20)))
+    }
+
+    @Test
+    fun `the NETSCAPE repeat count becomes the number of plays and a missing one means once`() {
+        val frames = listOf(GifWriter.Frame(0, 0, 2, 2, solid(2, 2, 0)), GifWriter.Frame(0, 0, 2, 2, solid(2, 2, 1)))
+        assertEquals(0, GifDelayScan.plays(GifWriter.write(2, 2, palette, frames)))
+        assertEquals(2, GifDelayScan.plays(GifWriter.write(2, 2, palette, frames, repeatCount = 1)))
+        assertEquals(301, GifDelayScan.plays(GifWriter.write(2, 2, palette, frames, repeatCount = 300)))
+        assertEquals(1, GifDelayScan.plays(GifWriter.write(2, 2, palette, frames, loopExtension = false)))
+        assertEquals(0, GifDelayScan.plays(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
+    fun `an application extension of another name is skipped and does not set the count`() {
+        val good = GifWriter.write(
+            2, 2, palette, listOf(GifWriter.Frame(0, 0, 2, 2, solid(2, 2, 0)), GifWriter.Frame(0, 0, 2, 2, solid(2, 2, 1))),
+            loopExtension = false,
+        )
+        // Header (6) + screen descriptor (7) + global table, then an unrelated application block before the frames.
+        val tableBytes = 3 * (1 shl (((good[10].toInt() and 7)) + 1))
+        val at = 13 + tableBytes
+        val other = byteArrayOf(0x21, 0xFF.toByte(), 11) + "XMP DataXMP".toByteArray(Charsets.ISO_8859_1) +
+            byteArrayOf(3, 1, 9, 0, 0)
+        val bytes = good.copyOfRange(0, at) + other + good.copyOfRange(at, good.size)
+        assertEquals(1, GifDelayScan.plays(bytes))
+        assertEquals(2, GifDelayScan.delaysMs(bytes).size)
     }
 
     @Test
