@@ -157,6 +157,10 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetDropHint)(JNIEnv*, jobject, jlong handle,
     h->renderer->setDropHint(hint);
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeSetLaneScale)(JNIEnv*, jobject, jlong handle, jfloat scale) {
+    if (TimelineHandle* h = from(handle)) h->renderer->setLaneScale(scale);
+}
+
 // Returns {kind, trackIndex, clipKey, frame}.
 JNIEXPORT jlongArray JNICALL JNI_FN(nativeHitTest)(JNIEnv* env, jobject, jlong handle, jfloat x, jfloat y) {
     TimelineHandle* h = from(handle);

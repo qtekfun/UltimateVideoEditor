@@ -73,9 +73,24 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.overwriteMove(timeline, clipId, toTrackId, newStart)
     }
 
+    /** Puts a clip that is not on the timeline yet on a new overlay lane above the others. */
+    data class AddClipOnNewLane(val clip: Clip, val start: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.addClipOnNewLane(timeline, clip, start)
+    }
+
+    /** Drops a new clip on a lane replacing what it covers (base: overlays above the replaced part are cleared). */
+    data class OverwriteNewClip(val clip: Clip, val trackId: String, val start: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.overwriteNewClip(timeline, clip, trackId, start)
+    }
+
     /** Drops a clip into a cut of a non-base lane, shifting that lane's later clips right. */
     data class InsertOnLane(val clipId: String, val toTrackId: String, val at: FrameIndex) : EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.insertOnLane(timeline, clipId, toTrackId, at)
+    }
+
+    /** Drops a new clip into a cut of a non-base lane, shifting that lane's later clips right. */
+    data class InsertNewOnLane(val clip: Clip, val trackId: String, val at: FrameIndex) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.insertNewOnLane(timeline, clip, trackId, at)
     }
 
     /** Lifts a base clip onto an overlay lane ([toTrackId]) or a new lane (null); the base closes the gap. */

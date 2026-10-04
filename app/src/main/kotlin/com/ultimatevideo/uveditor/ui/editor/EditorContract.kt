@@ -10,6 +10,7 @@ import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.TrackAudio
 import com.ultimatevideo.uveditor.domain.DropHint
+import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.domain.ClipDeletion
 import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.ClipTransform
@@ -210,6 +211,23 @@ sealed interface EditorIntent : UiIntent {
     /** [trackIndex] is the lane under the finger in the timeline being shown (-1 over a gap or nothing). */
     data class DragMove(val frame: Long, val trackIndex: Int, val zone: DragZone = DragZone.LANES) : EditorIntent
     data class DragEnd(val commit: Boolean) : EditorIntent
+
+    /** A drag of an asset from the media tray started; a clip for it is prepared and nothing is placed yet. */
+    data class TrayDragStart(val assetId: String) : EditorIntent
+    /** Files dragged in from another app are hovering; [kinds] come from their MIME types (the media is not probed yet). */
+    data class ExternalDragStart(val kinds: List<AssetKind>) : EditorIntent
+    /** The dragged asset is over the timeline; [trackIndex] and [zone] are as in [DragMove]. */
+    data class TrayDragMove(val frame: Long, val trackIndex: Int, val zone: DragZone = DragZone.LANES) : EditorIntent
+    /** The dragged media left the timeline canvas; the drag goes on and the indicator is hidden until it returns. */
+    data object TrayDragLeave : EditorIntent
+    /** Released ([commit] true) or left the timeline / was cancelled ([commit] false). */
+    data class TrayDragEnd(val commit: Boolean) : EditorIntent
+    /** Files from another app were dropped on the timeline: they are imported, then the first is placed where it was dropped. */
+    data class ExternalDrop(val uris: List<String>, val frame: Long, val trackIndex: Int, val zone: DragZone = DragZone.LANES) : EditorIntent
+    /** Adds files to the library (the tray) without putting them on the timeline. */
+    data class ImportToTray(val uris: List<String>) : EditorIntent
+    /** Moves an asset within the library (the order of the tray). */
+    data class ReorderAsset(val assetId: String, val toIndex: Int) : EditorIntent
 
     data object SplitAtPlayhead : EditorIntent
     data object RippleDeleteSelected : EditorIntent
