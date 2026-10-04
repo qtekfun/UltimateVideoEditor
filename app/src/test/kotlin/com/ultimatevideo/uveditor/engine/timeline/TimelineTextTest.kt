@@ -30,6 +30,20 @@ class TimelineTextTest {
         }
 
         override fun labelGeneration() = generation
+
+        /** Hashes the "atlas" evicted to make room, handed out once by [takeEvicted]. */
+        val evicted = ArrayDeque<Long>()
+
+        fun evict(hash: Long) {
+            received.remove(hash)
+            evicted.addLast(hash)
+        }
+
+        override fun takeEvicted(out: LongArray): Int {
+            var n = 0
+            while (n < out.size && evicted.isNotEmpty()) out[n++] = evicted.removeFirst()
+            return n
+        }
     }
 
     private class CountingRasteriser : LabelRasteriser {
@@ -112,6 +126,44 @@ class TimelineTextTest {
         pump.request(listOf(LabelNeed("Intro", 0)))
         assertEquals(first, sink.received.size)
         assertTrue(LabelHash.of("Intro", 0) in sink.received)
+    }
+
+    @Test
+    fun `a bitmap the canvas evicted is sent again when it is still needed, and only that one`() {
+        val sink = FakeSink()
+        val pump = LabelPump(CountingRasteriser(), sink, direct)
+        pump.request(listOf(LabelNeed("Intro", 0), LabelNeed("Outro", 0)))
+        val sentBefore = sink.order.size
+        sink.evict(LabelHash.of("Intro", 0)) // the generation does not change: only this one went
+        pump.request(listOf(LabelNeed("Intro", 0), LabelNeed("Outro", 0)))
+        assertEquals(sentBefore + 1, sink.order.size)
+        assertEquals(LabelHash.of("Intro", 0), sink.order.last())
+        assertTrue(LabelHash.of("Intro", 0) in sink.received && LabelHash.of("Outro", 0) in sink.received)
+    }
+
+    @Test
+    fun `an evicted bitmap that is no longer needed is forgotten and not sent`() {
+        val sink = FakeSink()
+        val pump = LabelPump(CountingRasteriser(), sink, direct)
+        pump.request(listOf(LabelNeed("Intro", 0)))
+        val sentBefore = sink.order.size
+        sink.evict(LabelHash.of("Intro", 0))
+        pump.request(listOf(LabelNeed("Outro", 0)))
+        assertEquals(sentBefore + 1, sink.order.size) // only Outro
+        pump.request(listOf(LabelNeed("Intro", 0))) // wanted again later: sent then
+        assertEquals(sentBefore + 2, sink.order.size)
+    }
+
+    @Test
+    fun `more evictions than one call can carry are all collected`() {
+        val sink = FakeSink()
+        val pump = LabelPump(CountingRasteriser(), sink, direct)
+        val needs = (1..600).map { LabelNeed("label $it", 0) }
+        pump.request(needs)
+        val sentBefore = sink.order.size
+        for (need in needs) sink.evict(LabelHash.of(need.text, need.sizeClass))
+        pump.request(needs)
+        assertEquals(sentBefore + 600, sink.order.size)
     }
 
     @Test

@@ -30,6 +30,7 @@ import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.TitleLayerEdit
 import com.ultimatevideo.uveditor.domain.TrackType
+import kotlin.math.abs
 import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.mvi.UiEffect
@@ -43,6 +44,12 @@ data class NoiseRegion(val clipId: String, val startFrame: Long?, val endFrame: 
 
 /** Keys copied from the track of [paramId], with frames relative to the first key; pasted at the playhead. */
 data class ParamClipboard(val paramId: String, val keys: List<ParamKey>)
+
+/** The two clips either side of a cut that can take a transition. */
+data class TransitionCut(val from: Clip, val to: Clip)
+
+/** How far from a cut the playhead may be and still count as "on" it for the transition button. */
+const val TRANSITION_NEAR_FRAMES = 6L
 
 data class EditorState(
     val isLoading: Boolean = true,
@@ -64,6 +71,8 @@ data class EditorState(
      * refers to a lane of [visibleTimeline].
      */
     val dropHint: DropHint? = null,
+    /** The clips being dragged or trimmed and the frame an edge snapped to, drawn by the timeline while the drag lasts. */
+    val dragOverlay: DragOverlay? = null,
     val assets: List<MediaAssetDto> = emptyList(),
     val playhead: FrameIndex = FrameIndex.ZERO,
     val selectedClipId: String? = null,
@@ -227,6 +236,36 @@ data class EditorState(
         get() {
             val clip = selectedClip ?: return null
             return visibleTimeline.trackOfClip(clip.id)?.clips?.firstOrNull { it.timelineStart == clip.timelineEnd }
+        }
+
+    /**
+     * The cut the toolbar's transition button would add a transition to, or null when there is none (the button is then
+     * disabled). A cut is two clips on the same lane where one ends exactly where the next starts, and it must not have a
+     * transition yet. Rule, in order:
+     * 1. a selected clip: the cut after it, otherwise the cut before it (so selecting either side of a cut works);
+     * 2. nothing usable selected: a cut on a picture lane (video or title, not audio) within [TRANSITION_NEAR_FRAMES] of
+     *    the playhead, the nearest first.
+     */
+    val transitionCut: TransitionCut?
+        get() {
+            val timeline = visibleTimeline
+            fun free(from: Clip, to: Clip) = timeline.transitionBetween(from.id, to.id) == null
+            selectedClip?.let { clip ->
+                val clips = timeline.trackOfClip(clip.id)?.clips.orEmpty()
+                val after = clips.firstOrNull { it.timelineStart == clip.timelineEnd }?.takeIf { free(clip, it) }
+                if (after != null) return TransitionCut(clip, after)
+                val before = clips.firstOrNull { it.timelineEnd == clip.timelineStart }?.takeIf { free(it, clip) }
+                if (before != null) return TransitionCut(before, clip)
+            }
+            return timeline.tracks.asSequence()
+                .filter { it.type != TrackType.AUDIO }
+                .flatMap { track ->
+                    track.clips.asSequence().mapNotNull { from ->
+                        val to = track.clips.firstOrNull { it.timelineStart == from.timelineEnd } ?: return@mapNotNull null
+                        TransitionCut(from, to).takeIf { free(from, to) && abs(playhead - to.timelineStart) <= TRANSITION_NEAR_FRAMES }
+                    }
+                }
+                .minByOrNull { abs(playhead - it.to.timelineStart) }
         }
 
     /** True when the selected clip is on the base track, where gaps are closed automatically. */
@@ -652,3 +691,6 @@ data class TrackUiState(
     val activeId: String? = null,
     val overlay: List<com.ultimatevideo.uveditor.domain.TrackMath.CanvasPoint> = emptyList(),
 )
+
+/** What the timeline draws on top of a drag: the clips lifted with a shadow and a line where a moved edge snapped ([guideFrame], null for none). */
+data class DragOverlay(val clipIds: List<String>, val guideFrame: Long?)

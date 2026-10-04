@@ -55,6 +55,7 @@ bool ThumbAtlas::init(size_t budgetBytes) {
     layout_ = layout;
     texture_ = tex;
     lru_ = std::make_unique<SlotLru>(layout.slots());
+    readyNanos_.assign(static_cast<size_t>(layout.slots()), 0);
     LOGI("atlas %dx%d, %d slots, %.1f MB", layout.width, layout.height, layout.slots(),
          static_cast<double>(layout.bytes()) / (1024.0 * 1024.0));
     return true;
@@ -64,14 +65,17 @@ void ThumbAtlas::release() {
     if (texture_ != 0) glDeleteTextures(1, &texture_);
     texture_ = 0;
     lru_.reset();
+    readyNanos_.clear();
     layout_ = {};
 }
 
 bool ThumbAtlas::upload(const TileKey& key, const uint16_t* pixels) {
     if (texture_ == 0 || !lru_) return false;
     TileKey evicted;
+    const bool resident = lru_->contains(key);
     const int slot = lru_->acquire(key, &evicted);
     if (slot < 0) return false;
+    if (!resident) readyNanos_[static_cast<size_t>(slot)] = now_;  // a re-upload of the same tile keeps its age
 #ifndef NDEBUG
     if (evicted.asset >= 0 && ++evictions_ % 20 == 1) {  // asset stays -1 unless a slot was reclaimed
         LOGI("atlas eviction #%u: tile L%d #%lld -> L%d #%lld", evictions_, evicted.level,
@@ -86,10 +90,11 @@ bool ThumbAtlas::upload(const TileKey& key, const uint16_t* pixels) {
     return true;
 }
 
-bool ThumbAtlas::find(const TileKey& key, float uv[4]) {
+bool ThumbAtlas::find(const TileKey& key, float uv[4], int64_t* readyNanos) {
     if (texture_ == 0 || !lru_) return false;
     const int slot = lru_->find(key);
     if (slot < 0) return false;
+    if (readyNanos != nullptr) *readyNanos = readyNanos_[static_cast<size_t>(slot)];
     const int col = slot % layout_.cols, row = slot / layout_.cols;
     const float w = static_cast<float>(layout_.width), h = static_cast<float>(layout_.height);
     // Half a texel inset so linear filtering never bleeds in a neighbouring slot.
