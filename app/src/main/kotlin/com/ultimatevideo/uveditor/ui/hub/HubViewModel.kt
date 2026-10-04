@@ -2,7 +2,9 @@ package com.ultimatevideo.uveditor.ui.hub
 
 import androidx.lifecycle.viewModelScope
 import com.ultimatevideo.uveditor.data.ClipPeeker
+import com.ultimatevideo.uveditor.data.ImportReport
 import com.ultimatevideo.uveditor.data.MatchedClip
+import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
 import com.ultimatevideo.uveditor.data.MediaImportException
 import com.ultimatevideo.uveditor.data.NewProjectDefaults
 import com.ultimatevideo.uveditor.data.ProjectError
@@ -100,9 +102,15 @@ class HubViewModel(
                 emit(HubEffect.ShowMessage("Project exported"))
             }
             is HubIntent.ImportFrom -> launchProjectOp {
-                val imported = projects.importFrom(intent.uri)
+                val report = projects.importWithReport(intent.uri)
                 refreshNow()
-                emit(HubEffect.ShowMessage("Imported \"${imported.name}\""))
+                emit(HubEffect.ShowMessage(importMessage(report)))
+            }
+            is HubIntent.RequestExportBundle ->
+                emit(HubEffect.LaunchBundleExportPicker(intent.project.id, "${intent.project.name}.uvbundle", intent.includeMedia))
+            is HubIntent.ExportBundleTo -> launchProjectOp {
+                val result = projects.exportBundle(intent.projectId, intent.uri, intent.includeMedia)
+                emit(HubEffect.ShowMessage(bundleExportMessage(intent.includeMedia, result)))
             }
 
             is HubIntent.RecoverProject -> launchProjectOp {
@@ -266,6 +274,30 @@ class HubViewModel(
     }
 
     /** Runs a store operation; a [ProjectError] is shown to the user instead of being dropped. */
+    /** What an import did: the project's name and, for a bundle, what became of its media. */
+    internal fun importMessage(report: ImportReport): String {
+        val name = report.project.name
+        val bundle = report.bundle ?: return "Imported \"$name\""
+        return buildString {
+            append("Imported \"$name\"")
+            if (bundle.mediaCopied > 0) append(". ${bundle.mediaCopied} media file${if (bundle.mediaCopied == 1) "" else "s"} came with it")
+            if (bundle.relinked > 0) append(". ${bundle.relinked} found on this device by name and size")
+            if (bundle.missing.isNotEmpty()) {
+                append(". Missing (relink in the editor): ${bundle.missing.take(3).joinToString()}")
+                if (bundle.missing.size > 3) append(" and ${bundle.missing.size - 3} more")
+            }
+        }
+    }
+
+    internal fun bundleExportMessage(includeMedia: Boolean, result: BundleWriteResult): String = buildString {
+        append("Bundle exported")
+        if (includeMedia) append(" with ${result.mediaCopied} media file${if (result.mediaCopied == 1) "" else "s"}")
+        if (result.mediaSkipped.isNotEmpty()) {
+            append(". Not copied (cannot be read): ${result.mediaSkipped.take(3).joinToString()}")
+            if (result.mediaSkipped.size > 3) append(" and ${result.mediaSkipped.size - 3} more")
+        }
+    }
+
     private fun launchProjectOp(block: suspend () -> Unit) {
         viewModelScope.launch {
             try {

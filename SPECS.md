@@ -673,6 +673,69 @@ The colour wheels (three values each) have no diamond; their sliders do.
 **Copy and paste of clips** (WP-S): `Clip.params` travels with the clip like `keyframes`; a pasted clip's tracks
 are relative to its own start, so they need no change.
 
+### 5.21 Interchange and media library (WP-I)
+
+Implemented in `data/interchange/` (pure formats, repository entry points) and `ui/library/` (library
+model and sheet). Everything is local: files go through the system picker, nothing is fetched or uploaded.
+
+**Project bundle (`.uvbundle`).** A zip (`ProjectBundle`):
+
+| Entry | Content |
+|---|---|
+| `bundle.json` | manifest: `format` = `uveditor-bundle`, `formatVersion` (1), app, project name, schema version, one `media` item per library file (`assetId`, `name`, `sizeBytes`, `entry` when the bytes are inside) and the thumbnail entry names |
+| `project.json` | the raw text of the project file, so fields this build does not know survive |
+| `thumbnails/<file>` | the project card picture (JPEG) when one exists |
+| `media/<assetId>-<name>` | the media files, only for "with media files"; stored, not recompressed |
+
+- Writing: entries carry no timestamps, so the same input gives the same bytes; media that cannot be read
+  are named in the result and left out; the manifest still lists their name and size.
+- Reading (`ProjectBundle.extract`) never writes outside its target directory: names must be relative, use `/`,
+  contain no `..`, `.`, empty parts, NUL or drive letters, and `media/` and `thumbnails/` entries must be a
+  single leaf (anything else is `UnsafePath`); duplicate names are refused. Limits (`BundleLimits`): 20 000
+  entries, 64 MB for each JSON entry, 8 MB per thumbnail, 64 GB per media file, 128 GB in total; a truncated or
+  non-bundle zip becomes a typed `BundleError`, shown to the user through `ProjectError.Bundle`.
+- Importing (`ProjectRepository.importWithReport`, also what `importFrom` uses) sniffs the first four bytes
+  (`PK\x03\x04`) to tell a bundle from a project file, unpacks into a scratch folder `.import-<id>` under
+  the projects folder, rewrites the project (new id when needed, "Name (2)" on a clash), points assets whose
+  bytes came along at `file://<project folder>/media/<file>`, relinks the rest, writes `project.json` inside
+  the scratch folder and moves the whole folder into place with one atomic rename; the scratch folder is
+  always removed, so a failure leaves nothing behind. Folders starting with `.` are never listed as projects.
+- Auto-relink (`AutoRelink`): among the assets of the other local projects, a file matches when its name
+  (ignoring case) **and** size equal the bundle's entry; a name alone never matches, unknown sizes never match,
+  the first candidate wins. There is no search outside those libraries and no new permission.
+
+**EDL (`Edl`).** CMX3600, one document per video or audio track, named `<project>-<label>.edl` (labels as the
+editor shows them: `V1` base, `V2` above it, `A1`, ...). `FCM:` is drop frame (`;`) for 29.97 and 59.94 and
+non-drop frame otherwise (23.976 at 24 with a note); one event per clip with source and record timecodes
+(`B` channel for video with audio, `V` video only, `AA` audio tracks), `M2` line for constant speed (negative for
+reverse, 0 for a freeze), `* FROM CLIP NAME` and `* CLIP ID` comments. Titles, stickers, photos, effects,
+transforms, keyframes and transitions are not carried; `EdlExport.notes` says what was left out. With more than
+one track the editor writes a zip of the files (`Edl.zip`, reproducible bytes).
+
+**FCPXML 1.9 (`Fcpxml`).** Resources: one `format` (project size and rate, Rec. 709 or Rec. 2020 HLG colour
+space), one `asset` per file used (`media-rep` with the stored address), a `Basic Title` effect when titles
+exist. The base track is the spine (a `gap` fills holes); other tracks are connected clips (`lane` = overlay
+number counting up from the base, titles above the overlays, audio below counting down) attached to the base
+clip they start in, with `offset` in that clip's time (as if it played at normal speed). Clips carry
+`start`/`duration` in rational seconds, a `timeMap` for retime, `adjust-transform` (position as a percentage
+of the frame height with y flipped, rotation negated, scale), `adjust-blend` for opacity and `adjust-volume`
+for gain; titles are `title` generators with a text style; markers are `marker` elements on the spine item
+they fall in (colour as a `[colour]` prefix, note in `note`). Not exported: effects, LUTs, grades, masks,
+keyframes, speed ramps, stickers, transitions, audio tools; `FcpxmlExport.notes` lists them and the sequence
+`<note>` repeats them. Unverified against a real Final Cut Pro or DaVinci Resolve import.
+
+**Media library.** `Library` (pure) filters and searches (`LibraryQuery`: text over name, tags and note, kind
+filter, tag), counts tags, normalises tags (trim, no commas, 32 characters, 16 per file, duplicates ignoring
+case) and notes (280), lists where a file is used (`uses`, `nextUse` for stepping through them, `assetOfClip` for
+find in library) and finds unused files. Tags and notes are optional `MediaAssetDto` fields (`tags`, `note`);
+editing them, like reordering the tray, is saved with the project and is not an undo step. "Remove unused"
+considers a file used if it appears in the timeline, in any state undo or redo can reach (`EditHistory.reachableTimelines`)
+or on the clipboard, so an undo can never meet a file that is no longer in the library.
+
+**Markers.** `MarkerDto` and `Marker` gain optional `note` (200 characters) and `color` (red, orange, yellow,
+green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
+a snapshot version bump); the colour shows in the dialog and in exports.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
