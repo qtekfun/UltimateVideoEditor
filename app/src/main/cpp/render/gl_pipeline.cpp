@@ -146,8 +146,9 @@ void GlPipeline::releaseRetired() {
     }
 }
 
-Status GlPipeline::uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, Error* error) {
-    if (key == 0 || width <= 0 || height <= 0 || rgba == nullptr) {
+Status GlPipeline::uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, Error* error, int displayWidth,
+                               int displayHeight) {
+    if (key == 0 || width <= 0 || height <= 0 || rgba == nullptr || displayWidth < 0 || displayHeight < 0) {
         if (error != nullptr) *error = Error{Status::InvalidArgument, "invalid title texture"};
         return Status::InvalidArgument;
     }
@@ -161,6 +162,8 @@ Status GlPipeline::uploadTitle(uint32_t key, int width, int height, const uint8_
     TitleTexture entry;
     entry.width = width;
     entry.height = height;
+    entry.displayWidth = displayWidth > 0 ? displayWidth : width;
+    entry.displayHeight = displayHeight > 0 ? displayHeight : height;
     glGenTextures(1, &entry.texture);
     glBindTexture(GL_TEXTURE_2D, entry.texture);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
@@ -632,9 +635,10 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
         int layerH = 0;
         if (titleLayer) {
             const TitleTexture& title = titleTextures_.at(layer.titleKey);
-            map = titleQuadMap(canvasWidth, canvasHeight, title.width, title.height, layer.transform);
-            layerW = title.width;
-            layerH = title.height;
+            // Drawn at its display size: a still stored at its native size is scaled by the GPU to its fit.
+            map = titleQuadMap(canvasWidth, canvasHeight, title.displayWidth, title.displayHeight, layer.transform);
+            layerW = title.displayWidth;
+            layerH = title.displayHeight;
         } else {
             int displayW = 0;
             int displayH = 0;

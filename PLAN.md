@@ -114,12 +114,11 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - Keep CLAUDE.md and SPECS.md updated when decisions change.
 
 ## Deferred
-- Frame blending option for slow motion, pitch-preserving time stretch, animated GIF/WebP (first frame only), dragging lane headers,
+- Frame blending option for slow motion, pitch-preserving time stretch, dragging lane headers,
   dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, viewer thumbnails in motion for multicam.
   (HSL qualifier: the effect, its grouped editor and the eyedropper are done, see DECISIONS.md "HSL qualifier"; host-tested only.)
 
-- Frame blending option for slow motion, pitch-preserving time stretch, animated WebP pictures frame by frame (GIF is done:
-  `engine/still/Gif.kt`; WebP delays are read but its frames show the first picture), dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
+- Frame blending option for slow motion, pitch-preserving time stretch, dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
 
 ## Verification debt
 
@@ -137,6 +136,7 @@ the Pixel 8 is named; the Pixel 8 is a debug device, not the reference).
 | Export | Many ffprobe-checked exports on the OPPO; ETA text and a full UI export (Pixel) | Cancel, Share, HDR HEVC Main10 on an HDR display, real footage colour, long-GOP 4K, two-layer speed |
 | Colour | Grade and scopes render and respond (Pixel) | HLG/SDR mixing look, LUT 3D path, save/apply a look, copy/paste, scopes cost at 4K60 |
 | Titles, captions, stickers | Title and sticker blocks (Pixel) | Layer editor, fonts import, presets, SRT/VTT import, the eight caption styles, stickers and emoji art, photos (EXIF, HEIC) |
+| Animated GIF/WebP, picture memory | Not seen | Import and play a GIF and an animated WebP (lossy, lossless, transparent), loop, scrub back, export one with hundreds of frames on a 4K canvas (check the picture budget in `dumpsys meminfo`), stills drawn at the same size and place as before the native-size change (EXIF-rotated photo, small photo on a big canvas, effects on a still) |
 | Keyframes | Not seen | Diamonds, lane drag, exported frames against preview |
 | Speed and slow motion | Export of freeze/2x/reverse/ramp/0.5x checked frame by frame (OPPO); 0.25x interpolation PSNR 43.9 dB vs 35.9 dB (Pixel) | Inspector and curve editor, reverse in preview, denoise/deflicker on real footage |
 | Stabiliser and tracking | Stabiliser demo export 21.5 to 42.6 dB (Pixel) | Inspector sections, live preview, tracking on real clips, attaching a title to a path |

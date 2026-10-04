@@ -24,9 +24,17 @@ import kotlin.math.max
  * buffer. The size is in project canvas pixels, so the compositor draws it 1:1 (then applies the
  * clip's transform). Shared by the preview and the exporter, which is what keeps them identical.
  */
-class TitleBitmap(val width: Int, val height: Int, val pixels: ByteBuffer) {
+class TitleBitmap(
+    val width: Int,
+    val height: Int,
+    val pixels: ByteBuffer,
+    /** Canvas pixels the picture covers at scale 1; a still keeps its native size and is drawn scaled to this. */
+    val displayWidth: Int = width,
+    val displayHeight: Int = height,
+) {
     init {
         require(width > 0 && height > 0) { "title bitmap must not be empty: ${width}x$height" }
+        require(displayWidth > 0 && displayHeight > 0) { "display size must be positive: ${displayWidth}x$displayHeight" }
         require(pixels.isDirect && pixels.remaining() >= width * height * BYTES_PER_PIXEL) { "title pixels do not match ${width}x$height" }
     }
 

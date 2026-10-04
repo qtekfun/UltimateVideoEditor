@@ -339,7 +339,8 @@ class EditorPreview(
                     onError(outcome.exceptionOrNull()?.message ?: "A picture could not be shown")
                 } else {
                     try {
-                        engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
+                        stillKeys.resize(key, bitmap.width.toLong() * bitmap.height * 4)
+                        engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels, bitmap.displayWidth, bitmap.displayHeight)
                         uploadedStills += key
                     } catch (e: PreviewException) {
                         brokenStills += key

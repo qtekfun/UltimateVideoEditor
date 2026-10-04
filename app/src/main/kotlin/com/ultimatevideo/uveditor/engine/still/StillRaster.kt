@@ -26,9 +26,9 @@ data class StillRef(val kind: StillKind, val id: String, val frame: Int = 0)
 class StillRasterException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * Turns a still into the premultiplied RGBA picture the compositor draws like a title: in project
- * canvas pixels, 1:1, centred, then transformed by the clip. Photos are fitted into the canvas
- * (contain, EXIF orientation applied); stickers get a size relative to the canvas. The preview and
+ * Turns a still into the premultiplied RGBA picture the compositor draws like a title: centred on the canvas, then
+ * transformed by the clip. Photos keep their native size in the texture (reduced only when larger than their fit)
+ * and carry the display size of the contain fit, EXIF orientation applied; stickers get a size relative to the canvas. The preview and
  * the exporter both go through this, which keeps them identical.
  */
 fun interface StillRasterizer {
@@ -53,6 +53,22 @@ object StillFit {
         val w = (srcWidth * scale).roundToInt().coerceIn(1, min(canvasWidth, MAX_SIDE))
         val h = (srcHeight * scale).roundToInt().coerceIn(1, min(canvasHeight, MAX_SIDE))
         return w to h
+    }
+
+    /**
+     * How a picture is stored and drawn: the texture keeps the picture's native size and is only reduced when the
+     * picture is larger than its fit (a 50 MP photo on a 1080p canvas); the GPU scales it to the display size, which
+     * is the same contain fit as before, so what is drawn does not change but a small picture no longer costs a
+     * canvas-size bitmap.
+     */
+    data class Plan(val textureWidth: Int, val textureHeight: Int, val displayWidth: Int, val displayHeight: Int) {
+        val textureBytes: Long get() = textureWidth.toLong() * textureHeight * 4
+    }
+
+    fun plan(srcWidth: Int, srcHeight: Int, canvasWidth: Int, canvasHeight: Int): Plan {
+        val (dw, dh) = contain(srcWidth, srcHeight, canvasWidth, canvasHeight)
+        val reduce = srcWidth.toLong() * srcHeight > dw.toLong() * dh
+        return if (reduce) Plan(dw, dh, dw, dh) else Plan(srcWidth, srcHeight, dw, dh)
     }
 
     /** Side of a sticker's square picture on a canvas. */
@@ -82,10 +98,15 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
 
     override fun rasterize(ref: StillRef, canvasWidth: Int, canvasHeight: Int): TitleBitmap {
         require(canvasWidth > 0 && canvasHeight > 0) { "canvas must be positive: ${canvasWidth}x$canvasHeight" }
-        val bitmap = when (ref.kind) {
-            StillKind.PHOTO -> decodeAnimatedFrame(ref, canvasWidth, canvasHeight) ?: decodePhoto(ref.id, canvasWidth, canvasHeight)
-            StillKind.STICKER -> drawSticker(ref.id, canvasWidth, canvasHeight)
+        val stored = when (ref.kind) {
+            StillKind.PHOTO -> {
+                val raw = decodeAnimatedFrame(ref) ?: decodePhoto(ref.id, canvasWidth, canvasHeight)
+                val plan = StillFit.plan(raw.width, raw.height, canvasWidth, canvasHeight)
+                Stored(scaleTo(raw, plan.textureWidth, plan.textureHeight), plan.displayWidth, plan.displayHeight)
+            }
+            StillKind.STICKER -> drawSticker(ref.id, canvasWidth, canvasHeight).let { Stored(it, it.width, it.height) }
         }
+        val bitmap = stored.bitmap
         var argb: Bitmap? = null
         try {
             // Wide-colour or HDR photos can decode to a float config; the compositor wants 8-bit RGBA.
@@ -93,7 +114,7 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
             val pixels = ByteBuffer.allocateDirect(argb.width * argb.height * BYTES_PER_PIXEL)
             argb.copyPixelsToBuffer(pixels)
             pixels.rewind()
-            return TitleBitmap(argb.width, argb.height, pixels)
+            return TitleBitmap(argb.width, argb.height, pixels, stored.displayWidth, stored.displayHeight)
         } catch (e: OutOfMemoryError) {
             throw StillRasterException("Not enough memory to show a picture", e)
         } finally {
@@ -124,12 +145,14 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
             throw StillRasterException("Not enough memory to decode a picture", e)
         }
         // The decoder has applied the EXIF orientation, so width and height are the upright ones.
-        return fitToCanvas(decoded, canvasWidth, canvasHeight)
+        return decoded
     }
 
-    /** [decoded] fitted inside the canvas (contain); the input bitmap is recycled when a new one is made. */
-    private fun fitToCanvas(decoded: Bitmap, canvasWidth: Int, canvasHeight: Int): Bitmap {
-        val (w, h) = StillFit.contain(decoded.width, decoded.height, canvasWidth, canvasHeight)
+    /** A bitmap stored as a texture and the canvas size it is drawn at. */
+    private class Stored(val bitmap: Bitmap, val displayWidth: Int, val displayHeight: Int)
+
+    /** [decoded] scaled to [w] x [h]; the input bitmap is recycled when a new one is made. */
+    private fun scaleTo(decoded: Bitmap, w: Int, h: Int): Bitmap {
         if (w == decoded.width && h == decoded.height) return decoded
         return try {
             Bitmap.createScaledBitmap(decoded, w, h, true)
@@ -140,18 +163,25 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         }
     }
 
-    // The last few GIFs opened, so playing or exporting one does not re-read the file for every frame.
-    private val gifs = object : LinkedHashMap<String, GifAnimation?>(4, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, GifAnimation?>?) = size > MAX_OPEN_GIFS
+    // The last few animated pictures opened, so playing or exporting one does not re-read the file for every frame.
+    private val animations = object : LinkedHashMap<String, AnimatedPicture?>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AnimatedPicture?>?) = size > MAX_OPEN_ANIMATIONS
     }
 
-    private fun gifOf(uri: String): GifAnimation? = synchronized(gifs) {
-        if (gifs.containsKey(uri)) return gifs[uri]
-        val gif = try {
-            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readNBytes(MAX_GIF_BYTES) }
-            bytes?.let { GifAnimation.parse(it) }
+    private fun animationOf(uri: String): AnimatedPicture? = synchronized(animations) {
+        if (animations.containsKey(uri)) return animations[uri]
+        val animation = try {
+            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readNBytes(MAX_ANIMATION_BYTES) }
+            when {
+                bytes == null -> null
+                AnimationSniff.isGif(bytes) -> GifAnimation.parse(bytes)
+                AnimationSniff.isWebp(bytes) -> WebpAnimation.parse(bytes, PlatformWebpDecoder)
+                else -> null
+            }
         } catch (e: GifFormatException) {
-            null // not a GIF (an animated WebP, say): the platform decoder shows its first frame
+            null // the platform decoder shows the first frame
+        } catch (e: WebpFormatException) {
+            null // a still WebP, or one this reader cannot use: the platform decoder shows its first frame
         } catch (e: IOException) {
             null
         } catch (e: SecurityException) {
@@ -159,24 +189,27 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         } catch (e: OutOfMemoryError) {
             null
         }
-        gifs[uri] = gif
-        return gif
+        animations[uri] = animation
+        return animation
     }
 
     /**
-     * Frame [StillRef.frame] of an animated GIF, composited by [GifAnimation]; null for a still photo, frame 0, and
-     * any file that is not a GIF this decoder reads (animated WebP shows its first frame through [decodePhoto]).
+     * Frame [StillRef.frame] of an animated GIF or WebP, composited by [AnimatedPicture]; null for a still photo,
+     * frame 0, and any file that is not an animation this reader handles (the platform decoder shows its first frame).
      */
-    private fun decodeAnimatedFrame(ref: StillRef, canvasWidth: Int, canvasHeight: Int): Bitmap? {
+    private fun decodeAnimatedFrame(ref: StillRef): Bitmap? {
         if (ref.frame <= 0) return null
-        val gif = gifOf(ref.id) ?: return null
-        val pixels = gif.render(ref.frame % gif.frameCount)
-        val frame = try {
-            Bitmap.createBitmap(pixels, gif.width, gif.height, Bitmap.Config.ARGB_8888)
+        val animation = animationOf(ref.id) ?: return null
+        val pixels = try {
+            animation.render(ref.frame % animation.frameCount)
+        } catch (e: WebpFormatException) {
+            throw StillRasterException("An animated picture could not be decoded", e)
+        }
+        return try {
+            Bitmap.createBitmap(pixels, animation.width, animation.height, Bitmap.Config.ARGB_8888)
         } catch (e: OutOfMemoryError) {
             throw StillRasterException("Not enough memory to show an animated picture", e)
         }
-        return fitToCanvas(frame, canvasWidth, canvasHeight)
     }
 
     private fun drawSticker(id: String, canvasWidth: Int, canvasHeight: Int): Bitmap {
@@ -192,10 +225,15 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
     }
 
     private companion object {
-        const val MAX_OPEN_GIFS = 2
-        const val MAX_GIF_BYTES = 48 * 1024 * 1024
+        const val MAX_OPEN_ANIMATIONS = 2
+        const val MAX_ANIMATION_BYTES = 48 * 1024 * 1024
         const val BYTES_PER_PIXEL = 4
     }
+}
+
+/** The memory one place decides for decoded pictures: the preview's uploaded stills and the exporter's frame cache. */
+object PictureBudget {
+    const val DEFAULT_BYTES = 128L * 1024 * 1024
 }
 
 /**
@@ -207,7 +245,7 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
 class StillKeyCache(private val budgetBytes: Long = DEFAULT_BUDGET_BYTES) {
     private data class Appearance(val ref: StillRef, val canvasWidth: Int, val canvasHeight: Int)
 
-    private class Entry(val key: Int, val bytes: Long)
+    private class Entry(val key: Int, var bytes: Long)
 
     private val entries = LinkedHashMap<Appearance, Entry>(INITIAL_CAPACITY, LOAD_FACTOR, true)
     private val evicted = ArrayList<Int>()
@@ -222,18 +260,37 @@ class StillKeyCache(private val budgetBytes: Long = DEFAULT_BUDGET_BYTES) {
     fun keyFor(ref: StillRef, canvasWidth: Int, canvasHeight: Int): Pair<Int, Boolean> {
         val appearance = Appearance(ref, canvasWidth, canvasHeight)
         entries[appearance]?.let { return it.key to false }
-        // A picture never exceeds the canvas, so its pixels are bounded by it; stickers are smaller still.
-        val bytes = canvasWidth.toLong() * canvasHeight * BYTES_PER_PIXEL
+        // A guess until the picture is decoded and [resize] gives its real size: a picture never exceeds the canvas,
+        // but a native-size one is usually far smaller, so the guess is capped.
+        val bytes = minOf(canvasWidth.toLong() * canvasHeight * BYTES_PER_PIXEL, INITIAL_ESTIMATE_BYTES)
         val entry = Entry(next++, bytes)
         entries[appearance] = entry
         used += bytes
-        while (used > budgetBytes && entries.size > 1) {
-            val eldest = entries.entries.first()
+        evictOver(entry.key)
+        return entry.key to true
+    }
+
+    /** Records the real size of the texture behind [key] once it is decoded, and evicts older pictures if needed. */
+    fun resize(key: Int, bytes: Long) {
+        val entry = entries.values.firstOrNull { it.key == key } ?: return
+        used += bytes - entry.bytes
+        entry.bytes = bytes
+        evictOver(key)
+    }
+
+    /** Estimated texture memory of the pictures now held. */
+    val usedBytes: Long get() = used
+
+    // Evicts the least recently used until within budget, never [keep] and never the last picture.
+    private fun evictOver(keep: Int) {
+        val it = entries.entries.iterator()
+        while (used > budgetBytes && entries.size > 1 && it.hasNext()) {
+            val eldest = it.next()
+            if (eldest.value.key == keep) continue
             evicted += eldest.value.key
             used -= eldest.value.bytes
-            entries.remove(eldest.key)
+            it.remove()
         }
-        return entry.key to true
     }
 
     /** True while [key] has not been evicted. */
@@ -245,9 +302,40 @@ class StillKeyCache(private val budgetBytes: Long = DEFAULT_BUDGET_BYTES) {
     companion object {
         /** Well above the title cache's keys, which count up from 1 and hold at most a few dozen. */
         const val FIRST_KEY = 1_000_000
-        const val DEFAULT_BUDGET_BYTES = 192L * 1024 * 1024
+        const val DEFAULT_BUDGET_BYTES = PictureBudget.DEFAULT_BYTES
+        private const val INITIAL_ESTIMATE_BYTES = 4L * 1024 * 1024
         private const val BYTES_PER_PIXEL = 4
         private const val INITIAL_CAPACITY = 16
         private const val LOAD_FACTOR = 0.75f
+    }
+}
+
+/** Recognises the animated formats by their first bytes, not by what the file claims to be. */
+object AnimationSniff {
+    fun isGif(b: ByteArray): Boolean = b.size >= 6 && b[0] == 'G'.code.toByte() && b[1] == 'I'.code.toByte() && b[2] == 'F'.code.toByte() && b[3] == '8'.code.toByte()
+
+    fun isWebp(b: ByteArray): Boolean = b.size >= 12 && String(b, 0, 4, Charsets.ISO_8859_1) == "RIFF" && String(b, 8, 4, Charsets.ISO_8859_1) == "WEBP"
+}
+
+/** Decodes the standalone still WebP of one animation frame with the platform: lossy, lossless and alpha. */
+internal object PlatformWebpDecoder : WebpStillDecoder {
+    override fun decode(webp: ByteArray): WebpPixels {
+        val bitmap = try {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(webp))) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                // Straight alpha: the animation composites frames itself, and the compositor premultiplies once.
+                decoder.setUnpremultipliedRequired(true)
+                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
+            }
+        } catch (e: IOException) {
+            throw WebpFormatException("a WebP frame could not be decoded: ${e.message}")
+        }
+        try {
+            val argb = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(argb, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            return WebpPixels(bitmap.width, bitmap.height, argb)
+        } finally {
+            bitmap.recycle()
+        }
     }
 }

@@ -1131,3 +1131,31 @@ null-object test doubles `NoLayoutStore` and `InMemoryProxyPrefs`. All helper sc
 **Why:** export needs an exact frame per project frame; `AnimatedImageDrawable` only plays against the wall clock. A decoder written for the JVM can also be tested on the host with a real LZW encoder (table growth, clear codes, interlace, disposal).
 **Not done:** animated WebP frames (the file's delays are read, but decoding needs a VP8/VP8L decoder: it shows the first frame), the GIF loop count (always loops), thumbnails for later frames (first frame), frame blending. Export keeps every distinct animation frame as a canvas-sized picture in memory (existing limit for stills): a GIF with hundreds of frames on a 4K canvas can run out of memory. Not seen on a device: the Android parts (`AndroidStillRasterizer.decodeAnimatedFrame`, import probe) are compiled but never run; the decoder, timing, plan and scene logic are covered by host tests.
 **Alternative:** `AnimatedImageDrawable` + `Choreographer`-free stepping (not deterministic), or FFmpeg (deferred), or converting GIFs to video at import (large files, lossy).
+
+## Animated WebP and bounded picture memory
+
+**WebP without a VP8 decoder:** the RIFF container is parsed in Kotlin (VP8X, ANIM, ANMF, ALPH/VP8/VP8L, with limits on canvas
+size and frame count), each frame is wrapped as a standalone still WebP (a VP8X header sized to the frame, alpha flag from ALPH or the
+VP8L alpha bit, even-padded chunks) and decoded by the platform's `ImageDecoder` (minSdk 33 reads lossy, lossless and alpha). Frames are
+composited with the file's blend and dispose bits on a transparent canvas; the ANIM background colour is only a hint and is not painted.
+Why: a VP8 decoder is a large, risky amount of code for something the platform already does. Alternative: bundle libwebp (a third-party
+library; the project avoids them) or decode with FFmpeg only when the optional fallback is built.
+**Loop count ignored for WebP too:** as for GIF an animation always loops, because a clip's length is the user's choice.
+**Compositor not shared with GIF:** GIF composites palette indices with restore-previous; WebP composites decoded ARGB with alpha blending.
+Both implement `AnimatedPicture` and share `CanvasSnapshots`, which is the part that was worth sharing.
+**Seeking:** a canvas snapshot every N frames (N grows with the canvas so snapshots total at most 32 MB, at least 8 frames apart), so a
+seek back replays fewer than N frames instead of everything from frame 0. Alternative: keep every frame (the old memory problem).
+**Stills at native size:** the texture keeps the picture's size (reduced only if larger than its fit) and the upload carries a display
+size, instead of one canvas-size bitmap per frame. A 480x270 GIF frame on a 4K canvas is 0.5 MB instead of 33 MB. The compositor draws
+and runs effects at the display size, so what is drawn does not change; the GPU does the upscale with linear filtering (the old path
+upscaled on the CPU with a bilinear filter too). Not pixel-compared on a device: the GL path cannot run on the host.
+**One budget, 128 MB (`PictureBudget`):** the preview's key cache accounts real texture sizes after decoding (an initial guess is capped
+at 4 MB); the exporter no longer uploads every still before the first frame: the engine asks Kotlin for a picture the first time a frame
+draws it and a native LRU (`PictureResidency`) releases the oldest beyond the budget, never the pictures the current frame draws, so the
+budget can be exceeded only by what one frame needs. Titles are still uploaded up front (few, small). A loop over an animation larger
+than the budget re-decodes the frames it evicted (forward play costs one frame decode per frame). Alternative: lower the quality of
+frames when over budget; rejected, it would change how the picture looks.
+**Early check:** before an export starts, the first frame of each distinct still source is rasterised once, so a missing or unsupported
+file fails with a clear message instead of halfway through.
+**JSON:** no new fields; the stored clip and asset formats are unchanged.
+

@@ -25,6 +25,8 @@ struct TitleImage {
     uint32_t key = 0;
     int32_t width = 0;
     int32_t height = 0;
+    int32_t displayWidth = 0;   // canvas pixels it covers at scale 1; 0 = width (titles are 1:1)
+    int32_t displayHeight = 0;
     std::vector<uint8_t> rgba;
 };
 
@@ -33,6 +35,17 @@ struct LutImage {
     uint32_t key = 0;
     int32_t size = 0;
     std::vector<float> rgb;
+};
+
+// A still the exporter asks for while it renders (see ExportParams::pictureLoader): premultiplied RGBA, `width` x
+// `height`, drawn at `displayWidth` x `displayHeight` canvas pixels. `rgba` stays valid until `hold` is released.
+struct PictureData {
+    int32_t width = 0;
+    int32_t height = 0;
+    int32_t displayWidth = 0;
+    int32_t displayHeight = 0;
+    const uint8_t* rgba = nullptr;
+    std::shared_ptr<void> hold;
 };
 
 struct ExportParams {
@@ -51,7 +64,12 @@ struct ExportParams {
     int32_t audioBitrate = 192000;
     int64_t totalFrames = 0;
     std::vector<VideoClip> clips;
-    std::vector<TitleImage> titles;  // referenced by VideoClip::titleKey
+    std::vector<TitleImage> titles;  // referenced by VideoClip::titleKey, uploaded before the first frame
+    // Stills (photos, stickers, animation frames) are not uploaded up front: a key that is not in `titles` is requested
+    // here when a frame first draws it, and the least recently used are released beyond `pictureBudgetBytes`.
+    // Returns false when the picture cannot be loaded.
+    std::function<bool(uint32_t key, PictureData* out)> pictureLoader;
+    int64_t pictureBudgetBytes = 128LL * 1024 * 1024;
     std::vector<LutImage> luts;      // referenced by the LUT effects' first value
     // (assetKey, fd): the job owns the descriptors and closes them.
     std::vector<std::pair<int64_t, int>> assetFds;

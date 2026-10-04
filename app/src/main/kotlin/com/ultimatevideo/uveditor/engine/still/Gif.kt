@@ -12,26 +12,42 @@ class GifFormatException(message: String) : Exception(message)
  * the start only when asked for an earlier frame than the last one it drew, so playing forward is linear.
  */
 class GifAnimation private constructor(
-    val width: Int,
-    val height: Int,
+    override val width: Int,
+    override val height: Int,
     private val frames: List<GifFrame>,
-) {
-    val frameCount: Int get() = frames.size
+) : AnimatedPicture {
+    override val frameCount: Int get() = frames.size
 
     /** Delay of every frame as the file states it, in milliseconds (a GIF stores hundredths of a second). */
-    val rawDelaysMs: List<Int> get() = frames.map { it.delayCs * 10 }
+    override val rawDelaysMs: List<Int> get() = frames.map { it.delayCs * 10 }
+
+    override var framesDrawn: Long = 0
+        private set
 
     private var canvas = IntArray(width * height)
     private var drawn = -1
     private var previousCanvas: IntArray? = null
+    private val snapshots = CanvasSnapshots(frames.size, width * height)
 
     /** The composited picture after frame [index]; the array is a copy the caller owns. */
     @Synchronized
-    fun render(index: Int): IntArray {
+    override fun render(index: Int): IntArray {
         require(index in frames.indices) { "frame $index of ${frames.size}" }
-        if (index < drawn) reset()
+        if (index < drawn) restoreBefore(index)
         while (drawn < index) drawNext()
         return canvas.copyOf()
+    }
+
+    /** Goes back to the newest snapshot at or before [index] (or to the empty canvas) so replaying is short. */
+    private fun restoreBefore(index: Int) {
+        val near = snapshots.floor(index)
+        if (near == null) {
+            reset()
+        } else {
+            canvas = near.second.canvas.copyOf()
+            previousCanvas = near.second.previous?.copyOf()
+            drawn = near.first
+        }
     }
 
     private fun reset() {
@@ -54,6 +70,8 @@ class GifAnimation private constructor(
         if (next.disposal == DISPOSE_PREVIOUS) previousCanvas = canvas.copyOf()
         drawFrame(next)
         drawn++
+        framesDrawn++
+        snapshots.offer(drawn, canvas, previousCanvas)
     }
 
     private fun clearRect(f: GifFrame) {

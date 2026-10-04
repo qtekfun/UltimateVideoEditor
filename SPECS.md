@@ -542,10 +542,21 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
 - **Render path:** there is no decoder. `engine/still/StillRasterizer` turns a still into the same premultiplied RGBA picture a title
   becomes (drawn 1:1, centred, then transformed), so the compositor, effects, blend modes, keyframes, HDR reference-white handling and
   the exporter (`drawScene`) need no change. A photo is decoded once with `ImageDecoder` (EXIF orientation applied, sRGB, reduced by
-  a power-of-two sample size) and fitted *inside the canvas* (contain); a sticker is a square of 35 % of the canvas' shorter side.
-  The preview decodes off the main thread and shows the layer when the texture is uploaded; `StillKeyCache` evicts by an estimated
-  byte budget (192 MB, keys start at 1,000,000 so they never collide with title keys). The export plan rasterises each distinct still
-  once and shares one key space with titles.
+  a power-of-two sample size) and *drawn* fitted inside the canvas (contain); a sticker is a square of 35 % of the canvas' shorter side.
+  The texture keeps the picture's **native size** and is reduced only when it is larger than its fit (`StillFit.plan`); the upload
+  carries a separate *display size* (the contain fit, in canvas pixels) that the compositor uses for the quad and for effects, so the
+  GPU scales a small picture up and nothing is stored at canvas size. The preview decodes off the main thread and shows the layer when
+  the texture is uploaded; `StillKeyCache` guesses a size until `resize` records the real one and evicts by one shared byte budget
+  (`PictureBudget`, 128 MB; keys start at 1,000,000 so they never collide with title keys). The export plan names each distinct still
+  once and shares one key space with titles; the exporter does **not** upload them up front: the engine requests a still through the
+  listener (`loadPicture`) the first time a frame draws it, and `encode/picture_residency.h` releases the least recently used beyond the
+  budget, never the pictures the current frame draws. Sources are checked once before the export starts.
+- **Animated GIF and WebP:** both implement `AnimatedPicture` (`render(index)` composites on a transparent canvas; forward play costs
+  one frame per step; `CanvasSnapshots` keeps the canvas every N frames, N grown with the canvas size so snapshots stay within 32 MB, so a
+  seek back replays less than N frames). WebP is read from its RIFF container (`WebpContainerParser`: VP8X, ANIM, ANMF with
+  offset, duration, blend and dispose bits, with size and frame-count limits); every frame is wrapped as a standalone still WebP
+  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The file's loop count is ignored.
+  Frame timing is `AnimationTiming` for both (0 ms and 10 ms or less count as 100 ms).
 - **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
 
 ### 5.18 Markers, beat detection and text templates

@@ -79,7 +79,8 @@ the UI are cheap and non-blocking; heavy work is queued.
 | Decoded frames | native, `AHardwareBuffer`, LRU | strict byte budget (default 1 GB on the reference class), shared between open assets; eviction protects the playback window (SPECS 5.4) |
 | Decoders | native | the device's hardware limit (preview capped at 4); `DecoderPlanner` keeps the top layers |
 | Waveform peaks, thumbnails, stabiliser corrections, tracks, loudness | per project / app files | keyed by asset, range and a hash; stale entries are ignored; thumbnails use a GPU atlas with LRU and a memory budget |
-| Rasterised titles/stills/stickers | memory | bounded LRU keyed by a content hash |
+| Rasterised titles | memory | bounded LRU keyed by a content hash |
+| Stills (photos, stickers, GIF/WebP frames) | memory + GPU | stored at native size (reduced only when larger than their fit) and scaled by the GPU; one shared 128 MB budget (`PictureBudget`): the preview's `StillKeyCache` accounts real texture sizes, the exporter loads each picture on demand and a native LRU (`PictureResidency`) releases the oldest; animations keep a canvas snapshot every N frames for seeking (SPECS 5.17) |
 | Proxies | `cacheDir/proxies` | user budget (1 to 16 GB) with LRU eviction; never used for export (SPECS 5.31) |
 | Looks, LUTs, fonts, presets | app files | small, user-managed |
 
