@@ -145,6 +145,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
 | ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
+| Stack of clips with a play triangle | Media library | Opens the media library: tags, notes, where each file is used, remove unused, export a bundle, see [Media library](#media-library). |
 | ▮▮▮ | Quick edits | Cut silences from the selected base clip, or reframe a clip for another canvas shape, see [Quick edits](#quick-edits-cut-silences-and-reframe). |
 | ⚡ (lightning) | Proxy media | Opens the proxy sheet: small copies of heavy video for smooth editing, see [Proxy media](#proxy-media). |
 | Two faders | Mixer | Opens the mixer sheet, see [Sound](#sound). |
@@ -238,7 +239,8 @@ An indicator shows the action while you drag:
   overlays that start at or after the cut shift with them.
 - **On the base, over the body of a clip**: **Overwrite**. The covered footage is replaced; the base length
   does not change.
-- **On an overlay, audio or title lane**: overlapping clips are **overwritten**; free space is a plain move.
+- **On an overlay, audio or title lane, in a cut between two touching clips**: **Insert**. Only that lane's later clips shift right; nothing else moves.
+- **On an overlay, audio or title lane, elsewhere**: overlapping clips are **overwritten**; free space is a plain move.
 - **Above the top lane**: a green placeholder shows a **new lane** that the clip will move into.
 - **Far outside the lanes**: red tint, release to **cancel**.
 - Dragging a base clip up onto an overlay lane **lifts it off the base**: the base closes the gap and no
@@ -607,9 +609,10 @@ Open the **⋮ menu** in the project list and choose **About, privacy and help**
 
 ## Known limits
 
-- Several recent features are covered by automated tests but have had little time on a real device:
-  captions and animated styles, photos and stickers, beat detection, text templates, relink flow and
-  HDR export. Report anything odd with the steps you used.
+- Most features added since the first editor are covered by automated tests but have had little or no time on a real
+  phone (the per-area list is the *Verification debt* table in `PLAN.md`): captions and their styles, photos and stickers,
+  beat detection, templates, relink, HDR export, keyframes, stabiliser, tracking, proxies, multicam, interchange and the
+  new layout, tray and sheets. Report anything odd with the steps you used.
 - Sound tools and the mixer are covered by automated tests; they have had only a short check on a real device
   (the mixer sheet and meter opened and playback ran). Listen to a noise-suppressed clip before exporting.
 - Slow motion repeats frames (no blending). Audio speed change is varispeed.
@@ -619,7 +622,7 @@ Open the **⋮ menu** in the project list and choose **About, privacy and help**
 - A vertical drag that starts on a colour wheel or a curve moves it instead of scrolling the panel: scroll
   by starting the drag on a heading or in the gap between two wheels.
 - The scopes read the preview at 320 x 180 pixels, so fine detail in a 4K picture is sampled, not counted.
-- Inserting (shifting later clips) works on the base track only; other tracks overwrite.
+- On overlay, audio and title lanes an insert happens only in a cut between two touching clips; anywhere else a drop overwrites.
 - Bundles, EDL and FCPXML exports have been checked with automated tests and golden files, not yet in a real
   editor. A bundle's media is matched on another device only by name and size, among files your other projects
   already use; there is no search of the whole device.

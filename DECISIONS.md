@@ -1026,3 +1026,36 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Decision:** an original adaptive icon: three timeline clips (two in periwinkle, one in sky blue) and an amber playhead with a downward triangular head, on a deep blue-violet vertical gradient; layers `ic_launcher_background`, `ic_launcher_foreground`, `ic_launcher_monochrome` under `mipmap-anydpi` (also used as the round icon); manifest points to `@mipmap/ic_launcher` and `ic_launcher_round`. All foreground points are within about 30 units of the canvas centre, inside the 33-unit safe-zone radius, checked by `IconGeometryTest` from the path data (paths use only absolute M/L/Q/Z for that reason).
 **Why:** the placeholder vector was a play triangle; the release checklist required a designed icon, original and not resembling other editors.
 **Alternative:** a play triangle on the timeline (closer to generic video apps), or a raster icon set (larger APK, needs a design tool). Not seen rendered on a device; only the geometry is verified.
+
+## 2026-10-04 · Final cleanup
+
+**Flaky test root cause and fix.** `AudioToolsViewModelTest > a measurement that fails…` failed now and then with
+`UncaughtExceptionsBeforeTest`, which means an earlier test left an exception on a real thread. Reproduced under CPU load
+(1 failure in 15 runs, none in 40 unloaded): the proxy tests (`ProxyManagerTest`, `ProxyViewModelTest`, `ProxyWorkerTest`) shut
+their executor down with `shutdownNow()` without waiting, so the worker thread was still inside `ProxyWorker.runOne` when
+JUnit deleted the temporary folder; `index.flush()` then threw `FileNotFoundException`, which the worker did not catch
+(it caught `ProxyException`, `InterruptedException` and `RuntimeException`, but an `IOException` is none of them), so the
+exception escaped the coroutine and was reported at the start of the next `runTest`.
+**Chosen:** fix both ends. Production: `ProxyWorker` now treats an `IOException` like any failure of a job (the job is marked
+FAILED, the queue goes on) and its post-job housekeeping (evict, flush) can no longer end the loop; before, one full disk or
+vanished folder would have stopped every later proxy for the rest of the session. Tests: the three proxy tests wait for the
+executor to terminate before the folder is deleted, and two new `ProxyWorkerTest` cases fail on the old code and pass on the new
+one. **Alternative:** only waiting in the tests, which would have left the worker fragile. Stability after the fix: see the pull request.
+
+**SPECS renumbering.** Section 5 had duplicate and out-of-order numbers from parallel pull requests (two 5.21, two 5.22,
+two 5.25, a 5.6b, and Proxy media sitting after section 6). They are now 5.1 to 5.31 in order, with a table of contents. Commit
+and pull-request texts written before this cleanup use the old numbers; the mapping (old to new, by title) is: 5.6b 3D LUT
+effect to 5.7; 5.7 Titles and transitions to 5.8; 5.8 Undo/redo to 5.9; 5.9 Export to 5.10; 5.10 Captions to 5.11; 5.11 Keyframes,
+canvas formats to 5.12; 5.12 Effects to 5.13; 5.13 Retiming to 5.14; 5.14 Lane layout to 5.15; 5.15 Animated captions to 5.16;
+5.16 Still clips to 5.17; 5.17 Markers and beats to 5.18; 5.18 Colour grade to 5.20; 5.20 Parameter keyframes to 5.23; the second
+5.21 Interchange to 5.24; 5.23 Auto cut to 5.25; the first 5.25 Multilayer titles to 5.26; 5.24 Filter pack to 5.27; the second
+5.25 Transition pack to 5.28; 5.26 Multicam to 5.29; 5.27 Project templates to 5.30; the stray 5.22 Proxy media to 5.31.
+5.19 (multiselection), 5.21 (stabiliser) and 5.22 (motion tracking) keep their numbers.
+
+**PLAN convention.** A checked box now means "implemented and covered by the automated tests that pass in CI"; what has been seen on
+a phone is tracked separately in the *Verification debt* table so the owner can walk through it on the reference phone.
+**Alternative:** leave boxes unticked until seen on a device, which hid how much was actually built.
+
+**Dead code.** Removed the unused `Stills` constant object. Kept on purpose: `CaptionPlanner` and the `Transcript` types (the `.srt`
+and `.vtt` importer builds its captions with them), `previewTargetAt` (used by tests as a convenience over `previewLayersAt`), and the
+null-object test doubles `NoLayoutStore` and `InMemoryProxyPrefs`. All helper scripts are referenced from the docs, tests or CI.
