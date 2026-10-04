@@ -901,6 +901,21 @@ errors, never guessed.
 (`EditorIntent.LayerGesture`, part of the title edit session and committed by `EndAppearanceEdit`), and `LayerHandleOverlay` draws a ring
 and cross at its centre (plus its outline for a shape).
 
+### 5.24 Filter pack
+
+`FilterPack` (domain) holds 20 looks written for this project, each a `LookParams` made of a few ordered
+operations on gamma-encoded RGB: exposure gain, mid-tone gamma, contrast about 0.5, warmth and tint offsets,
+saturation, a black-and-white blend, a sepia blend, shadow and highlight tinting weighted by `(1-l)^2` and `l^2`,
+and a raised black point; the result is clamped to 0..1. `FilterPack.cube` bakes a look into a 17-point `.cube`
+text (red varies fastest), deterministically, so `LutStore.keyOf` gives every look a stable library key. The LUT
+picker lists the pack first, with a swatch computed from the same function on six reference colours; choosing a
+look calls `LutLibraryViewModel.installFilter`, which imports the generated cube into the LUT library (a no-op if
+present) and adds a LUT effect to the clip. From there it is an ordinary LUT: intensity, reorder, keyframes through
+the effect parameter tracks, preview and export through the existing LUT path. Properties covered by tests: the
+Original look is the identity, every look stays in 0..1, grey is non-decreasing in every channel and in luma, the
+black-and-white looks have equal channels, a cube reproduces the look on its lattice, and installing twice stores it
+once. The pack contains no third-party data.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
