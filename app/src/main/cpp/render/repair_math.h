@@ -130,8 +130,18 @@ struct FlowSample {
     float conf = 0.0f;  // 0 (no usable match: blend frames) .. 1
 };
 
-// Flow from A to B at every pixel of the `w` x `h` luma images. A best match on the border of the
-// search window is an object that moved further than can be measured, so it gets no confidence.
+// Offset (-0.5..0.5) of the true minimum from the best integer displacement, from a parabola through the costs
+// one step before it, at it and one step after it. Flat or inverted costs (no clear minimum) give 0.
+inline float parabolicOffset(float before, float centre, float after) {
+    const float denominator = before - 2.0f * centre + after;
+    if (denominator < 1e-6f) return 0.0f;
+    return std::clamp(0.5f * (before - after) / denominator, -0.5f, 0.5f);
+}
+
+// Flow from A to B at every pixel of the `w` x `h` luma images. The best integer displacement is refined to a
+// fraction of a pixel with a parabola fit, which is what slow subtle motion (a fraction of a flow pixel per
+// frame) needs. A best match on the border of the search window is an object that moved further than can be
+// measured, so it gets no confidence.
 inline std::vector<FlowSample> blockMatch(const std::vector<float>& lumaA, const std::vector<float>& lumaB, int w, int h,
                                           int radius, int blockHalf) {
     std::vector<FlowSample> out(static_cast<size_t>(w) * static_cast<size_t>(h));
@@ -141,6 +151,15 @@ inline std::vector<FlowSample> blockMatch(const std::vector<float>& lumaA, const
         return img[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)];
     };
     const float taps = static_cast<float>((2 * blockHalf + 1) * (2 * blockHalf + 1));
+    auto meanSad = [&](int x, int y, int dx, int dy) {
+        float sad = 0.0f;
+        for (int by = -blockHalf; by <= blockHalf; ++by) {
+            for (int bx = -blockHalf; bx <= blockHalf; ++bx) {
+                sad += std::fabs(fetch(lumaA, x + bx, y + by) - fetch(lumaB, x + bx + dx, y + by + dy));
+            }
+        }
+        return sad / taps;
+    };
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             float best = 1e30f;
@@ -149,13 +168,7 @@ inline std::vector<FlowSample> blockMatch(const std::vector<float>& lumaA, const
             int bestDy = 0;
             for (int dy = -radius; dy <= radius; ++dy) {
                 for (int dx = -radius; dx <= radius; ++dx) {
-                    float sad = 0.0f;
-                    for (int by = -blockHalf; by <= blockHalf; ++by) {
-                        for (int bx = -blockHalf; bx <= blockHalf; ++bx) {
-                            sad += std::fabs(fetch(lumaA, x + bx, y + by) - fetch(lumaB, x + bx + dx, y + by + dy));
-                        }
-                    }
-                    const float mean = sad / taps;
+                    const float mean = meanSad(x, y, dx, dy);
                     const float cost = mean + kDisplacementPenalty * static_cast<float>(std::abs(dx) + std::abs(dy));
                     if (cost < best) {
                         best = cost;
@@ -166,9 +179,15 @@ inline std::vector<FlowSample> blockMatch(const std::vector<float>& lumaA, const
                 }
             }
             float conf = 1.0f - smoothstep(kConfGood, kConfBad, bestMean);
-            if (std::max(std::abs(bestDx), std::abs(bestDy)) >= radius) conf = 0.0f;
-            out[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] =
-                FlowSample{static_cast<float>(bestDx), static_cast<float>(bestDy), conf};
+            float fx = static_cast<float>(bestDx);
+            float fy = static_cast<float>(bestDy);
+            if (std::max(std::abs(bestDx), std::abs(bestDy)) >= radius) {
+                conf = 0.0f;
+            } else {
+                fx += parabolicOffset(meanSad(x, y, bestDx - 1, bestDy), bestMean, meanSad(x, y, bestDx + 1, bestDy));
+                fy += parabolicOffset(meanSad(x, y, bestDx, bestDy - 1), bestMean, meanSad(x, y, bestDx, bestDy + 1));
+            }
+            out[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = FlowSample{fx, fy, conf};
         }
     }
     return out;
@@ -194,11 +213,15 @@ inline FlowSample sampleFlow(const std::vector<FlowSample>& flow, int fw, int fh
 }
 
 // The frame at fraction `t` (0 = A, 1 = B) between two source frames: every output pixel takes A from
-// where the content was and B from where it is going, along the flow at that pixel, and the two are
-// mixed by t. Where the flow has no confidence the plain blend of the two frames is used instead.
+// where the content was and B from where it is going, along the flow of the content that is at this pixel
+// at time t, and the two are mixed by t. The flow lives on A's grid, so it is looked up a second time at the
+// place the content came from (one fixed-point step), which keeps the edges of moving objects sharp instead of
+// smearing them by the distance they travel. Where the flow has no confidence the plain blend of the two frames
+// is used instead.
 inline Rgb3 interpolatePixel(const Image& a, const Image& b, const std::vector<FlowSample>& flow, int fw, int fh, float u,
                              float v, float t) {
-    const FlowSample f = sampleFlow(flow, fw, fh, u, v);
+    const FlowSample first = sampleFlow(flow, fw, fh, u, v);
+    const FlowSample f = sampleFlow(flow, fw, fh, u - t * first.dx / static_cast<float>(fw), v - t * first.dy / static_cast<float>(fh));
     const float du = f.dx / static_cast<float>(fw);
     const float dv = f.dy / static_cast<float>(fh);
     const Rgb3 fromA = sampleBilinear(a, u - t * du, v - t * dv);
