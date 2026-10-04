@@ -781,13 +781,17 @@ internal fun ToolButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-        tooltip = { PlainTooltip { Text(description) } },
-        state = rememberTooltipState(),
-    ) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
-            Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
+    // The wrapper Box is the direct child of the caller's layout, so scope modifiers such as Box.align()
+    // in [modifier] keep working (TooltipBox does not forward them to its root node).
+    Box(modifier = modifier) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+            tooltip = { PlainTooltip { Text(description) } },
+            state = rememberTooltipState(),
+        ) {
+            IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+                Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp))
+            }
         }
     }
 }
