@@ -961,3 +961,25 @@ shown in the viewer as badges (live / proxy / still) from `MulticamPlanner` inst
 low-rate decode path that was not built in this pass.
 **Alternative:** periodic stills from the thumbnail decoder or proxy decoders for each angle (the planner already
 decides which angles would use which).
+
+**Decision:** smooth slow motion uses classical block-matching optical flow at reduced resolution (160 px wide flow in the
+preview, 320 in the export) with sub-pixel refinement, a bidirectional warp and a blend fallback where the match is doubtful.
+**Why:** no AI or network is allowed; it runs in the compositor pass, needs no extra storage and degrades into a plain blend
+instead of tearing. Measured on a Pixel 8: PSNR 43.9 against 35.9 dB for frame repetition at 0.25x.
+**Alternative:** dense variational flow (Horn-Schunck or TV-L1), more accurate on smooth motion but much costlier per frame.
+
+**Decision:** the preview interpolates at a quality that drops to plain blending when the frame budget is missed; the export
+always runs full quality. The fractional position travels as a signed mix (negative towards the previous frame, for reversed clips).
+**Why:** playback must not stutter, and the final file must not depend on how fast the phone was while editing.
+**Alternative:** a fixed preview quality.
+
+**Decision:** speed up to 100x relies on the existing decoder seek policy (forward gaps over 120 frames seek instead of
+decoding through) rather than a new skip mode.
+**Why:** it already decodes only the frames that are needed at such speeds, and one policy is easier to keep correct.
+**Alternative:** an explicit skip-decode mode per clip.
+
+**Decision:** Denoise and Deflicker are ordinary effects (codes 16 and 17) that run first in the chain and read the previous
+and next frame (from the cache in the preview, fetched in the export); Denoise mixes the spatially smoothed previous frame.
+**Why:** this fits the keyframable `Clip.params` model, and smoothing the previous frame first beat a raw temporal average.
+Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma rises 24.8 to 29.7 dB.
+**Alternative:** separate repair pass with its own UI, or per-channel strengths.

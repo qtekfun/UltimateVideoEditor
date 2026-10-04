@@ -59,6 +59,9 @@ word timing and the animator are pure Kotlin in `domain/captions/`; the sheet an
 Pure-logic C++ (snapshot parsing, viewport, hit-testing, waveform peaks) is tested on the desktop without GoogleTest:
 `cmake -S app/src/main/cpp/tests -B /tmp/uv-host -G Ninja && cmake --build /tmp/uv-host && ctest --test-dir /tmp/uv-host`
 (CMake/Ninja from `$ANDROID_HOME/cmake/<ver>/bin`). Add new pure sources to `tests/CMakeLists.txt`.
+`uv_repair_host_tests` covers the optical-flow, denoise and deflicker reference maths. Device measurements of slow motion and repair:
+`scripts/check-slowmo-export.sh`, `check-slowmo-preview.sh`, `check-repair-export.sh <serial>` (need ffmpeg, the app built with an
+id suffix and its androidTest APK installed; set `PKG`).
 `uv_audio_host_tests` covers the audio core (time math, clock mapping, resampler, mixer, decode worker with a fake decoder).
 Audio on device: `AudioPlaybackInstrumentedTest` (offline tone/gain/resample/seek checks plus a ~60 s Oboe clock-drift and
 latency run logged under tag `UVAudioTest`). Its assets are ffmpeg-generated tones in `src/androidTest/assets`. The app and test
