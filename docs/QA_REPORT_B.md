@@ -11,8 +11,12 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
 | Area | Result |
 |---|---|
 | 11 Release/About/tips/crash report | PARTIAL (tips, reopen offer, About, native and Java crash reports PASS; one defect fixed, PR #84; minified release build NOT RUN yet) |
-| 1 Photos, GIF, WebP, titles, captions | PARTIAL (animated GIF and WebP PASS; the rest see below) |
+| 1 Titles, captions, fonts, animated images | PARTIAL (animated GIF/WebP, SRT import, layer editor, shapes, imported font PASS; VTT, caption styles, presets, photos, stickers NOT RUN) |
+| 3 Speed, reverse | PARTIAL (reverse in preview PASS; curve editor, smooth slow motion, denoise, freeze, export of speed NOT RUN) |
+| 5 Markers and beats | PARTIAL (beat detection on a 120 BPM click track, marker colour PASS; note drawing, cut to beat NOT RUN) |
+| 10 Relink | PASS (detect, hatched clip, relink picker) |
 | Export dialog, ETA, ffprobe | PASS |
+| 2, 4, 6, 7, 8, 9 Keyframes, stabiliser/tracking, multiselect, multicam/templates/auto cut, proxies, interchange | NOT RUN in this pass |
 
 ## Setup
 
@@ -55,3 +59,41 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
 - Progress with the estimate: "64 %", "6 s elapsed · About 4 s left", "86 frames/s · 2,9x real time". PASS.
 - Result of a 28 s project (GIF 5 s + WebP 5 s + clip 10 s + clip 8 s) at 720p/30/8 Mbps: H.264 1280x720, 840 frames, 28.000 s,
   AAC 28.05 s (`ffprobe`). PASS. "Saved ...", Close and Share buttons shown.
+
+## 1. Titles, captions and fonts (continued)
+
+- **SRT import** (captions sheet > "Choose a .srt or .vtt file" > system picker): three caption clips appear on a new T1 lane at
+  0.5 s, 2.5 s and 5 s; the preview shows "Hello from SRT" at 1.5 s and "Second caption line" at 3.5 s. PASS. (VTT not run; same parser.)
+- **Title layer editor** (T button > inspector > "Edit as layers"): + Text / + Shape / + Sticker / + Photo, per-layer Up/Down/Copy/Remove,
+  shape types (rectangle, rounded, ellipse, line) with width/height, text styling (size, colour, align, bold, italic, border, shadow,
+  box, spacing, line height). A rounded-rectangle layer renders in the preview with its on-preview handle; Down/Up reorders layers and
+  the text moves above the shape. PASS.
+- **Imported font**: "Import font..." with `LiberationSans-Italic.ttf` via the picker adds a "Liberation Sans" chip; selecting it renders
+  the title in italic. PASS.
+- Not run: title presets save/apply, the eight caption styles, photos (EXIF, HEIC), stickers.
+
+## 3. Speed and reverse
+
+- The inspector shows, for a video clip: Animation (position, scale, rotation, opacity with keyframe diamonds), Source colour (Auto /
+  SDR / HLG / PQ with a note "Used as is in this SDR project."), Stabilise, Effects, Blend, Mask, Track motion, Speed (slider, curve
+  presets, Edit curve, Smooth slow motion switch appears below 1x), Reverse, Freeze frame, Volume, Sound tools, Transition.
+- **Reverse** on a 10 s test-pattern clip (at 0.97x): at timeline 10:19 the burned-in source time reads 9.367 s (expected 9.386) and at
+  12:04 it reads 7.900 s (expected 7.931). The clip block shows the label `<0.97x`. PASS.
+- Observation: while the inspector is open it covers the timeline and ruler; taps meant for the ruler land on the inspector
+  controls (a stray tap moved the Speed slider twice). Undo restores it. Not a defect, but easy to trip over.
+
+## 5. Markers and beats
+
+- **Find beats in the selected clip** on a 16 s 120 BPM click track: 20 green ticks appear on the ruler across the clip, spaced
+  0.5 s (120 BPM). PASS.
+- **Marker colour**: "Add or remove a marker" then "Marker note and colour...": choosing red and saving draws a red flag on the ruler.
+  PASS. (The first attempt did not persist because the keyboard moved the dialog buttons while I typed a note; test procedure, not an
+  app defect. The note text and the note indicator were not verified.)
+
+## 10. Relink and recovery
+
+- Moving the file did not break the clip: the picker hands out MediaStore document URIs that follow a rename. Deleting the file
+  (and rescanning) did: on reopening the project a banner "1 media file is missing" with Relink appears, the clip is drawn hatched, and
+  the Missing media dialog lists "clip_b.mp4 - File not found - 1 clip". PASS.
+- **Relink** to a replacement file through the picker: the banner disappears, thumbnails and waveform return and the clip plays.
+  PASS. Recover from `.bak` NOT RUN.
