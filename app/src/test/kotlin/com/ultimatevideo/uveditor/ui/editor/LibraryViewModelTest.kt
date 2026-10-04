@@ -5,8 +5,12 @@ import com.ultimatevideo.uveditor.data.MediaImporter
 import com.ultimatevideo.uveditor.data.ProbedMedia
 import com.ultimatevideo.uveditor.data.ProjectError
 import com.ultimatevideo.uveditor.data.ProjectStore
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
+import com.ultimatevideo.uveditor.data.interchange.BundlePreview
 import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
 import com.ultimatevideo.uveditor.data.interchange.InterchangeExporter
+import com.ultimatevideo.uveditor.data.interchange.ResourceInfo
+import com.ultimatevideo.uveditor.data.interchange.ResourceKind
 import com.ultimatevideo.uveditor.data.model.ClipDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
@@ -63,13 +67,34 @@ class LibraryViewModelTest {
 
     private class FakeInterchange : InterchangeExporter {
         val bundles = mutableListOf<Triple<String, String, Boolean>>()
+        val choices = mutableListOf<BundleChoice>()
         val documents = LinkedHashMap<String, ByteArray>()
         var failWith: IOException? = null
+        var failPreview: IOException? = null
+        var preview = BundlePreview(
+            mediaCount = 2,
+            mediaBytes = 3_000_000,
+            luts = listOf(ResourceInfo(ResourceKind.LUT, "5", "Warm", 2_000, true)),
+            fonts = listOf(ResourceInfo(ResourceKind.FONT, "ab", "Big Font", 40_000, true)),
+        )
 
         override suspend fun exportBundle(projectId: String, uri: String, includeMedia: Boolean): BundleWriteResult {
             failWith?.let { throw it }
             bundles += Triple(projectId, uri, includeMedia)
             return BundleWriteResult(if (includeMedia) 2 else 0, if (includeMedia) listOf("gone.mp4") else emptyList())
+        }
+
+        override suspend fun exportBundle(projectId: String, uri: String, choice: BundleChoice): BundleWriteResult {
+            choices += choice
+            return exportBundle(projectId, uri, choice.includeMedia).copy(
+                lutsIncluded = if (choice.includeLuts) 1 else 0,
+                fontsIncluded = if (choice.includeFonts) 1 else 0,
+            )
+        }
+
+        override suspend fun bundlePreview(projectId: String): BundlePreview {
+            failPreview?.let { throw it }
+            return preview
         }
 
         override suspend fun writeDocument(uri: String, bytes: ByteArray) {
@@ -311,6 +336,84 @@ class LibraryViewModelTest {
         assertEquals(listOf("x"), h.store.project!!.mediaLibrary.first { it.id == "a3" }.tags)
         assertTrue(h.messages().last().contains("Bundle written with 2 media files"))
         assertTrue(h.messages().last().contains("gone.mp4"))
+    }
+
+    @Test
+    fun `asking for a bundle opens the dialog, saves the project and shows what could go in`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(LibraryIntent.EditAsset("a3"))
+        h.vm.onIntent(LibraryIntent.TagsChanged("y"))
+        h.vm.onIntent(LibraryIntent.ConfirmAssetEdit)
+        h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE))
+        // The dialog is there at once, still measuring, and no picker has opened yet.
+        assertEquals(null, h.state.library.bundleDraft!!.preview)
+        assertTrue(h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().isEmpty())
+        advanceUntilIdle()
+        val draft = h.state.library.bundleDraft!!
+        assertEquals(h.interchange.preview, draft.preview)
+        assertEquals(BundleChoice(includeMedia = false, includeLuts = true, includeFonts = false), draft.choice)
+        assertEquals(2_000L, draft.estimatedBytes)
+        // The bundle is made from the file on disk, so what was typed a moment ago is saved before measuring.
+        assertEquals(listOf("y"), h.store.project!!.mediaLibrary.first { it.id == "a3" }.tags)
+    }
+
+    @Test
+    fun `the media switch starts on for the with-media entry`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE_WITH_MEDIA))
+        advanceUntilIdle()
+        assertTrue(h.state.library.bundleDraft!!.choice.includeMedia)
+    }
+
+    @Test
+    fun `the ticked choice reaches the export and the message names the LUTs and fonts`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE))
+        advanceUntilIdle()
+        val choice = BundleChoice(includeMedia = true, includeLuts = true, includeFonts = true)
+        h.vm.onIntent(LibraryIntent.BundleChoiceChanged(choice))
+        assertEquals(3_000_000L + 2_000L + 40_000L, h.state.library.bundleDraft!!.estimatedBytes)
+        h.vm.onIntent(LibraryIntent.ConfirmBundleExport)
+        advanceUntilIdle()
+        assertNull(h.state.library.bundleDraft)
+        val picker = h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().single()
+        assertEquals(InterchangeKind.BUNDLE_WITH_MEDIA, picker.kind)
+        assertEquals("Test.uvbundle", picker.suggestedFileName)
+        h.vm.onIntent(LibraryIntent.ExportTo(picker.kind, "doc://b"))
+        advanceUntilIdle()
+        assertEquals(listOf(choice), h.interchange.choices)
+        val message = h.messages().last()
+        assertTrue(message, message.startsWith("Bundle written with 2 media files and 1 LUT and 1 font"))
+    }
+
+    @Test
+    fun `cancelling the dialog and a project that cannot be measured`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE))
+        advanceUntilIdle()
+        h.vm.onIntent(LibraryIntent.DismissBundleExport)
+        assertNull(h.state.library.bundleDraft)
+        assertTrue(h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().isEmpty())
+
+        h.interchange.failPreview = IOException("unreadable project")
+        h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE))
+        advanceUntilIdle()
+        val draft = h.state.library.bundleDraft!!
+        assertEquals("unreadable project", draft.failed)
+        assertEquals(false, draft.canExport)
+        // Confirming a dialog that cannot export does nothing.
+        h.vm.onIntent(LibraryIntent.ConfirmBundleExport)
+        advanceUntilIdle()
+        assertTrue(h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().isEmpty())
+    }
+
+    @Test
+    fun `closing the dialog while the project is measured leaves it closed`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE))
+        h.vm.onIntent(LibraryIntent.DismissBundleExport)
+        advanceUntilIdle()
+        assertNull(h.state.library.bundleDraft)
     }
 
     @Test

@@ -10,6 +10,18 @@ interface InterchangeExporter {
     @Throws(IOException::class)
     suspend fun exportBundle(projectId: String, uri: String, includeMedia: Boolean): BundleWriteResult
 
+    /**
+     * Like the overload above, with the LUT and font choices of the export dialog. The default ignores them,
+     * which is right for exporters that cannot carry resources.
+     */
+    @Throws(IOException::class)
+    suspend fun exportBundle(projectId: String, uri: String, choice: BundleChoice): BundleWriteResult =
+        exportBundle(projectId, uri, choice.includeMedia)
+
+    /** What a bundle of the saved project [projectId] could contain, for the dialog that asks what to include. */
+    @Throws(IOException::class)
+    suspend fun bundlePreview(projectId: String): BundlePreview = BundlePreview.EMPTY
+
     /** Replaces the document at [uri] with [bytes] (an EDL, a zip of EDLs or an FCPXML file). */
     @Throws(IOException::class)
     suspend fun writeDocument(uri: String, bytes: ByteArray)
@@ -30,6 +42,11 @@ class RepositoryInterchangeExporter(
 ) : InterchangeExporter {
     override suspend fun exportBundle(projectId: String, uri: String, includeMedia: Boolean): BundleWriteResult =
         repository.exportBundle(projectId, uri, includeMedia)
+
+    override suspend fun exportBundle(projectId: String, uri: String, choice: BundleChoice): BundleWriteResult =
+        repository.exportBundle(projectId, uri, choice)
+
+    override suspend fun bundlePreview(projectId: String): BundlePreview = repository.bundlePreview(projectId)
 
     override suspend fun writeDocument(uri: String, bytes: ByteArray) = io.write(uri, bytes)
 }
