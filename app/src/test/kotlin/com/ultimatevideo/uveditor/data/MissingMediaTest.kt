@@ -70,6 +70,13 @@ class MissingMediaTest {
         assertEquals("clip.mp4", MissingMedia.nameOf(asset("x", uri = "content://docs/tree/primary%3ADCIM/clip.mp4")))
         assertEquals("1234", MissingMedia.nameOf(asset("x", uri = "content://media/external/video/media/1234")))
         assertEquals("x", MissingMedia.nameOf(asset("x", uri = "")))
+        // Seen on a device: a media-provider document URI whose id is the percent-encoded raw path.
+        assertEquals(
+            "shaky.mp4",
+            MissingMedia.nameOf(asset("x", uri = "content://com.android.providers.media.documents/document/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2Fqa-b%2Fshaky.mp4")),
+        )
+        assertEquals("a b.mp4", MissingMedia.nameOf(asset("x", uri = "content://docs/document/primary%3AMovies%2Fa%20b.mp4")))
+        assertEquals("100%.mp4", MissingMedia.nameOf(asset("x", uri = "content://docs/files/100%.mp4")))
     }
 
     @Test
