@@ -6,6 +6,14 @@ import com.ultimatevideo.uveditor.data.MediaCaches
 import com.ultimatevideo.uveditor.data.MediaImporter
 import com.ultimatevideo.uveditor.data.MediaProblem
 import com.ultimatevideo.uveditor.data.MissingMedia
+import com.ultimatevideo.uveditor.data.interchange.Edl
+import com.ultimatevideo.uveditor.data.interchange.Fcpxml
+import com.ultimatevideo.uveditor.data.interchange.InterchangeExporter
+import com.ultimatevideo.uveditor.domain.AnnotateMarker
+import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
+import com.ultimatevideo.uveditor.ui.library.Library
+import com.ultimatevideo.uveditor.ui.library.LibraryQuery
+import java.io.IOException
 import com.ultimatevideo.uveditor.data.ProbedMedia
 import com.ultimatevideo.uveditor.data.RelinkCheck
 import com.ultimatevideo.uveditor.data.RelinkVerdict
@@ -155,6 +163,8 @@ class EditorViewModel(
     private val motionTracker: MotionTracker = NoMotionTracker,
     /** Where motion-track bookkeeping (reading cache files, building the overlay) runs. */
     private val trackDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Writes bundles, EDLs and FCPXML files; the default cannot write anything. */
+    private val interchange: InterchangeExporter = InterchangeExporter.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
@@ -369,6 +379,7 @@ class EditorViewModel(
             EditorIntent.Flush -> flush(thenClose = false)
             EditorIntent.Back -> flush(thenClose = true)
             is SelectionIntent -> selectionIntent(intent)
+            is LibraryIntent -> libraryIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
         }
     }
@@ -2543,7 +2554,196 @@ class EditorViewModel(
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
 
+    // region media library, marker notes and exports to other tools
+
+    private fun libraryIntent(intent: LibraryIntent) {
+        when (intent) {
+            is LibraryIntent.Open -> reduce { copy(library = library.copy(open = true, highlightAssetId = intent.assetId)) }
+            LibraryIntent.Close -> reduce { copy(library = library.copy(open = false, highlightAssetId = null)) }
+            LibraryIntent.RevealSelectedInLibrary -> {
+                val clipId = state.value.selectedClipId
+                val assetId = clipId?.let { Library.assetOfClip(history.timeline, it) }
+                if (clipId != null && assetId == null) emit(EditorEffect.ShowMessage("A title or sticker has no file in the library"))
+                reduce { copy(library = library.copy(open = true, highlightAssetId = assetId, query = if (assetId != null) LibraryQuery() else library.query)) }
+            }
+            is LibraryIntent.QueryChanged -> reduce { copy(library = library.copy(query = library.query.copy(text = intent.text))) }
+            is LibraryIntent.FilterSelected -> reduce { copy(library = library.copy(query = library.query.copy(filter = intent.filter))) }
+            is LibraryIntent.TagSelected -> reduce { copy(library = library.copy(query = library.query.copy(tag = intent.tag))) }
+            is LibraryIntent.EditAsset -> {
+                val asset = state.value.assets.firstOrNull { it.id == intent.assetId } ?: return
+                val draft = AssetEditDraft(asset.id, MissingMedia.nameOf(asset), asset.tags.joinToString(", "), asset.note.orEmpty())
+                reduce { copy(library = library.copy(editing = draft)) }
+            }
+            is LibraryIntent.TagsChanged -> reduce { copy(library = library.copy(editing = library.editing?.copy(tags = intent.text))) }
+            is LibraryIntent.NoteChanged -> reduce { copy(library = library.copy(editing = library.editing?.copy(note = intent.text.take(Library.MAX_NOTE_LENGTH)))) }
+            LibraryIntent.ConfirmAssetEdit -> confirmAssetEdit()
+            LibraryIntent.DismissAssetEdit -> reduce { copy(library = library.copy(editing = null)) }
+            LibraryIntent.AskDeleteUnused -> askDeleteUnused()
+            LibraryIntent.ConfirmDeleteUnused -> confirmDeleteUnused()
+            LibraryIntent.DismissDeleteUnused -> reduce { copy(library = library.copy(confirmDeleteUnused = null)) }
+            is LibraryIntent.FindInTimeline -> findInTimeline(intent.assetId)
+            is LibraryIntent.RequestExport -> requestExport(intent.kind)
+            is LibraryIntent.ExportTo -> exportTo(intent.kind, intent.uri)
+            LibraryIntent.OpenMarkerEdit -> openMarkerEdit()
+            is LibraryIntent.MarkerNoteChanged -> reduce { copy(markerEdit = markerEdit?.copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH))) }
+            is LibraryIntent.MarkerColorSelected -> reduce { copy(markerEdit = markerEdit?.copy(color = intent.color)) }
+            LibraryIntent.ConfirmMarkerEdit -> confirmMarkerEdit()
+            LibraryIntent.DismissMarkerEdit -> reduce { copy(markerEdit = null) }
+        }
+    }
+
+    /** Tags and notes belong to the library, like its order: saved with the project, not part of the undo history. */
+    private fun confirmAssetEdit() {
+        val draft = state.value.library.editing ?: return
+        var assets = Library.withTags(state.value.assets, draft.assetId, Library.parseTags(draft.tags))
+        assets = Library.withNote(assets, draft.assetId, draft.note)
+        reduce { copy(assets = assets, library = library.copy(editing = null)) }
+        scheduleSave()
+    }
+
+    /**
+     * How many uses each file has anywhere the user could still get back to: the timeline, every state in the
+     * undo and redo history, and the clipboard. Cleaning up must not remove a file that an undo would need.
+     */
+    private fun protectedUsage(): Map<String, Int> {
+        val counts = HashMap<String, Int>()
+        for (timeline in history.reachableTimelines()) {
+            for ((id, n) in usageCounts(timeline)) counts[id] = maxOf(counts[id] ?: 0, n)
+        }
+        clipboard?.entries?.forEach { entry -> entry.clip.assetId?.let { counts[it] = maxOf(counts[it] ?: 0, 1) } }
+        return counts
+    }
+
+    private fun askDeleteUnused() {
+        val removable = Library.unused(state.value.assets, protectedUsage())
+        if (removable.isEmpty()) {
+            emit(EditorEffect.ShowMessage(if (Library.unused(state.value.assets, usageCounts(history.timeline)).isEmpty()) "Every file in the library is used" else "Nothing can be removed while undo could still bring those clips back"))
+            return
+        }
+        reduce { copy(library = library.copy(confirmDeleteUnused = removable.size)) }
+    }
+
+    private fun confirmDeleteUnused() {
+        val usage = protectedUsage()
+        val removable = Library.unused(state.value.assets, usage).map { it.id }.toSet()
+        reduce { copy(assets = Library.withoutUnused(assets, usage), library = library.copy(confirmDeleteUnused = null)) }
+        if (removable.isEmpty()) return
+        removable.forEach { mediaCaches.invalidate(it) }
+        scheduleSave()
+        emit(EditorEffect.ShowMessage("Removed ${removable.size} unused file${if (removable.size == 1) "" else "s"} from the library (the files themselves are not touched)"))
+    }
+
+    private fun findInTimeline(assetId: String) {
+        val timeline = history.timeline
+        val uses = Library.uses(timeline, assetId, state.value.fps)
+        val use = Library.nextUse(uses, state.value.playhead.value)
+        if (use == null) {
+            emit(EditorEffect.ShowMessage("That file is not used on the timeline"))
+            return
+        }
+        val trackId = timeline.trackOfClip(use.clipId)?.id
+        seekTo(use.startFrame)
+        reduce {
+            copy(
+                selectedClipId = use.clipId,
+                selectedClipIds = emptySet(),
+                selectedTrackId = trackId ?: selectedTrackId,
+                library = library.copy(open = false),
+            )
+        }
+        val position = uses.indexOf(use) + 1
+        emit(EditorEffect.ShowMessage("Use $position of ${uses.size} (${use.trackLabel}). Choose Find in timeline again for the next one"))
+    }
+
+    private fun openMarkerEdit() {
+        val marker = MarkerOps.nearest(history.timeline.markers, state.value.playhead, MARKER_EDIT_RADIUS_FRAMES)
+        if (marker == null) {
+            emit(EditorEffect.ShowMessage("Put the playhead on a marker first"))
+            return
+        }
+        reduce { copy(markerEdit = MarkerEditDraft(marker.id, marker.frame.value, marker.note.orEmpty(), marker.color)) }
+    }
+
+    private fun confirmMarkerEdit() {
+        val draft = state.value.markerEdit ?: return
+        reduce { copy(markerEdit = null) }
+        execute(AnnotateMarker(draft.markerId, draft.note, draft.color))
+    }
+
+    private fun requestExport(kind: InterchangeKind) {
+        val project = currentProjectDto() ?: return
+        val base = project.name.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifEmpty { "project" }
+        val (extension, mime) = when (kind) {
+            InterchangeKind.EDL -> {
+                val files = Edl.export(project).files
+                if (files.isEmpty()) {
+                    emit(EditorEffect.ShowMessage("There are no video or audio clips to put in an EDL"))
+                    return
+                }
+                if (files.size == 1) "edl" to INTERCHANGE_MIME else "zip" to ZIP_MIME
+            }
+            else -> kind.extension to kind.mime
+        }
+        emit(EditorEffect.LaunchInterchangePicker(kind, "$base.$extension", mime))
+    }
+
+    private fun currentProjectDto(): ProjectDto? {
+        val base = baseProject ?: return null
+        return TimelineMapper.toDto(base, history.timeline, state.value.assets)
+    }
+
+    private fun exportTo(kind: InterchangeKind, uri: String) {
+        val project = currentProjectDto() ?: return
+        if (state.value.library.busy != null) return
+        reduce { copy(library = library.copy(busy = "Writing ${kind.label.substringBefore(" (")}…")) }
+        viewModelScope.launch {
+            try {
+                emit(EditorEffect.ShowMessage(writeExport(kind, uri, project)))
+            } catch (e: ProjectError) {
+                emit(EditorEffect.ShowMessage("Export failed: ${e.message}"))
+            } catch (e: IOException) {
+                emit(EditorEffect.ShowMessage("Export failed: ${e.message ?: "could not write the file"}"))
+            } finally {
+                reduce { copy(library = library.copy(busy = null)) }
+            }
+        }
+    }
+
+    /** Writes the export and returns the message to show: what was written and what the format left out. */
+    private suspend fun writeExport(kind: InterchangeKind, uri: String, project: ProjectDto): String {
+        when (kind) {
+            InterchangeKind.BUNDLE, InterchangeKind.BUNDLE_WITH_MEDIA -> {
+                // The bundle is made from the project file, so what is on screen has to be saved first.
+                saveJob?.cancelAndJoin()
+                if (dirty && !persist()) throw IOException("the project could not be saved first")
+                val result = interchange.exportBundle(projectId, uri, includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
+                return buildString {
+                    append("Bundle written")
+                    if (kind == InterchangeKind.BUNDLE_WITH_MEDIA) append(" with ${result.mediaCopied} media file${if (result.mediaCopied == 1) "" else "s"}")
+                    if (result.mediaSkipped.isNotEmpty()) append(". Not copied (cannot be read): ${result.mediaSkipped.take(3).joinToString()}${if (result.mediaSkipped.size > 3) "…" else ""}")
+                }
+            }
+            InterchangeKind.EDL -> {
+                val export = Edl.export(project)
+                if (export.files.isEmpty()) throw IOException("there are no video or audio clips to put in an EDL")
+                val bytes = if (export.files.size == 1) export.files.single().text.toByteArray(Charsets.UTF_8) else Edl.zip(export.files)
+                interchange.writeDocument(uri, bytes)
+                return "EDL written (${export.files.size} track${if (export.files.size == 1) "" else "s"})" + leftOut(export.notes)
+            }
+            InterchangeKind.FCPXML -> {
+                val export = Fcpxml.export(project)
+                interchange.writeDocument(uri, export.xml.toByteArray(Charsets.UTF_8))
+                return "FCPXML written" + leftOut(export.notes)
+            }
+        }
+    }
+
+    private fun leftOut(notes: List<String>): String = if (notes.isEmpty()) "" else ". Not carried over: ${notes.first().trimEnd('.')}${if (notes.size > 1) " (and ${notes.size - 1} more)" else ""}"
+
+    // endregion
+
     private companion object {
+        const val MARKER_EDIT_RADIUS_FRAMES = 6L
         const val MIN_TARGET_LUFS = -40.0
         const val MAX_TARGET_LUFS = -5.0
         const val MIN_NOISE_SAMPLE_MICROS = 100_000L

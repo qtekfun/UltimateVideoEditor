@@ -769,3 +769,54 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Inspector shows the clip as it is at the playhead (`displayedClip`); a control change on an animated parameter writes a key at the playhead (keeping that key's shape), otherwise the static base value changes. Removing the last key writes its value back to the static field; removing an effect drops its tracks.
 - Colour wheels have no diamond (three-component control); sliders for grade values do.
 **Not verified:** on the Pixel 8 only install and reaching the editor were done (the device was heavily shared); adding a keyframe through the diamond, the lane drag, and an export compared against the preview were NOT exercised on device. Covered by JVM and native host tests only (interpolation vectors, cropping, migration round trips, preview/export parity at frame boundaries, audio block-size independence).
+
+## Interchange and media library (WP-I)
+
+**Decision:** a project bundle is a zip (`bundle.json` manifest, raw `project.json`, optional card thumbnail, optional `media/`), imported by unpacking into a scratch folder under the projects folder and moving it into place with one atomic rename.
+**Why:** a bundle with media can be gigabytes and an import can fail halfway; the scratch-and-rename keeps the projects folder free of half projects, and the raw `project.json` keeps fields a newer build wrote.
+**Alternative:** unpack straight into the final folder and clean up on failure (a crash would leave a broken project), or keep media outside the bundle always.
+
+**Decision:** auto-relink looks only among the assets of the other local projects and needs name (ignoring case) and size to match; it never searches the device.
+**Why:** a MediaStore search needs a new storage permission; privacy and "no new access" win, and name plus size avoids picking a different file with the same name.
+**Alternative:** query MediaStore (more matches, a new permission) or match by name only (wrong files).
+
+**Decision:** the EDL is one file per track (a zip when there are several) and transitions are written as cuts; FCPXML puts the base on the spine and the rest as connected clips with the offset computed as if the parent played at normal speed.
+**Why:** CMX3600 has one video channel and importers expect one track per EDL; FCPXML's connected-clip model matches the base-plus-overlays model of the app, and the notes list every approximation.
+**Alternative:** one merged EDL (breaks importers), or a gap-only spine with every clip connected (works everywhere but loses the primary storyline).
+
+**Decision:** FCPXML positions are written as a percentage of the frame height (y flipped, rotation negated) and retimes as a two-point `timeMap`; both are listed as unchecked in the sequence note.
+**Why:** the exact Final Cut Pro units could not be verified without the application; the note keeps the export honest.
+**Alternative:** omit transforms and retimes from FCPXML.
+
+**Decision:** tags and notes on library files, like the library order, are saved with the project but are not part of Undo; "Remove unused" keeps any file that the timeline, an undo or redo state or the clipboard still uses.
+**Why:** they are library data, not timeline edits, and undoing a deletion must never meet a file that is gone.
+**Alternative:** make library edits undoable (needs the history to cover the asset list), or remove strictly by current usage (an undo could bring back a clip with no file).
+
+**Decision:** marker colours are stored and exported but not drawn on the native ruler.
+**Why:** drawing them needs a timeline snapshot version bump that other work is also changing; the dialog and the exports carry them.
+**Alternative:** bump the snapshot to draw coloured markers.
+
+**Decision:** the bundle carries only the project card picture; importing keeps it in the project folder but the app does not use it yet.
+**Why:** the format reserves `thumbnails/` so a viewer without the media can show something; per-asset pictures would grow the bundle for little use.
+**Alternative:** include a picture per asset and use them as fallbacks for missing media.
+
+**Decision:** the pickers that ask where to write a bundle, an FCPXML or a single EDL use the generic type `application/octet-stream`; only the zip of several EDLs uses `application/zip`.
+**Why:** seen on the Pixel 8: with a specific type the system file picker appends its own extension to the suggested name (`.uvbundle.zip`, `.fcpxml.xml`), which other tools do not recognise.
+**Alternative:** keep the specific types and strip the doubled extension afterwards (not possible through the picker).
+
+**Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).
+
+## Export and preview reliability (device pass 2)
+
+**Decision:** the decoder keeps ONE frame in flight (released to the image reader but not yet acquired by the consumer). A frame is only given up as lost when the consumer drained the reader more than 400 ms after its release, or after a hard limit of 5 s.
+**Why:** the buffer queue between the codec and the AImageReader keeps only the newest frame queued since the consumer last acquired one, so releasing a second frame silently discards the first. With four in flight, frames were lost and recovered 400 ms later by a backward seek and a re-decode from the key frame. Measured on a Pixel 8 (not the reference device): export of a long-GOP 1080p30 clip 0.35x -> 1.8x real time, two layers 0.06x -> 1.3x, 4K60 H.264 preview 429-513 of 600 frames with 118-227 stalls -> 606 of 600 with none.
+**Alternative:** raise the image reader queue or use acquireLatestImage (the queue still drops), or decode ahead into our own ring (more memory, same copy cost). Do not raise the in-flight limit without re-measuring on a device.
+
+**Decision:** every reader of a media file gets its own descriptor through /proc/self/fd/N (new open file description), falling back to dup().
+**Why:** dup() shares the file offset; video, audio and thumbnail extractors on different threads disturbed each other (a clip lost its tail after 177 of 300 samples, then every later frame repeated the last good one). That was the likely root of the intermittent decoder stalls and undecodable-audio errors reported earlier. Frame-exact retime check on the Pixel: 133 mismatched frames and failing audio -> 0 mismatches, all segments correct.
+**Alternative:** pread-only extraction or a single reader thread (larger refactor). Files whose /proc reopen is refused (some provider descriptors) fall back to dup() and keep the old risk.
+
+**Decision:** a reversed audio clip remembers the sample its block must reach after a seek and keeps filling instead of seeking again; the export checks audio faults on every frame.
+**Why:** if the codec had nothing ready right after the seek, each following call seeked to the same place again (the gap exceeded the continue limit), flushing the codec every time, so the clip never became ready (export failed with the audio of clip N not ready after 30 s). Each stalled frame also blocked for 30 s while faults were only polled every 30 frames.
+**Alternative:** a larger continue gap (hides the problem for fast codecs only).
+

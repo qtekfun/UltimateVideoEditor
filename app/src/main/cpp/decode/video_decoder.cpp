@@ -11,16 +11,23 @@
 #include <vector>
 
 #include "decode/log.h"
+#include "decode/pending_policy.h"
 #include "decode/seek_policy.h"
 
 namespace uv::decode {
 
 namespace {
 
-constexpr int64_t kPendingTimeoutMs = 400;       // a released frame that never shows up is retried
-// Frames released to the reader but not yet blitted. Releasing faster than the render thread
-// drains makes the buffer queue drop frames, which then get decoded again.
-constexpr size_t kMaxInFlight = 4;
+
+constexpr int64_t kPendingTimeoutMs = 400;       // a frame still missing this long after a drain that followed its release is retried
+constexpr int64_t kPendingHardTimeoutMs = 5000;  // and one nobody drained for this long is retried anyway
+// Frames released to the reader but not yet taken by the consumer. The buffer queue between the codec and the
+// image reader keeps only the newest of the frames queued since the consumer last acquired one: releasing a second
+// frame before the first was drained silently discards the first (seen on a Pixel 8: with 4 in flight, 4K60
+// playback drew 429 of 600 frames with 227 stalls and a 1080p export of a long-GOP clip ran at 0.35x real time
+// because every lost frame meant a backward seek and a re-decode from the key frame; with 1, 600 of 600 frames and
+// 1.8x real time). Do not raise it without re-measuring on a device.
+constexpr size_t kMaxInFlight = 1;
 constexpr int64_t kUnknownDuration = INT64_MAX / 4;
 
 int64_t nowMs() {
@@ -225,6 +232,11 @@ int64_t VideoDecoder::ptsToFrame(int64_t ptsUs) const { return ptsUsToFrame(ptsU
 void VideoDecoder::drainImages(const std::function<int(int64_t, AHardwareBuffer*)>& fn) {
     std::lock_guard<std::mutex> lock(readerMu_);
     if (reader_ == nullptr) return;
+    // Anything released more than the timeout before this moment and still absent after it is lost.
+    struct StampOnExit {
+        std::atomic<int64_t>& slot;
+        ~StampOnExit() { slot.store(nowMs()); }
+    } stamp{lastDrainMs_};
     for (;;) {
         AImage* image = nullptr;
         if (AImageReader_acquireNextImage(reader_, &image) != AMEDIA_OK || image == nullptr) break;
@@ -280,11 +292,14 @@ std::string VideoDecoder::describe() const {
     return buf;
 }
 
+bool VideoDecoder::pendingExpired(int64_t releasedMs) const {
+    return pendingExpiredAfterDrain(releasedMs, lastDrainMs_.load(), nowMs(), kPendingTimeoutMs, kPendingHardTimeoutMs);
+}
+
 size_t VideoDecoder::inFlightCount() {
     std::lock_guard<std::mutex> lock(pendingMu_);
-    const int64_t now = nowMs();
     for (auto it = pending_.begin(); it != pending_.end();) {
-        it = (now - it->second > kPendingTimeoutMs) ? pending_.erase(it) : std::next(it);
+        it = pendingExpired(it->second) ? pending_.erase(it) : std::next(it);
     }
     return pending_.size();
 }
@@ -303,7 +318,7 @@ bool VideoDecoder::needsFrame(int64_t frame) {
     std::lock_guard<std::mutex> lock(pendingMu_);
     auto it = pending_.find(frame);
     if (it == pending_.end()) return true;
-    if (nowMs() - it->second > kPendingTimeoutMs) {  // released but never delivered: retry
+    if (pendingExpired(it->second)) {  // released, the consumer drained since, and it never showed up: retry
         pending_.erase(it);
         return true;
     }
