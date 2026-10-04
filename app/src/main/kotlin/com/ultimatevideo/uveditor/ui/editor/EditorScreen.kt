@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.EngineException
+import com.ultimatevideo.uveditor.engine.audio.PeakLevels
 import com.ultimatevideo.uveditor.domain.captions.captionCount
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
@@ -108,6 +109,7 @@ import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
 import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
+import com.ultimatevideo.uveditor.data.LookStore
 import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
 import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
@@ -171,6 +173,17 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         },
     )
     val lutState by lutLibrary.state.collectAsStateWithLifecycle()
+
+    // Saved colour looks and the copy/paste clipboard of the colour section; everything stays on the device.
+    val lookStore = remember(context) { LookStore(File(context.applicationContext.filesDir, "looks")) }
+    val lookLibrary: LookLibraryViewModel = viewModel(
+        key = "looks",
+        factory = viewModelFactory { initializer { LookLibraryViewModel(lookStore) } },
+    )
+    val lookState by lookLibrary.state.collectAsStateWithLifecycle()
+    val lookActions = remember(lookState, lookLibrary) {
+        LookActions(lookState, lookLibrary::save, lookLibrary::delete, lookLibrary::copy, lookLibrary::clearError)
+    }
 
     val exportViewModel: ExportViewModel = viewModel(
         key = "export-$projectId",
@@ -261,18 +274,21 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     DisposableEffect(audio, viewModel) {
         viewModel.playbackOutput = audio
+        viewModel.audioAnalyzer = audio
         onDispose {
             viewModel.playbackOutput = null
+            viewModel.audioAnalyzer = null
             audio.close()
         }
     }
 
-    // Keep the mixer in step with the committed timeline (not with a drag in progress).
-    StateEffect(holder, { listOf(it.timeline, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
+    // Keep the mixer in step with the committed timeline (not with a clip drag in progress). A slider
+    // of the audio tools (pan, EQ, track volume, ducking) is heard live: audioSource is its preview.
+    StateEffect(holder, { listOf(it.audioSource, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         // Files that cannot be read are left out: the mixer would only fail on them.
         audio.update(
-            audioSnapshotOf(s.timeline, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
+            audioSnapshotOf(s.audioSource, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
             s.playableAssets,
             viewModel::assetKey,
         )
@@ -440,7 +456,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         audio.releaseDevice()
     }
 
-    CompositionLocalProvider(LocalLutNames provides lutState.names) {
+    CompositionLocalProvider(LocalLutNames provides lutState.names, LocalLookActions provides lookActions) {
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         when {
             state.isLoading -> Column(
@@ -561,6 +577,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        takePeaks = audio::takePeaks,
                     )
                 }
             }
@@ -588,6 +605,8 @@ private fun EditorMain(
     onOpenLayout: () -> Unit,
     bottomTray: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    /** Output peaks since the previous call, for the level meter next to the timecode. */
+    takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
 ) {
     val hasSelection = state.selectedClipId != null
     val selecting = remember(holder, viewModel) {
@@ -597,6 +616,8 @@ private fun EditorMain(
             override fun onMarquee(clipKeys: List<Long>) = viewModel.onIntent(SelectionIntent.Marquee(clipKeys))
         }
     }
+    if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
+    var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {
@@ -661,6 +682,14 @@ private fun EditorMain(
                             onEnd = { viewModel.onIntent(EditorIntent.EndAppearanceEdit(commit = true)) },
                             modifier = Modifier.fillMaxSize(),
                         )
+                        if (scopesOpen) {
+                            ScopesPanel(
+                                engine = previewEngine,
+                                colorSpace = state.colorSpace,
+                                onError = { viewModel.onIntent(EditorIntent.ReportError(it)) },
+                                modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(SCOPES_WIDTH).fillMaxHeight(SCOPES_HEIGHT).padding(6.dp),
+                            )
+                        }
                     } else {
                         Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
                     }
@@ -690,7 +719,10 @@ private fun EditorMain(
                 Column(modifier = Modifier.fillMaxWidth()) {
                 // Transport: timecode on the left, previous / play / next centred.
                 Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Timecode(holder, Modifier.align(Alignment.CenterStart))
+                    Column(modifier = Modifier.align(Alignment.CenterStart)) {
+                        Timecode(holder)
+                        LevelMeter(takePeaks, state.isPlaying)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
                         ToolButton(
@@ -726,6 +758,10 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
                     MarkerMenu(state, viewModel::onIntent)
+                    ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
+                    ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
+                        scopesOpen = !scopesOpen
+                    }
                     ToolButton(
                         EditorIcons.Transition,
                         "Add a crossfade between the selected clip and the next",
@@ -996,4 +1032,8 @@ private suspend fun requestThumbnails(
         viewModel.onIntent(EditorIntent.ReportError(e.message ?: "Thumbnail generation failed"))
     }
 }
+
+// The scopes overlay covers this share of the preview box, bottom left.
+private const val SCOPES_WIDTH = 0.6f
+private const val SCOPES_HEIGHT = 0.6f
 

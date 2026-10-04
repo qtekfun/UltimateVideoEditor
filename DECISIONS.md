@@ -642,6 +642,36 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** a card should identify the project at a glance; the cache directory may be cleared by the system and is regenerated, so there is nothing to migrate or clean up, and nothing leaves the device.
 **Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).
 
+## Colour grade: one effect, curves sent as 33 baked samples (WP-C)
+
+**Decision:** the grade is one effect type (`COLOR_GRADE`, code 14) with 21 values (lift/gamma/gain wheels with master, offset, contrast + pivot, saturation, vibrance, temperature, tint) plus four tone curves. The curves are baked on the CPU (monotone cubic through up to 8 points) into 33 samples per channel and travel on the existing effect wire as 132 extra doubles; the shader reads them from a `uniform vec4 uCurve[33]` and interpolates linearly. Order inside the pass: white balance, offset, contrast about the pivot, lift, gain (in stops), gamma, saturation and vibrance, then master curve followed by the channel curve. `render/grade_math.h` is the CPU reference, pinned by host tests; `domain/Grade.kt` does the baking.
+**Why:** it reuses the whole effect pipeline (undo, JSON, preview/export parity, ordering) with no new texture upload path, and 33 samples keep the interpolation error under half an 8-bit step for ordinary curves. The spec asked for a 256-entry 1D LUT texture; a uniform array avoids a texture per grade and per clip.
+**Alternative:** a 256x1 RGBA texture per grade (more precise for extreme curves, but needs upload and lifetime handling in the preview and export paths); spline control points as uniforms (64 floats, evaluated per pixel, slower). The standalone Temperature/Tint effects stay for old projects; the grade has its own with the same formulas.
+
+## Colour wheels: +-0.5 per channel plus a master slider (WP-C)
+
+**Decision:** a wheel is a unit disk (red at 0 degrees, green at 120, blue at 240, clockwise on screen); the puck sets the three channel values so they sum to zero and span +-0.5, and the master slider (-1..1) carries the rest. Lift = 0.5 x (master + channel), gain = 2^(master + channel) stops, gamma exponent = 2^-(master + channel). Double tap resets a wheel.
+**Why:** it matches how colourists use wheels (hue and strength with the puck, level with the master) and keeps the sums neutral so a wheel never changes brightness by itself.
+**Alternative:** independent R/G/B sliders (precise but not how the tool is used); a wheel range of +-1 (twitchy on a phone).
+
+## Looks and copy/paste are app-wide and local (WP-C)
+
+**Decision:** saved looks are JSON files in the app's private storage (`looks/<id>.json`), shared by all projects, validated when listed and ignored when corrupt. Copy and paste of a grade use an in-memory clipboard of the screen session. Applying a look or pasting replaces the clip's first colour grade (or adds one) as one undo step. Names that collide get a number.
+**Why:** a look is a convenience that should follow the user across projects, and nothing leaves the device.
+**Alternative:** store looks inside each project (portable but not reusable); persist the clipboard (surprising after a restart).
+
+## Video scopes: GPU point accumulation on a second surface (WP-C)
+
+**Decision:** while the scopes panel is open the preview blits the letterboxed picture from the window framebuffer, before the swap, into a 320 x 180 texture; each of its pixels becomes one point (vertex shader, `gl_VertexID`, additive blending) in a half-float accumulation texture; a display pass turns counts into the picture and graticule on a second EGL window surface of the same context (a `SurfaceView` stacked above the preview). Waveform (luma), RGB parade, vectorscope with skin-tone line and primary targets, and histogram with a luma line. At most 30 Hz, a late redraw is scheduled so a paused scope never goes stale, nothing is read back to the CPU, and everything stops when the panel closes. Scale labels are Compose text and depend on the project space (percent, and 203/1000 nit marks for HLG). `render/scope_math.h` is the CPU reference used by the host tests.
+**Why:** no pixel readback, no extra decode, cost proportional to 57,600 points, and the scope shows exactly what the preview shows. Sharing the context avoids copying textures between threads.
+**Alternative:** CPU histogram from a readback (stalls the GPU), a compute shader (more GLES 3.1 surface area for the same result), a separate engine with its own context (cannot see the preview frame).
+
+## Colour qualifiers (HSL keys) deferred (WP-C)
+
+**Decision:** the secondary HSL qualifiers of the spec are not part of this package; the primary grade, curves, looks and scopes are.
+**Why:** they need a mask or key output channel in the effect chain, which is a larger change than the rest together.
+**Alternative:** approximate with the chroma-key effect (not the same tool).
+
 **Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.
 
 ## Resizable layout (WP-U3)
@@ -679,3 +709,16 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Alternative:** extend `DropPlan` with group decisions.
 
 **Found on the Pixel 8:** a plain tap on a clip that was part of the group left the group alive, and the canvas did not redraw the outlines when only the group changed (the snapshot key lacked `selectedClipIds`). Both are fixed, with a regression test for the first.
+
+## Audio tools (WP-A)
+
+**Decisions:**
+- One per-sample DSP path (biquad EQ, balance pan, bus compressor, sidechain ducker, -1 dBFS brickwall limiter) is used by the realtime engine and the offline export mixer, so they are identical by construction; a host test compares the two. Block size never changes the result. Alternative: separate offline code (drift risk).
+- Pan is a balance law (mono is placed with equal power, stereo is attenuated on one side) so a centred stereo clip is untouched. The limiter is a sample-peak limiter at -1 dBFS, not a true-peak one (spec says dBTP); oversampling can be added later.
+- Noise suppression is STFT spectral subtraction (1024 window, hop 256) with the profile from a user-marked quiet stretch, run in the decode worker so playback and export share it. No Wiener/neural option. Alternative: Wiener filter (more musical noise control, more tuning).
+- Loudness is BS.1770 K-weighted, gated, measured by the native engine on IO and cached by source identity and range; normalise stores a gain (`normalizeDb`) in the clip so it is cheap at playback.
+- Ducking is computed gain automation from the voice track envelope (roles Voice and Music on tracks), never baked into clips.
+- Audio snapshot is version 4 with strict native validation; the new JSON fields are optional so old projects load unchanged and old readers ignore them.
+- Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
+**Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
+

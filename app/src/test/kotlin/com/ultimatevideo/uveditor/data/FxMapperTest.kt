@@ -1,7 +1,9 @@
 package com.ultimatevideo.uveditor.data
 
 import com.ultimatevideo.uveditor.data.model.ClipDto
+import com.ultimatevideo.uveditor.data.model.CurvePointDto
 import com.ultimatevideo.uveditor.data.model.EffectDto
+import com.ultimatevideo.uveditor.data.model.GradeCurvesDto
 import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
@@ -68,6 +70,51 @@ class FxMapperTest {
         assertEquals(styled.effects, clip.effects)
         assertEquals(styled.mask, clip.mask)
         assertEquals("screen", clip.blendMode)
+    }
+
+    @Test
+    fun `a colour grade keeps its values and curves through the mapper and the JSON text`() {
+        val values = EffectType.COLOR_GRADE.defaults.toMutableList().also { it[11] = 0.4; it[17] = 1.3 }
+        val curves = GradeCurvesDto(
+            master = listOf(CurvePointDto(0.0, 0.0), CurvePointDto(0.4, 0.3), CurvePointDto(1.0, 1.0)),
+            blue = listOf(CurvePointDto(0.0, 0.1), CurvePointDto(1.0, 1.0)),
+        )
+        val graded = styled.copy(effects = listOf(EffectDto("g", "color_grade", values, curves)))
+        val decoded = ProjectJson.decode(ProjectJson.encode(project(graded)))
+        assertEquals(curves, decoded.tracks.single().clips.single().effects.single().curves)
+
+        val timeline = TimelineMapper.toTimeline(decoded)
+        val effect = timeline.track("v")!!.clip("A")!!.fx.effects.single()
+        assertEquals(EffectType.COLOR_GRADE, effect.type)
+        assertEquals(values, effect.values)
+        assertEquals(0.3, effect.curves!!.master.points[1].y, 0.0)
+        assertTrue(effect.curves.red.isIdentity) // an empty list is the identity curve
+
+        val back = TimelineMapper.toDto(project(graded), timeline, emptyList()).tracks.single().clips.single().effects.single()
+        assertEquals(curves, back.curves)
+    }
+
+    @Test
+    fun `a grade without curves writes no curve points and old files without them load`() {
+        val plainGrade = styled.copy(effects = listOf(EffectDto("g", "color_grade", EffectType.COLOR_GRADE.defaults)))
+        val text = ProjectJson.encode(project(plainGrade))
+        assertTrue(!text.contains("\"master\""))
+        val effect = TimelineMapper.toTimeline(ProjectJson.decode(text)).track("v")!!.clip("A")!!.fx.effects.single()
+        assertEquals(null, effect.curves)
+        val identityDto = GradeCurvesDto()
+        val withIdentity = styled.copy(effects = listOf(EffectDto("g", "color_grade", EffectType.COLOR_GRADE.defaults, identityDto)))
+        val back = TimelineMapper.toDto(project(withIdentity), TimelineMapper.toTimeline(project(withIdentity)), emptyList())
+        assertEquals(null, back.tracks.single().clips.single().effects.single().curves)
+    }
+
+    @Test
+    fun `invalid curves are reported as corrupt`() {
+        val bad = GradeCurvesDto(red = listOf(CurvePointDto(0.5, 0.5), CurvePointDto(0.2, 0.9)))
+        assertThrows(ProjectError.Corrupt::class.java) {
+            TimelineMapper.toTimeline(
+                project(styled.copy(effects = listOf(EffectDto("g", "color_grade", EffectType.COLOR_GRADE.defaults, bad)))),
+            )
+        }
     }
 
     @Test
