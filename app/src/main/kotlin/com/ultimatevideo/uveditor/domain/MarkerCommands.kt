@@ -22,3 +22,13 @@ data class SetBeatMarkers(
 data class AnnotateMarker(val markerId: String, val note: String?, val color: MarkerColor?) : EditCommand {
     override fun apply(timeline: Timeline) = MarkerOps.annotate(timeline, markerId, note, color)
 }
+
+/** Sets the name, note and colour of a marker in one undo step (the marker popup commits its edit session with this). */
+data class EditMarker(val markerId: String, val name: String?, val note: String?, val color: MarkerColor?) : EditCommand {
+    override fun apply(timeline: Timeline) = MarkerOps.update(timeline, markerId, name, note, color)
+}
+
+/** Moves a marker along the ruler in one undo step. */
+data class MoveMarker(val markerId: String, val frame: FrameIndex) : EditCommand {
+    override fun apply(timeline: Timeline) = MarkerOps.move(timeline, markerId, frame)
+}

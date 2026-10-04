@@ -315,6 +315,52 @@ static void testLaneHeaders() {
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &parsed) != core::Status::Ok);
 }
 
+static void testMarkerHitTestAndLabels() {
+    timeline::TimelineSnapshot s;
+    s.markers.push_back({100, 0, 0});
+    s.markers.push_back({400, 0, 0});
+    s.markers.push_back({410, 1, 0});  // a beat right next to the marker at 400
+    timeline::Viewport vp;
+    vp.pxPerFrame = 2.0;
+    const auto layout = timeline::Layout::forDensity(1.0f);
+    CHECK(layout.markerHitHalf == 20.0f);  // a 40dp wide target
+
+    // On the ruler, the target is wider than the line: 15 px beside the marker at x=200 still hits it.
+    auto r = timeline::hitTest(s, vp, layout, 215.0f, layout.rulerHeight - 4.0f);
+    CHECK(r.kind == timeline::HitKind::Marker && r.clipKey == 0 && r.frame == 107);  // the frame is the finger's, not the marker's
+    r = timeline::hitTest(s, vp, layout, 185.0f, 5.0f);
+    CHECK(r.kind == timeline::HitKind::Marker && r.clipKey == 0);
+    // Farther than the target: plain ruler (a seek).
+    r = timeline::hitTest(s, vp, layout, 225.0f, 5.0f);
+    CHECK(r.kind == timeline::HitKind::Ruler);
+    // The nearest of several markers wins; beats are markers too.
+    r = timeline::hitTest(s, vp, layout, 819.0f, 5.0f);
+    CHECK(r.kind == timeline::HitKind::Marker && r.clipKey == 2 && r.frame == 409);
+    // Below the ruler nothing is a marker.
+    r = timeline::hitTest(s, vp, layout, 200.0f, layout.rulerHeight + 5.0f);
+    CHECK(r.kind != timeline::HitKind::Marker);
+
+    // The playhead handle keeps the touch when it is strictly nearer than the marker; a marker under the playhead
+    // (just dropped there) wins the tie so it can be tapped.
+    r = timeline::hitTest(s, vp, layout, 205.0f, 5.0f, 104);  // playhead at x=208, marker at x=200
+    CHECK(r.kind == timeline::HitKind::Playhead);
+    r = timeline::hitTest(s, vp, layout, 200.0f, 5.0f, 100);
+    CHECK(r.kind == timeline::HitKind::Marker && r.clipKey == 0);
+    // A layout without a marker target (the tests of other features) is unchanged.
+    timeline::Layout none = layout;
+    none.markerHitHalf = 0.0f;
+    CHECK(timeline::hitTest(s, vp, none, 200.0f, 5.0f).kind == timeline::HitKind::Ruler);
+
+    // Name labels: negative keys that never clash with clip keys, and a fit rule that draws nothing when crowded.
+    CHECK(timeline::markerLabelKey(0) == -2 && timeline::markerLabelKey(5) == -7);
+    CHECK(timeline::markerLabelChars(100.0f, 5.0f, 10) == 10);  // fits whole
+    CHECK(timeline::markerLabelChars(30.0f, 5.0f, 10) == 6);    // cut to the room
+    CHECK(timeline::markerLabelChars(9.0f, 5.0f, 10) == 0);     // fewer than 3 characters would fit: draw none
+    CHECK(timeline::markerLabelChars(9.0f, 5.0f, 1) == 1);      // a one-letter name only needs one
+    CHECK(timeline::markerLabelChars(0.0f, 5.0f, 4) == 0 && timeline::markerLabelChars(50.0f, 0.0f, 4) == 0);
+    CHECK(timeline::markerLabelChars(50.0f, 5.0f, 0) == 0);
+}
+
 static void testMarkerStyleColours() {
     // Six distinct, bright colours in MarkerColor order (red, orange, yellow, green, blue, purple), and a default.
     const timeline::MarkerRgb none = timeline::markerRgb(0);
@@ -819,6 +865,7 @@ int main() {
     testSnapshotRetimes();
     testLaneHeaders();
     testMarkerStyleColours();
+    testMarkerHitTestAndLabels();
     testSnapshotMarkers();
     testSnapshotLabels();
     testGlyphFont();
