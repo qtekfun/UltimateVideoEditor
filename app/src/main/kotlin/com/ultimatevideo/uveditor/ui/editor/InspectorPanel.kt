@@ -127,6 +127,7 @@ fun InspectorPanel(
             if (clip.hasMedia) {
                 val detected = SourceColorSpace.fromId(state.assets.firstOrNull { it.id == clip.assetId }?.colorSpace)
                 ClipColorControls(detected, clip.colorOverride, state.colorSpace, onIntent)
+                if (clip.still == null) StabiliseControls(clip, if (state.stab.clipId == clip.id) state.stab else StabUiState(), onIntent)
             }
             FxControls(clip.fx, onIntent)
         }

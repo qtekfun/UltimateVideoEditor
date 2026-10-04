@@ -171,6 +171,15 @@ data class ClipDto(
     val still: String? = null,
     /** Pan, fade handles, EQ, noise suppression and loudness normalisation; absent when unused. */
     val audio: ClipAudioDto? = null,
+    /** Camera-shake correction; absent when off. The analysis it needs is a cache file, never part of the project. */
+    val stabilise: StabiliseDto? = null,
+)
+
+/** Settings of the stabiliser: [strength] 0..1 and [crop] (`tight`, `medium` or `full`). */
+@Serializable
+data class StabiliseDto(
+    val strength: Double = 0.3,
+    val crop: String = "medium",
 )
 
 /** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */

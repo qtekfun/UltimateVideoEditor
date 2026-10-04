@@ -123,6 +123,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setDucking(timeline, ducking)
     }
 
+    /** Turns the stabiliser on (or off with null) for a clip; one undo step. */
+    data class SetStabilise(val clipId: String, val stabilise: Stabilise?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setStabilise(timeline, clipId, stabilise)
+    }
+
     data class SetGain(val clipId: String, val gainDb: Double) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setGain(timeline, clipId, gainDb)
     }
