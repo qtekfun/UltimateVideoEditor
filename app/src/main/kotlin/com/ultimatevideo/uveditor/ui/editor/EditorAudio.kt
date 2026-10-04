@@ -10,6 +10,7 @@ import com.ultimatevideo.uveditor.engine.audio.AutoParam
 import com.ultimatevideo.uveditor.engine.audio.AutoPoint
 import com.ultimatevideo.uveditor.engine.audio.AutomationLane
 import com.ultimatevideo.uveditor.domain.ClipEq
+import com.ultimatevideo.uveditor.domain.VoiceFx
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -32,6 +33,7 @@ import com.ultimatevideo.uveditor.engine.audio.EqBandSpec
 import com.ultimatevideo.uveditor.engine.audio.EqSpec
 import com.ultimatevideo.uveditor.engine.audio.RetimeKnot
 import com.ultimatevideo.uveditor.engine.audio.TrackRole
+import com.ultimatevideo.uveditor.engine.audio.VoiceSpec
 import com.ultimatevideo.uveditor.domain.RenderClip
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -90,6 +92,7 @@ internal fun audioSnapshotOf(
             denoiseStrength = denoise?.strength?.toFloat() ?: 0f,
             noiseProfile = denoise?.profile ?: emptyList(),
             automation = automationLanesOf(clip),
+            voice = voiceSpecOf(tools.voice),
         )
     }
     val tracks = mixerTracks.map { track ->
@@ -143,6 +146,28 @@ internal fun automationLanesOf(clip: RenderClip): List<AutomationLane> {
 
 /** A key for a track id that is stable across snapshots, so the mixer keeps its envelopes running through edits. */
 internal fun stableTrackKey(trackId: String): Long = trackId.hashCode().toLong()
+
+/** The engine's view of a clip's voice effect: the preset's sliders resolved to the native chain's settings. */
+internal fun voiceSpecOf(fx: VoiceFx?): VoiceSpec {
+    val p = fx?.params() ?: return VoiceSpec.NONE
+    if (p.isNeutral) return VoiceSpec.NONE
+    return VoiceSpec(
+        pitchSemitones = p.pitchSemitones.toFloat(),
+        formantSemitones = p.formantSemitones.toFloat(),
+        whisperMix = p.whisperMix.toFloat(),
+        ringHz = p.ringHz.toFloat(),
+        ringMix = p.ringMix.toFloat(),
+        bandLowHz = p.bandLowHz.toFloat(),
+        bandHighHz = p.bandHighHz.toFloat(),
+        driveDb = p.driveDb.toFloat(),
+        echoMs = p.echoMs.toFloat(),
+        echoFeedback = p.echoFeedback.toFloat(),
+        echoMix = p.echoMix.toFloat(),
+        reverbSize = p.reverbSize.toFloat(),
+        reverbDamping = p.reverbDamping.toFloat(),
+        reverbMix = p.reverbMix.toFloat(),
+    )
+}
 
 internal fun eqSpecOf(eq: ClipEq): EqSpec =
     if (eq.isFlat) {

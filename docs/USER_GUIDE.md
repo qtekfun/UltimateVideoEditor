@@ -455,6 +455,13 @@ device. Every setting is non-destructive and one undo step (a slider drag is one
   gating), so it works best on steady hiss or hum. Speech in the marked stretch will be partly removed.
 - **Loudness**: measures the clip (ITU-R BS.1770 / EBU R128) and **Normalise to** a target such as -16 LUFS by
   adding gain. **Measure again** after you change the clip. The measurement is cached on the device.
+- **Voice effects**: **Off**, or a preset with one to three sliders. **Pitch and formant** shifts the pitch while
+  the timbre stays (the **Formant** slider moves the timbre on its own); **Chipmunk** and **Deep** move both together;
+  **Robot** (ring modulation plus a very short echo), **Whisper** (noise instead of pitch), **Radio** (telephone band
+  and drive), **Echo** (delay, repeats, mix), **Reverb** (size, damping, mix) and **Megaphone**. A slider takes effect
+  when you release it (the clip is read again), as one undo step. Echo and reverb keep sounding after the clip's own
+  sound ends, up to the end of the clip. It is the same signal processing for preview and export, and nothing leaves
+  the phone.
 - **Reset sound** restores all of the above.
 
 **Mixer** (toolbar faders icon): for every track a **Mute**, **Solo**, **Volume** (dB), **Role** (Normal, Voice,

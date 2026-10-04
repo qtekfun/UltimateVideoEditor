@@ -5,6 +5,7 @@ import com.ultimatevideo.uveditor.data.model.ClipAudioDto
 import com.ultimatevideo.uveditor.data.model.ClipDto
 import com.ultimatevideo.uveditor.data.model.ClipEqDto
 import com.ultimatevideo.uveditor.data.model.DenoiseDto
+import com.ultimatevideo.uveditor.data.model.VoiceFxDto
 import com.ultimatevideo.uveditor.data.model.DuckingDto
 import com.ultimatevideo.uveditor.data.model.EqBandDto
 import com.ultimatevideo.uveditor.data.model.TrackAudioDto
@@ -13,6 +14,8 @@ import com.ultimatevideo.uveditor.domain.BusCompressor
 import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.Denoise
+import com.ultimatevideo.uveditor.domain.VoiceFx
+import com.ultimatevideo.uveditor.domain.VoicePreset
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.EqBand
 import com.ultimatevideo.uveditor.domain.TrackAudio
@@ -193,7 +196,12 @@ object TimelineMapper {
             ClipEq(e.highPassHz, e.lowPassHz, if (e.bands.size == ClipEq.BAND_COUNT) e.bands.map { EqBand(it.freqHz, it.gainDb, it.q) } else ClipEq.DEFAULT_BANDS)
         } ?: ClipEq.FLAT
         val denoise = dto.denoise?.let { Denoise(it.strength, it.profile) }
-        return ClipAudio(dto.pan, dto.fadeInFrames, dto.fadeOutFrames, eq, denoise, dto.normalizeDb, dto.targetLufs)
+        val voice = dto.voice?.let { v ->
+            val preset = VoicePreset.entries.firstOrNull { it.name.lowercase() == v.preset }
+                ?: throw ProjectError.Corrupt("clip $clipId has unknown voice effect '${v.preset}'")
+            VoiceFx(preset, v.values)
+        }
+        return ClipAudio(dto.pan, dto.fadeInFrames, dto.fadeOutFrames, eq, denoise, dto.normalizeDb, dto.targetLufs, voice)
             .also { a ->
                 // Only the value ranges can be checked here; whether a fade fits the clip is part of the timeline invariants.
                 val problem = if (a.fadeInFrames < 0 || a.fadeOutFrames < 0) "negative fade" else a.problem(Long.MAX_VALUE)
@@ -211,6 +219,7 @@ object TimelineMapper {
         denoise = audio.denoise?.let { DenoiseDto(it.strength, it.profile) },
         normalizeDb = audio.normalizeDb,
         targetLufs = audio.targetLufs,
+        voice = audio.voice?.let { VoiceFxDto(it.preset.name.lowercase(), it.values) },
     )
 
     private fun toMarker(dto: MarkerDto) = Marker(

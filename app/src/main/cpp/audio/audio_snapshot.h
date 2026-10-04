@@ -1,7 +1,7 @@
 #pragma once
 
 // Immutable description of the audio side of the timeline, as sent from Kotlin.
-// Binary layout, version 4 (little endian, mirrored by engine/audio/AudioSnapshot.kt):
+// Binary layout, version 6 (little endian, mirrored by engine/audio/AudioSnapshot.kt):
 //   header (28 bytes): u32 magic "UVAS" | u32 version | i32 fpsNum | i32 fpsDen | u32 clipCount |
 //                      u32 trackCount | u32 flags (bit0: master limiter off)
 //   tracks (40 bytes each): i64 trackKey | f32 gainDb | u32 flags (bit0 muted, bit1 compressor on) |
@@ -18,6 +18,9 @@
 //            u32 laneCount (version 5; 0 in version 4, where this was reserved)
 //   knots (16 bytes each, after all clips, in clip order): i64 frame | f64 sourceFrame
 //   noise profiles (profileBins x f32 each, after the knots, for the clips that have one, in clip order)
+//   voice blocks (version 6, after the automation lanes, one 64-byte block per clip in clip order): 16 x f32 =
+//     pitchSemitones, formantSemitones, whisperMix, ringHz, ringMix, bandLowHz, bandHighHz, driveDb, echoMs,
+//     echoFeedback, echoMix, reverbSize, reverbDamping, reverbMix, 0, 0 (audio/voice_fx.h); all zero = no effect
 //   automation lanes (version 5, after the noise profiles, per clip in order, laneCount lanes each):
 //     lane header (16 bytes): i32 param | u32 pointCount | u32 0 | u32 0
 //     points (16 bytes each): i64 frame | f32 value | u32 0
@@ -43,13 +46,15 @@
 #include "audio/dsp.h"
 #include "audio/retime_source.h"
 #include "audio/spectral_denoise.h"
+#include "audio/voice_fx.h"
 #include "core/error.h"
 
 namespace uv::audio {
 
 constexpr uint32_t kAudioSnapshotMagic = 0x53415655;  // "UVAS"
-constexpr uint32_t kAudioSnapshotVersion = 5;
-constexpr uint32_t kAudioSnapshotMinVersion = 4;  // version 4 has no automation lanes and still parses
+constexpr uint32_t kAudioSnapshotVersion = 6;
+constexpr uint32_t kAudioSnapshotMinVersion = 4;  // version 4 has no automation lanes and 4 and 5 have no voice blocks; all still parse
+constexpr size_t kAudioSnapshotVoiceBytes = kVoiceParamFloats * sizeof(float);
 constexpr size_t kAudioSnapshotLaneBytes = 16;
 constexpr size_t kAudioSnapshotPointBytes = 16;
 constexpr uint32_t kMaxClipLanes = 7;
@@ -108,6 +113,7 @@ struct AudioClipDesc {
     float denoiseStrength = 0.0f;       // 0 = off
     std::vector<float> noiseProfile;    // kDenoiseBins magnitudes when denoiseStrength > 0
     std::vector<AutoLane> lanes;        // keyframed gain, pan and EQ gains (version 5)
+    VoiceParams voice;                  // voice effects (version 6); neutral = none
 };
 
 struct AudioSnapshotData {

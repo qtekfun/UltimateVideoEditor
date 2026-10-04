@@ -163,7 +163,7 @@ waves of SPECS 9.20.
 
 ### Wave 6
 - [ ] WP-V2 Auto cut (silence removal) and manual reframe helper. _Status:_ implemented (SPECS 5.23) and covered by JVM tests (silence detection on synthetic envelopes, source-to-timeline mapping, atomic cut with base ripple and overlays following, undo, reframe maths and keyframes, view model flows); the sheets and the real waveform path have not been seen on a device yet, so the box stays open.
-- [ ] WP-V3 Voice effects (classical DSP)
+- [x] WP-V3 Voice effects (classical DSP): pitch/formant shift, Chipmunk, Deep, Robot, Whisper, Radio, Echo, Reverb, Megaphone (SPECS 9.17). _Status:_ host-verified only (native DSP tests: pitch within 0.1 cent, level within 1 dB, formant moves the envelope, whisper removes the pitch, ring-mod spectrum, impulse responses, chunk invariance, tails, no NaN/denormals; core tests: realtime = offline within 1e-6, retimed path, tail past the media end; JVM tests for the model, JSON, snapshot v6, mapping and view model). Not yet heard on a device; the inspector subsection was not seen on a screen.
 
 ### Wave 7
 - [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
