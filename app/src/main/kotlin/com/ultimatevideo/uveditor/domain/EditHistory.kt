@@ -283,6 +283,10 @@ class EditHistory private constructor(
         require(limit > 0) { "History limit must be positive" }
     }
 
+    /** Every timeline this history can still return to by undo or redo, plus the current one (for checks of what could come back). */
+    fun reachableTimelines(): List<Timeline> =
+        listOf(timeline) + undoStack.flatMap { listOf(it.before, it.after) } + redoStack.flatMap { listOf(it.before, it.after) }
+
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
     val undoDepth: Int get() = undoStack.size

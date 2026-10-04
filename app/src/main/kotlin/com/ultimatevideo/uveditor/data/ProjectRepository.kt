@@ -57,6 +57,8 @@ class ProjectRepository(
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     /** Reads media files for bundles and finds files this device already has; null disables both. */
     private val mediaAccess: BundleMediaSource? = null,
+    /** The picture of a project's card as JPEG bytes, put in the bundles it exports; null leaves bundles without one. */
+    private val cardThumbnail: (suspend (ProjectDto) -> ByteArray?)? = null,
 ) : ProjectStore {
     private val mutex = Mutex()
 
@@ -252,9 +254,10 @@ class ProjectRepository(
         val file = projectFile(id)
         val text = readText(file)
         val project = ProjectJson.decode(text)
+        val pictures = thumbnails.ifEmpty { cardThumbnail?.invoke(project)?.let { mapOf("project.jpg" to it) } ?: emptyMap() }
         try {
             transferIO.openOutput(uri).use { out ->
-                ProjectBundle.write(text, project, mediaAccess, includeMedia, thumbnails, out)
+                ProjectBundle.write(text, project, mediaAccess, includeMedia, pictures, out)
             }
         } catch (e: IOException) {
             throw ProjectError.Io("export bundle to $uri", e)
