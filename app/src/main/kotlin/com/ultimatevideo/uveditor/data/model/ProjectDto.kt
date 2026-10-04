@@ -86,12 +86,17 @@ data class BusCompressorDto(
     val makeupDb: Double = 0.0,
 )
 
-/** A ruler marker at [frame] project frames; [kind] is `manual` or `beat` (see `domain/Marker`). */
+/**
+ * A ruler marker at [frame] project frames; [kind] is `manual` or `beat` (see `domain/Marker`).
+ * [note] and [color] (`red`, `orange`, `yellow`, `green`, `blue` or `purple`) are optional labels.
+ */
 @Serializable
 data class MarkerDto(
     val id: String,
     val frame: Long,
     val kind: String = "manual",
+    val note: String? = null,
+    val color: String? = null,
 )
 
 @Serializable
@@ -125,6 +130,10 @@ data class MediaAssetDto(
      * recognised when relinking (the URI of a lost file says nothing). Absent in older projects.
      */
     val displayName: String? = null,
+    /** Free-form labels the user gave the file in the media library; absent in older projects. */
+    val tags: List<String> = emptyList(),
+    /** A short note about the file, shown in the media library; absent in older projects. */
+    val note: String? = null,
 )
 
 @Serializable

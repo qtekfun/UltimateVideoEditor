@@ -59,6 +59,21 @@ object ProjectJson {
         return json.encodeToString(JsonElement.serializer(), JsonObject(updated))
     }
 
+    /**
+     * Re-serialises [raw] with the `uri` of the library assets in [uris] (by asset id) replaced, keeping every
+     * other field of the project and of those assets untouched.
+     */
+    fun withMediaUris(raw: JsonObject, uris: Map<String, String>): String {
+        val library = (raw["mediaLibrary"] as? JsonArray)?.map { element ->
+            val asset = element as? JsonObject
+            val id = asset?.get("id")?.jsonPrimitive?.contentOrNull
+            val replacement = id?.let(uris::get)
+            if (asset != null && replacement != null) JsonObject(asset + ("uri" to JsonPrimitive(replacement))) else element
+        }
+        val updated = if (library != null) JsonObject(raw + ("mediaLibrary" to JsonArray(library))) else raw
+        return json.encodeToString(JsonElement.serializer(), updated)
+    }
+
     fun nameOf(raw: JsonObject): String? = raw["name"]?.jsonPrimitive?.contentOrNull
 
     private fun overlay(base: JsonElement?, update: JsonElement): JsonElement = when {
