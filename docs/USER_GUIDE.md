@@ -10,7 +10,7 @@ automated tests so far; see [Known limits](#known-limits).
 2. [Editor layout](#editor-layout) and [Layout](#layout)
 3. [Toolbar icons](#toolbar-icons)
 4. [Media tray](#media-tray)
-5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops)
+5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
 6. [Inspector](#inspector)
 7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
 8. [Markers and beats](#markers-and-beats)
@@ -106,6 +106,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
 | ✂ | Split at playhead | Cuts the selected clip in two. |
+| ⛶ (dotted square) | Select several clips | Turns select mode on or off; see [Selecting several clips](#selecting-several-clips). |
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
 | T | Add a title | Adds a text title at the playhead. |
@@ -168,6 +169,29 @@ panel on the left.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
 - **Pinch** on the timeline to zoom, **drag** on an empty area to scroll, **fling** to coast.
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
+
+### Selecting several clips
+
+- **Select mode** (dotted-square button, highlighted while on): tap clips to add or remove them, and drag on
+  empty lane space to draw a rectangle that adds every clip it touches. Tapping empty space keeps the selection.
+- **Long press** a clip in any mode to add it to the selection (or remove it again). A plain tap on a clip goes
+  back to just that clip.
+- The clip chosen last has the **yellow** outline: it is the one the inspector edits. The others are outlined
+  in **blue**.
+- A **selection bar** appears under the toolbar with the count and the group actions: copy, cut, paste,
+  duplicate, delete, paste attributes, align starts, align ends, transitions, and a menu (select the whole
+  lane, everything after the playhead or all clips, speed, volume, opacity) plus a button to clear the selection.
+- **Drag any selected clip** to move the whole group together; the clips keep their offsets and lanes, snap as a
+  block and a position that would land on another clip is refused. Dragging onto another lane of the same kind
+  moves all of them by that many lanes.
+- Every group action is **one undo step**. If an action cannot apply, a message says why (for example, base clips
+  can only move together when they touch each other, and the base track cannot be aligned).
+- **Copy** keeps the clips with their layout, effects, keyframes, speed and transitions between them. **Paste**
+  puts the earliest clip at the playhead: overlay clips keep their offsets (and fail rather than land on another
+  clip), base clips are inserted at the nearest cut. **Duplicate** pastes right after the last selected clip.
+  **Paste attributes** copies transform, effects, volume and speed of the copied clip onto the selection.
+- **Transitions** add a crossfade at the cut after each selected clip that touches the next one, or fade each
+  picture clip in and out (head and tail).
 
 ### Drops (what happens when you release a dragged clip)
 
@@ -326,4 +350,5 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
   by starting the drag on a heading or in the gap between two wheels.
 - The scopes read the preview at 320 x 180 pixels, so fine detail in a 4K picture is sampled, not counted.
 - Inserting (shifting later clips) works on the base track only; other tracks overwrite.
+- Fading in and out (head and tail) uses opacity keyframes and does not fade the sound of video clips yet.
 - Dragging stickers and templates onto the timeline is not available yet (tap them); dragging media assets is.
