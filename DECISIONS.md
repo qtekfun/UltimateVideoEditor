@@ -873,3 +873,9 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Decision:** picking is a tap (box of 7, 12 or 20 % of the frame height by chip) or a dragged box on the preview, at the playhead's frame, which must be on the clip.
 **Why:** a tap is the common case and the chips cover sizes without a second gesture; the playhead frame is what the user is looking at.
 **Alternative:** a draggable box with handles over the preview (more precise, more code to keep out of the gesture layer used for moving clips).
+
+## Export speed on long-GOP clips: model instead of more code (third pass)
+
+**Decision:** no further production change to the decoder: the slowdown was already removed by keeping one frame in flight (second pass). This pass moves the constant to `decode/pending_policy.h` (`kMaxInFlightFrames`, shared by the decoder and a new host simulation) and adds `decode_sim_tests.cpp`, a deterministic simulation of the decoder worker with a sequential export consumer. It reproduces the old behaviour (138 backward seeks, 1.9 fps with 4 in flight) and guards the fix (1 seek, within 15% of the pipelined ideal), and checks that scrub and long jumps still seek once.
+**Why:** the Pixel was locked, so a decoder change could not be verified; the root cause was already identified and fixed, and a regression guard that fails if someone raises the in-flight limit is the cheapest protection.
+**Alternative:** allow two frames in flight with a reader that does not drop (would help the decode-bound case, 85% of ideal) or pre-arm the decoder targets of all layers before waiting for the first one (helps cuts with a new decoder). Both need a device to be measured; listed as follow-ups.
