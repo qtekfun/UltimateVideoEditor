@@ -77,6 +77,15 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnai
         pendingExportId = null
         if (uri != null && id != null) viewModel.onIntent(HubIntent.ExportTo(id, uri.toString()))
     }
+    var pendingBundle by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val bundleLauncher = rememberLauncherForActivityResult(
+        // A generic type keeps the suggested ".uvbundle" name (a zip type makes Android add ".zip").
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val pending = pendingBundle
+        pendingBundle = null
+        if (uri != null && pending != null) viewModel.onIntent(HubIntent.ExportBundleTo(pending.first, uri.toString(), pending.second))
+    }
     // Only reads the clip's format once; the clip is not added to the project and no permission is kept.
     val matchLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.onIntent(HubIntent.MatchFromClip(uri.toString()))
@@ -89,6 +98,10 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnai
                 is HubEffect.LaunchExportPicker -> {
                     pendingExportId = effect.projectId
                     exportLauncher.launch(effect.suggestedFileName)
+                }
+                is HubEffect.LaunchBundleExportPicker -> {
+                    pendingBundle = effect.projectId to effect.includeMedia
+                    bundleLauncher.launch(effect.suggestedFileName)
                 }
                 is HubEffect.OpenEditor -> onOpenProject(effect.projectId)
             }
@@ -179,7 +192,7 @@ private fun HubOverflowMenu(onImport: () -> Unit) {
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Import project file") }, onClick = { open = false; onImport() })
+            DropdownMenuItem(text = { Text("Import project file or bundle") }, onClick = { open = false; onImport() })
         }
     }
 }
@@ -325,6 +338,8 @@ private fun ProjectCard(project: ProjectSummary, onIntent: (HubIntent) -> Unit, 
                     MenuItem("Rename") { menuOpen = false; onIntent(HubIntent.RequestRename(project)) }
                     MenuItem("Duplicate") { menuOpen = false; onIntent(HubIntent.Clone(project.id)) }
                     MenuItem("Export project file") { menuOpen = false; onIntent(HubIntent.RequestExport(project)) }
+                    MenuItem("Export bundle (names and sizes)") { menuOpen = false; onIntent(HubIntent.RequestExportBundle(project, includeMedia = false)) }
+                    MenuItem("Export bundle with media files") { menuOpen = false; onIntent(HubIntent.RequestExportBundle(project, includeMedia = true)) }
                     MenuItem("Delete") { menuOpen = false; onIntent(HubIntent.RequestDelete(project)) }
                 }
             }

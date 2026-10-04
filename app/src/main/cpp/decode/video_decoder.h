@@ -88,6 +88,7 @@ private:
     void pump(int64_t lo, int64_t hi);
     bool needsFrame(int64_t frame);
     size_t inFlightCount();
+    bool pendingExpired(int64_t releasedMs) const;
     void reportError(Status code, const std::string& message);
     int64_t ptsToFrame(int64_t ptsUs) const;
 
@@ -138,6 +139,7 @@ private:
     std::map<int64_t, int64_t> pending_;  // frame -> steady-clock ms when released for render
 
     std::atomic<int64_t> framesDecoded_{0};
+    std::atomic<int64_t> lastDrainMs_{0};  // steady-clock ms when the consumer last finished draining the reader
 
     // Decode-thread diagnostics, summarised in the log about once per second of activity.
     struct Diag {

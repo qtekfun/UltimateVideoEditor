@@ -109,6 +109,10 @@ data class EditorState(
     val noiseRegion: NoiseRegion? = null,
     /** The track mixer sheet (volume, mute, solo, role, compressor, ducking) is open. */
     val mixerOpen: Boolean = false,
+    /** The media library sheet (tags, notes, usage, cleanup, exports to other tools). */
+    val library: LibraryUiState = LibraryUiState(),
+    /** The note and colour dialog of a marker, or null when closed. */
+    val markerEdit: MarkerEditDraft? = null,
     /** Keys copied from a parameter's track (frames relative to the first key), ready to paste at the playhead. */
     val paramClipboard: ParamClipboard? = null,
     /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
@@ -546,6 +550,9 @@ sealed interface EditorEffect : UiEffect {
 
     /** Open the document picker to choose a replacement for [assetId]. */
     data class LaunchRelinkPicker(val assetId: String) : EditorEffect
+
+    /** Open the "create document" picker to choose where the [kind] export is written; the answer is [LibraryIntent.ExportTo]. */
+    data class LaunchInterchangePicker(val kind: InterchangeKind, val suggestedFileName: String, val mime: String) : EditorEffect
 }
 
 /**
