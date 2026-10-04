@@ -189,7 +189,6 @@ class ProxyViewModel(
 
     override fun onCleared() {
         manager.flush()
-        super.onCleared()
     }
 }
 
