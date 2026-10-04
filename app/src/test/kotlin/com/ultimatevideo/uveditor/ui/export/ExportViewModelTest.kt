@@ -52,6 +52,9 @@ class ExportViewModelTest {
         val closed = mutableListOf<Int>()
         val deleted = mutableListOf<String>()
         var failOn: String? = null
+        val names = mutableMapOf<String, String>()
+
+        override fun displayName(uri: String): String? = names[uri]
 
         override fun openAsset(uri: String): Int = open(uri)
         override fun openOutput(uri: String): Int = open(uri)
@@ -209,6 +212,17 @@ class ExportViewModelTest {
         assertEquals(45L, runner.request!!.totalFrames)
         assertEquals(30 to 1, runner.request!!.settings.fpsNum to runner.request!!.settings.fpsDen)
         assertEquals(60 to 1, runner.request!!.projectFpsNum to runner.request!!.projectFpsDen)
+    }
+
+    @Test
+    fun `the done phase names the file as saved when the user renamed it in the picker`() {
+        io.names["content://out/movie.mp4"] = "Holiday cut.mp4"
+        val vm = viewModel()
+        vm.openAndStart()
+
+        runner.listener!!.onFinished(null)
+
+        assertEquals(ExportPhase.Done("content://out/movie.mp4", "Holiday cut.mp4"), vm.state.value.phase)
     }
 
     @Test
