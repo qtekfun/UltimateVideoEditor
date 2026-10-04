@@ -179,10 +179,10 @@ struct SnapExtras {
 };
 
 static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<AudioClipDesc>& clips,
-                             const SnapExtras& extra = {}) {
+                             const SnapExtras& extra = {}, uint32_t version = kAudioSnapshotVersion) {
     Buf w;
     w.put<uint32_t>(kAudioSnapshotMagic);
-    w.put<uint32_t>(kAudioSnapshotVersion);
+    w.put<uint32_t>(version);
     w.put<int32_t>(fpsNum);
     w.put<int32_t>(fpsDen);
     w.put<uint32_t>(static_cast<uint32_t>(clips.size()));
@@ -252,6 +252,12 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
                 w.put<uint32_t>(0);
             }
         }
+    }
+    // Voice blocks (version 6): one per clip.
+    for (const auto& c : version >= 6 ? clips : std::vector<AudioClipDesc>{}) {
+        float f[kVoiceParamFloats];
+        voiceParamsToFloats(c.voice, f);
+        for (float v : f) w.put<float>(v);
     }
     return w;
 }
@@ -1613,15 +1619,15 @@ static void testAutomationSnapshotParsing() {
     CHECK(out.clips[0].lanes[2].param == AutoParam::EqGain2);
     CHECK(out.clips[1].lanes.empty());
 
-    // Version 4 buffers (no lanes, reserved field 0) still parse.
+    // Version 4 and 5 buffers (no voice blocks, and no lanes before 5) still parse; a newer version does not.
     AudioClipDesc plain = clipDesc(3, 0, 20);
-    Buf v4 = makeAudioSnapshot(30, 1, {plain});
-    const uint32_t four = 4;
-    std::memcpy(v4.b.data() + 4, &four, sizeof(four));
-    CHECK(parseAudioSnapshot(v4.b.data(), v4.b.size(), &out) == Status::Ok);
-    const uint32_t six = 6;
-    std::memcpy(v4.b.data() + 4, &six, sizeof(six));
-    CHECK(parseAudioSnapshot(v4.b.data(), v4.b.size(), &out) == Status::BadSnapshot);
+    for (uint32_t old : {4u, 5u}) {
+        Buf older = makeAudioSnapshot(30, 1, {plain}, {}, old);
+        CHECK(parseAudioSnapshot(older.b.data(), older.b.size(), &out) == Status::Ok);
+        CHECK(out.clips.size() == 1 && out.clips[0].voice.isNeutral());
+    }
+    Buf future = makeAudioSnapshot(30, 1, {plain}, {}, 7);
+    CHECK(parseAudioSnapshot(future.b.data(), future.b.size(), &out) == Status::BadSnapshot);
 
     auto bad = [&](AudioClipDesc clip) {
         Buf b = makeAudioSnapshot(30, 1, {clip});
@@ -1790,6 +1796,175 @@ static void testNoiseSuppressionThroughTheCore() {
     g_spec = FakeSpec{};
 }
 
+// ------------------------------------------------------------------ voice effects
+
+static void testVoiceSnapshotParsing() {
+    AudioSnapshotData out;
+    AudioClipDesc withVoice = clipDesc(1, 0, 30);
+    withVoice.voice.pitchSemitones = 4.0f;
+    withVoice.voice.formantSemitones = -3.0f;
+    withVoice.voice.whisperMix = 0.25f;
+    withVoice.voice.echoMs = 240.0f;
+    withVoice.voice.echoFeedback = 0.4f;
+    withVoice.voice.echoMix = 0.5f;
+    withVoice.voice.reverbSize = 0.7f;
+    withVoice.voice.reverbMix = 0.2f;
+    AudioClipDesc plain = clipDesc(2, 40, 10);
+    plain.lanes = {laneOf(AutoParam::Pan, {{0, 0.0f}, {5, 1.0f}})};  // lanes and voice blocks coexist
+    Buf ok = makeAudioSnapshot(30, 1, {withVoice, plain});
+    CHECK(parseAudioSnapshot(ok.b.data(), ok.b.size(), &out) == Status::Ok);
+    CHECK(out.clips.size() == 2);
+    CHECK(out.clips[0].voice.pitchSemitones == 4.0f && out.clips[0].voice.formantSemitones == -3.0f);
+    CHECK(out.clips[0].voice.echoMs == 240.0f && out.clips[0].voice.reverbMix == 0.2f && !out.clips[0].voice.isNeutral());
+    CHECK(out.clips[1].voice.isNeutral() && out.clips[1].lanes.size() == 1);
+
+    auto bad = [&](auto edit) {
+        AudioClipDesc c = clipDesc(1, 0, 30);
+        edit(c);
+        Buf b = makeAudioSnapshot(30, 1, {c});
+        return parseAudioSnapshot(b.b.data(), b.b.size(), &out) == Status::BadSnapshot;
+    };
+    CHECK(bad([](AudioClipDesc& c) { c.voice.pitchSemitones = 13.0f; }));
+    CHECK(bad([](AudioClipDesc& c) { c.voice.whisperMix = std::nanf(""); }));
+    CHECK(bad([](AudioClipDesc& c) { c.voice.echoFeedback = 0.99f; }));
+    CHECK(bad([](AudioClipDesc& c) {
+        c.voice.bandLowHz = 4000.0f;
+        c.voice.bandHighHz = 1000.0f;
+    }));
+    // The reserved floats must be zero, and a truncated or padded buffer is refused.
+    Buf reserved = makeAudioSnapshot(30, 1, {withVoice});
+    const float one = 1.0f;
+    std::memcpy(reserved.b.data() + reserved.b.size() - sizeof(float), &one, sizeof(one));
+    CHECK(parseAudioSnapshot(reserved.b.data(), reserved.b.size(), &out) == Status::BadSnapshot);
+    CHECK(parseAudioSnapshot(ok.b.data(), ok.b.size() - 4, &out) == Status::BadSnapshot);
+    Buf padded = ok;
+    padded.put<float>(0.0f);
+    CHECK(parseAudioSnapshot(padded.b.data(), padded.b.size(), &out) == Status::BadSnapshot);
+}
+
+// Frequency of the left channel from rising zero crossings in [from, to) frames.
+static double zeroCrossingHz(const std::vector<float>& v, size_t from, size_t to) {
+    double first = -1, last = -1;
+    int count = 0;
+    for (size_t i = from + 1; i < to; ++i) {
+        const double a = v[2 * (i - 1)], b = v[2 * i];
+        if (a < 0 && b >= 0) {
+            const double t = static_cast<double>(i - 1) + (-a) / (b - a);
+            if (first < 0) first = t;
+            last = t;
+            ++count;
+        }
+    }
+    return count < 2 ? 0.0 : (count - 1) * 48000.0 / (last - first);
+}
+
+static void testVoiceEffectsThroughTheCore() {
+    g_spec = FakeSpec{};
+    g_spec.sineHz = 440.0;
+    g_spec.sineAmp = 0.4f;
+
+    // A shifted clip plays at the shifted pitch, at about the level of the original.
+    AudioClipDesc shifted = toolClip(1, 0, 90);
+    shifted.voice.pitchSemitones = 5.0f;
+    shifted.voice.formantSemitones = 5.0f;
+    std::vector<float> out = playFor(snap30({shifted}), 3.0);
+    const double expected = 440.0 * std::pow(2.0, 5.0 / 12.0);
+    const double hz = zeroCrossingHz(out, 48000, 120000);
+    CHECK(std::fabs(1200.0 * std::log2(hz / expected)) < 5.0);
+    CHECK(rmsRange(out, 48000, 120000) > 0.25 && rmsRange(out, 48000, 120000) < 0.32);
+
+    // A retimed clip (1x through the knots) takes the same chain, with the effect applied to the retimed audio.
+    AudioClipDesc viaKnots = shifted;
+    viaKnots.knots = knotsOf({{0, 0.0}, {90, 90.0}});
+    std::vector<float> knotted = playFor(snap30({viaKnots}), 3.0);
+    CHECK(std::fabs(1200.0 * std::log2(zeroCrossingHz(knotted, 48000, 120000) / expected)) < 5.0);
+
+    // A clip without a voice effect is untouched (and does not pay for it).
+    std::vector<float> plain = playFor(snap30({toolClip(1, 0, 90)}), 3.0);
+    CHECK_NEAR(zeroCrossingHz(plain, 48000, 120000), 440.0, 0.5);
+
+    // Echo only: no latency, so the dry part is the unprocessed clip sample for sample until the first repeat.
+    AudioClipDesc echo = toolClip(1, 0, 90);
+    echo.voice.echoMs = 200.0f;
+    echo.voice.echoFeedback = 0.5f;
+    echo.voice.echoMix = 0.8f;
+    std::vector<float> echoed = playFor(snap30({echo}), 3.0);
+    double dry = 0;
+    for (size_t i = 0; i < 9000; ++i) dry = std::max(dry, static_cast<double>(std::fabs(echoed[2 * i] - plain[2 * i])));
+    CHECK(dry < 1e-6);
+    CHECK(rmsRange(echoed, 12000, 20000) > rmsRange(plain, 12000, 20000) * 1.3);  // the repeat adds to the tone
+
+    // The effect survives the end of the media: a 1 s source under a 3 s clip keeps echoing, then dies away.
+    g_spec.totalFrames = 48000;
+    std::vector<float> tail = playFor(snap30({echo}), 3.0);
+    CHECK(rmsRange(tail, 48000 + 2400, 48000 + 9600) > 0.05);   // the repeats of the last 200 ms
+    CHECK(rmsRange(tail, 48000 + 60000, 48000 + 70000) > 0.0);  // still sounding a second later
+    CHECK(rmsRange(tail, 140000, 143000) < 0.01);               // gone long before the clip ends
+    std::vector<float> noTail = playFor(snap30({toolClip(1, 0, 90)}), 3.0);
+    CHECK(rmsRange(noTail, 48000 + 2400, 48000 + 9600) == 0.0);  // without the effect the clip is silent after its media
+    g_spec.totalFrames = 48000 * 600;
+
+    // Changing the effect makes a new source: the new pitch is heard (the old buffer is not reused).
+    AudioCore* core = nullptr;
+    (void)playFor(snap30({shifted}), 1.0, &core);
+    AudioClipDesc lower = shifted;
+    lower.voice.pitchSemitones = -5.0f;
+    lower.voice.formantSemitones = -5.0f;
+    CHECK(core->setSnapshot(snap30({lower})) == Status::Ok);
+    core->seekSamples(0);
+    std::vector<float> after;
+    CHECK(renderUntilPlaying(*core, &after));
+    while (static_cast<double>(after.size() / 2) < 3.0 * 48000) step(*core, &after);
+    const double lowerHz = 440.0 * std::pow(2.0, -5.0 / 12.0);
+    CHECK(std::fabs(1200.0 * std::log2(zeroCrossingHz(after, 48000, 120000) / lowerHz)) < 5.0);
+    g_spec = FakeSpec{};
+}
+
+static void testVoiceEffectsAreBlockSizeIndependent() {
+    g_spec = FakeSpec{};
+    g_spec.sineHz = 330.0;
+    g_spec.sineAmp = 0.3f;
+    g_spec.noiseAmp = 0.05f;
+    g_spec.noiseSeed = 5;
+    g_spec.totalFrames = 2 * 48000;  // the media ends before the clip: the tail is part of the comparison
+    AudioClipDesc c = toolClip(1, 0, 120);
+    c.voice.pitchSemitones = 3.0f;
+    c.voice.formantSemitones = -2.0f;
+    c.voice.whisperMix = 0.3f;
+    c.voice.ringHz = 70.0f;
+    c.voice.ringMix = 0.3f;
+    c.voice.bandLowHz = 200.0f;
+    c.voice.bandHighHz = 7000.0f;
+    c.voice.driveDb = 6.0f;
+    c.voice.echoMs = 180.0f;
+    c.voice.echoFeedback = 0.4f;
+    c.voice.echoMix = 0.3f;
+    c.voice.reverbSize = 0.6f;
+    c.voice.reverbMix = 0.3f;
+    c.pan = 0.2f;
+    c.userFadeOutFrames = 10;
+    AudioSnapshotData d = snap30({c});
+    const int64_t frames = 4 * 48000;
+    const std::vector<float> ref = renderOffline(d, frames, 480);
+    for (int block : {17, 64, 1000, 4096}) {
+        const std::vector<float> other = renderOffline(d, frames, block);
+        double diff = 0;
+        for (size_t i = 0; i < ref.size(); ++i) diff = std::max(diff, static_cast<double>(std::fabs(ref[i] - other[i])));
+        CHECK(diff < 1e-6);
+    }
+    // The realtime path (deterministic worker, hold then play) renders the same samples.
+    const std::vector<float> live = playFor(d, 4.0);
+    double diff = 0;
+    for (int64_t i = 0; i < frames * 2 && i < static_cast<int64_t>(live.size()); ++i) {
+        diff = std::max(diff, static_cast<double>(std::fabs(ref[static_cast<size_t>(i)] - live[static_cast<size_t>(i)])));
+    }
+    CHECK(diff < 1e-6);
+    double peak = 0;
+    for (float v : ref) peak = std::max(peak, static_cast<double>(std::fabs(v)));
+    CHECK(peak > 0.1);
+    g_spec = FakeSpec{};
+}
+
 static void testMeterReportsPeaks() {
     g_spec = FakeSpec{};
     g_spec.constant = 0.5f;
@@ -1902,6 +2077,9 @@ int main() {
     testAutomationInTheMixer();
     testAutomationIsBlockSizeIndependent();
     testNoiseSuppressionThroughTheCore();
+    testVoiceSnapshotParsing();
+    testVoiceEffectsThroughTheCore();
+    testVoiceEffectsAreBlockSizeIndependent();
     testMeterReportsPeaks();
     testAnalysis();
     if (g_failures == 0) std::puts("audio host tests: all passed");
