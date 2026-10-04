@@ -911,6 +911,53 @@ static void testRetimedReaderRampAndEdges() {
     CHECK(std::fabs(out[2 * 4000] - interpolatedValue(early.sourceSample(4000))) < 1e-3f);
 }
 
+// A codec that needs a few reads to produce its first output after every seek, as a busy device does.
+class SlowStartDecoder : public PcmDecoder {
+public:
+    explicit SlowStartDecoder(int32_t notReadyReads) : notReadyReads_(notReadyReads), inner_(FakeSpec{}) {}
+    int32_t sampleRate() const override { return 48000; }
+    Status seekToMicros(int64_t us) override {
+        ++seeks;
+        waiting_ = notReadyReads_;
+        return inner_.seekToMicros(us);
+    }
+    PcmReadResult read(float* dst, int32_t maxFrames) override {
+        if (waiting_ > 0) {
+            --waiting_;
+            return {};  // nothing ready yet
+        }
+        return inner_.read(dst, maxFrames);
+    }
+    int seeks = 0;
+
+private:
+    int32_t notReadyReads_;
+    int32_t waiting_ = 0;
+    FakeDecoder inner_;
+};
+
+// Regression: a reversed clip decodes a block (96000 samples) below the playhead after one seek. When the decoder
+// was not ready yet right after that seek, every following call used to seek to the same place again, flushing the
+// codec each time, so the clip never became ready (an export failed with "audio ... not ready after 30 s").
+static void testRetimedReaderReverseDoesNotReseekWhileTheDecoderIsSlow() {
+    g_spec = FakeSpec{};
+    SlowStartDecoder decoder(3);
+    const RetimeMap map(knotsOf({{0, 229.0}, {30, 200.0}}), Rational{30, 1}, 48000, 48000);  // 1 s reversed, high in the source
+    RetimedReader reader(&decoder, map);
+    std::vector<float> out(48000 * 2);
+    int calls = 0;
+    RetimedReader::Result result = RetimedReader::Result::NotReady;
+    while (result == RetimedReader::Result::NotReady && calls < 50) {
+        result = reader.render(0, 1024, out.data());
+        ++calls;
+    }
+    CHECK(result == RetimedReader::Result::Ok);
+    CHECK(decoder.seeks == 1);
+    CHECK(calls <= 10);
+    // The first samples are the high end of the reversed source.
+    CHECK_NEAR(out[0], interpolatedValue(map.sourceSample(0)), 1e-3);
+}
+
 static void testRetimedReaderReportsDecoderFailures() {
     g_spec = FakeSpec{};
     class Failing : public PcmDecoder {
@@ -1018,6 +1065,7 @@ int main() {
     testRetimeMap();
     testRetimedReaderForward();
     testRetimedReaderReverse();
+    testRetimedReaderReverseDoesNotReseekWhileTheDecoderIsSlow();
     testRetimedReaderRampAndEdges();
     testRetimedReaderReportsDecoderFailures();
     testRetimedClipsPlayThroughTheCore();
