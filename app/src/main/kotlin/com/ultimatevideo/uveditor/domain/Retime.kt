@@ -4,11 +4,13 @@ import kotlin.math.floor
 
 /**
  * One key of a speed ramp: the relative speed ([weightPermille], 1000 = the clip's average) at
- * [frame] clip frames after the clip's start. Between keys the weight is linear; before the first and
- * after the last it holds. Only the shape matters: the clip's average speed still comes from its
- * source range and length, so a ramp never changes where a clip starts or ends.
+ * [frame] clip frames after the clip's start. Between keys the weight is linear, or, when the key is
+ * [smooth], eases into the next key with a smoothstep (zero slope at both ends, the shape of a Bezier
+ * whose handles are horizontal); before the first and after the last key it holds. Only the shape
+ * matters: the clip's average speed still comes from its source range and length, so a ramp never
+ * changes where a clip starts or ends.
  */
-data class SpeedKey(val frame: Long, val weightPermille: Int)
+data class SpeedKey(val frame: Long, val weightPermille: Int, val smooth: Boolean = false)
 
 /** Pure maths on speed ramps, in integer clip frames. */
 object SpeedRamps {
@@ -38,7 +40,8 @@ object SpeedRamps {
         val from = keys[index]
         val to = keys[index + 1]
         val t = (frame - from.frame) / (to.frame - from.frame).toDouble()
-        return from.weightPermille + (to.weightPermille - from.weightPermille) * t
+        val shaped = if (from.smooth) t * t * (3.0 - 2.0 * t) else t
+        return from.weightPermille + (to.weightPermille - from.weightPermille) * shaped
     }
 
     /**
@@ -81,13 +84,28 @@ object SpeedRamps {
     /** Slow, fast, slow: the speed peaks in the middle of the clip. */
     fun bell(durationFrames: Long): List<SpeedKey> = shape(durationFrames, intArrayOf(400, 1000, 1600, 1000, 400))
 
-    private fun shape(durationFrames: Long, weights: IntArray): List<SpeedKey> {
+    /** Fast, slow, faster, slow, fast: the beat-driven "montage" look, eased. */
+    fun montage(durationFrames: Long): List<SpeedKey> = shape(durationFrames, intArrayOf(1500, 400, 2200, 400, 1500), smooth = true)
+
+    /** Quick approach, a long slow-motion hold, quick exit: the "hero" shot, eased. */
+    fun hero(durationFrames: Long): List<SpeedKey> = shape(durationFrames, intArrayOf(1700, 1100, 250, 250, 1100, 1700), smooth = true)
+
+    /** Normal speed that drops to almost a standstill in the middle and comes back: the "bullet time" look, eased. */
+    fun bullet(durationFrames: Long): List<SpeedKey> = shape(durationFrames, intArrayOf(1200, 1200, 120, 120, 1200, 1200), smooth = true)
+
+    /** [easeIn] with eased (rounded) segments instead of straight ones. */
+    fun easeInSmooth(durationFrames: Long): List<SpeedKey> = shape(durationFrames, intArrayOf(400, 500, 800, 1300, 1600), smooth = true)
+
+    /** [easeOut] with eased (rounded) segments instead of straight ones. */
+    fun easeOutSmooth(durationFrames: Long): List<SpeedKey> = shape(durationFrames, intArrayOf(1600, 1300, 800, 500, 400), smooth = true)
+
+    private fun shape(durationFrames: Long, weights: IntArray, smooth: Boolean = false): List<SpeedKey> {
         if (durationFrames < 2) return emptyList()
         val last = weights.size - 1
         val result = ArrayList<SpeedKey>(weights.size)
         weights.forEachIndexed { i, w ->
             val frame = (durationFrames - 1) * i / last
-            if (result.isEmpty() || frame > result.last().frame) result += SpeedKey(frame, w)
+            if (result.isEmpty() || frame > result.last().frame) result += SpeedKey(frame, w, smooth)
         }
         return result
     }
@@ -154,6 +172,11 @@ class ClipRetime(
         val to = ramp[index + 1]
         val u = t - from.frame
         val length = (to.frame - from.frame).toDouble()
+        if (from.smooth) {
+            // Integral of w0 + (w1 - w0) * (3x^2 - 2x^3) for x = u / length: w0 * u + (w1 - w0) * length * (x^3 - x^4 / 2).
+            val x = u / length
+            return cumulative[index] + from.weightPermille * u + (to.weightPermille - from.weightPermille) * length * (x * x * x - x * x * x * x / 2.0)
+        }
         return cumulative[index] + from.weightPermille * u + (to.weightPermille - from.weightPermille) * u * u / (2.0 * length)
     }
 
@@ -172,6 +195,33 @@ class ClipRetime(
         if (isFreeze) return 0
         if (ramp.isEmpty()) return floorTimes(t, span, timelineFrames)
         return floor(position(t.toDouble()) + EPSILON).toLong()
+    }
+
+    /**
+     * Where clip frame [t] falls between two source frames, for smooth slow motion: the frame shown at
+     * [t] ([SourceMix.frame], the same as [sourceFrameAt]), the neighbouring frame in the direction of play
+     * ([SourceMix.next]) and how far [t] is from the first towards the second, in permille. Only a frame
+     * that moves slower than real time (it advances by less than one source frame) is blended; faster
+     * frames, freezes and the very last frame of the range (the next one would be media the editor cut
+     * away) report a mix of 0 and show a single source frame.
+     */
+    fun mixAt(t: Long): SourceMix {
+        val frame = sourceFrameAt(t)
+        if (isFreeze) return SourceMix(frame, frame, 0)
+        val offset = offsetAt(t)
+        val next = if (reverse) frame - 1 else frame + 1
+        if (next < sourceIn || next >= sourceOut) return SourceMix(frame, frame, 0)
+        val advance = position((t + 1).toDouble()) - position(t.toDouble())
+        if (advance >= 1.0) return SourceMix(frame, frame, 0)
+        val fraction = if (ramp.isEmpty()) {
+            // Exact: (t * span mod timelineFrames) / timelineFrames.
+            val remainder = Math.floorMod(Math.multiplyExact(t, span), timelineFrames)
+            remainder.toDouble() / timelineFrames.toDouble()
+        } else {
+            (position(t.toDouble()) - offset).coerceIn(0.0, 1.0)
+        }
+        val permille = (fraction * 1000.0).toInt().coerceIn(0, 999)
+        return SourceMix(frame, if (permille == 0) frame else next, permille)
     }
 
     /** The source frame shown at clip frame [t] (any integer: transitions reach past the ends). */
@@ -226,11 +276,19 @@ class ClipRetime(
     }
 }
 
+/**
+ * What a clip frame shows in smooth slow motion: [frame] and its neighbour [next] in the direction of play,
+ * [mixPermille] (0..999) of the way from one to the other. A mix of 0 means [frame] alone.
+ */
+data class SourceMix(val frame: Long, val next: Long, val mixPermille: Int) {
+    val blended: Boolean get() = mixPermille > 0 && next != frame
+}
+
 /** Speed limits for the constant-speed control, as a multiple of normal speed. */
 object SpeedLimits {
     const val MIN_NUM = 1L
     const val MIN_DEN = 10L // 0.1x
-    const val MAX = 8L // 8x
+    const val MAX = 100L // 100x
 
     /** Reason `num/den` is not an allowed speed, or null when it is. */
     fun problem(num: Long, den: Long): String? = when {

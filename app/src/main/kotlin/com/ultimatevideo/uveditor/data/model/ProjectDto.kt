@@ -186,6 +186,8 @@ data class ClipDto(
     val reverse: Boolean = false,
     /** Relative speed over the clip; empty means constant speed. */
     val speedRamp: List<SpeedKeyDto> = emptyList(),
+    /** Smooth slow motion: frames are blended with optical-flow interpolation where the clip plays slower than real time. */
+    val smoothSlowMo: Boolean = false,
     /** Ordered shader effects; empty for a plain clip. */
     val effects: List<EffectDto> = emptyList(),
     /** `normal`, `add`, `multiply`, `screen` or `overlay`. */
@@ -229,11 +231,15 @@ data class ParamKeyDto(
 @Serializable
 data class HandleDto(val x: Double, val y: Double)
 
-/** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */
+/**
+ * Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear to the next
+ * key, or eased (smoothstep) when [smooth] is set.
+ */
 @Serializable
 data class SpeedKeyDto(
     val frame: Long,
     val weightPermille: Int = 1000,
+    val smooth: Boolean = false,
 )
 
 /** One effect: [type] is the lower-case `EffectType` name, [values] follow that type's parameters. */

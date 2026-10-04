@@ -70,8 +70,8 @@ class SpeedOpsTest {
     }
 
     @Test
-    fun `speeds outside 0 point 1x to 8x are rejected`() {
-        assertTrue(TimelineOps.setSpeed(base, "a", 9, 1).errorOrFail() is EditError.InvalidSpeed)
+    fun `speeds outside 0 point 1x to 100x are rejected`() {
+        assertTrue(TimelineOps.setSpeed(base, "a", 101, 1).errorOrFail() is EditError.InvalidSpeed)
         assertTrue(TimelineOps.setSpeed(base, "a", 1, 11).errorOrFail() is EditError.InvalidSpeed)
         assertTrue(TimelineOps.setSpeed(base, "a", 0, 1).errorOrFail() is EditError.InvalidSpeed)
     }
