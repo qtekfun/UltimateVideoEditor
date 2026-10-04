@@ -151,7 +151,7 @@ waves of SPECS 9.20.
 
 ### Wave 3
 - [ ] WP-T Multilayer titles and fonts
-- [ ] WP-K Generalised keyframes (after WP-C and WP-A)
+- [ ] WP-K Generalised keyframes (after WP-C and WP-A): implemented and covered by JVM and native host tests (tracks, Bezier, cropping, migration, preview/export parity, audio automation v5, lane UI, loudness cache wiring); NOT yet verified on the Pixel (diamond, lane drag, exported frames) so left unticked
 
 ### Wave 4
 - [ ] WP-X Stabiliser (builds the shared tracker and smoother)

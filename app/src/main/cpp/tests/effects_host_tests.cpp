@@ -87,6 +87,52 @@ void scenesParseLayersBackToBack() {
     CHECK(layers[1] == layers[1]);
 }
 
+// Keyframed effect values for the exporter: one blob per project frame of an animated clip.
+void frameTablesParsePerClip() {
+    const std::vector<double> blob = {1, 0, 0, 0, 1, 1, 0, 0, 1, 2, 1, 0.5,   // clip 2, frame 0: add + contrast 0.5
+                                      1, 0, 0, 0, 1, 1, 0, 0, 1, 2, 1, 1.5,   // clip 2, frame 1: contrast 1.5
+                                      0, 0, 0, 0, 1, 1, 0, 0, 0};             // clip 0, frame 0: plain
+    const std::vector<int64_t> pairs = {2, 2, 0, 1};
+    std::vector<std::vector<LayerFx>> tables;
+    CHECK(parseFxFrameTables(pairs.data(), pairs.size(), blob.data(), blob.size(), 3, &tables));
+    CHECK(tables.size() == 3);
+    CHECK(tables[0].size() == 1 && tables[0][0].neutral());
+    CHECK(tables[1].empty());
+    CHECK(tables[2].size() == 2);
+    CHECK_NEAR(tables[2][0].effects[0].v[0], 0.5);
+    CHECK_NEAR(tables[2][1].effects[0].v[0], 1.5);
+    CHECK(tables[2][0].blend == BlendMode::Add);
+}
+
+void frameTablesRejectBadInput() {
+    std::vector<std::vector<LayerFx>> tables;
+    const std::vector<double> plain = {0, 0, 0, 0, 1, 1, 0, 0, 0};
+    // No pairs: only an empty table is valid.
+    CHECK(parseFxFrameTables(nullptr, 0, nullptr, 0, 2, &tables));
+    CHECK(tables.size() == 2 && tables[0].empty());
+    CHECK(!parseFxFrameTables(nullptr, 0, plain.data(), plain.size(), 2, &tables));
+    // Odd pair array, out-of-range or negative index, negative count, repeated clip.
+    const std::vector<int64_t> odd = {0, 1, 1};
+    CHECK(!parseFxFrameTables(odd.data(), odd.size(), plain.data(), plain.size(), 2, &tables));
+    const std::vector<int64_t> beyond = {5, 1};
+    CHECK(!parseFxFrameTables(beyond.data(), beyond.size(), plain.data(), plain.size(), 2, &tables));
+    const std::vector<int64_t> negative = {-1, 1};
+    CHECK(!parseFxFrameTables(negative.data(), negative.size(), plain.data(), plain.size(), 2, &tables));
+    const std::vector<int64_t> negCount = {0, -1};
+    CHECK(!parseFxFrameTables(negCount.data(), negCount.size(), plain.data(), plain.size(), 2, &tables));
+    const std::vector<double> two = {0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0};
+    const std::vector<int64_t> repeated = {0, 1, 0, 1};
+    CHECK(!parseFxFrameTables(repeated.data(), repeated.size(), two.data(), two.size(), 2, &tables));
+    // A count that claims more blobs than the data holds, and data left over.
+    const std::vector<int64_t> tooMany = {0, 3};
+    CHECK(!parseFxFrameTables(tooMany.data(), tooMany.size(), plain.data(), plain.size(), 2, &tables));
+    const std::vector<int64_t> one = {0, 1};
+    CHECK(!parseFxFrameTables(one.data(), one.size(), two.data(), two.size(), 2, &tables));
+    // An absurd count never allocates.
+    const std::vector<int64_t> absurd = {0, int64_t{1} << 60};
+    CHECK(!parseFxFrameTables(absurd.data(), absurd.size(), plain.data(), plain.size(), 2, &tables));
+}
+
 void emptyArrayMeansPlainLayers() {
     std::vector<LayerFx> layers;
     CHECK(parseSceneFx(nullptr, 0, 3, &layers));
@@ -426,6 +472,8 @@ int main() {
     plainLayerParses();
     fullLayerParses();
     scenesParseLayersBackToBack();
+    frameTablesParsePerClip();
+    frameTablesRejectBadInput();
     emptyArrayMeansPlainLayers();
     malformedBlobsAreRejected();
     colourAdjustments();

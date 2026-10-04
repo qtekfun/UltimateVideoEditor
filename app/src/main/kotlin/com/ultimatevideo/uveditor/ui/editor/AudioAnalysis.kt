@@ -55,6 +55,14 @@ interface LoudnessCache {
 }
 
 /**
+ * The loudness cache the app uses: one file under [filesDir] shared by every project (keys name the file and range, not
+ * the project), so a measurement survives a restart and the same clip in another project is not measured again.
+ */
+fun loudnessCacheIn(filesDir: File): LoudnessCache = FileLoudnessCache(File(filesDir, LOUDNESS_CACHE_PATH))
+
+internal const val LOUDNESS_CACHE_PATH = "loudness/cache.json"
+
+/**
  * [LoudnessCache] on disk: one small JSON file of `key -> LUFS`, read once and rewritten on each new
  * measurement. A damaged or unreadable file is treated as empty (it only holds recomputable values).
  */

@@ -37,6 +37,8 @@ internal object NativeExport {
         keyFrames: LongArray,
         keyValues: DoubleArray,
         fx: DoubleArray,
+        fxFrameClips: LongArray,
+        fxFrameData: DoubleArray,
         sourceClips: LongArray,
         sourceTable: LongArray,
         titleMeta: IntArray,
@@ -117,6 +119,14 @@ class NativeExportRunner : ExportRunner {
             frames.copyInto(sourceTable, tableAt)
             tableAt += frames.size
         }
+        // Keyframed effect values: per animated clip {clip index, frame count}, then one effects blob per frame.
+        val animated = request.videoClips.withIndex().filter { it.value.fxFrames != null }
+        val fxFrameClips = LongArray(animated.size * 2)
+        animated.forEachIndexed { n, (i, c) ->
+            fxFrameClips[n * 2] = i.toLong()
+            fxFrameClips[n * 2 + 1] = c.fxFrames?.size?.toLong() ?: 0L
+        }
+        val fxFrameData = FxWire.encodeAll(animated.flatMap { it.value.fxFrames.orEmpty() })
         val titleMeta = IntArray(request.titles.size * TITLE_INTS)
         request.titles.forEachIndexed { i, title ->
             titleMeta[i * TITLE_INTS] = title.key
@@ -136,7 +146,7 @@ class NativeExportRunner : ExportRunner {
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
                 request.canvasWidth, request.canvasHeight, s.codec.value or (if (s.hdr) HDR_FLAG else 0), s.videoBitrate, s.audioBitrate, request.totalFrames,
                 keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
-                sourceClips, sourceTable, titleMeta, titlePixels, lutMeta, lutData, request.audioSnapshot, request.outputFd,
+                fxFrameClips, fxFrameData, sourceClips, sourceTable, titleMeta, titlePixels, lutMeta, lutData, request.audioSnapshot, request.outputFd,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
