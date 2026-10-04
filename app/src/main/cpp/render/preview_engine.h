@@ -134,7 +134,7 @@ public:
     // Titles are rasterised by the caller (premultiplied RGBA8, canvas pixels, top row first). The
     // pixels are copied; the texture is created on the render thread before the next scene is
     // applied, so upload first and then reference `key` from setScene(). `key` must not be 0.
-    void uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba);
+    void uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba, int displayWidth = 0, int displayHeight = 0);
     void releaseTitle(uint32_t key);
     // 3D LUTs for the LUT effect (see GlPipeline::uploadLut): size^3 RGB triples, red fastest.
     void uploadLut(uint32_t key, int size, std::vector<float> rgb);

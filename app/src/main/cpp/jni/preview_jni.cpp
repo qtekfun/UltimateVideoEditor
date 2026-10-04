@@ -261,17 +261,18 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 
 // `pixels` is a direct buffer of width * height * 4 bytes (premultiplied RGBA, top row first); it is copied.
 JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadTitle(
-    JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint width, jint height, jobject pixels) {
+    JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint width, jint height, jint displayWidth, jint displayHeight,
+    jobject pixels) {
     const void* data = pixels == nullptr ? nullptr : env->GetDirectBufferAddress(pixels);
     const jlong capacity = pixels == nullptr ? 0 : env->GetDirectBufferCapacity(pixels);
     const int64_t needed = static_cast<int64_t>(width) * height * 4;
-    if (key <= 0 || width <= 0 || height <= 0 || data == nullptr || capacity < needed) {
+    if (key <= 0 || width <= 0 || height <= 0 || displayWidth < 0 || displayHeight < 0 || data == nullptr || capacity < needed) {
         throwPreview(env, Status::InvalidArgument, "title pixels do not match the given size");
         return;
     }
     const auto* bytes = static_cast<const uint8_t*>(data);
     fromHandle(handle)->engine->uploadTitle(static_cast<uint32_t>(key), width, height,
-                                            std::vector<uint8_t>(bytes, bytes + needed));
+                                            std::vector<uint8_t>(bytes, bytes + needed), displayWidth, displayHeight);
 }
 
 // `rgb` is a direct float buffer of size^3 * 3 values (red varying fastest); it is copied.

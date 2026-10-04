@@ -116,7 +116,15 @@ data class ExportKeyframe(
 )
 
 /** A rasterised title for the export: premultiplied RGBA in canvas pixels, see `TitleBitmap`. */
-class ExportTitle(val key: Int, val width: Int, val height: Int, val pixels: ByteBuffer)
+class ExportTitle(
+    val key: Int,
+    val width: Int,
+    val height: Int,
+    val pixels: ByteBuffer,
+    /** Canvas pixels the picture covers at scale 1: stills are stored at their native size and scaled by the GPU. */
+    val displayWidth: Int = width,
+    val displayHeight: Int = height,
+)
 
 /** A 3D LUT for the export: [size]^3 RGB floats (red varying fastest) in a direct, native-order buffer. */
 class ExportLut(val key: Int, val size: Int, val rgb: ByteBuffer)

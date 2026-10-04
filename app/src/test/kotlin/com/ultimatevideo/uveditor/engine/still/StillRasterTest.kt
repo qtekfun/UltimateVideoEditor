@@ -100,6 +100,71 @@ class StillRasterTest {
     }
 
     @Test
+    fun `a picture is stored at its native size and drawn at the same contain fit as before`() {
+        // A small GIF frame on a 4K canvas: stored as 480x270, drawn at 3840x2160.
+        val small = StillFit.plan(480, 270, 3840, 2160)
+        assertEquals(StillFit.Plan(480, 270, 3840, 2160), small)
+        assertEquals(480L * 270 * 4, small.textureBytes)
+        // A photo larger than its fit is reduced to the fit, like the old canvas-size path.
+        assertEquals(StillFit.Plan(1920, 1080, 1920, 1080), StillFit.plan(4000, 2250, 1920, 1080))
+        // Taller than the canvas: the display is the contain fit, the texture follows it when reduced.
+        assertEquals(StillFit.Plan(608, 1080, 608, 1080), StillFit.plan(3000, 5333, 1920, 1080))
+        // Equal to the fit: nothing to reduce.
+        assertEquals(StillFit.Plan(1920, 1080, 1920, 1080), StillFit.plan(1920, 1080, 1920, 1080))
+    }
+
+    @Test
+    fun `the display size always equals the old contain fit and the texture never exceeds it`() {
+        val canvases = listOf(1280 to 720, 1920 to 1080, 3840 to 2160, 1080 to 1920)
+        val sources = listOf(1 to 1, 7 to 3, 100 to 100, 480 to 270, 1000 to 4000, 4096 to 2304, 8000 to 6000, 12000 to 9000)
+        for ((cw, ch) in canvases) for ((w, h) in sources) {
+            val plan = StillFit.plan(w, h, cw, ch)
+            val old = StillFit.contain(w, h, cw, ch)
+            assertEquals("display of ${w}x$h on ${cw}x$ch", old, plan.displayWidth to plan.displayHeight)
+            assertTrue(plan.textureWidth.toLong() * plan.textureHeight <= maxOf(w.toLong() * h, 1L))
+            assertTrue(plan.textureWidth.toLong() * plan.textureHeight <= plan.displayWidth.toLong() * plan.displayHeight || plan.textureWidth <= w)
+            // The stored picture has the displayed aspect ratio to within the rounding of one pixel.
+            val aspectDrift = kotlin.math.abs(plan.textureWidth.toDouble() / plan.textureHeight - plan.displayWidth.toDouble() / plan.displayHeight)
+            val tolerance = 1.0 / minOf(plan.textureHeight, plan.displayHeight) * (plan.displayWidth.toDouble() / plan.displayHeight) + 1e-9
+            assertTrue("aspect drift $aspectDrift for ${w}x$h on ${cw}x$ch", aspectDrift <= tolerance + 0.05)
+        }
+    }
+
+    @Test
+    fun `real sizes replace the estimate and the budget is never exceeded`() {
+        val frame = 480L * 270 * 4
+        val cache = StillKeyCache()
+        var maxUsed = 0L
+        var evictions = 0
+        for (i in 0 until 600) {
+            val (key, fresh) = cache.keyFor(StillRef(StillKind.PHOTO, "content://gif", i), 3840, 2160)
+            assertTrue(fresh)
+            cache.resize(key, frame)
+            evictions += cache.drain().size
+            maxUsed = maxOf(maxUsed, cache.usedBytes)
+        }
+        assertTrue("used $maxUsed of ${PictureBudget.DEFAULT_BYTES}", maxUsed <= PictureBudget.DEFAULT_BYTES)
+        // 128 MB holds about 258 frames of 0.5 MB; the old canvas-size estimate (33 MB each) held three.
+        val held = 600 - evictions
+        assertTrue("kept $held frames", held in 200..270)
+    }
+
+    @Test
+    fun `a resize evicts older pictures but never the one just sized`() {
+        val cache = StillKeyCache(budgetBytes = 1000)
+        val (a, _) = cache.keyFor(photoA, 10, 10)
+        val (b, _) = cache.keyFor(photoB, 10, 10)
+        cache.resize(a, 400)
+        cache.resize(b, 700) // 1100 > 1000: A is older, so A goes
+        assertEquals(listOf(a), cache.drain())
+        assertTrue(cache.contains(b))
+        cache.resize(b, 5000) // alone and over budget: it stays
+        assertTrue(cache.contains(b))
+        assertEquals(5000L, cache.usedBytes)
+        cache.resize(12345, 1) // an unknown key is ignored
+    }
+
+    @Test
     fun `every listed sticker has a unique id and a recognised kind`() {
         val ids = StickerIds.all.map { it.id }
         assertEquals(ids.size, ids.toSet().size)

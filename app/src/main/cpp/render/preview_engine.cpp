@@ -337,10 +337,11 @@ void PreviewEngine::applyWindowForBudget() {
     }
 }
 
-void PreviewEngine::uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba) {
-    thread_->post([this, key, width, height, rgba = std::move(rgba)] {
+void PreviewEngine::uploadTitle(uint32_t key, int width, int height, std::vector<uint8_t> rgba, int displayWidth,
+                                int displayHeight) {
+    thread_->post([this, key, width, height, displayWidth, displayHeight, rgba = std::move(rgba)] {
         Error error{Status::Ok, ""};
-        if (pipeline_->uploadTitle(key, width, height, rgba.data(), &error) != Status::Ok) {
+        if (pipeline_->uploadTitle(key, width, height, rgba.data(), &error, displayWidth, displayHeight) != Status::Ok) {
             report(error);
             return;
         }

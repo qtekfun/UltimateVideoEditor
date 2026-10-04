@@ -233,7 +233,7 @@ class ExportViewModel(
             } catch (e: StillRasterException) {
                 throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A picture could not be drawn: ${e.message}")
             }
-            ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
+            ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels, bitmap.displayWidth, bitmap.displayHeight)
         }
         val uriByAsset = source.assets.associate { it.id to it.uri }
         val opened = LinkedHashMap<Long, Int>()
