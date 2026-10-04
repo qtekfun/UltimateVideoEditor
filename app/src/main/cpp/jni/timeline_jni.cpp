@@ -13,6 +13,7 @@
 #include "jni/timeline_handle.h"
 #include "timeline_view/timeline_renderer.h"
 #include "timeline_view/timeline_snapshot.h"
+#include "timeline_view/timeline_theme.h"
 
 #define LOG_TAG "uv_timeline_jni"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -115,6 +116,33 @@ JNIEXPORT jint JNICALL JNI_FN(nativeSetSnapshot)(JNIEnv* env, jobject, jlong han
     if (st != Status::Ok) return code(st);
     h->renderer->setSnapshot(std::move(snap));
     return code(Status::Ok);
+}
+
+JNIEXPORT void JNICALL JNI_FN(nativeSetPalette)(JNIEnv* env, jobject, jlong handle, jintArray colours) {
+    TimelineHandle* h = from(handle);
+    if (h == nullptr || colours == nullptr) return;
+    const jsize n = env->GetArrayLength(colours);
+    if (n != static_cast<jsize>(uv::timeline::kNativeColourCount)) return;
+    uint32_t argb[uv::timeline::kNativeColourCount];
+    env->GetIntArrayRegion(colours, 0, n, reinterpret_cast<jint*>(argb));
+    h->renderer->setPalette(argb, static_cast<size_t>(n));
+}
+
+// May be called from the Kotlin text thread at any time; the bitmap is copied before this returns.
+JNIEXPORT jint JNICALL JNI_FN(nativeLabelPut)(JNIEnv* env, jobject, jlong handle, jlong hash, jobject buffer, jint width, jint height,
+                                              jboolean colour) {
+    TimelineHandle* h = from(handle);
+    if (h == nullptr || buffer == nullptr || width <= 0 || height <= 0) return code(Status::InvalidArgument);
+    const void* data = env->GetDirectBufferAddress(buffer);
+    const jlong need = static_cast<jlong>(width) * height * 4;
+    if (data == nullptr || env->GetDirectBufferCapacity(buffer) < need) return code(Status::InvalidArgument);
+    h->renderer->putLabel(static_cast<uint64_t>(hash), width, height, colour == JNI_TRUE, static_cast<const uint8_t*>(data));
+    return code(Status::Ok);
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeLabelGeneration)(JNIEnv*, jobject, jlong handle) {
+    TimelineHandle* h = from(handle);
+    return h == nullptr ? 0 : static_cast<jint>(h->renderer->labelGeneration());
 }
 
 JNIEXPORT void JNICALL JNI_FN(nativeScrollBy)(JNIEnv*, jobject, jlong handle, jfloat dx, jfloat dy) {

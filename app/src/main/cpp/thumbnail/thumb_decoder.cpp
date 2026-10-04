@@ -15,6 +15,7 @@
 #include <cstring>
 #include <vector>
 
+#include "core/codec_config.h"
 #include "thumbnail/rgba_tile.h"
 #include "thumbnail/yuv_tile.h"
 
@@ -99,6 +100,7 @@ Status decodeStillTile(int fd, std::vector<uint16_t>* tile) {
 struct ThumbDecoder::Impl {
     AMediaExtractor* extractor = nullptr;
     AMediaCodec* codec = nullptr;
+    core::CodecConfig codecConfig;  // csd-0..2, queued again after every flush (core/codec_config.h)
     int rotation = 0;
     int64_t durationUs = 0;
     // A photo: the one tile every time maps to, decoded when the asset was opened.
@@ -121,6 +123,7 @@ struct ThumbDecoder::Impl {
     void seek(int64_t timeUs) {
         AMediaExtractor_seekTo(extractor, timeUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
         AMediaCodec_flush(codec);
+        if (!core::queueCodecConfig(codec, codecConfig)) LOGE("could not queue the codec config again after a flush");
         positionValid = true;
         positionUs = -1;
         inputEos = false;
@@ -343,6 +346,7 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
         impl->codec = nullptr;  // never started: skip stop() in the destructor
         result = Status::CodecError;
     }
+    if (result == Status::Ok) impl->codecConfig = core::captureCodecConfig(format);
     AMediaFormat_delete(format);
     if (result != Status::Ok) return fail(result);
 

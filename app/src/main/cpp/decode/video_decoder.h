@@ -13,10 +13,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <vector>
 #include <set>
 #include <string>
 #include <thread>
 
+#include "core/codec_config.h"
 #include "decode/frame_rate.h"
 #include "decode/status.h"
 #include "decode/video_decoder_api.h"
@@ -73,6 +75,7 @@ private:
     bool step(int64_t target);
     bool findMissing(int64_t target, int64_t* missing);
     void seekTo(int64_t frame);
+    void resubmitCodecConfig();
     void pump(int64_t lo, int64_t hi);
     bool needsFrame(int64_t frame);
     size_t inFlightCount();
@@ -84,6 +87,7 @@ private:
     AMediaCodec* codec_ = nullptr;
     AImageReader* reader_ = nullptr;
     bool softwareDecoder_ = false;  // the codec that started is the platform's software decoder (a fallback)
+    core::CodecConfig codecConfig_;  // csd-0..2 of the track, queued again after every flush (core/codec_config.h)
     std::string rungLabel_;  // which rung of the open ladder (decode/decoder_ladder.h) started the codec
     int fd_ = -1;
     AssetInfo info_;

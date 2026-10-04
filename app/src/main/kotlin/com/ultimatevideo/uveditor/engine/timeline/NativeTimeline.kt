@@ -36,5 +36,15 @@ internal object NativeTimeline {
 
     external fun nativeSetLaneScale(handle: Long, scale: Float)
     external fun nativeHitTest(handle: Long, x: Float, y: Float): LongArray?
+
+    /** Colours of the canvas, from `Palette.nativeColours()`. */
+    external fun nativeSetPalette(handle: Long, argb: IntArray)
+
+    /** Copies a text bitmap (premultiplied RGBA, w*h*4 bytes) into the canvas's atlas under [hash]; callable from any thread. */
+    external fun nativeLabelPut(handle: Long, hash: Long, buffer: ByteBuffer, width: Int, height: Int, colour: Boolean): Int
+
+    /** Moves on each time the canvas drops its text atlas; the bitmaps sent before are gone. */
+    external fun nativeLabelGeneration(handle: Long): Int
+
     external fun nativeRequestWaveform(handle: Long, assetKey: Long, fd: Int, cachePath: String): Int
 }

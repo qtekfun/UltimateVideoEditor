@@ -292,7 +292,7 @@ private fun ImportTile(label: String, enabled: Boolean, onImport: () -> Unit, ro
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AssetTile(
+internal fun AssetTile(
     item: TrayItem,
     assets: List<MediaAssetDto>,
     onAdd: (String) -> Unit,
@@ -321,7 +321,6 @@ private fun AssetTile(
         .clip(dragShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
         .semantics { contentDescription = description }
-        .clickable(role = Role.Button, onClickLabel = "Add at the playhead") { onAdd(asset.id) }
         .dragAndDropTarget(
             shouldStartDragAndDrop = { event -> event.toAndroidDragEvent().clipDescription?.isTrayAsset() == true },
             target = reorderTarget,
@@ -331,6 +330,10 @@ private fun AssetTile(
             onAssetDragStart(asset.id)
             DragAndDropTransferData(ClipData.newPlainText(ASSET_DRAG_LABEL, asset.id))
         }
+        // Must come after dragAndDropSource: the last modifier is the innermost and sees pointer events first.
+        // The drag source consumes the release of a short press, so with the click outside it a tap never reached
+        // the click (seen on the Huawei tablet: tapping a tile added nothing, only a long press drag did).
+        .clickable(role = Role.Button, onClickLabel = "Add at the playhead") { onAdd(asset.id) }
     if (grid) {
         Box(body.aspectRatio(1f)) { TileContent(item, thumbnail, showName = true) }
     } else {
