@@ -606,6 +606,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
 
     CompositionLocalProvider(
         LocalLutNames provides lutState.names,
+        LocalQualifierPick provides state.qualifierPick,
         LocalLookActions provides lookActions,
         LocalProxyUi provides proxyHolder,
         LocalProxyIntent provides proxyVm::onIntent,
@@ -872,6 +873,15 @@ private fun EditorMain(
                                 canvasWidth = state.canvasWidth,
                                 canvasHeight = state.canvasHeight,
                                 onPick = { x, y, w, h -> viewModel.onIntent(EditorIntent.PickTrackTarget(x, y, w, h)) },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        if (state.qualifierPick.armed) {
+                            // The eyedropper: a tap on the picture keys the HSL qualifier on the colour under it.
+                            TrackTargetLayer(
+                                canvasWidth = state.canvasWidth,
+                                canvasHeight = state.canvasHeight,
+                                onPick = { x, y, _, _ -> viewModel.onIntent(QualifierIntent.Pick(x, y)) },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

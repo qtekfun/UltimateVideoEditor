@@ -91,6 +91,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.Qualifier
 import com.ultimatevideo.uveditor.domain.LaneOps
 import com.ultimatevideo.uveditor.domain.BezierHandle
 import com.ultimatevideo.uveditor.domain.ParamIds
@@ -133,6 +134,8 @@ import com.ultimatevideo.uveditor.domain.sourceFrameAtProjectFrame
 import kotlinx.coroutines.withContext
 import com.ultimatevideo.uveditor.domain.TrackMath
 import com.ultimatevideo.uveditor.domain.TrackSeed
+import com.ultimatevideo.uveditor.engine.sample.FrameSampler
+import com.ultimatevideo.uveditor.engine.sample.NoFrameSampler
 import com.ultimatevideo.uveditor.engine.stabilise.NoStabiliser
 import com.ultimatevideo.uveditor.engine.track.MotionTracker
 import com.ultimatevideo.uveditor.engine.multicam.MulticamServices
@@ -179,6 +182,10 @@ class EditorViewModel(
     private val stabiliser: Stabiliser = NoStabiliser,
     /** Where stabiliser bookkeeping (reading cache headers, building tables) runs. */
     private val stabDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Reads a colour out of a clip's picture for the HSL qualifier's eyedropper. */
+    private val frameSampler: FrameSampler = NoFrameSampler,
+    /** Where the eyedropper reads pictures (it decodes a frame). */
+    private val sampleDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** Motion tracking of a point or box through a video clip (SPECS.md 9.15). */
     private val motionTracker: MotionTracker = NoMotionTracker,
     /** Where motion-track bookkeeping (reading cache files, building the overlay) runs. */
@@ -430,6 +437,7 @@ class EditorViewModel(
             EditorIntent.Back -> flush(thenClose = true)
             is SelectionIntent -> selectionIntent(intent)
             is LaneDragIntent -> laneDragIntent(intent)
+            is QualifierIntent -> qualifierIntent(intent)
             is LibraryIntent -> libraryIntent(intent)
             is QuickEditIntent -> quickEditIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
@@ -1188,6 +1196,89 @@ class EditorViewModel(
         }
         execute(EditCommand.MoveTrack(id, delta))
     }
+
+    // region qualifier eyedropper
+
+    private fun qualifierIntent(intent: QualifierIntent) {
+        when (intent) {
+            is QualifierIntent.Arm -> armQualifierPick(intent.effectId)
+            QualifierIntent.Cancel -> reduce { copy(qualifierPick = QualifierPickState()) }
+            is QualifierIntent.Pick -> pickQualifierColor(intent.x, intent.y)
+        }
+    }
+
+    /** The selected clip when its picture can be read for a colour: a video file or a photo, not a title or a sticker. */
+    private fun samplableSelection(): Pair<Clip, MediaAssetDto>? {
+        val found = clipWithAsset(state.value.selectedClipId) ?: return null
+        val (clip, asset) = found
+        val isPhoto = clip.still == StillKind.PHOTO
+        return found.takeIf { clip.title == null && ((clip.hasMedia && asset.hasVideo) || isPhoto) }
+    }
+
+    private fun armQualifierPick(effectId: String) {
+        val found = samplableSelection()
+        if (found == null) {
+            emit(EditorEffect.ShowMessage("Select a video or photo clip to pick a colour from"))
+            return
+        }
+        val (clip, _) = found
+        if (clip.fx.effect(effectId)?.type != EffectType.QUALIFIER) return
+        val playhead = state.value.playhead
+        if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
+            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            return
+        }
+        pausePlayback()
+        reduce { copy(qualifierPick = QualifierPickState(effectId)) }
+    }
+
+    private fun pickQualifierColor(x: Double, y: Double) {
+        val pick = state.value.qualifierPick
+        val effectId = pick.effectId ?: return
+        if (pick.busy) return
+        val found = samplableSelection()
+        if (found == null) {
+            reduce { copy(qualifierPick = QualifierPickState()) }
+            emit(EditorEffect.ShowMessage("Select a video or photo clip to pick a colour from"))
+            return
+        }
+        val (clip, asset) = found
+        val playhead = state.value.playhead
+        if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
+            reduce { copy(qualifierPick = QualifierPickState()) }
+            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            return
+        }
+        reduce { copy(qualifierPick = qualifierPick.copy(busy = true)) }
+        viewModelScope.launch {
+            val outcome = withContext(sampleDispatcher) { sampleAndKey(clip, asset, effectId, x, y, playhead) }
+            // The eyedropper ends after a pick, with a message when it found nothing, except for a tap beside the
+            // picture, which keeps waiting for a better one.
+            reduce { copy(qualifierPick = if (outcome.keepArmed) QualifierPickState(effectId) else QualifierPickState()) }
+            outcome.message?.let { emit(EditorEffect.ShowMessage(it)) }
+        }
+    }
+
+    /** What an eyedropper tap came to: [message] is what to tell the user (null when the key was set). */
+    private class PickOutcome(val message: String?, val keepArmed: Boolean = false)
+
+    /** Reads the colour under the tap and keys the effect on it. */
+    private suspend fun sampleAndKey(clip: Clip, asset: MediaAssetDto, effectId: String, x: Double, y: Double, playhead: FrameIndex): PickOutcome {
+        val s = state.value
+        val aspect = frameSampler.aspect(asset) ?: return PickOutcome("The picture of this clip could not be read")
+        val pose = Keyframes.evaluate(clip.keyframes, playhead.value - clip.timelineStart.value, clip.transform)
+        val (u, v) = TrackMath.fromCanvas(x, y, aspect, s.canvasWidth, s.canvasHeight, pose)
+        if (u !in 0.0..1.0 || v !in 0.0..1.0) return PickOutcome("Tap on the picture of the clip", keepArmed = true)
+        val micros = if (asset.isImage) 0L else s.fps.framesToMicros(clip.sourceFrameAtProjectFrame(playhead))
+        val colour = frameSampler.colorAt(asset, micros, u, v) ?: return PickOutcome("The colour could not be read from the picture")
+        // The clip may have been edited while the frame was read.
+        val current = history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.fx?.effect(effectId)
+        if (current == null || current.type != EffectType.QUALIFIER) return PickOutcome("That effect is no longer on the clip")
+        val keyed = Qualifier.keyedOn(current.values, colour.r, colour.g, colour.b)
+        return PickOutcome(if (execute(EditCommand.SetEffectValues(clip.id, effectId, keyed))) null else "The key could not be set")
+    }
+
+    // endregion
 
     /** Lane header drag: pick a lane up, choose where it lands among the lanes of its kind, apply on release. */
     private fun laneDragIntent(intent: LaneDragIntent) {
