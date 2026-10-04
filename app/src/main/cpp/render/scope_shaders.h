@@ -37,7 +37,8 @@ void main() {
         color = vec4(uChannel == 0 ? 1.0 : 0.0, uChannel == 1 ? 1.0 : 0.0, uChannel == 2 ? 1.0 : 0.0, uChannel == 3 ? 1.0 : 0.0);
     }
     gl_Position = vec4(pos, 0.0, 1.0);
-    gl_PointSize = 1.0;
+    // Wider footprints keep the dots visible when the panel shows the texture smaller than it is.
+    gl_PointSize = uMode == 2 ? 3.0 : (uMode == 3 ? 1.0 : 2.0);
     vColor = color;
 }
 )";

@@ -265,5 +265,8 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 - Animated GIF and WebP use their first frame.
 - Reverse playback of long-GOP 4K footage is slow.
 - Beat detection only reads loudness, not pitch.
+- A vertical drag that starts on a colour wheel or a curve moves it instead of scrolling the panel: scroll
+  by starting the drag on a heading or in the gap between two wheels.
+- The scopes read the preview at 320 x 180 pixels, so fine detail in a 4K picture is sampled, not counted.
 - Inserting (shifting later clips) works on the base track only; other tracks overwrite.
 - Dragging stickers and templates onto the timeline is not available yet (tap them); dragging media assets is.

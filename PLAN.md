@@ -136,7 +136,7 @@ waves of SPECS 9.20.
 
 ### Wave 1
 - [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
-- [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect; looks (after the 3D LUT and per-clip colour PRs)
+- [x] WP-C Colour tools and scopes: waveform, RGB parade, vectorscope, histogram; colour grade effect (lift/gamma/gain wheels, offset, contrast + pivot, saturation, vibrance, temperature, tint, four tone curves); looks, copy and paste. _Status:_ implemented with CPU-reference, wire, JSON, undo and ViewModel tests (host and JVM pass) and checked on the Pixel 8 (not the reference OPPO): the grade shader compiles and renders (gain wheel towards red tints the preview and shifts the waveform), the four scopes draw on their own surface with graticule and scale labels, a curve point can be added and dragged and the mid tones follow, and no GL or fatal errors appear in logcat. Not seen: saving and applying a look and copy/paste on the device, an HLG project (scale labels), the export of a graded clip, scope cost at 4K60, and the OPPO. The HSL qualifiers of the spec are deferred (see DECISIONS.md).
 
 ### Wave 2
 - [ ] WP-S Multiselect and bulk edits
