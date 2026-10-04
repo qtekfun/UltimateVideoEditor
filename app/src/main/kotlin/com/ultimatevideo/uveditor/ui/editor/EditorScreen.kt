@@ -275,6 +275,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             state = lutState,
             onPick = { viewModel.onIntent(EditorIntent.AddLut(it)) },
             onImport = { uri -> lutLibrary.import(uri) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
+            onPickFilter = { id -> lutLibrary.installFilter(id) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
             onDismiss = {
                 lutLibrary.clearError()
                 viewModel.onIntent(EditorIntent.CloseLutPicker)

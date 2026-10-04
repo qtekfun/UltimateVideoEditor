@@ -167,7 +167,7 @@ waves of SPECS 9.20.
 
 ### Wave 7
 - [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
-- [ ] WP-V5 Project templates, transition and filter packs
+- [ ] WP-V5 Project templates, transition and filter packs. _Filter pack:_ 20 original looks generated in code and installed into the LUT library on first use, with swatches in the LUT picker (SPECS 5.24), covered by JVM tests (identity, range, monotonic grey, cube round trip, idempotent install); not yet seen on a device.
 
 ### Wave 8
 - [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
