@@ -76,6 +76,12 @@ data class EditorState(
     val snapToMarkers: Boolean = true,
     /** Beat detection is running for the selected clip. */
     val isAnalyzingBeats: Boolean = false,
+    /** Select mode: a tap toggles clips in the selection and dragging empty space draws a marquee. */
+    val selectMode: Boolean = false,
+    /** The selected clips when more than one is selected (includes [selectedClipId]); read them through [selection]. */
+    val selectedClipIds: Set<String> = emptySet(),
+    /** How many clips the clipboard holds. */
+    val clipboardCount: Int = 0,
 ) : UiState {
     /** The unreadable files, with how many clips depend on each. */
     val missingAssets: List<MissingAsset> get() = MissingMedia.summarize(timeline, assets, missingMedia)

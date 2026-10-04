@@ -18,14 +18,16 @@ fun TimelineHost(
     modifier: Modifier = Modifier,
     editing: TimelineEditing? = null,
     dropTarget: TimelineDropTarget? = null,
+    selecting: TimelineSelecting? = null,
 ) {
     val currentOnTap = rememberUpdatedState(onTap)
     val currentEditing = rememberUpdatedState(editing)
     val currentDropTarget = rememberUpdatedState(dropTarget)
+    val currentSelecting = rememberUpdatedState(selecting)
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            TimelineSurfaceView(context, engine, { currentOnTap.value(it) }, { currentEditing.value }, { currentDropTarget.value })
+            TimelineSurfaceView(context, engine, { currentOnTap.value(it) }, { currentEditing.value }, { currentDropTarget.value }, { currentSelecting.value })
         },
     )
 }

@@ -143,7 +143,7 @@ waves of SPECS 9.20.
 - [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect; looks (after the 3D LUT and per-clip colour PRs)
 
 ### Wave 2
-- [ ] WP-S Multiselect and bulk edits
+- [x] WP-S Multiselect and bulk edits (SPECS 5.18). _Status:_ domain operations, view model, native marquee/primary outline and snapshot v6 are covered by JVM and host tests. Seen working on the Pixel 8 (not the reference phone): select mode and the selection bar, blue/yellow outlines, tap and long press, the marquee rectangle, dragging a group, and return to a single clip. Not yet seen on a device: cut, paste, duplicate and paste attributes success paths, align, transitions, group speed/volume/opacity.
 - [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness, track mixer, auto-ducking, meters
 
 ### Wave 3
