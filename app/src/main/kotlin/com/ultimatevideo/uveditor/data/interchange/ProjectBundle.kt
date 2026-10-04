@@ -41,6 +41,10 @@ data class BundleLimits(
     val maxThumbnailBytes: Long = 8L * 1024 * 1024,
     val maxFileBytes: Long = 64L * 1024 * 1024 * 1024,
     val maxTotalBytes: Long = 128L * 1024 * 1024 * 1024,
+    /** A LUT or a font: the largest LUT is about 9 MB of text and the font parser refuses more than 25 MB. */
+    val maxResourceBytes: Long = 32L * 1024 * 1024,
+    val maxResources: Int = 256,
+    val maxResourceTotalBytes: Long = 512L * 1024 * 1024,
 )
 
 /** `bundle.json`: describes what is inside, so an import can tell what was copied and what must be relinked. */
@@ -55,6 +59,11 @@ data class BundleManifest(
     val media: List<BundleMedia> = emptyList(),
     /** Entry names under `thumbnails/`. */
     val thumbnails: List<String> = emptyList(),
+    /**
+     * LUTs and fonts the project refers to whose bytes are inside under `resources/`. Added after format 1 was
+     * released and kept optional: older builds ignore this key and the `resources/` entries, and bundles without it import as before.
+     */
+    val resources: List<BundleResource> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "uveditor-bundle"
@@ -78,14 +87,25 @@ class ExtractedBundle(
     /** Unpacked media files by asset id. */
     val mediaFiles: Map<String, File>,
     val thumbnailFiles: List<File>,
+    /** Unpacked LUT and font files by their entry name (`resources/...`), as listed in the manifest. */
+    val resourceFiles: Map<String, File> = emptyMap(),
 )
 
-/** What writing a bundle did: the media that were not copied (unreadable, or by choice) are named. */
-data class BundleWriteResult(val mediaCopied: Int, val mediaSkipped: List<String>)
+/**
+ * What writing a bundle did: the media that were not copied (unreadable, or by choice) are named, and so are
+ * the LUTs and fonts that were asked for but could not be put in.
+ */
+data class BundleWriteResult(
+    val mediaCopied: Int,
+    val mediaSkipped: List<String>,
+    val resourcesIncluded: Int = 0,
+    val resourcesSkipped: List<String> = emptyList(),
+)
 
 /**
- * The `.uvbundle` container: a zip with `bundle.json`, `project.json`, optional `thumbnails/<file>` and
- * optional `media/<file>`. Entry names are checked so that unpacking can never write outside its target
+ * The `.uvbundle` container: a zip with `bundle.json`, `project.json`, optional `thumbnails/<file>`,
+ * optional `media/<file>` and optional `resources/<file>` (the LUTs and fonts the project refers to).
+ * Entry names are checked so that unpacking can never write outside its target
  * directory (zip-slip), sizes are bounded, and an import into the repository is atomic.
  */
 object ProjectBundle {
@@ -93,6 +113,7 @@ object ProjectBundle {
     const val PROJECT = "project.json"
     private const val THUMBS = "thumbnails/"
     private const val MEDIA = "media/"
+    const val RESOURCES = "resources/"
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
 
@@ -115,6 +136,7 @@ object ProjectBundle {
         includeMedia: Boolean,
         thumbnails: Map<String, ByteArray>,
         out: OutputStream,
+        resources: ResourcePlan = ResourcePlan(emptyList(), emptyList()),
     ): BundleWriteResult {
         val skipped = mutableListOf<String>()
         var copied = 0
@@ -126,11 +148,22 @@ object ProjectBundle {
             if (includeMedia && !copy) skipped += name
             entries += BundleMedia(asset.id, name, size ?: -1L, if (copy) mediaEntryName(asset.id, name) else null)
         }
+        val resourceEntries = resources.payloads.map { payload ->
+            BundleResource(
+                kind = payload.kind.wire,
+                key = payload.key,
+                name = payload.file.name,
+                sizeBytes = payload.file.bytes.size.toLong(),
+                sha256 = payload.sha256,
+                entry = resourceEntryName(payload.kind, payload.key, payload.file.name),
+            )
+        }
         val manifest = BundleManifest(
             projectName = project.name,
             schemaVersion = project.version,
             media = entries,
             thumbnails = thumbnails.keys.sorted(),
+            resources = resourceEntries,
         )
         ZipOutputStream(out).use { zip ->
             putText(zip, MANIFEST, json.encodeToString(manifest))
@@ -139,6 +172,12 @@ object ProjectBundle {
                 zip.setLevel(DEFLATE)
                 zip.putNextEntry(ZipEntry(THUMBS + safeLeaf(name)).apply { time = 0L })
                 zip.write(bytes)
+                zip.closeEntry()
+            }
+            for ((index, payload) in resources.payloads.withIndex()) {
+                zip.setLevel(if (payload.kind == ResourceKind.LUT) DEFLATE else 0)
+                zip.putNextEntry(ZipEntry(resourceEntries[index].entry).apply { time = 0L })
+                zip.write(payload.file.bytes)
                 zip.closeEntry()
             }
             for (entry in entries) {
@@ -160,13 +199,17 @@ object ProjectBundle {
                 copied++
             }
         }
-        return BundleWriteResult(copied, skipped)
+        return BundleWriteResult(copied, skipped, resources.payloads.size, resources.skipped)
     }
+
+    /** The entry name under `resources/` of a LUT or font: its kind, its key and a safe version of its file name. */
+    fun resourceEntryName(kind: ResourceKind, key: String, fileName: String): String = RESOURCES + safeLeaf("${kind.wire}-$key-$fileName")
 
     /**
      * Unpacks [input] into [dir]. Entry names are validated, sizes are bounded by [limits], and only
-     * `bundle.json`, `project.json`, `thumbnails/<file>` and `media/<file>` are accepted; anything else
-     * (including directories) is skipped after its name passes the safety check.
+     * `bundle.json`, `project.json`, `thumbnails/<file>`, `media/<file>` and `resources/<file>` are accepted;
+     * anything else (including directories) is skipped after its name passes the safety check, so a bundle
+     * with entries this build does not know still opens.
      */
     @Throws(BundleError::class, IOException::class)
     fun extract(input: InputStream, dir: File, limits: BundleLimits = BundleLimits()): ExtractedBundle {
@@ -175,6 +218,9 @@ object ProjectBundle {
         var projectText: String? = null
         val media = LinkedHashMap<String, File>() // by entry name
         val thumbs = ArrayList<File>()
+        val resources = LinkedHashMap<String, File>() // by entry name
+        var resourceCount = 0
+        var resourceTotal = 0L
         val seen = HashSet<String>()
         var total = 0L
         var count = 0
@@ -200,6 +246,15 @@ object ProjectBundle {
                         if (total > limits.maxTotalBytes) throw BundleError.TooLarge("more than ${limits.maxTotalBytes / (1024 * 1024 * 1024)} GB in total")
                         media[name] = file
                     }
+                    name.startsWith(RESOURCES) && leafOk(name.removePrefix(RESOURCES)) -> {
+                        if (++resourceCount > limits.maxResources) throw BundleError.TooLarge("more than ${limits.maxResources} LUTs and fonts")
+                        val file = File(dir, "resources/${name.removePrefix(RESOURCES)}")
+                        val size = copyLimited(zip, file, limits.maxResourceBytes, name)
+                        resourceTotal += size
+                        if (resourceTotal > limits.maxResourceTotalBytes) throw BundleError.TooLarge("more than ${limits.maxResourceTotalBytes / (1024 * 1024)} MB of LUTs and fonts")
+                        resources[name] = file
+                    }
+                    // Anything else is ignored, so a newer app can add kinds of entries without older ones refusing the bundle.
                     else -> if (name.startsWith(THUMBS) || name.startsWith(MEDIA)) throw BundleError.UnsafePath(name)
                 }
             }
@@ -220,7 +275,14 @@ object ProjectBundle {
             checkedName(entry)
             media[entry]?.let { byAsset[m.assetId] = it }
         }
-        return ExtractedBundle(project, manifest, byAsset, thumbs)
+        val byResource = LinkedHashMap<String, File>()
+        for (r in manifest.resources) {
+            val entry = r.entry ?: continue
+            checkedName(entry)
+            if (!entry.startsWith(RESOURCES)) throw BundleError.Corrupt("the resource ${r.name.take(60)} points outside $RESOURCES")
+            resources[entry]?.let { byResource[entry] = it }
+        }
+        return ExtractedBundle(project, manifest, byAsset, thumbs, byResource)
     }
 
     /** Opens [input] and tells whether it is a bundle, without consuming it: [input] must support mark/reset. */
