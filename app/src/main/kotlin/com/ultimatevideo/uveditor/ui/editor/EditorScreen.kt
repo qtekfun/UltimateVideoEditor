@@ -1,6 +1,8 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import android.net.Uri
+import com.ultimatevideo.uveditor.ui.library.LibraryButton
+import com.ultimatevideo.uveditor.ui.library.LibraryOverlays
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
@@ -378,6 +380,17 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         if (uri != null && assetId != null) viewModel.onIntent(EditorIntent.RelinkAsset(assetId, uri.toString()))
     }
 
+    // Where an export to another tool is written: the kind is remembered while the picker is open.
+    var interchangeKind by remember { mutableStateOf<InterchangeKind?>(null) }
+    val onInterchangeUri = { uri: Uri? ->
+        val kind = interchangeKind
+        interchangeKind = null
+        if (uri != null && kind != null) viewModel.onIntent(LibraryIntent.ExportTo(kind, uri.toString()))
+    }
+    val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip"), onInterchangeUri)
+    val textPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain"), onInterchangeUri)
+    val xmlPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/xml"), onInterchangeUri)
+
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
@@ -389,6 +402,14 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 is EditorEffect.LaunchRelinkPicker -> {
                     relinkTarget = effect.assetId
                     relinkPicker.launch(arrayOf("video/*", "audio/*", "image/*"))
+                }
+                is EditorEffect.LaunchInterchangePicker -> {
+                    interchangeKind = effect.kind
+                    when (effect.mime) {
+                        "application/zip" -> zipPicker.launch(effect.suggestedFileName)
+                        "text/plain" -> textPicker.launch(effect.suggestedFileName)
+                        else -> xmlPicker.launch(effect.suggestedFileName)
+                    }
                 }
             }
         }
@@ -617,6 +638,7 @@ private fun EditorMain(
         }
     }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
+    LibraryOverlays(state) { viewModel.onIntent(it) }
     var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
@@ -758,6 +780,7 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
                     MarkerMenu(state, viewModel::onIntent)
+                    LibraryButton(viewModel::onIntent)
                     ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
                     ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
                         scopesOpen = !scopesOpen

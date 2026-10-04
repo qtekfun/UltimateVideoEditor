@@ -44,6 +44,11 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
                 onClick = { open = false; onIntent(EditorIntent.ToggleMarkerAtPlayhead) },
             )
             DropdownMenuItem(
+                text = { Text("Marker note and colour…") },
+                enabled = markers.isNotEmpty(),
+                onClick = { open = false; onIntent(LibraryIntent.OpenMarkerEdit) },
+            )
+            DropdownMenuItem(
                 text = { Text(if (state.isAnalyzingBeats) "Finding beats…" else "Find beats in the selected clip") },
                 enabled = state.selectedClipId != null && !state.isAnalyzingBeats,
                 onClick = { open = false; onIntent(EditorIntent.AnalyzeBeats) },
