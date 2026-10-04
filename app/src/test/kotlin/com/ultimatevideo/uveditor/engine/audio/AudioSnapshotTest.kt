@@ -29,6 +29,9 @@ class AudioSnapshotTest {
         fadeOutFrames = fadeOut,
     )
 
+    /** The voice blocks and voice lanes at the end (no voice lanes): a block and a lane count per clip, then the lane byte size. */
+    private fun voiceTail(clips: Int) = clips * (AudioSnapshot.VOICE_BYTES + 4) + 4
+
     /** Byte offset of the first clip record for a snapshot with [tracks] tracks. */
     private fun clipsAt(tracks: Int = 1) = AudioSnapshot.HEADER_BYTES + tracks * AudioSnapshot.TRACK_BYTES + AudioSnapshot.DUCKING_BYTES
 
@@ -37,7 +40,7 @@ class AudioSnapshotTest {
         val buffer = AudioSnapshot(30000, 1001, listOf(clip(7, start = 10, duration = 20, sourceIn = 5, gainDb = -6f))).encode()
 
         assertEquals(ByteOrder.LITTLE_ENDIAN, buffer.order())
-        assertEquals(clipsAt() + AudioSnapshot.CLIP_BYTES + AudioSnapshot.VOICE_BYTES, buffer.remaining())
+        assertEquals(clipsAt() + AudioSnapshot.CLIP_BYTES + voiceTail(1), buffer.remaining())
         assertEquals(AudioSnapshot.MAGIC, buffer.getInt(0))
         assertEquals(AudioSnapshot.VERSION, buffer.getInt(4))
         assertEquals(30000, buffer.getInt(8))
@@ -69,7 +72,7 @@ class AudioSnapshotTest {
 
     @Test
     fun `empty snapshot is the header, the default track and the ducking block`() {
-        assertEquals(clipsAt(), AudioSnapshot(30, 1, emptyList()).encode().remaining())
+        assertEquals(clipsAt() + voiceTail(0), AudioSnapshot(30, 1, emptyList()).encode().remaining())
     }
 
     @Test
@@ -130,7 +133,7 @@ class AudioSnapshotTest {
         assertEquals(AudioClipSpec.NOISE_PROFILE_BINS, buffer.getInt(a + 88))
         // The profile follows the clip table (no knots here): 513 floats at the very end.
         val profileAt = clipsAt() + AudioSnapshot.CLIP_BYTES
-        assertEquals(profileAt + AudioClipSpec.NOISE_PROFILE_BINS * 4 + AudioSnapshot.VOICE_BYTES, buffer.remaining())
+        assertEquals(profileAt + AudioClipSpec.NOISE_PROFILE_BINS * 4 + voiceTail(1), buffer.remaining())
         assertEquals(0.512f, buffer.getFloat(profileAt + 512 * 4), 0f)
     }
 
@@ -180,7 +183,7 @@ class AudioSnapshotTest {
         val fast = clip(2, start = 40, duration = 30).copy(retimeKnots = listOf(RetimeKnot(0, 10.0), RetimeKnot(30, 70.5)))
         val buffer = AudioSnapshot(30, 1, listOf(plain, fast)).encode()
 
-        assertEquals(clipsAt() + 2 * AudioSnapshot.CLIP_BYTES + 2 * AudioSnapshot.KNOT_BYTES + 2 * AudioSnapshot.VOICE_BYTES, buffer.remaining())
+        assertEquals(clipsAt() + 2 * AudioSnapshot.CLIP_BYTES + 2 * AudioSnapshot.KNOT_BYTES + voiceTail(2), buffer.remaining())
         val reservedAt = { index: Int -> clipsAt() + index * AudioSnapshot.CLIP_BYTES + 60 }
         assertEquals(0, buffer.getInt(reservedAt(0)))
         assertEquals(2, buffer.getInt(reservedAt(1)))
