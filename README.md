@@ -34,7 +34,7 @@ Implemented (and what has actually been verified; the full per-item notes are in
 | HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |
 | Export to MP4 (H.264 / HEVC + AAC), 4K60 HEVC at ~90 fps on the test phone | Verified with `ffprobe` on synthetic clips; cancel/share untested on device |
 
-Not done yet: FFmpeg fallback, 3D LUTs, Vulkan renderer, pitch-preserving time stretch. The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
+Optional and off by default: a software-decoding fallback built on FFmpeg ([docs/ffmpeg-fallback.md](docs/ffmpeg-fallback.md); verified in CI only). Not done yet: Vulkan renderer, pitch-preserving time stretch. The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
 
 ## Architecture
 
