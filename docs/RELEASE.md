@@ -147,5 +147,10 @@ Phone (portrait), at least 4 and at most 8, 1080x1920 or larger, real content (u
 7. About screen showing the privacy statement.
 
 Tablet (7 and 10 inch), if offered: the two-panel layout preset with the tray on the left.
-Feature graphic 1024x500 and a 512x512 icon: the current launcher icon is a placeholder vector and should be replaced
-by a designed icon before publishing.
+Feature graphic 1024x500 and a 512x512 icon: the launcher icon is an original adaptive icon (three timeline clips and
+an amber playhead on a deep blue gradient; layers in `res/drawable/ic_launcher_{background,foreground,monochrome}.xml`,
+declared in `res/mipmap-anydpi/ic_launcher.xml`, with a monochrome layer for themed icons). All foreground content lies
+inside the 66dp safe-zone circle (farthest point about 30 units from the centre of the 108 x 108 canvas), which
+`IconGeometryTest` checks. Export the 512x512 Play icon by rendering the foreground over the background at 512 px (for
+example with Android Studio's Image Asset tool or `rsvg-convert` after merging the two vectors); it has not been
+rendered here, so look at it once at 48dp, 72dp and with a circular mask before publishing.

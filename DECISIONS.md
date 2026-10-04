@@ -1024,3 +1024,9 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Decision:** native crashes and ANRs are now visible in "About > Last crash report". On start, `ProcessExitRecorder` reads `ActivityManager.getHistoricalProcessExitReasons` (API 30+) off the main thread; for a native crash, ANR, kill by signal or initialisation failure newer than the last one handled it writes a short summary (reason, time, importance, system note, and the symbols found in the tombstone's trace via a printable-string scan, scrubbed of paths, URIs and media names) above any earlier report. Local only, nothing is sent.
 **Why:** the Java uncaught-exception handler never sees a SIGSEGV, so the About screen was empty after exactly the crash that matters.
 **Alternative:** installing a native signal handler (async-signal-safe constraints and a second crash path), or parsing the tombstone protobuf properly (a scan is enough to name the frames).
+
+## Launcher icon (leftovers)
+
+**Decision:** an original adaptive icon: three timeline clips (two in periwinkle, one in sky blue) and an amber playhead with a downward triangular head, on a deep blue-violet vertical gradient; layers `ic_launcher_background`, `ic_launcher_foreground`, `ic_launcher_monochrome` under `mipmap-anydpi` (also used as the round icon); manifest points to `@mipmap/ic_launcher` and `ic_launcher_round`. All foreground points are within about 30 units of the canvas centre, inside the 33-unit safe-zone radius, checked by `IconGeometryTest` from the path data (paths use only absolute M/L/Q/Z for that reason).
+**Why:** the placeholder vector was a play triangle; the release checklist required a designed icon, original and not resembling other editors.
+**Alternative:** a play triangle on the timeline (closer to generic video apps), or a raster icon set (larger APK, needs a design tool). Not seen rendered on a device; only the geometry is verified.
