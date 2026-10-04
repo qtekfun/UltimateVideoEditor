@@ -6,7 +6,6 @@ import com.ultimatevideo.uveditor.data.model.ClipDto
 import com.ultimatevideo.uveditor.data.model.ClipEqDto
 import com.ultimatevideo.uveditor.data.model.DenoiseDto
 import com.ultimatevideo.uveditor.data.model.DuckingDto
-import com.ultimatevideo.uveditor.data.model.EffectDto
 import com.ultimatevideo.uveditor.data.model.EqBandDto
 import com.ultimatevideo.uveditor.data.model.TrackAudioDto
 import com.ultimatevideo.uveditor.domain.AudioRole
@@ -17,6 +16,9 @@ import com.ultimatevideo.uveditor.domain.Denoise
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.EqBand
 import com.ultimatevideo.uveditor.domain.TrackAudio
+import com.ultimatevideo.uveditor.data.model.CurvePointDto
+import com.ultimatevideo.uveditor.data.model.EffectDto
+import com.ultimatevideo.uveditor.data.model.GradeCurvesDto
 import com.ultimatevideo.uveditor.data.model.KeyframeDto
 import com.ultimatevideo.uveditor.data.model.MarkerDto
 import com.ultimatevideo.uveditor.data.model.MaskDto
@@ -39,7 +41,10 @@ import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.ClipFx
 import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.Effect
+import com.ultimatevideo.uveditor.domain.CurvePoint
 import com.ultimatevideo.uveditor.domain.EffectType
+import com.ultimatevideo.uveditor.domain.GradeCurve
+import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Marker
 import com.ultimatevideo.uveditor.domain.MarkerKind
@@ -208,7 +213,29 @@ object TimelineMapper {
         type = EffectType.entries.firstOrNull { it.name.lowercase() == dto.type }
             ?: throw ProjectError.Corrupt("clip $clipId has unknown effect '${dto.type}'"),
         values = dto.values,
+        curves = dto.curves?.let(::toCurves),
     )
+
+    internal fun toCurves(dto: GradeCurvesDto) = GradeCurves(
+        master = toCurve(dto.master),
+        red = toCurve(dto.red),
+        green = toCurve(dto.green),
+        blue = toCurve(dto.blue),
+    )
+
+    // An empty list is the identity curve, so a file that only lists the curves it changed still loads.
+    private fun toCurve(points: List<CurvePointDto>) =
+        if (points.isEmpty()) GradeCurve() else GradeCurve(points.map { CurvePoint(it.x, it.y) })
+
+    internal fun toCurvesDto(curves: GradeCurves) = GradeCurvesDto(
+        master = toCurvePoints(curves.master),
+        red = toCurvePoints(curves.red),
+        green = toCurvePoints(curves.green),
+        blue = toCurvePoints(curves.blue),
+    )
+
+    private fun toCurvePoints(curve: GradeCurve) =
+        if (curve.isIdentity) emptyList() else curve.points.map { CurvePointDto(it.x, it.y) }
 
     private fun toMask(clipId: String, dto: MaskDto) = ClipMask(
         shape = MaskShape.entries.firstOrNull { it.name.lowercase() == dto.shape }
@@ -221,7 +248,12 @@ object TimelineMapper {
         invert = dto.invert,
     )
 
-    private fun toEffectDto(effect: Effect) = EffectDto(effect.id, effect.type.name.lowercase(), effect.values)
+    private fun toEffectDto(effect: Effect) = EffectDto(
+        effect.id,
+        effect.type.name.lowercase(),
+        effect.values,
+        effect.curves?.takeUnless { it.isIdentity }?.let(::toCurvesDto),
+    )
 
     private fun toMaskDto(mask: ClipMask) = MaskDto(
         shape = mask.shape.name.lowercase(),

@@ -2,6 +2,9 @@ package com.ultimatevideo.uveditor.engine.fx
 
 import com.ultimatevideo.uveditor.domain.ClipFx
 import com.ultimatevideo.uveditor.domain.ClipMask
+import com.ultimatevideo.uveditor.domain.Effect
+import com.ultimatevideo.uveditor.domain.EffectType
+import com.ultimatevideo.uveditor.domain.GradeCurves
 
 /**
  * Wire form of per-layer effects, blend mode and mask for the native renderer (`core/layer_fx.h`
@@ -10,6 +13,9 @@ import com.ultimatevideo.uveditor.domain.ClipMask
  *
  *     blend, maskShape (0 none), maskCx, maskCy, maskW, maskH, maskFeather, maskInvert, effectCount,
  *     then per effect: type, valueCount, values...
+ *
+ * A colour grade (type 14) writes its 21 values followed by [GradeCurves.SAMPLES] x 4 baked curve
+ * samples (master, red, green, blue), 153 values in all.
  */
 object FxWire {
     const val HEADER_DOUBLES = 9
@@ -35,8 +41,17 @@ object FxWire {
         out += fx.effects.size.toDouble()
         for (effect in fx.effects) {
             out += effect.type.code.toDouble()
-            out += effect.values.size.toDouble()
-            out += effect.values
+            val values = effectValues(effect)
+            out += values.size.toDouble()
+            out += values
         }
     }
+
+    /** What goes on the wire for [effect]: its values, plus the baked curves for a colour grade. */
+    internal fun effectValues(effect: Effect): List<Double> =
+        if (effect.type == EffectType.COLOR_GRADE) {
+            effect.values + (effect.curves ?: GradeCurves.IDENTITY).bake().toList()
+        } else {
+            effect.values
+        }
 }

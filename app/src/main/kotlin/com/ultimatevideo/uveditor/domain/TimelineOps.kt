@@ -111,6 +111,40 @@ object TimelineOps {
         }
     }
 
+    /** Replaces the curves of a colour grade ([curves] null or identity means no curves); the values stay. */
+    fun setEffectCurves(timeline: Timeline, clipId: String, effectId: String, curves: GradeCurves?): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        val effect = (target as EditResult.Success).value.fx.effect(effectId) ?: return failure(EditError.EffectNotFound(effectId))
+        if (effect.type != EffectType.COLOR_GRADE) return failure(EditError.InvalidEffect("only a colour grade has curves"))
+        val stored = curves?.takeUnless { it.isIdentity }
+        return updateFx(timeline, clipId) { fx ->
+            fx.copy(effects = fx.effects.map { if (it.id == effectId) it.copy(curves = stored) else it })
+        }
+    }
+
+    /**
+     * Sets a colour grade in one step: values and curves of the clip's grade [effectId] when it exists, else
+     * a new grade effect with that id is appended. This is how a look is applied and a grade is pasted.
+     */
+    fun setGrade(timeline: Timeline, clipId: String, effectId: String, values: List<Double>, curves: GradeCurves?): EditResult<Timeline> {
+        val target = fxTarget(timeline, clipId)
+        if (target is EditResult.Failure) return target
+        val fx = (target as EditResult.Success).value.fx
+        val stored = curves?.takeUnless { it.isIdentity }
+        val existing = fx.effect(effectId)
+        if (existing != null && existing.type != EffectType.COLOR_GRADE) {
+            return failure(EditError.InvalidEffect("effect $effectId is not a colour grade"))
+        }
+        return updateFx(timeline, clipId) {
+            if (existing == null) {
+                it.copy(effects = it.effects + Effect(effectId, EffectType.COLOR_GRADE, values, stored))
+            } else {
+                it.copy(effects = it.effects.map { e -> if (e.id == effectId) e.copy(values = values, curves = stored) else e })
+            }
+        }
+    }
+
     /** Moves an effect to [toIndex] in the chain (clamped), which changes how effects combine. */
     fun moveEffect(timeline: Timeline, clipId: String, effectId: String, toIndex: Int): EditResult<Timeline> {
         val target = fxTarget(timeline, clipId)
