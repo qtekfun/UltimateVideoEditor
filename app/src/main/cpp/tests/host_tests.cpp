@@ -304,6 +304,23 @@ static void testViewport() {
     CHECK(vp.scrollX == 0.0);
 }
 
+static void testLaneScale() {
+    const auto base = timeline::Layout::forDensity(2.0f);
+    CHECK(base.trackHeight == 128.0f);
+    // Lanes stretch, everything else keeps its size.
+    const auto big = timeline::Layout::forDensity(2.0f, 1.4f);
+    CHECK(big.trackHeight > 178.0f && big.trackHeight < 180.0f);
+    CHECK(big.rulerHeight == base.rulerHeight && big.trackGap == base.trackGap && big.handleWidth == base.handleWidth);
+    const auto small = timeline::Layout::forDensity(2.0f, 0.75f);
+    CHECK(small.trackHeight == 96.0f);
+    // Out-of-range scales are clamped, never zero or huge.
+    CHECK(timeline::Layout::forDensity(1.0f, 0.0f).trackHeight == 32.0f);
+    CHECK(timeline::Layout::forDensity(1.0f, 50.0f).trackHeight == 128.0f);
+    // A taller lane means a taller stack (what scrolling is clamped to) and a smaller anchoring inset.
+    CHECK(big.contentHeight(3) > base.contentHeight(3));
+    CHECK(big.anchoredBottom(3, 1000.0f).inset < base.anchoredBottom(3, 1000.0f).inset);
+}
+
 static void testBottomAnchoredLanes() {
     const auto lay = timeline::Layout::forDensity(1.0f);  // ruler 28, track 64, gap 4
     // Three lanes in a 600 px panel: the stack rests on the bottom, free room is above it.
@@ -571,6 +588,7 @@ int main() {
     testViewport();
     testHitTest();
     testBottomAnchoredLanes();
+    testLaneScale();
     testDropHintGeometry();
     testPeaks();
     testViewportFit();

@@ -7,7 +7,7 @@ automated tests so far; see [Known limits](#known-limits).
 ## Contents
 
 1. [Project hub](#project-hub)
-2. [Editor layout](#editor-layout)
+2. [Editor layout](#editor-layout) and [Layout](#layout)
 3. [Toolbar icons](#toolbar-icons)
 4. [Media tray](#media-tray)
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops)
@@ -60,13 +60,36 @@ no access to it. A format taken from a clip is not remembered for next time.
 
 From top to bottom:
 
-1. **Top bar**: back, project name, undo, redo and export.
-2. **Preview**: the current frame, with the timecode, previous / play-pause / next and a fit button.
-3. **Toolbar**: the tools below (scrolls sideways when it does not fit).
-4. **Timeline**: ruler, tracks, playhead.
-5. **Media tray** at the bottom (see [Media tray](#media-tray)): collapsed to a thin tab strip until you open it.
+1. **Top bar**: back, project name, the **layout** button, undo, redo and export.
+2. **Preview**: the current frame.
+3. **Divider handle**: the small grey pill under the preview (see [Layout](#layout)).
+4. **Transport and toolbar**: timecode, previous / play-pause / next, a fit button and the tools below
+   (the toolbar scrolls sideways when it does not fit).
+5. **Timeline**: ruler, tracks, playhead.
+6. **Media tray** at the bottom (see [Media tray](#media-tray)): collapsed to a thin tab strip until you open it.
 
-On wide screens (tablet, foldable open) the media tray is a permanent panel beside the preview.
+On wide windows (tablet, foldable open, or a phone sideways) the tray and the inspector can sit in side columns.
+
+## Layout
+
+The workspace is yours to shape, and each window shape remembers its own layout (a phone upright, a phone
+sideways and a tablet each keep theirs).
+
+- **Resize with the dividers.** Drag the pill under the preview up or down to give the timeline or the preview
+  more room. On wide windows a vertical bar separates a side panel from the editor: drag it sideways. A short
+  vibration marks the default position, and a **double tap** on a divider resets it.
+- **Layout button** (top bar) opens the layout sheet:
+  - **Presets**: *Default*, *Timeline focus* (big timeline, small preview, tray folded), *Preview focus* and
+    *Two panels* (tray on the left, inspector on the right; needs a window at least 600 dp wide).
+  - **Track height**: Small, Medium or Large lanes, or the **-** and **+** buttons. Waveforms, thumbnails and
+    keyframe diamonds scale with the lane.
+  - **Media tray** and **Inspector**: choose where each one sits (bottom or over the timeline, or left or right on
+    wide windows) and whether it is **collapsed**. A collapsed side panel becomes a narrow strip with one button
+    that brings it back; the collapsed tray at the bottom becomes a thin bar with an arrow.
+  - **Customise layout**: makes the dividers bigger and adds buttons to the panels that move them between docks.
+  - **Reset layout** goes back to the defaults of this window shape.
+- If the window changes (rotation, split screen, folding), the layout for the new shape is loaded and kept inside
+  what fits.
 
 ## Toolbar icons
 
@@ -80,6 +103,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ⏮ / ▶ / ⏭ | Previous boundary, Play / Pause, Next boundary | Boundaries are clip starts and ends. Play follows the audio clock. |
 | ⤢ | Fit the whole project | Zooms the timeline to show everything. |
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
+| ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
 | ✂ | Split at playhead | Cuts the selected clip in two. |
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
