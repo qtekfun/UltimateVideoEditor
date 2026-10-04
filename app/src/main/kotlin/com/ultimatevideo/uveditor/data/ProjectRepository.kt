@@ -1,5 +1,11 @@
 package com.ultimatevideo.uveditor.data
 
+import com.ultimatevideo.uveditor.data.interchange.AutoRelink
+import com.ultimatevideo.uveditor.data.interchange.BundleError
+import com.ultimatevideo.uveditor.data.interchange.BundleMediaSource
+import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
+import com.ultimatevideo.uveditor.data.interchange.ProjectBundle
+import com.ultimatevideo.uveditor.data.interchange.RelinkCandidate
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import kotlinx.coroutines.CoroutineDispatcher
@@ -7,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -25,6 +32,12 @@ data class ProjectSummary(
     val thumbnail: ThumbnailSource? = null,
 )
 
+/** What an import did with the media of a bundle: copied out of it, relinked to files already on this device, or still missing (by name). */
+data class BundleImportSummary(val mediaCopied: Int, val relinked: Int, val missing: List<String>)
+
+/** The imported project and, when it came from a bundle, [bundle]. */
+data class ImportReport(val project: ProjectDto, val bundle: BundleImportSummary? = null)
+
 /** A project folder whose file cannot be read. [recoverable] means a leftover temp or backup file holds a usable copy. */
 data class UnreadableProject(val id: String, val error: ProjectError, val recoverable: Boolean = false)
 
@@ -42,11 +55,15 @@ class ProjectRepository(
     private val transferIO: ProjectTransferIO,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+    /** Reads media files for bundles and finds files this device already has; null disables both. */
+    private val mediaAccess: BundleMediaSource? = null,
+    /** The picture of a project's card as JPEG bytes, put in the bundles it exports; null leaves bundles without one. */
+    private val cardThumbnail: (suspend (ProjectDto) -> ByteArray?)? = null,
 ) : ProjectStore {
     private val mutex = Mutex()
 
     suspend fun list(): ProjectListing = withContext(ioDispatcher) {
-        val dirs = rootDir.listFiles { file -> file.isDirectory }.orEmpty()
+        val dirs = rootDir.listFiles { file -> file.isDirectory && !file.name.startsWith(".") }.orEmpty()
         val projects = mutableListOf<ProjectSummary>()
         val unreadable = mutableListOf<UnreadableProject>()
         for (dir in dirs) {
@@ -122,7 +139,7 @@ class ProjectRepository(
     /** Every media URI that a readable project refers to; used to release permissions nothing needs. */
     suspend fun referencedMediaUris(): Set<String> = withContext(ioDispatcher) {
         val uris = HashSet<String>()
-        for (dir in rootDir.listFiles { file -> file.isDirectory }.orEmpty()) {
+        for (dir in rootDir.listFiles { file -> file.isDirectory && !file.name.startsWith(".") }.orEmpty()) {
             val project = decodeOrNull(File(dir, PROJECT_FILE)) ?: continue
             project.mediaLibrary.mapTo(uris) { it.uri }
         }
@@ -142,15 +159,109 @@ class ProjectRepository(
         io("export to $uri") { transferIO.write(uri, bytes) }
     }
 
-    /** Imports a project document; it gets a fresh id when its own id is invalid or already used. */
-    suspend fun importFrom(uri: String): ProjectDto = mutate {
-        val text = io("import from $uri") { transferIO.read(uri).toString(Charsets.UTF_8) }
+    /** Imports a project document or a bundle; it gets a fresh id when its own id is invalid or already used. */
+    suspend fun importFrom(uri: String): ProjectDto = importWithReport(uri).project
+
+    /**
+     * Like [importFrom], and for a `.uvbundle` also says what became of its media. A bundle is unpacked in a
+     * scratch folder and moved into place in one step, so an import that fails halfway leaves nothing behind.
+     */
+    suspend fun importWithReport(uri: String): ImportReport = mutate {
+        try {
+            transferIO.openInput(uri).use { source ->
+                val input = BufferedInputStream(source)
+                if (ProjectBundle.sniff(input)) {
+                    importBundle(input)
+                } else {
+                    ImportReport(importDocument(input.readBytes().toString(Charsets.UTF_8)))
+                }
+            }
+        } catch (e: IOException) {
+            throw ProjectError.Io("import from $uri", e)
+        }
+    }
+
+    private fun importDocument(text: String): ProjectDto {
         val raw = ProjectJson.parseObject(text)
         val imported = ProjectJson.decode(text)
         val keepId = isValidId(imported.id) && !projectDir(imported.id).exists()
         // An imported file must not be refused over a clash, so it is renamed to "<name> (2)" etc.
         val name = ProjectNames.unique(validName(imported.name), namesInUse(null), MAX_NAME_LENGTH) { b, n -> "$b ($n)" }
-        storeRaw(raw, if (keepId) imported.id else idGenerator(), name)
+        return storeRaw(raw, if (keepId) imported.id else idGenerator(), name)
+    }
+
+    private fun importBundle(input: java.io.InputStream): ImportReport {
+        val scratch = File(rootDir, ".import-${idGenerator()}")
+        try {
+            val extracted = try {
+                ProjectBundle.extract(input, scratch)
+            } catch (e: BundleError) {
+                throw ProjectError.Bundle(e.message ?: "The bundle could not be read", e)
+            }
+            val text = extracted.projectJson
+            val raw = ProjectJson.parseObject(text)
+            val imported = ProjectJson.decode(text)
+            val id = if (isValidId(imported.id) && !projectDir(imported.id).exists()) imported.id else idGenerator()
+            val name = ProjectNames.unique(validName(imported.name), namesInUse(null), MAX_NAME_LENGTH) { b, n -> "$b ($n)" }
+            val finalDir = projectDir(id)
+            val uris = HashMap<String, String>()
+            for ((assetId, file) in extracted.mediaFiles) uris[assetId] = fileUri(File(finalDir, "media/${file.name}"))
+            val missing = imported.mediaLibrary.filter { it.id !in uris }
+            val missingIds = missing.mapTo(HashSet()) { it.id }
+            val wanted = extracted.manifest.media.filter { it.assetId in missingIds }
+            val relinked = AutoRelink.match(wanted, relinkCandidates())
+            uris.putAll(relinked)
+            val withUris = ProjectJson.parseObject(ProjectJson.withMediaUris(raw, uris))
+            val final = ProjectJson.withIdentity(withUris, id, name)
+            val project = ProjectJson.decode(final)
+            atomicWrite(File(scratch, PROJECT_FILE), final.toByteArray(Charsets.UTF_8), backupExisting = false)
+            io("move the imported project into place") {
+                Files.move(scratch.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            }
+            val stillMissing = missing.filter { it.id !in relinked }.map { MissingMedia.nameOf(it) }
+            return ImportReport(project, BundleImportSummary(extracted.mediaFiles.size, relinked.size, stillMissing))
+        } finally {
+            if (scratch.exists()) scratch.deleteRecursively()
+        }
+    }
+
+    /** Files that other local projects already point at, with their sizes, for matching a bundle's media. */
+    private fun relinkCandidates(): List<RelinkCandidate> {
+        val access = mediaAccess ?: return emptyList()
+        val out = ArrayList<RelinkCandidate>()
+        for (dir in rootDir.listFiles { file -> file.isDirectory && !file.name.startsWith(".") }.orEmpty()) {
+            val project = decodeOrNull(File(dir, PROJECT_FILE)) ?: continue
+            for (asset in project.mediaLibrary) {
+                out += RelinkCandidate(asset.uri, MissingMedia.nameOf(asset), access.sizeOf(asset.uri))
+            }
+        }
+        return out
+    }
+
+    private fun fileUri(file: File) = "file://" + file.absolutePath
+
+    /**
+     * Writes project [id] as a `.uvbundle` to [uri]. With [includeMedia] the media files that can be read are
+     * copied in (the rest are named in the result); without it the bundle carries only names and sizes, so
+     * the importer can relink by them. Reading the project does not block other edits.
+     */
+    suspend fun exportBundle(
+        id: String,
+        uri: String,
+        includeMedia: Boolean,
+        thumbnails: Map<String, ByteArray> = emptyMap(),
+    ): BundleWriteResult = withContext(ioDispatcher) {
+        val file = projectFile(id)
+        val text = readText(file)
+        val project = ProjectJson.decode(text)
+        val pictures = thumbnails.ifEmpty { cardThumbnail?.invoke(project)?.let { mapOf("project.jpg" to it) } ?: emptyMap() }
+        try {
+            transferIO.openOutput(uri).use { out ->
+                ProjectBundle.write(text, project, mediaAccess, includeMedia, pictures, out)
+            }
+        } catch (e: IOException) {
+            throw ProjectError.Io("export bundle to $uri", e)
+        }
     }
 
     private fun storeRaw(raw: kotlinx.serialization.json.JsonObject, id: String, name: String): ProjectDto {
@@ -244,7 +355,7 @@ class ProjectRepository(
 
     /** Names of every readable project. Unreadable files cannot clash and are skipped. */
     private fun namesInUse(excludingId: String?): List<String> {
-        val dirs = rootDir.listFiles { file -> file.isDirectory && file.name != excludingId }.orEmpty()
+        val dirs = rootDir.listFiles { file -> file.isDirectory && file.name != excludingId && !file.name.startsWith(".") }.orEmpty()
         return dirs.mapNotNull { dir ->
             val file = File(dir, PROJECT_FILE)
             if (!file.isFile) return@mapNotNull null

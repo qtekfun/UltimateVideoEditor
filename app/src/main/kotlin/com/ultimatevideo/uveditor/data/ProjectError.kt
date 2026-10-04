@@ -17,4 +17,7 @@ sealed class ProjectError(message: String, cause: Throwable? = null) : Exception
         ProjectError("Project schema version $found is newer than supported version $supported")
 
     class Io(detail: String, cause: Throwable) : ProjectError("Storage error: $detail", cause)
+
+    /** A project bundle could not be read; [detail] is already worded for the user. */
+    class Bundle(detail: String, cause: Throwable? = null) : ProjectError(detail, cause)
 }
