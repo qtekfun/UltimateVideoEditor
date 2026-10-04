@@ -260,6 +260,7 @@ class TemplateWizardViewModel(
                 nativeFpsNum = project.num, nativeFpsDen = project.den, colorSpace = probed.colorSpace,
                 hasVideo = false, hasAudio = false, isImage = true, displayName = probed.displayName,
                 animationDelaysMs = probed.animationDelaysMs,
+                animationPlays = probed.animationPlays.takeIf { probed.animationDelaysMs != null },
             )
         }
         // Audio-only files have no native frame rate; use the project's.

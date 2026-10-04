@@ -26,6 +26,17 @@ class AnimatedAssetJsonTest {
     }
 
     @Test
+    fun `the number of plays survives a save and a load and reaches the timing`() {
+        val once = gif.copy(animationPlays = 1)
+        val loaded = ProjectJson.decode(ProjectJson.encode(project(once))).mediaLibrary.single()
+        assertEquals(1, loaded.animationPlays)
+        assertEquals(1, loaded.animationTiming()!!.plays)
+        // Old projects have no field: they loop for as long as the clip lasts, as they always did.
+        assertNull(gif.animationPlays)
+        assertEquals(0, gif.animationTiming()!!.plays)
+    }
+
+    @Test
     fun `a project written before animated pictures loads with no animation`() {
         val old = """
             {"version":1,"id":"p","name":"P",
