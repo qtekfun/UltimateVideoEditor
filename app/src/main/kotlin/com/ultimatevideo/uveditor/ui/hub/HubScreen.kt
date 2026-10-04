@@ -58,6 +58,9 @@ import com.ultimatevideo.uveditor.data.ProjectOverview
 import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.data.ProjectThumbnails
 import com.ultimatevideo.uveditor.data.UnreadableProject
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
+import com.ultimatevideo.uveditor.ui.library.BundleExportDialog
+import com.ultimatevideo.uveditor.ui.library.ImportReportDialog
 import com.ultimatevideo.uveditor.ui.templates.TemplateWizardSheet
 import com.ultimatevideo.uveditor.ui.templates.TemplateWizardViewModel
 import java.text.DateFormat
@@ -86,7 +89,7 @@ fun HubScreen(
         pendingExportId = null
         if (uri != null && id != null) viewModel.onIntent(HubIntent.ExportTo(id, uri.toString()))
     }
-    var pendingBundle by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var pendingBundle by remember { mutableStateOf<Pair<String, BundleChoice>?>(null) }
     val bundleLauncher = rememberLauncherForActivityResult(
         // A generic type keeps the suggested ".uvbundle" name (a zip type makes Android add ".zip").
         ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -109,7 +112,7 @@ fun HubScreen(
                     exportLauncher.launch(effect.suggestedFileName)
                 }
                 is HubEffect.LaunchBundleExportPicker -> {
-                    pendingBundle = effect.projectId to effect.includeMedia
+                    pendingBundle = effect.projectId to effect.choice
                     bundleLauncher.launch(effect.suggestedFileName)
                 }
                 is HubEffect.OpenEditor -> onOpenProject(effect.projectId)
@@ -188,6 +191,15 @@ internal fun HubContent(
     }
 
     state.newProjectDraft?.let { NewProjectSheet(it, nameTaken = state.newNameTaken, onIntent = onIntent, onPickClip = onPickMatchClip) }
+    state.bundleExport?.let { dialog ->
+        BundleExportDialog(
+            draft = dialog.draft,
+            onChoice = { onIntent(HubIntent.BundleChoiceChanged(it)) },
+            onConfirm = { onIntent(HubIntent.ConfirmBundleExport) },
+            onDismiss = { onIntent(HubIntent.DismissBundleExport) },
+        )
+    }
+    state.importNotes?.let { notes -> ImportReportDialog(notes) { onIntent(HubIntent.DismissImportNotes) } }
     state.renameDraft?.let { draft ->
         TextDialog(
             title = "Rename project",
@@ -365,8 +377,8 @@ private fun ProjectCard(project: ProjectSummary, onIntent: (HubIntent) -> Unit, 
                     MenuItem("Rename") { menuOpen = false; onIntent(HubIntent.RequestRename(project)) }
                     MenuItem("Duplicate") { menuOpen = false; onIntent(HubIntent.Clone(project.id)) }
                     MenuItem("Export project file") { menuOpen = false; onIntent(HubIntent.RequestExport(project)) }
-                    MenuItem("Export bundle (names and sizes)") { menuOpen = false; onIntent(HubIntent.RequestExportBundle(project, includeMedia = false)) }
-                    MenuItem("Export bundle with media files") { menuOpen = false; onIntent(HubIntent.RequestExportBundle(project, includeMedia = true)) }
+                    // One entry: the dialog it opens asks what the bundle should hold (media files, LUTs, fonts).
+                    MenuItem("Export bundle for another phone…") { menuOpen = false; onIntent(HubIntent.RequestExportBundle(project)) }
                     MenuItem("Delete") { menuOpen = false; onIntent(HubIntent.RequestDelete(project)) }
                 }
             }

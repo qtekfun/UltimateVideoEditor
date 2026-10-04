@@ -93,7 +93,7 @@ New caches must be bounded and keyed by something that changes when the source c
 | `project.json` | schema 1 (`CURRENT_SCHEMA_VERSION`) | new fields are optional with defaults; unknown future versions are refused with a clear error; unknown fields are preserved on save. A `.bak` of the last good save and the `.tmp` of an interrupted write sit next to it (SPECS 4, 4.1) |
 | Timeline snapshot (Kotlin to native) | 7 | native reads older versions down to its minimum (`kSnapshotMinVersion`) |
 | Audio snapshot | 5 | the mixer still reads 4 |
-| `.uvbundle` | 1 | manifest carries `formatVersion` and `schemaVersion` (SPECS 5.24) |
+| `.uvbundle` | 1 | manifest carries `formatVersion` and `schemaVersion`; the optional `resources` list (LUTs and fonts under `resources/`) was added without a bump: older builds ignore it (SPECS 5.24) |
 | `.uvtemplate`, `.uvtitle` | 1 each | refuse files from newer versions |
 
 Whenever a native structure changes, bump its version, keep the old reader, and add a test for both.

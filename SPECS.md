@@ -859,6 +859,7 @@ model and sheet). Everything is local: files go through the system picker, nothi
 | `project.json` | the raw text of the project file, so fields this build does not know survive |
 | `thumbnails/<file>` | the project card picture (JPEG) when one exists |
 | `media/<assetId>-<name>` | the media files, only for "with media files"; stored, not recompressed |
+| `resources/<kind>-<key>-<name>` | the LUTs (`.cube`, deflated) and fonts (stored) the project refers to, when chosen (see below) |
 
 - Writing: entries carry no timestamps, so the same input gives the same bytes; media that cannot be read
   are named in the result and left out; the manifest still lists their name and size.
@@ -876,6 +877,36 @@ model and sheet). Everything is local: files go through the system picker, nothi
 - Auto-relink (`AutoRelink`): among the assets of the other local projects, a file matches when its name
   (ignoring case) **and** size equal the bundle's entry; a name alone never matches, unknown sizes never match,
   the first candidate wins. There is no search outside those libraries and no new permission.
+
+**Resources in the bundle (LUTs and fonts).** A project refers to two kinds of things that live in app-wide
+libraries rather than in the project: imported 3D LUTs (a LUT effect holds the library key in its first value,
+`LutStore`) and imported fonts (a text layer holds the font id, `FontRegistry`). Looks, title presets and
+templates are copied into the project by value when applied, and stickers and emoji are built in, so those two
+are the only global references (`ResourceRefs.collect` reads them from the raw `project.json`).
+
+- Manifest: `resources` (optional, after format 1 shipped) lists `{kind: "lut"|"font", key, name, sizeBytes,
+  sha256, entry}`; `entry` is set when the bytes are inside. A resource the project uses that stays out (not
+  ticked, or not on the exporting device) is still listed, with no `entry`, so the importer can name it.
+  `formatVersion` stays **1**: an older build decodes the manifest ignoring unknown keys and `extract` skips
+  entries it does not know, so it opens a new bundle and simply does not install the resources; a bundle
+  without the key imports exactly as before. Reading: `resources/` entries are single leaves, at most 32 MB each,
+  256 of them and 512 MB in total (`BundleLimits`); a manifest `entry` outside `resources/` is `Corrupt`.
+- Choice (`BundleChoice`): media off, **LUTs on**, **fonts off** by default. Fonts are opt-in because their
+  licences may not allow giving the file to others; the dialog says so next to the switch.
+- Install (`BundleResourceInstaller`, called by `importBundle` before the project is moved into place): each
+  entry is checked against its SHA-256, validated by the normal parser (`.cube` or sfnt font) and stored through
+  `ResourceLibrary`. A resource already stored (same bytes) is not copied again. LUT keys are a 24-bit hash, so
+  `LutStore.install` compares the content under a key: a different LUT on the same key moves the new one to
+  the next free key and `ResourceRefs.withLutKeys` rewrites the project's references (idempotent: importing
+  again finds the LUT it placed before). A font id is the first 8 bytes of the SHA-256 of the file, so an id
+  that does not match the bytes (a doctored manifest) is refused before anything is stored, and a clash with
+  different bytes is refused. One bad resource never stops the import: it is reported.
+- Report (`ResourceImportReport`): installed, already here, re-keyed, failed (name and reason) and missing
+  (referenced, neither in the bundle nor here); the hub shows a snackbar sentence and, when something failed or is
+  missing, a dialog that stays until dismissed.
+- Export dialog (`ui/library/BundleExportDialog`, shared by the hub's "Export bundle for another phone…" and the
+  editor's library menu): switches for media, LUTs and fonts with the counts and sizes from `bundlePreview`,
+  resources this device does not hold shown as such and not counted, and an estimate before the picker opens.
 
 **EDL (`Edl`).** CMX3600, one document per video or audio track, named `<project>-<label>.edl` (labels as the
 editor shows them: `V1` base, `V2` above it, `A1`, ...). `FCM:` is drop frame (`;`) for 29.97 and 59.94 and
