@@ -909,6 +909,24 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** original work with a clear licence and no assets to ship or download; reusing the LUT library and effect keeps preview/export parity, intensity and keyframes for free. 17 points is enough for smooth looks and small to store.
 **Alternative:** shipping pre-baked `.cube` files in the APK (bigger, hard to review), a dedicated shader effect per look (more native code, no reuse of the LUT path), or 33-point cubes (smoother steep curves, 8x the data).
 
+## Release preparation (WP-R)
+
+**Versioning:** `gradle/version.properties` is the only place a version is written; `versionCode = major*10000 + minor*100 + patch` (0.1.0 -> 100). **Why:** no counter file to forget, a tag `v<versionName>` is checked against it by the release workflow, and codes stay monotonic for normal semver bumps. **Alternative:** a git-describe or CI-run-number code (needs full history and breaks local builds), or an explicit `versionCode` line (two numbers to keep in sync).
+
+**Signing:** read from `keystore.properties` (ignored) or `UVEDITOR_*` variables, and only used when all four values are present. **Why:** a partial setup must not sign with the wrong key or fail oddly; CI stays secret-free and produces unsigned files. **Alternative:** a Gradle `signingConfig` that fails when values are missing (forces everyone, including CI, to have a key).
+
+**R8 on by default for release, with explicit keep rules:** the whole `engine` package (native methods, exceptions thrown from C++), any class with native methods, the callback method names C++ looks up (`onProgress`, `onFinished`, `onError`, `onWaveformReady`, `onThumbnailError`), our `@Serializable` classes/serializers and enum names. The APK went from 30.1 MB (unminified, resources unshrunk) to 6.5 MB. **Why:** a store build should be small and the JNI names are the only reflection-like surface. **Alternative:** keep minification off (simplest, but 4.6x larger).
+
+**Local-only crash report:** an uncaught-exception handler writes `files/crash/last-crash.txt` (64 KB cap, atomic write), after which the system handler runs as before. The report has exception types, messages cut to 200 characters with content URIs, absolute paths and media file names replaced, stack frames, app version, phone model and Android version. About can show, copy, share (system share sheet, user-initiated) or delete it. **Why:** gives users a way to report a crash without any crash-reporting service. **Alternative:** nothing stored (users would need `adb logcat`), or a third-party service (rejected by the privacy rule).
+
+**About screen and legal assets:** the licence text, `THIRD_PARTY_NOTICES.md` and `docs/PRIVACY.md` are copied into the APK's assets at build time by a Gradle task registered through the AGP variant API, so the app shows exactly what the repository says. **Alternative:** hard-code the text in Kotlin (two copies to keep in sync).
+
+**"Clear caches" does not touch proxies:** proxy copies have their own switch and clear action because a running job owns that folder; About shows their size and points to the proxy sheet. **Alternative:** delete everything under the cache folder (could break a job in flight).
+
+**First-run tips:** three dismissible cards in a dialog over the hub, shown once (preferences flag), reopenable from About. **Alternative:** a coach-mark overlay on the real controls (nicer, but it needs a stable layout, which the resizable layout package keeps changing).
+
+**Two latent defects found by building the release variant, fixed here:** `thumb_atlas.h` kept a field only read by a debug-guarded log, which `-Werror` rejects in an optimised build; `Subtitles.kt` contained a literal byte-order mark in the source (lint error), now written as the escape sequence `\uFEFF`.
+
 ## Multicam (WP-M)
 
 **Decision:** a multicam clip is realised as ordinary clips on the tracks, and the group (`Timeline.multicams`) is only
