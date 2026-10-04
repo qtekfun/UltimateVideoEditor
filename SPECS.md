@@ -1701,7 +1701,7 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
 - **Dividers:** draggable splitters between preview and timeline (vertical), and between the preview and the
   side panel (horizontal) on wide windows; minimum and maximum sizes; double-tap a divider to reset; haptic tick
   at the default position.
-- **Track height (done, see 5.x "Vertical lane zoom"):** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
+- **Track height (done; see the pinch and lane zoom notes in the timeline UI section above):** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
   choice of Small / Medium / Large lane heights; waveforms, thumbnails and keyframe diamonds scale.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
