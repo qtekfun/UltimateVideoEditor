@@ -27,6 +27,11 @@ HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout
     if (yy - track * stride > layout.trackHeight) return res;  // inside the gap
     res.trackIndex = track;
     res.kind = HitKind::EmptyTrack;
+    // The header column sits over the lane's left edge and takes the touch before any clip under it.
+    if (layout.headerWidth > 0.0f && x < layout.headerWidth) {
+        res.kind = HitKind::LaneHeader;
+        return res;
+    }
 
     // Last matching clip wins so a later-drawn clip is picked first.
     for (auto it = snap.clips.rbegin(); it != snap.clips.rend(); ++it) {
