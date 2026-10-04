@@ -19,7 +19,8 @@
 #include "audio/audio_engine.h"
 #include "decode/gpu_frame.h"
 #include "decode/log.h"
-#include "decode/video_decoder.h"
+#include "decode/open_decoder.h"
+#include "decode/video_decoder_api.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
 #include "stabilise/stab_registry.h"
@@ -326,7 +327,7 @@ private:
 
 // Decoded frames of one asset, shared between the decoder thread (isCached) and the export thread.
 struct AssetState {
-    std::unique_ptr<decode::VideoDecoder> decoder;
+    std::unique_ptr<decode::IVideoDecoder> decoder;
     int64_t lastUsedFrame = 0;  // output frame that last needed this decoder
     decode::AssetInfo info;
     int turns = 0;
@@ -493,7 +494,7 @@ private:
 
         auto state = std::make_unique<AssetState>();
         AssetState* raw = state.get();
-        decode::VideoDecoder::Callbacks callbacks;
+        decode::DecoderCallbacks callbacks;
         callbacks.onImageAvailable = [this] { wake(); };
         callbacks.isCached = [raw](int64_t frame) {
             std::lock_guard<std::mutex> lock(raw->mu);
@@ -506,7 +507,7 @@ private:
             }
             wake();
         };
-        auto opened = decode::VideoDecoder::open(fd, decode::Rational{params_.projectFps.num, params_.projectFps.den}, std::move(callbacks));
+        auto opened = decode::openVideoDecoder(fd, decode::Rational{params_.projectFps.num, params_.projectFps.den}, std::move(callbacks));
         if (!opened.ok()) failDecode(opened.error(), "cannot open a video clip");
         state->decoder = std::move(opened.value());
         state->info = state->decoder->info();

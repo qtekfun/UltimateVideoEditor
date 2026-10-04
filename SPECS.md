@@ -2,6 +2,53 @@
 
 Status: v1, reconciled with the code after phases 1-4 and 6 · Date: 2026-10-03
 
+## Contents
+
+- [1. Build and environment](#1-build-and-environment)
+- [2. Module layout](#2-module-layout)
+- [3. Time base](#3-time-base)
+- [4. Project data model (`project.json`)](#4-project-data-model-projectjson)
+  - [4.1 Missing media, relink and recovery](#41-missing-media-relink-and-recovery)
+- [5. Architecture](#5-architecture)
+  - [5.1 UI layer (Kotlin / Compose, MVI)](#51-ui-layer-kotlin--compose-mvi)
+  - [5.2 Engine boundary (JNI)](#52-engine-boundary-jni)
+  - [5.3 Rendering](#53-rendering)
+  - [5.4 Decode and cache](#54-decode-and-cache)
+  - [5.5 Colour](#55-colour)
+  - [5.6 Audio](#56-audio)
+  - [5.7 3D LUT effect](#57-3d-lut-effect)
+  - [5.8 Titles and transitions](#58-titles-and-transitions)
+  - [5.9 Undo/redo](#59-undoredo)
+  - [5.10 Export](#510-export)
+  - [5.11 Captions (typed or imported, no recognition)](#511-captions-typed-or-imported-no-recognition)
+  - [5.12 Keyframes, canvas formats and upload presets](#512-keyframes-canvas-formats-and-upload-presets)
+  - [5.13 Effects, masks and blend modes](#513-effects-masks-and-blend-modes)
+  - [5.14 Retiming: speed, ramps, reverse and freeze frames](#514-retiming-speed-ramps-reverse-and-freeze-frames)
+  - [5.15 Lane layout, drops and lane order](#515-lane-layout-drops-and-lane-order)
+  - [5.16 Animated captions](#516-animated-captions)
+  - [5.17 Still clips: photos and stickers](#517-still-clips-photos-and-stickers)
+  - [5.18 Markers, beat detection and text templates](#518-markers-beat-detection-and-text-templates)
+  - [5.19 Multi-selection and group edits](#519-multi-selection-and-group-edits)
+  - [5.20 Colour grade, looks and video scopes](#520-colour-grade-looks-and-video-scopes)
+  - [5.21 Stabiliser and the shared tracker](#521-stabiliser-and-the-shared-tracker)
+  - [5.22 Motion tracking](#522-motion-tracking)
+  - [5.23 Parameter keyframes (WP-K)](#523-parameter-keyframes-wp-k)
+  - [5.24 Interchange and media library (WP-I)](#524-interchange-and-media-library-wp-i)
+  - [5.25 Silence auto cut and manual reframe (WP-V2, no AI)](#525-silence-auto-cut-and-manual-reframe-wp-v2-no-ai)
+  - [5.26 Multilayer titles, fonts and presets](#526-multilayer-titles-fonts-and-presets)
+  - [5.27 Filter pack](#527-filter-pack)
+  - [5.28 Transition pack](#528-transition-pack)
+  - [5.29 Multicam (WP-M)](#529-multicam-wp-m)
+  - [5.30 Project templates](#530-project-templates)
+  - [5.31 Proxy media (WP-P)](#531-proxy-media-wp-p)
+- [6. Timeline operations (specification for tests)](#6-timeline-operations-specification-for-tests)
+  - [6.1 Base track and overlays (LumaFusion model)](#61-base-track-and-overlays-lumafusion-model)
+- [7. Error handling](#7-error-handling)
+- [8. Testing](#8-testing)
+- [9. Roadmap specs: closing the gaps with LumaFusion](#9-roadmap-specs-closing-the-gaps-with-lumafusion)
+
+Section numbers are stable: other documents refer to them (for example `SPECS 5.8`). The sub-sections of 9 are listed in 9.0.
+
 ## 1. Build and environment
 
 - App name: ultimateVE · Application ID / namespace: `com.ultimatevideo.uveditor`
@@ -252,11 +299,11 @@ Per-clip source colour: each video clip may override how its source is read (`Au
 - Waveform worker decodes PCM from clips in the background, computes min/max peak pyramids at several
   zoom levels, and caches them on disk (`waveforms/<assetId>.peaks`). Timeline renderer reads the cache.
 
-### 5.6b 3D LUT effect
+### 5.7 3D LUT effect
 
 `EffectType.LUT` (wire code 13, values `[libraryKey, intensity]`). `.cube` files (3D, sizes 2..65, default domain) are imported into `LutStore`; the preview uploads a used LUT once (`PreviewEngine.uploadLut`) and the exporter receives it in `ExportRequest.luts`. The effect pass samples an RGB16F `GL_TEXTURE_3D` trilinearly (`render/gl_pipeline.cpp`, `kEffectFragment` type 13; CPU reference `applyLut` in `render/effect_math.h`) on the layer's working-space pixels. A missing LUT is skipped.
 
-### 5.7 Titles and transitions
+### 5.8 Titles and transitions
 - **One render plan.** `domain/RenderPlan.kt` turns the timeline into `RenderClip`s: every clip with its
   transitions folded in (extended range, `crossfadeInFrames` for the incoming clip's fade, `crossfadeOutFrames`
   for the outgoing clip's audio fade, a decoder `lane`, and `layer` counted from the top over video and title
@@ -280,12 +327,12 @@ Per-clip source colour: each video clip may override how its source is read (`Au
 - **Wire formats.** Timeline snapshot version 2 appends the transitions (for the canvas markers; version 3 adds
   keyframe markers, see 5.10); audio snapshot version 2 has 64-byte clips with `fadeInFrames`/`fadeOutFrames`.
 
-### 5.8 Undo/redo
+### 5.9 Undo/redo
 - `EditHistory` in `domain/`: a bounded stack of immutable timeline snapshots (exact restore), driven by
   the editor ViewModel. Drags are previewed provisionally and enter the history only when released; clip
   appearance edits (inspector, preview gestures) are one undo step per gesture (`SetAppearance`).
 
-### 5.9 Export
+### 5.10 Export
 - Offline render loop: frame N → compositor (`drawScene` into the encoder's input surface) → MediaCodec
   encoder (H.264 or HEVC) → `AMediaMuxer` to MP4; audio from the offline mixer, encoded to AAC. PTS are exact
   integer grid values. The AAC encoder delay (2048 samples) is compensated, so the first 42.7 ms of the mix are
@@ -297,10 +344,10 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   support the project exports as SDR (HLG clips tone-mapped) with a notice; a native refusal
   (`UnsupportedFormat`, e.g. no ten-bit surface) is reported with a hint to export as SDR. The JNI codec
   argument carries the HDR flag as bit 0x100.
-- FFmpeg (static, NDK) is an optional later fallback for formats not supported by MediaCodec. Deferred, see
-  DECISIONS.md.
+- FFmpeg (static, NDK) is an optional fallback for formats not supported by MediaCodec: built behind
+  `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`.
 
-### 5.10 Captions (typed or imported, no recognition)
+### 5.11 Captions (typed or imported, no recognition)
 - There is no speech recognition and no model: the app is offline by design (`docs/PRIVACY.md`). An earlier
   on-device whisper.cpp pipeline was removed for that reason (see DECISIONS.md, "Privacy").
 - Captions come from the user: **typed** one at a time (text, a start and a length stepped by frames or seconds, the next
@@ -317,10 +364,10 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   imported file goes on a new title track on top (`AddCaptions`, one undo step; one track per file, so languages stay
   apart); typed captions go on the existing caption track (`AddCaptionsToTrack`, overwriting what they cover) or
   start one. Eight styles set size, colour, position, chunking and animation: Classic, Bold, Pop, Impact and the
-  animated Karaoke, Word pop, Typewriter and Bounce (section 5.15); "Restyle" applies a style and colours to every
+  animated Karaoke, Word pop, Typewriter and Bounce (section 5.16); "Restyle" applies a style and colours to every
   caption in one undo step.
 
-### 5.11 Keyframes, canvas formats and upload presets
+### 5.12 Keyframes, canvas formats and upload presets
 - **Keyframes.** A clip (video or title) may carry `keyframes`: poses (position, scale, rotation, opacity) at
   integer *clip* frames (0 is the clip's first frame, so they travel with the clip when it moves). Before the first
   keyframe the first pose holds, after the last the last one holds; between two the earlier keyframe's mode
@@ -357,7 +404,7 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   transitions, drawn as small diamonds on the clip header; version 2 snapshots still parse. The export request
   carries per-clip keyframes in three flat arrays (see `NativeExport.nativeStart`).
 
-### 5.12 Effects, masks and blend modes
+### 5.13 Effects, masks and blend modes
 
 - **Model.** A video or title clip carries `fx` (`ClipFx`): an ordered list of effects (at most 8), a blend mode
   and an optional mask. Audio clips cannot have any (the timeline invariants and `TimelineOps` refuse). Effect
@@ -390,7 +437,7 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   everything else is one step. A small badge on the clip header marks clips that have a look (timeline snapshot
   clip flags bit 1).
 
-### 5.13 Retiming: speed, ramps, reverse and freeze frames
+### 5.14 Retiming: speed, ramps, reverse and freeze frames
 - **Model.** A clip keeps its source range `[sourceIn, sourceOut)` (source frames, in project-frame units like
   everywhere in the editor). Three optional fields change how the range plays:
   `timelineFrames` (the clip's length on the timeline when it is not the range's length, so the speed is
@@ -429,7 +476,7 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   playback of long-GOP footage therefore re-decodes a GOP every few frames, which is slow at 4K; fast forward
   (above 2x) is limited by decoder throughput.
 
-### 5.14 Lane layout, drops and lane order
+### 5.15 Lane layout, drops and lane order
 
 - **Layout.** Tracks are in display order (first is topmost). The timeline panel draws the lane stack bottom-anchored
   (`Layout::anchoredBottom`): the last lane rests on the panel bottom, the ruler stays on top, and the room between
@@ -447,7 +494,7 @@ Per-clip source colour: each video clip may override how its source is read (`Au
 - **Lane ops** (`domain/LaneOps`): `moveToNewLane`, `overwriteMove`, `insertOnLane`, `liftFromBase`, `moveTrack` (up/down among lanes of the same kind;
   the base never moves), each one undo step.
 
-### 5.15 Animated captions
+### 5.16 Animated captions
 
 - **Data.** A caption is a title clip whose `TitleContent` also carries `words` (`TitleWord(text, startFrame, endFrame)` in
   clip frames, 0 = the clip's first frame), an `animation` (`NONE`, `KARAOKE`, `POP_IN`, `TYPEWRITER`) and a
@@ -479,7 +526,7 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   colours follow the style (captions without word timing get evenly spaced words). The captions sheet shows a card per
   style, text/highlight colour swatches, and "Restyle N existing" (or opens alone to restyle when no clip is selected).
 
-### 5.16 Still clips: photos and stickers
+### 5.17 Still clips: photos and stickers
 
 A still clip shows one picture for as long as it lasts. `Clip.still` is `PHOTO` or `STICKER`; the clip lives on a **video** track
 (the base or an overlay), has no `title`, and has no media length of its own. Like a title its source range is only its length
@@ -501,7 +548,7 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
   once and shares one key space with titles.
 - **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
 
-### 5.17 Markers, beat detection and text templates
+### 5.18 Markers, beat detection and text templates
 
 **Markers.** `Timeline.markers` is a list of `Marker(id, frame, kind)` with `kind` `MANUAL` (placed at the playhead) or `BEAT` (found
 by beat detection), sorted by frame with unique frames and ids (`MarkerOps`, checked by `invariantViolations`). They sit at absolute
@@ -529,7 +576,7 @@ as the aim, choose the nearest marker after its start (a tie goes to the earlier
 only grow as far as its media; titles and stills freely), and trim its end there with `MagneticBase.trim`, so later base clips ripple and
 overlays follow. A clip with no reachable marker is left alone. The first clip keeps its start; every cut between the clips lands on a marker.
 
-**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). Since WP-T a template is a multilayer title preset (section 5.25):
+**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). Since WP-T a template is a multilayer title preset (section 5.26):
 one title clip on a title lane (a lane is reused only when it is free over the template's range, otherwise a new one is added above;
 never the base, so nothing is overwritten), whose layers are a bar shape and the text, with an in and out `MotionPreset` turned into
 ordinary clip keyframes (`TitleMotion`), so preview and export are identical for free. The text typed in the tray goes into the first text
@@ -568,7 +615,7 @@ all-or-nothing and one undo step.
 | Align | Starts or ends on the first start / last end; clips of one lane that would stack are refused; refused for the base. |
 | Transitions | BETWEEN: crossfade at the cut after each selected clip that touches the next (shortened to what clips and media allow, an existing one is resized). HEAD_AND_TAIL: opacity keyframes fade a picture clip in and out. |
 
-### 5.18 Colour grade, looks and video scopes
+### 5.20 Colour grade, looks and video scopes
 
 **The effect.** `EffectType.COLOR_GRADE` (code 14) is a normal effect of the chain with 21 values, in this
 order (also documented in `render/grade_math.h`): lift R G B master (0..3), gamma R G B master (4..7), gain
@@ -720,7 +767,7 @@ playhead in its own scope so a tick redraws only the dot.
 **Limits.** Position only (no scale or rotation following); one target at a time is analysed; a photo or sticker cannot be
 tracked; frames more than 900 before the seed are not tracked backward (the path holds its first position there).
 
-### 5.20 Parameter keyframes (WP-K)
+### 5.23 Parameter keyframes (WP-K)
 
 Any single value of a clip can be animated, not only its pose. A clip carries `params: List<ParamTrack>`; each
 track is a `paramId` and strictly increasing `ParamKey(frame, value, interpolation, out, inn)` in clip frames
@@ -788,7 +835,7 @@ The colour wheels (three values each) have no diamond; their sliders do.
 **Copy and paste of clips** (WP-S): `Clip.params` travels with the clip like `keyframes`; a pasted clip's tracks
 are relative to its own start, so they need no change.
 
-### 5.21 Interchange and media library (WP-I)
+### 5.24 Interchange and media library (WP-I)
 
 Implemented in `data/interchange/` (pure formats, repository entry points) and `ui/library/` (library
 model and sheet). Everything is local: files go through the system picker, nothing is fetched or uploaded.
@@ -851,7 +898,7 @@ or on the clipboard, so an undo can never meet a file that is no longer in the l
 green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
 a snapshot version bump); the colour shows in the dialog and in exports.
 
-### 5.23 Silence auto cut and manual reframe (WP-V2, no AI)
+### 5.25 Silence auto cut and manual reframe (WP-V2, no AI)
 
 Both work from data the app already has and send nothing anywhere.
 
@@ -870,7 +917,7 @@ uncovered (it uses the same contain-fit as the compositor, `TrackMath.fitSize`).
 for one point or an eased position/scale keyframe per marked moment (frames relative to the clip), replacing earlier
 keyframes, as one undo step. The picture's shape comes from the existing aspect probe. No subject detection.
 
-### 5.25 Multilayer titles, fonts and presets
+### 5.26 Multilayer titles, fonts and presets
 
 A title is either a **plain** title (the single-text fields of `TitleContent`, used by captions and old projects) or a **multilayer** one:
 `TitleContent.layers` holds `TitleLayer`s drawn in list order, so the first is at the bottom and the last on top (the editor lists them
@@ -920,7 +967,7 @@ errors, never guessed.
 (`EditorIntent.LayerGesture`, part of the title edit session and committed by `EndAppearanceEdit`), and `LayerHandleOverlay` draws a ring
 and cross at its centre (plus its outline for a shape).
 
-### 5.24 Filter pack
+### 5.27 Filter pack
 
 `FilterPack` (domain) holds 20 looks written for this project, each a `LookParams` made of a few ordered
 operations on gamma-encoded RGB: exposure gain, mid-tone gamma, contrast about 0.5, warmth and tint offsets,
@@ -935,11 +982,11 @@ Original look is the identity, every look stays in 0..1, grey is non-decreasing 
 black-and-white looks have equal channels, a cube reproduces the look on its lattice, and installing twice stores it
 once. The pack contains no third-party data.
 
-### 5.25 Transition pack
+### 5.28 Transition pack
 
 `Transition` gains a look (`TransitionType`: crossfade, slide, push, zoom, spin, glitch, wipe, whip pan, light
 leak) and a direction (left, right, up, down; used by slide, push, spin, wipe and whip pan). Its length, place and
-the clip overlap (5.7) are unchanged, and the audio is the same equal-power crossfade for every look.
+the clip overlap (5.8) are unchanged, and the audio is the same equal-power crossfade for every look.
 
 The picture is a pure function. `TransitionLooks.modAt(look, incoming, k, canvasW, canvasH, projectFrame)` returns a
 `TransitionMod` (offset in canvas pixels, scale, rotation, an opacity factor, optional effects and an optional mask)
@@ -961,7 +1008,7 @@ list (`fxFrames`). The same functions feed both paths, and a test compares the p
 frame by frame for every moving look. Limit: where a clip has its own Bezier or eased pose keys inside a transition,
 that animation is flattened to linear keys over the transition's frames.
 
-### 5.26 Multicam (WP-M)
+### 5.29 Multicam (WP-M)
 
 A multicam clip lines up two to six recordings of one event and cuts between them. Code: `domain/multicam/`
 (`Multicam.kt`, `AudioSync.kt`), `engine/multicam/MulticamServices.kt`, `ui/editor/multicam/`.
@@ -1003,7 +1050,7 @@ A multicam clip lines up two to six recordings of one event and cuts between the
 - **Not in this version:** the grid does not show moving pictures of the other angles (the badges show how each would
   be fed), and a multicam clip is always created on the base.
 
-### 5.27 Project templates
+### 5.30 Project templates
 
 `ProjectTemplate` (domain) is a project without media: width, height, frame rate, colour space, a `Timeline` and a list of
 `Placeholder`s. A placeholder has an id, a name, a kind (video, video or photo, photo, audio), a length in project frames,
@@ -1036,27 +1083,7 @@ row per slot with a picker, a live preview of what fitting will do (warnings, or
 creates the project through `ProjectRepository` and opens it; the sheet also saves a project as a template, shares a
 template as a file and imports one. All files come from the system picker; nothing touches the network.
 
-## 6. Timeline operations (specification for tests)
-
-Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
-cover collisions, gaps, and boundaries:
-
-| Operation | Behaviour |
-|---|---|
-| Split | At playhead inside a clip; produces two adjacent clips with contiguous source ranges; no-op at edges |
-| Move | Free drag, snaps to neighbours/playhead; rejects or resolves overlaps per mode |
-| Overwrite | Placed clip replaces overlapped regions, trimming/splitting/removing existing clips |
-| Ripple delete | Removes clip and shifts later clips on the same track left by its duration |
-| Ripple append | Snaps clip to the end of the previous clip with no gap |
-| Trim | Changes in/out points, bounded by source length and neighbours |
-| Speed | Changes the length (range / speed) and stretches keyframes and ramp; fails on overlap unless it ripples |
-| Reverse, ramp | Do not change place or length; a ramp's keys must lie inside the clip |
-| Freeze frame | Splits the video clip at the playhead and inserts a one-frame still; later clips move by its length |
-
-Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
-
-
-### 5.22 Proxy media (WP-P)
+### 5.31 Proxy media (WP-P)
 
 Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in files; export never uses them.
 
@@ -1090,6 +1117,26 @@ Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in file
 - **UI**: a toolbar button opens the proxy sheet (switch, size, make/cancel/remove per video, storage and budget,
   clear cache with confirmation); proxy badges on the media tray tiles and in the library rows.
 - **Validation** (`ProxyManager.validate`): a proxy whose source changed size, or whose file is gone, becomes STALE.
+
+## 6. Timeline operations (specification for tests)
+
+Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
+cover collisions, gaps, and boundaries:
+
+| Operation | Behaviour |
+|---|---|
+| Split | At playhead inside a clip; produces two adjacent clips with contiguous source ranges; no-op at edges |
+| Move | Free drag, snaps to neighbours/playhead; rejects or resolves overlaps per mode |
+| Overwrite | Placed clip replaces overlapped regions, trimming/splitting/removing existing clips |
+| Ripple delete | Removes clip and shifts later clips on the same track left by its duration |
+| Ripple append | Snaps clip to the end of the previous clip with no gap |
+| Trim | Changes in/out points, bounded by source length and neighbours |
+| Speed | Changes the length (range / speed) and stretches keyframes and ramp; fails on overlap unless it ripples |
+| Reverse, ramp | Do not change place or length; a ramp's keys must lie inside the clip |
+| Freeze frame | Splits the video clip at the playhead and inserts a one-frame still; later clips move by its length |
+
+Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
+
 
 ### 6.1 Base track and overlays (LumaFusion model)
 

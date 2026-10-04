@@ -11,6 +11,7 @@
 #include "timeline_view/drop_hint.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/hit_test.h"
+#include "timeline_view/lane_header.h"
 #include "timeline_view/marker_style.h"
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
@@ -250,6 +251,68 @@ static void testRetimeBoundaries() {
     CHECK(timeline::retimeBoundary(&back, 40, 40) == 0);
     const timeline::RetimeSnapshot still{4, 1, 2};
     CHECK(timeline::retimeBoundary(&still, 30, 29) == 0);
+}
+
+static timeline::TimelineSnapshot laneSnapshot(const std::vector<timeline::TrackType>& types) {
+    timeline::TimelineSnapshot s;
+    for (auto t : types) s.tracks.push_back({t});
+    return s;
+}
+
+static void testLaneHeaders() {
+    using timeline::TrackType;
+    // Display order, top first: V3, V2, base (V1), A1, A2, T1.
+    auto s = laneSnapshot({TrackType::Video, TrackType::Video, TrackType::Video, TrackType::Audio, TrackType::Audio, TrackType::Title});
+    CHECK(timeline::baseLaneIndex(s) == 2);
+    CHECK(timeline::laneLabel(s, 0) == "V3" && timeline::laneLabel(s, 1) == "V2" && timeline::laneLabel(s, 2) == "V1");
+    CHECK(timeline::laneLabel(s, 3) == "A1" && timeline::laneLabel(s, 4) == "A2" && timeline::laneLabel(s, 5) == "T1");
+    CHECK(timeline::laneLabel(s, -1).empty() && timeline::laneLabel(s, 6).empty());
+    CHECK(timeline::baseLaneIndex(laneSnapshot({TrackType::Audio})) == -1);
+
+    // The bar sits on the top edge of the target lane when moving up and the bottom edge when moving down.
+    bool atTop = false;
+    CHECK(timeline::laneDragBarEdge(2, 0, 6, &atTop) && atTop);
+    CHECK(timeline::laneDragBarEdge(0, 1, 6, &atTop) && !atTop);
+    CHECK(!timeline::laneDragBarEdge(1, 1, 6, &atTop));
+    CHECK(!timeline::laneDragBarEdge(-1, 1, 6, &atTop) && !timeline::laneDragBarEdge(0, 6, 6, &atTop));
+
+    // The header column takes the touch before any clip under it; without a header column nothing changes.
+    timeline::Viewport vp;
+    vp.pxPerFrame = 2.0;
+    auto withClip = laneSnapshot({TrackType::Video, TrackType::Video});
+    withClip.clips.push_back(clip(1, 0, 0, 100));
+    const auto plain = timeline::Layout::forDensity(1.0f);
+    const auto headed = plain.withHeaders(22.0f);
+    CHECK(headed.headerWidth == 22.0f && plain.headerWidth == 0.0f);
+    auto r = timeline::hitTest(withClip, vp, plain, 10, plain.trackTop(0) + 10);
+    CHECK(r.kind != timeline::HitKind::LaneHeader);
+    r = timeline::hitTest(withClip, vp, headed, 10, headed.trackTop(0) + 10);
+    CHECK(r.kind == timeline::HitKind::LaneHeader && r.trackIndex == 0 && r.clipKey == -1);
+    r = timeline::hitTest(withClip, vp, headed, 10, headed.trackTop(1) + 10);
+    CHECK(r.kind == timeline::HitKind::LaneHeader && r.trackIndex == 1);
+    r = timeline::hitTest(withClip, vp, headed, 60, headed.trackTop(0) + 10);
+    CHECK(r.kind == timeline::HitKind::Clip);
+    r = timeline::hitTest(withClip, vp, headed, 10, headed.rulerHeight - 2);
+    CHECK(r.kind == timeline::HitKind::Ruler);
+    CHECK(headed.withHeaders(-5.0f).headerWidth == 0.0f);
+
+    // Mute and solo ride in the high bits of a track's type word; the low byte is still the type and unknown
+    // high bits are ignored.
+    auto buf = makeSnapshot(3, {clip(1, 0, 0, 100)});
+    auto setWord = [&](size_t track, int32_t word) { std::memcpy(buf.b.data() + 24 + 4 * track, &word, 4); };
+    setWord(0, 0);
+    setWord(1, 1 | timeline::kTrackMutedBit);
+    setWord(2, 1 | timeline::kTrackSoloBit | (1 << 20));
+    timeline::TimelineSnapshot parsed;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &parsed) == core::Status::Ok);
+    CHECK(parsed.tracks.size() == 3);
+    CHECK(parsed.tracks[0].type == TrackType::Video && !parsed.tracks[0].muted && !parsed.tracks[0].solo);
+    CHECK(parsed.tracks[1].type == TrackType::Audio && parsed.tracks[1].muted && !parsed.tracks[1].solo);
+    CHECK(parsed.tracks[2].type == TrackType::Audio && !parsed.tracks[2].muted && parsed.tracks[2].solo);
+    setWord(0, 3);  // type 3 does not exist
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &parsed) != core::Status::Ok);
+    setWord(0, -1);
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &parsed) != core::Status::Ok);
 }
 
 static void testMarkerStyleColours() {
@@ -754,6 +817,7 @@ int main() {
     testSnapshotTransitions();
     testSnapshotKeyframes();
     testSnapshotRetimes();
+    testLaneHeaders();
     testMarkerStyleColours();
     testSnapshotMarkers();
     testSnapshotLabels();

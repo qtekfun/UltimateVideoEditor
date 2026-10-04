@@ -11,6 +11,7 @@
 
 #include "core/layer_fx.h"
 #include "render/grade_math.h"
+#include "render/qualifier_math.h"
 
 namespace uv::render {
 
@@ -147,6 +148,16 @@ inline Rgba applyColorEffect(const core::EffectOp& op, Rgba c, float u, float v)
         case EffectType::Denoise:
         case EffectType::Deflicker:
             break;  // neighbourhood / temporal effects, see render/repair_math.h
+        case EffectType::Qualifier: {
+            if (op.grade.size() == static_cast<size_t>(core::kQualifierParams)) {
+                float rgb[3] = {c.r, c.g, c.b};
+                applyQualifier(op.grade.data(), rgb);
+                c.r = rgb[0];
+                c.g = rgb[1];
+                c.b = rgb[2];
+            }
+            break;
+        }
         case EffectType::ColorGrade: {
             if (op.grade.size() == static_cast<size_t>(core::kGradeWireValues)) {
                 float rgb[3] = {c.r, c.g, c.b};

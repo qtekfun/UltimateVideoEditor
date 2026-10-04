@@ -97,6 +97,34 @@ enum class EffectType(val code: Int, val label: String, val params: List<EffectP
      * (a fade, a sunrise) pass through; frame-to-frame pumping (lights on a bad shutter) is flattened.
      */
     DEFLICKER(17, "Flicker removal", listOf(EffectParam("Strength", 0.0, 1.0, 1.0))),
+
+    /**
+     * Secondary colour correction: an HSL key builds a matte from the pixel's hue (a centre and half width on the
+     * colour wheel, 0 = red, 1/3 = green, 2/3 = blue), saturation range and luma range, each with a softness, and the
+     * hue shift / saturation gain / lightness correction applies only where the matte is open. Invert flips the
+     * matte, Show matte displays it as a grey picture (for setting the key). Values 9 and 10 are switches (0 or 1).
+     * The value order is the wire format (`render/qualifier_math.h` documents each index and the maths).
+     */
+    QUALIFIER(
+        18,
+        "HSL qualifier",
+        listOf(
+            EffectParam("Hue", 0.0, 1.0, 0.0),
+            EffectParam("Hue width", 0.0, 0.5, 0.08),
+            EffectParam("Hue softness", 0.0, 0.5, 0.04),
+            EffectParam("Saturation min", 0.0, 1.0, 0.2),
+            EffectParam("Saturation max", 0.0, 1.0, 1.0),
+            EffectParam("Saturation softness", 0.0, 0.5, 0.05),
+            EffectParam("Luma min", 0.0, 1.0, 0.0),
+            EffectParam("Luma max", 0.0, 1.0, 1.0),
+            EffectParam("Luma softness", 0.0, 0.5, 0.05),
+            EffectParam("Invert", 0.0, 1.0, 0.0),
+            EffectParam("Show matte", 0.0, 1.0, 0.0),
+            EffectParam("Hue shift", -0.5, 0.5, 0.0),
+            EffectParam("Saturation gain", 0.0, 2.0, 1.0),
+            EffectParam("Lightness", -1.0, 1.0, 0.0),
+        ),
+    ),
     ;
 
     val defaults: List<Double> get() = params.map { it.default }

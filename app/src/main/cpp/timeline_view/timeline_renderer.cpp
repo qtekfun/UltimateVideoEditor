@@ -18,6 +18,7 @@
 #include "thumbnail/thumbnail_service.h"
 #include "thumbnail/tile_math.h"
 #include "timeline_view/glyphs.h"
+#include "timeline_view/lane_header.h"
 #include "timeline_view/marker_style.h"
 
 #define LOG_TAG "uv_timeline"
@@ -62,6 +63,14 @@ constexpr Color kDropNewLaneEdge{0.3f, 0.9f, 0.5f, 0.95f};
 constexpr Color kDropCancel{0.9f, 0.2f, 0.2f, 0.24f};
 constexpr Color kMarker{1.0f, 0.45f, 0.8f, 1.0f};
 constexpr Color kMarkerLine{1.0f, 0.45f, 0.8f, 0.35f};
+constexpr Color kHeaderTab{0.06f, 0.065f, 0.085f, 0.84f};
+constexpr Color kHeaderTabBase{0.10f, 0.095f, 0.05f, 0.88f};
+constexpr Color kHeaderDragging{0.36f, 0.27f, 0.04f, 0.96f};
+constexpr Color kHeaderText{0.86f, 0.89f, 1.0f, 1.0f};
+constexpr Color kHeaderMute{1.0f, 0.36f, 0.36f, 1.0f};
+constexpr Color kHeaderSolo{1.0f, 0.84f, 0.25f, 1.0f};
+constexpr Color kLaneDragBar{1.0f, 0.78f, 0.1f, 1.0f};
+constexpr Color kLaneDragGlow{1.0f, 0.78f, 0.1f, 0.25f};
 constexpr Color kBeat{0.4f, 0.95f, 0.8f, 0.9f};
 
 constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
@@ -146,6 +155,7 @@ struct TimelineRenderer::State {
     int width = 0, height = 0;
     int64_t playhead = 0;
     DropHint dropHint;
+    int laneDragFrom = -1, laneDragTo = -1;  // lane header drag: the lane being moved and where it would land
     bool marqueeActive = false;
     float marqueeX0 = 0.0f, marqueeY0 = 0.0f, marqueeX1 = 0.0f, marqueeY1 = 0.0f;
     float flingVelocity = 0.0f;  // px/s
@@ -460,7 +470,7 @@ thread_local RenderThreadCtx* t_ctx = nullptr;
 TimelineRenderer::TimelineRenderer(float density, WaveformLookup lookup)
     : state_(std::make_unique<State>()), lookup_(std::move(lookup)) {
     state_->density = density;
-    state_->layout = Layout::forDensity(density);
+    state_->layout = Layout::forDensity(density).withHeaders(kLaneHeaderDp * density);
     thread_ = std::thread([this] { threadMain(); });
     std::unique_lock<std::mutex> lock(mutex_);
     cv_.wait(lock, [this] { return state_->looperReady; });
@@ -553,6 +563,16 @@ void TimelineRenderer::setDropHint(const DropHint& hint) {
     wake();
 }
 
+void TimelineRenderer::setLaneDrag(int from, int to) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->laneDragFrom = from;
+        state_->laneDragTo = to;
+        state_->dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::setMarquee(bool active, float x0, float y0, float x1, float y1) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -582,7 +602,7 @@ std::vector<int64_t> TimelineRenderer::clipsInRect(float x0, float y0, float x1,
 void TimelineRenderer::setLaneScale(float scale) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_->layout = Layout::forDensity(state_->density, scale);
+        state_->layout = Layout::forDensity(state_->density, scale).withHeaders(kLaneHeaderDp * state_->density);
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -766,6 +786,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     int width, height;
     int64_t playhead;
     DropHint dropHint;
+    int laneDragFrom = -1, laneDragTo = -1;
     bool marqueeActive = false;
     float marquee[4] = {0, 0, 0, 0};
     bool keepAnimating = false;
@@ -794,6 +815,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         vp = s.vp;
         layout = s.layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(s.height));
         dropHint = s.dropHint;
+        laneDragFrom = s.laneDragFrom;
+        laneDragTo = s.laneDragTo;
         marqueeActive = s.marqueeActive;
         marquee[0] = s.marqueeX0;
         marquee[1] = s.marqueeY0;
@@ -1047,6 +1070,41 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     if (thumbs) {
         for (const auto& [assetKey, want] : wanted) {
             thumbs->want(assetKey, want.level, std::vector<int64_t>(want.indices.begin(), want.indices.end()));
+        }
+    }
+
+    // Lane headers: a name tab over the left edge of every lane, with M / S marks on muted and soloed audio lanes. Long
+    // pressing one starts a lane drag (see LaneHeader hits); the dragged lane is tinted and a bar shows where it lands.
+    if (layout.headerWidth > 0.0f) {
+        g.setClip(0, layout.rulerHeight, W, H);
+        const int baseLane = baseLaneIndex(*snap);
+        const float gs = std::max(1.0f, std::floor(1.6f * density));
+        const float edge = std::max(1.0f, density);
+        for (int t = 0; t < trackCount; ++t) {
+            const float top = layout.trackTop(t) - static_cast<float>(vp.scrollY);
+            const float bottom = top + layout.trackHeight;
+            if (bottom < layout.rulerHeight || top > H) continue;
+            const TrackSnapshot& track = snap->tracks[static_cast<size_t>(t)];
+            const Color tab = t == laneDragFrom ? kHeaderDragging : (t == baseLane ? kHeaderTabBase : kHeaderTab);
+            g.rect(0, top, layout.headerWidth, bottom, tab);
+            const Color accent = clipColor(track.type);
+            g.rect(layout.headerWidth - edge, top, layout.headerWidth, bottom, accent);
+            const std::string label = laneLabel(*snap, t);
+            const float textW = static_cast<float>(label.size()) * 4.0f * gs - gs;
+            g.drawNumber(label.c_str(), std::max(edge, (layout.headerWidth - textW) * 0.5f), top + 4.0f * density, gs, kHeaderText);
+            if (track.type == TrackType::Audio) {
+                const float my = top + 4.0f * density + 8.0f * gs;
+                if (track.muted) g.drawNumber("M", (layout.headerWidth - 3.0f * gs) * 0.5f, my, gs, kHeaderMute);
+                if (track.solo) g.drawNumber("S", (layout.headerWidth - 3.0f * gs) * 0.5f, my + 7.0f * gs, gs, kHeaderSolo);
+            }
+        }
+        bool atTop = false;
+        if (laneDragBarEdge(laneDragFrom, laneDragTo, trackCount, &atTop)) {
+            const float top = layout.trackTop(laneDragTo) - static_cast<float>(vp.scrollY);
+            const float y = atTop ? top : top + layout.trackHeight;
+            const float bar = std::max(2.0f, 3.0f * density);
+            g.rect(0, y - bar * 2.0f, W, y + bar * 2.0f, kLaneDragGlow);
+            g.rect(0, y - bar * 0.5f, W, y + bar * 0.5f, kLaneDragBar);
         }
     }
 
