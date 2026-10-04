@@ -15,6 +15,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class ProxyManagerTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -31,6 +32,8 @@ class ProxyManagerTest {
     @After
     fun tearDown() {
         executor.shutdownNow()
+        // Wait for the worker thread before the temporary folder is deleted under it.
+        executor.awaitTermination(5, TimeUnit.SECONDS)
     }
 
     private fun asset(n: Int = 1) = testAsset(id = "a$n", uri = "content://m$n")

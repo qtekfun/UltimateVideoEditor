@@ -12,8 +12,15 @@ namespace uv::timeline {
 
 enum class TrackType : int32_t { Video = 0, Audio = 1, Title = 2 };
 
+// Wire word of a track: bits 0..7 the type, bit 8 muted, bit 9 solo (audio lanes; bits 10 and up are ignored).
+constexpr int32_t kTrackTypeMask = 0xFF;
+constexpr int32_t kTrackMutedBit = 1 << 8;
+constexpr int32_t kTrackSoloBit = 1 << 9;
+
 struct TrackSnapshot {
     TrackType type;
+    bool muted = false;
+    bool solo = false;
 };
 
 struct ClipSnapshot {
@@ -64,6 +71,8 @@ struct RetimeSnapshot {
 struct MarkerSnapshot {
     int64_t frame;
     int32_t flags;
+    // Colour code and note bit, see marker_style.h; 0 in snapshots written before markers were coloured.
+    int32_t extra = 0;
 
     bool beat() const { return (flags & 1) != 0; }
 };
@@ -114,7 +123,7 @@ struct TimelineSnapshot {
 // primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
-//   tracks: i32 type * trackCount
+//   tracks: i32 * trackCount: type in bits 0..7, bit8 = muted, bit9 = solo (the high bits were zero before lane headers)
 //   clips : i64 clipKey, i32 trackIndex, i64 assetKey, i64 start, i64 duration, i64 sourceIn,
 //           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected, bit1=hasFx, bit2=missing, bit3=primary)   (56 bytes each)
 //   trailer: i32 transitionCount, then per transition:
@@ -122,7 +131,8 @@ struct TimelineSnapshot {
 //   keyframes (v3): i32 keyframeCount, then per keyframe: i64 clipKey, i64 frame           (16 bytes each)
 //   retimes (v4): i32 retimeCount, then per retimed clip:
 //           i64 clipKey, i64 sourceSpanFrames, i32 flags(bit0=reverse, bit1=freeze), i32 reserved   (24 bytes each)
-//   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 reserved   (16 bytes each)
+//   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 extra
+//           (bits0..2 colour code 0..6, bit3 has note; was reserved zero, see marker_style.h)   (16 bytes each)
 //   labels (v7): i32 labelCount, then per label: i64 clipKey, i32 length (0..24), then the ASCII bytes padded with
 //           zeros to a multiple of 4
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"

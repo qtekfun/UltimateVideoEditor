@@ -163,6 +163,10 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetMarquee)(JNIEnv*, jobject, jlong handle, 
     if (TimelineHandle* h = from(handle)) h->renderer->setMarquee(active == JNI_TRUE, x0, y0, x1, y1);
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeSetLaneDrag)(JNIEnv*, jobject, jlong handle, jint fromLane, jint toLane) {
+    if (TimelineHandle* h = from(handle)) h->renderer->setLaneDrag(fromLane, toLane);
+}
+
 // Keys of the clips inside a view-pixel rectangle.
 JNIEXPORT jlongArray JNICALL JNI_FN(nativeClipsInRect)(JNIEnv* env, jobject, jlong handle, jfloat x0, jfloat y0, jfloat x1, jfloat y1) {
     TimelineHandle* h = from(handle);
