@@ -198,3 +198,94 @@ Remaining risks, not fixed (no evidence of a failure, listed so they can be chec
   each engine is used from one thread (the audio engine's measurements are now the only exception, guarded).
 - ThreadSanitizer has never run on the render, decode and export threads; `scripts/run-sanitizer-tests.sh` covers
   only the audio core. Extending it needs fakes for MediaCodec and EGL.
+
+## Verification pass A (Pixel 8, Android 17, build of master at 45f2a2d with `-Puveditor.appIdSuffix=qa`)
+
+Driven by adb with a uiautomator helper (taps by text or description, one atomic session per command under the
+shared device lock, with a focus check so that another agent's app on top is never tapped). The phone is a debug
+device, not the reference OPPO. Sound cannot be heard through adb: audio is judged by AudioFlinger and the media
+framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz tone, 4K60, long-GOP, JPEG, M4A).
+
+| Area | Step | Result | Evidence |
+|---|---|---|---|
+| Hub | First-run tips: 3 cards, Next/Back/Skip, not shown again after a restart | PASS | UI dump and screenshots |
+| Hub | Welcome (empty) screen | PASS | |
+| Hub | New project sheet: name, quick-start chips, aspect/resolution/frame-rate/colour dropdowns, exact-pixel caption, summary | PASS | TikTok chip sets 9:16, 1080 x 1920; aspect list has 7 entries |
+| Hub | Custom size validation | PASS | 1081 shows "Width and height must be even numbers" |
+| Hub | Create from the YouTube 1080p30 chip; card shows "1080p · 30 fps · SDR" and a placeholder thumbnail for an empty project | PASS | |
+| Editing | Import two clips (4K60 and 1080p30) through the system picker (multi-select) | PASS | both land on V1 back to back, waveforms drawn; the heavy-video proxy suggestion appears and is dismissible |
+| Playback | Play: playhead and picture move, level meter shows, Pause button replaces Play | PASS | AudioFlinger lists a 13.7 s session for the app (the stream stopped when another app took the foreground) |
+| Editing | Split at playhead, Delete (base closes the gap), Undo | PASS | screenshots before and after each step |
+| Export | Dialog: upload presets, resolution, frame rate, codec, bitrate | PASS | |
+| Export | H.264 1080p30 8 Mbps | PASS | ffprobe: h264 1920x1080 30 fps, 840 frames, 28.000 s, aac 28.053 s |
+| Export | HEVC 1080p30 | PASS | ffprobe: hevc 1920x1080 30 fps, 840 frames, 28.000 s, aac |
+| Export | Progress, elapsed time, time left, throughput | PASS | "5 s elapsed · About 12 s left · 46 frames/s · 1,5x real time" |
+| Export | Cancel mid-way | PASS | no partial file left in Downloads |
+| Export | Share | PASS | the system chooser opens ("Compartir 1 archivo") |
+| Layout | Layout sheet (presets, track height, tray and inspector docking, customise switch, Reset) | PASS | Timeline focus + Large lanes change the picture as described |
+| Layout | Persistence: layout and edits survive a forced stop; "The app closed while ... was open" offer with Reopen | PASS | project card now shows a real first-frame thumbnail and 0:28 |
+| Layout | Reset layout returns to the default split with the tray at the bottom | PASS | |
+| Media tray | Expanded tray: Media/Stickers/Titles/Audio tabs, search, All/Video/Photos/Unused filters, Import tile, thumbnails with duration and usage count | PASS | |
+| Media tray | Long-press drag of a tile onto the base lane junction inserts the clip there (`input draganddrop`) | PASS | 4 clips afterwards, usage count 1 -> 2, Undo enabled |
+| Audio | Stress for the audio-callback fix: 45 play/pause cycles, 11 backgroundings with audio running, 6 rapid toggle bursts, 7.6 minutes | PASS | `logcat -b crash` empty (no SIGSEGV), process alive at the end |
+| Inspector | Sections present: appearance with keyframe row, source colour, stabilise, effects, blend modes, mask, track motion, speed with curve editor/reverse/freeze, volume, sound tools, transition | PASS | UI dump of every section |
+| Audio UI | Sound tools: fade in/out (set 2.3 s), equaliser (low/high cut, four bands with keyframe diamonds), noise suppression (mark start/end, strength), loudness targets, Mixer entry | PASS | values change and the Flat button becomes active |
+| Audio UI | Voice effects: Chipmunk preset applies (Pitch +6.0 st), play with the effect, no crash | PASS | `logcat -b crash` empty; the sound itself cannot be judged over adb |
+| Colour | Video scopes panel: waveform ("Luma by column, Rec.709 signal %"), RGB parade, vectorscope chips | PASS | drawn over the preview |
+| Colour | Add menu lists 17 effects (LUT, brightness ... colour grade, noise reduction, flicker removal, HSL qualifier) | PASS | |
+| Colour | Colour grade: lift/gamma/gain wheels with master sliders and Reset, offsets with diamonds, contrast/pivot/saturation/vibrance/temperature/tint, curves (master, R, G, B) | PASS | moving the gain wheel to red warms the picture live |
+| Colour | Looks: Save look (count goes to 1), Copy grade, Paste grade | PASS | |
+| Colour | Filter pack picker with swatch thumbnails (Original, Cinematic, Teal and orange, Warm glow, Cool breeze, Faded film ...); applying Teal and orange changes the picture | PASS | effect count goes up |
+| Colour | Import a `.cube` through the system picker and apply it | PASS | a generated 17-point warm LUT: effects 2 -> 3 and the picture warms |
+| Colour | Per-clip source colour: forcing HLG shows "HLG is tone-mapped to SDR Rec.709 in this project." and the picture changes; Auto restores it | PASS | |
+| Colour | HSL qualifier section (hue/saturation/luma ranges, softness, hue shift, saturation, lightness, reset) | PARTIAL | the controls render; the eyedropper was not exercised |
+| Hub | Export project with media as `.uvbundle` | PASS | valid zip, 40,459,573 bytes: bundle.json, project.json, thumbnails/project.jpg, both media files |
+| Hub | Import the bundle from the ⋮ menu | PASS | "New project (2)" appears at the top with thumbnail, 1080p 30 fps SDR, 0:28; its `media/` folder holds both clips |
+| Hub | Rename (dialog, new name shown), Duplicate ("copy" suffix), Delete (confirmation names the project) | PASS | list updates after each |
+
+### Defects and observations (pass A)
+
+- **A1, cosmetic, open:** after an export the dialog says "Saved New project.mp4." even when the file was saved under another name in the picker (it showed the suggested name, the file on disk had the chosen one).
+- **O1, usability:** with the media tray expanded the inspector shows only three controls (Position X/Y, Scale) and the timeline is hidden; collapsing the tray gives it room. Consider collapsing the tray when the inspector opens on a phone.
+- **O2, usability:** in the colour grade panel a vertical swipe that starts over a wheel or a curve moves the control instead of scrolling the panel (this is documented in the guide); scrolling needs a finger on a free margin, which is narrow. A grab strip or two-finger scroll over the widgets would help.
+
+## Fixes verified on the Pixel 8 (build of the three fix branches merged locally, `-Puveditor.appIdSuffix=qa`)
+
+| Defect | Step | Result | Evidence |
+|---|---|---|---|
+| O1 (PR #90) | Expand the media tray, select a clip, open Adjust clip | PASS | the tray is gone while the inspector is open and the inspector shows the full list (position, scale, rotation, opacity, source colour ...) instead of three controls |
+| O2 (PR #91) | Colour grade: swipe up starting on the Gamma wheel away from the puck | PASS | the panel scrolled, the three pucks stayed centred, the Reset buttons stayed disabled |
+| O2 (PR #91) | Drag the Gamma puck | PASS | the puck followed the finger, Gamma's Reset became enabled |
+| A1 (PR #89) | Name shown after an export renamed in the picker | not yet re-run on device | covered by a unit test; the on-device check follows with the export runs below |
+
+## Verification pass A2 (Pixel 8, same build)
+
+| Area | Step | Result | Evidence |
+|---|---|---|---|
+| Hub | Search with 8 projects: "project 5" leaves only that card; a miss shows `No project matches "zzz".` | PASS | |
+| Hub | Sort by Name orders New project, (2), 2, 3, 4, 5 ...; back to Recent restores recency order | PASS | |
+| Hub | About: version 0.1.0 (100), licence text, privacy summary, third-party notices, storage figures and Clear caches | PASS | `dumpsys package` lists no `android.permission.INTERNET` (count 0), matching the screen's claim |
+| Hub | "Read the privacy statement" and "Notices" expand in place (no browser) | PASS | |
+| Hub | Hub list shows a first-frame thumbnail after the first edit and the project's last-modified time | PASS | |
+| Timeline | Overlay trim: drag the right edge out (the clip lengthens and shows more of the source), drag the left edge in (the right edge stays, the start moves) | PASS | Undo restores each step |
+| Timeline | Overlay move snaps its start to a base-track cut | PASS | after a drag the start sat on the cut of V1 |
+| Timeline | Edge auto-scroll: dragging an overlay clip into the right edge scrolls the view (ruler runs on to 1:00) | PASS | |
+| Timeline | Overlay overwrite: a tray clip dropped over the middle of an overlay clip replaces that stretch (the old clip is cut short, nothing is pushed) | PASS | |
+| Timeline | Overlay insert: a tray clip dropped on the cut between two touching overlay clips opens room (the right clip moved later by the new clip's length) | PASS | |
+| Timeline | Overlay delete leaves a gap and does not move the neighbours; Undo x3 returns to the original layout | PASS | |
+| Layout | Preview/timeline divider: drag down grows the preview, double tap resets it | PASS | |
+| Layout | Wide window (`wm size 2400x1080`, restored with `wm size reset`, 914 x 411 dp): the tray docks in a left side panel with a title bar, collapse chevron and its own resize handle; timeline and preview fill the rest | PASS | the timeline shows two of the three lanes at that height; the inspector docked at a side was not opened in this window |
+| Timeline | Scrub: dragging on the ruler moves the playhead both ways (00:00:04:02 to 00:00:18:17 and back) | PASS | |
+| Audio | Mixer sheet: per-track Mute, Solo, volume, role (Normal/Voice/Music), compressor, duck-under-voice switch with its hint | PASS | each toggle changed state; reset afterwards |
+| Audio | Output level meter under the timecode lights up during playback | PASS | green bar at 00:00:05:13 |
+| Colour | Import of an HLG clip made with ffmpeg (HEVC Main10, BT.2020, arib-std-b67): the tray tile carries an "HLG" badge | PASS | adding it to the timeline and judging the tone-mapped picture is still to do |
+
+### Observations (pass A2)
+
+- **O3, cosmetic, open:** the notices and the privacy statement in About show Markdown source and hard line breaks (for example `[Oboe](https://github.com/google/oboe)` and sentences broken mid-line), because the text files are displayed raw.
+
+### Pass A2 status at the pause
+
+- **Fix PRs open:** #89 (A1, export dialog shows the saved name), #90 (O1, bottom tray gives way to the overlay inspector), #91 (O2, wheels and curves drag only from their handle). O1 and O2 are verified on the Pixel 8 with a local build merging the three branches; A1 has a unit test but was not re-run on the device.
+- **Still to run:** HLG clip on the timeline (look of the tone-mapped picture, the HDR option message in the export dialog), long-GOP export throughput numbers (`longgop.mp4` is in Downloads), HSL eyedropper end to end, relink/recover flow, inspector docked at a side in the wide window, and the A1 re-check after an export renamed in the picker.
+- **Device state:** the qa package holds a local build with the three fixes (not pushed); `wm size` is back at 1080x2400; no lock is held.
