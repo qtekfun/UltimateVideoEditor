@@ -172,6 +172,12 @@ data class MediaAssetDto(
     val tags: List<String> = emptyList(),
     /** A short note about the file, shown in the media library; absent in older projects. */
     val note: String? = null,
+    /**
+     * Animated GIF or WebP: how long each frame is shown, in milliseconds, already normalised (see
+     * `AnimationTiming.effectiveDelay`). Absent for photos and for every older project. Only set on an
+     * [isImage] asset with at least two frames.
+     */
+    val animationDelaysMs: List<Int>? = null,
 )
 
 @Serializable

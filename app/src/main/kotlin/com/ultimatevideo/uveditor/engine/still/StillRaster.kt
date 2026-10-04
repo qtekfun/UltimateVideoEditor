@@ -17,9 +17,10 @@ import kotlin.math.roundToInt
 
 /**
  * What a still clip shows: for a [StillKind.PHOTO] [id] is the image's `content://` URI, for a
- * [StillKind.STICKER] it is a built-in sticker id (see [StickerIds]).
+ * [StillKind.STICKER] it is a built-in sticker id (see [StickerIds]). [frame] is the animation frame of an animated
+ * GIF or WebP (0 for everything else, which is also the first frame of an animation).
  */
-data class StillRef(val kind: StillKind, val id: String)
+data class StillRef(val kind: StillKind, val id: String, val frame: Int = 0)
 
 /** A photo or sticker could not be turned into pixels. The message is fit to show to the user. */
 class StillRasterException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -82,7 +83,7 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
     override fun rasterize(ref: StillRef, canvasWidth: Int, canvasHeight: Int): TitleBitmap {
         require(canvasWidth > 0 && canvasHeight > 0) { "canvas must be positive: ${canvasWidth}x$canvasHeight" }
         val bitmap = when (ref.kind) {
-            StillKind.PHOTO -> decodePhoto(ref.id, canvasWidth, canvasHeight)
+            StillKind.PHOTO -> decodeAnimatedFrame(ref, canvasWidth, canvasHeight) ?: decodePhoto(ref.id, canvasWidth, canvasHeight)
             StillKind.STICKER -> drawSticker(ref.id, canvasWidth, canvasHeight)
         }
         var argb: Bitmap? = null
@@ -123,6 +124,11 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
             throw StillRasterException("Not enough memory to decode a picture", e)
         }
         // The decoder has applied the EXIF orientation, so width and height are the upright ones.
+        return fitToCanvas(decoded, canvasWidth, canvasHeight)
+    }
+
+    /** [decoded] fitted inside the canvas (contain); the input bitmap is recycled when a new one is made. */
+    private fun fitToCanvas(decoded: Bitmap, canvasWidth: Int, canvasHeight: Int): Bitmap {
         val (w, h) = StillFit.contain(decoded.width, decoded.height, canvasWidth, canvasHeight)
         if (w == decoded.width && h == decoded.height) return decoded
         return try {
@@ -132,6 +138,45 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         } finally {
             decoded.recycle()
         }
+    }
+
+    // The last few GIFs opened, so playing or exporting one does not re-read the file for every frame.
+    private val gifs = object : LinkedHashMap<String, GifAnimation?>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, GifAnimation?>?) = size > MAX_OPEN_GIFS
+    }
+
+    private fun gifOf(uri: String): GifAnimation? = synchronized(gifs) {
+        if (gifs.containsKey(uri)) return gifs[uri]
+        val gif = try {
+            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readNBytes(MAX_GIF_BYTES) }
+            bytes?.let { GifAnimation.parse(it) }
+        } catch (e: GifFormatException) {
+            null // not a GIF (an animated WebP, say): the platform decoder shows its first frame
+        } catch (e: IOException) {
+            null
+        } catch (e: SecurityException) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
+        }
+        gifs[uri] = gif
+        return gif
+    }
+
+    /**
+     * Frame [StillRef.frame] of an animated GIF, composited by [GifAnimation]; null for a still photo, frame 0, and
+     * any file that is not a GIF this decoder reads (animated WebP shows its first frame through [decodePhoto]).
+     */
+    private fun decodeAnimatedFrame(ref: StillRef, canvasWidth: Int, canvasHeight: Int): Bitmap? {
+        if (ref.frame <= 0) return null
+        val gif = gifOf(ref.id) ?: return null
+        val pixels = gif.render(ref.frame % gif.frameCount)
+        val frame = try {
+            Bitmap.createBitmap(pixels, gif.width, gif.height, Bitmap.Config.ARGB_8888)
+        } catch (e: OutOfMemoryError) {
+            throw StillRasterException("Not enough memory to show an animated picture", e)
+        }
+        return fitToCanvas(frame, canvasWidth, canvasHeight)
     }
 
     private fun drawSticker(id: String, canvasWidth: Int, canvasHeight: Int): Bitmap {
@@ -147,6 +192,8 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
     }
 
     private companion object {
+        const val MAX_OPEN_GIFS = 2
+        const val MAX_GIF_BYTES = 48 * 1024 * 1024
         const val BYTES_PER_PIXEL = 4
     }
 }
