@@ -755,6 +755,42 @@ cover collisions, gaps, and boundaries:
 
 Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
 
+
+### 5.22 Proxy media (WP-P)
+
+Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in files; export never uses them.
+
+- **Proxy file.** A one-clip movie made by the offline export engine (`ProxyGenerator` -> `NativeExportRunner`): the
+  source's own frame rate and length (so every timeline frame maps to the same frame of the proxy), scaled so the
+  short side is 720 or 1080 (never larger than the source, even sides, same aspect and display rotation), H.264,
+  about 0.15 bits per pixel (2-40 Mbps), a keyframe every second (the engine's setting), **no audio** (sound is
+  always read from the original). HDR sources are tone-mapped to SDR; the preview reads a proxy as SDR Rec.709
+  (`PreviewRequest.sourceOverride = 0`), so HDR looks flatter while editing with proxies.
+- **Side index** (`proxy/ProxyIndex`): `cacheDir/proxies/index.json` plus `<key>.mp4`; never in `project.json`, so
+  bundles and interchange files are unaffected. The key is a hash of source uri, length, frame rate and proxy size
+  (a relinked or re-proxied asset gets a new key). Entries carry their own job (uri, length, rate, colour space), so a
+  restarted process resumes the queue without any project open. States: QUEUED, RUNNING, READY, STALE, FAILED.
+  Atomic writes; a damaged index reads as empty; `recoverAfterKill` puts RUNNING back in the queue (part file
+  deleted, the job restarts from the beginning), drops READY entries whose file is missing or the wrong size, and
+  removes files nothing refers to.
+- **Queue** (`ProxyWorker`): one job at a time on one background-priority thread, outcomes kept in the index,
+  cache held to the budget after each job (least recently used first; proxies of the open project and anything
+  queued or running are kept), cancel for the running or a queued job.
+- **Choosing the file** (`ProxyPlanner`, pure): `MediaPurpose.PREVIEW` and `THUMBNAIL` may use a proxy, only when the
+  project switch is on, the asset is decoded video and the proxy is READY with its file present; `ANALYSIS`
+  (waveforms, beats, loudness) and `EXPORT` always get the original. Export code never references the proxy
+  package (a test scans for it). A proxy that fails to open in the preview is marked STALE and the original is shown.
+- **Preview.** `previewRequestsWithSources` builds the same requests as `previewRequestsAt` with a per-asset source;
+  `EditorPreview` reopens an asset when the file it was opened from changes (switch flipped, proxy finished).
+- **Per-project switch and settings** live in local preferences (`ProxyPrefs`): switch and dismissed suggestion per
+  project id, proxy size, storage budget (1-16 GB, default 4 GB).
+- **Suggestion** (`ProxySuggester`): while proxies are off and the offer has not been dismissed, heavy video (short
+  side >= 1440 or >= 50 Mbps) without a proxy, or three preview stalls, raises a dismissible banner. Nothing is made
+  without the user's consent.
+- **UI**: a toolbar button opens the proxy sheet (switch, size, make/cancel/remove per video, storage and budget,
+  clear cache with confirmation); proxy badges on the media tray tiles and in the library rows.
+- **Validation** (`ProxyManager.validate`): a proxy whose source changed size, or whose file is gone, becomes STALE.
+
 ### 6.1 Base track and overlays (LumaFusion model)
 
 The **base track** is the lowest video track (the last video track in display order). It is the guide and

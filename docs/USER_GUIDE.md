@@ -18,8 +18,9 @@ automated tests so far; see [Known limits](#known-limits).
 10. [Colour grading and scopes](#colour-grading-and-scopes)
 11. [Colour spaces and HDR](#colour-spaces-and-hdr)
 12. [Exporting](#exporting) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
-13. [Missing media and recovery](#missing-media-and-recovery)
-14. [Known limits](#known-limits)
+13. [Proxy media](#proxy-media)
+14. [Missing media and recovery](#missing-media-and-recovery)
+15. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -119,6 +120,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
 | ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
+| ⚡ (lightning) | Proxy media | Opens the proxy sheet: small copies of heavy video for smooth editing, see [Proxy media](#proxy-media). |
 | Two faders | Mixer | Opens the mixer sheet, see [Sound](#sound). |
 | ◫ (safe zone) | Safe zones | Shows TikTok, Reels or Shorts safe areas over the preview. |
 | ▮▮▮ (bars) | Video scopes | Opens or closes the scopes over the preview, see [Colour grading and scopes](#colour-grading-and-scopes). |
@@ -380,6 +382,28 @@ Everything goes through the system file picker and stays on your device: nothing
   out, and the same list is written in the sequence's note. Media is referenced by its Android address, so
   relink it in the other editor. Positions use a percentage of the frame height and retimes use a time map;
   both are untested against a real Final Cut Pro or DaVinci Resolve.
+
+## Proxy media
+
+Heavy video (4K, long-GOP, very high bitrate) can be slow to scrub. A **proxy** is a small copy of a video (720p or
+1080p) that the preview and the timeline thumbnails use while you edit. **Export always uses the original files**, and
+sound always comes from the original.
+
+- Tap the **lightning** button in the toolbar to open the proxy sheet.
+- **Use proxies for editing in this project** is a switch per project. Turning it on queues proxies for the videos that
+  have none; the preview switches to each one as it is ready.
+- **Proxy size**: 720p (lighter) or 1080p. Changing it makes new proxies; the old ones stay until they are evicted.
+- **Make proxies for all videos**, or **Make / Cancel / Remove** per video. Proxies are made one at a time in the
+  background while the app is open; if the app is closed they start again from the beginning next time.
+- **Storage**: shows how much the proxies use and lets you set a limit (1 to 16 GB). When the limit is reached the
+  proxies used least recently are deleted first; the ones the open project uses are kept. **Clear proxy cache** deletes
+  all of them (asks first); projects keep their media.
+- Badges on the media tray and library show **Proxy** (ready), **Proxy 43%** (being made), **Proxy…** (waiting) or
+  **Proxy old** (the source changed, or the file is gone: it is not used until made again).
+- When a project contains heavy video, or the preview keeps dropping frames, a banner offers proxies. Nothing is made
+  unless you accept; **Not now** hides the offer for that project.
+- HDR videos get an SDR proxy, so the picture looks flatter while editing with proxies on; the exported movie is
+  unaffected.
 
 ## Missing media and recovery
 
