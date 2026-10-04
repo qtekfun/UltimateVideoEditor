@@ -4,6 +4,7 @@
     <!-- Deliberately no permissions: the app works entirely offline (see docs/PRIVACY.md). -->
 
     <application
+        android:name=".UVEditorApp"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:icon="@drawable/ic_launcher"

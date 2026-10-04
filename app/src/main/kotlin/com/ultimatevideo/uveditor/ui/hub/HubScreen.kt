@@ -62,7 +62,12 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnails: ProjectThumbnails? = null) {
+fun HubScreen(
+    viewModel: HubViewModel,
+    onOpenProject: (String) -> Unit,
+    thumbnails: ProjectThumbnails? = null,
+    onOpenAbout: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
@@ -115,6 +120,7 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnai
         onImport = { importLauncher.launch(arrayOf("*/*")) },
         onPickMatchClip = { matchLauncher.launch(arrayOf("video/*", "image/*")) },
         thumbnails = thumbnails,
+        onOpenAbout = onOpenAbout,
     )
 }
 
@@ -127,13 +133,14 @@ internal fun HubContent(
     onImport: () -> Unit,
     onPickMatchClip: () -> Unit = {},
     thumbnails: ProjectThumbnails? = null,
+    onOpenAbout: () -> Unit = {},
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = { Text("ultimateVE") },
-                actions = { HubOverflowMenu(onImport) },
+                actions = { HubOverflowMenu(onImport, onOpenAbout) },
             )
         },
         floatingActionButton = {
@@ -187,12 +194,13 @@ internal fun HubContent(
 
 /** The one overflow menu of the top bar: importing a project file lives here, not on its own button. */
 @Composable
-private fun HubOverflowMenu(onImport: () -> Unit) {
+private fun HubOverflowMenu(onImport: () -> Unit, onOpenAbout: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(text = { Text("Import project file or bundle") }, onClick = { open = false; onImport() })
+            DropdownMenuItem(text = { Text("About, privacy and help") }, onClick = { open = false; onOpenAbout() })
         }
     }
 }
