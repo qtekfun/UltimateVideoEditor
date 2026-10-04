@@ -535,6 +535,38 @@ interpolation) that become ordinary keyframes in clip frames, so preview and exp
 on an overlay lane (never the base); a lane is reused only when it is free over the template's range, otherwise a new one is added, so
 nothing is overwritten. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar.
 
+### 5.19 Multi-selection and group edits
+
+State (`EditorState`): `selectedClipId` stays the primary clip (the inspector's); `selectedClipIds` holds the whole
+group when more than one clip is selected and always contains the primary one; `selectMode` and `clipboardCount`
+complete it. `EditorState.selection` is the effective set: the group if it still holds the primary clip, else just
+the primary. Every plain tap, empty-space tap and ClearSelection resets `selectedClipIds`, so a stale group can
+never come back. Intents live in `SelectionIntent` (a sealed sub-interface of `EditorIntent`).
+
+Gestures (Kotlin, `TimelineSurfaceView`): in select mode a tap toggles a clip and a drag that starts on empty lane
+space draws a marquee; a long press toggles a clip in any mode. The marquee rectangle is native state
+(`nativeSetMarquee`), and on release `nativeClipsInRect` returns the clip keys it touches (`clipsInRect` in
+`hit_test.cpp`, host-tested; the ruler never counts). Dragging any selected clip with more than one selected moves
+the group (`GroupMove`, snapped as a block by `GroupOps.snappedDelta`; the lane delta counts lanes of the same
+kind under the finger; dragging off the panel cancels).
+
+Snapshot version 6: the per-clip flags gain bit 3 = primary (the layout is the same as version 5, and a version 5
+clip is its own primary when selected). The canvas outlines the primary clip in yellow and the others in blue.
+
+Domain (`GroupOps`, `Clipboard`, `ClipSelection`, commands in `GroupCommands.kt`): every operation maps a
+`Timeline` to a new `Timeline` or a typed `GroupEditUnavailable` with a message for the user, so each is
+all-or-nothing and one undo step.
+
+| Operation | Rule |
+|---|---|
+| Move | Same delta and lane delta for all; no clip may land on one that stays or on one that moves with it; frame >= 0. A base selection must touch and be only base clips: the run is reordered like `MagneticBase.reorderBlock`. |
+| Delete | Other lanes first (gaps stay), then base clips last to first (each closes its gap, overlays follow); clips already removed by a base deletion are skipped. |
+| Copy / paste / duplicate | `Clipboard.capture` keeps clips, lane ids, relative offsets and transitions between copied clips. Paste puts the earliest clip at the playhead; overlay clips go to their lane (else the first lane of the kind) and fail on overlap; base clips are inserted as a run at the nearest cut. Fresh ids (`<id>~cN`). Duplicate pastes at the end of the last selected clip. |
+| Paste attributes | Transform and effects on picture clips, gain on clips with sound, speed and reverse on clips with media; fails when nothing can take any. Keyframes and ramps are not copied. |
+| Speed / gain / opacity | Per clip through the single-clip rules (`MagneticBase.setSpeed` ripples as for one clip); opacity also sets the keyframes of an animated clip. |
+| Align | Starts or ends on the first start / last end; clips of one lane that would stack are refused; refused for the base. |
+| Transitions | BETWEEN: crossfade at the cut after each selected clip that touches the next (shortened to what clips and media allow, an existing one is resized). HEAD_AND_TAIL: opacity keyframes fade a picture clip in and out. |
+
 ### 5.18 Colour grade, looks and video scopes
 
 **The effect.** `EffectType.COLOR_GRADE` (code 14) is a normal effect of the chain with 21 values, in this

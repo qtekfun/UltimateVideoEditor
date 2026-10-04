@@ -6,6 +6,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "audio/waveform_service.h"
 #include "core/error.h"
@@ -155,6 +156,23 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetDropHint)(JNIEnv*, jobject, jlong handle,
     hint.startFrame = startFrame;
     hint.endFrame = endFrame;
     h->renderer->setDropHint(hint);
+}
+
+JNIEXPORT void JNICALL JNI_FN(nativeSetMarquee)(JNIEnv*, jobject, jlong handle, jboolean active, jfloat x0, jfloat y0, jfloat x1,
+                                                jfloat y1) {
+    if (TimelineHandle* h = from(handle)) h->renderer->setMarquee(active == JNI_TRUE, x0, y0, x1, y1);
+}
+
+// Keys of the clips inside a view-pixel rectangle.
+JNIEXPORT jlongArray JNICALL JNI_FN(nativeClipsInRect)(JNIEnv* env, jobject, jlong handle, jfloat x0, jfloat y0, jfloat x1, jfloat y1) {
+    TimelineHandle* h = from(handle);
+    if (h == nullptr) return nullptr;
+    const std::vector<int64_t> keys = h->renderer->clipsInRect(x0, y0, x1, y1);
+    jlongArray arr = env->NewLongArray(static_cast<jsize>(keys.size()));
+    if (arr != nullptr && !keys.empty()) {
+        env->SetLongArrayRegion(arr, 0, static_cast<jsize>(keys.size()), reinterpret_cast<const jlong*>(keys.data()));
+    }
+    return arr;
 }
 
 JNIEXPORT void JNICALL JNI_FN(nativeSetLaneScale)(JNIEnv*, jobject, jlong handle, jfloat scale) {

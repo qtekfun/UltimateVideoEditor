@@ -686,6 +686,30 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
 **Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
 
+## Multi-selection and group edits (WP-S)
+
+**Decision:** selection is `selectedClipId` (primary) plus `selectedClipIds` (the group, when more than one); a plain tap, an empty-space tap or Clear resets the group, long press toggles a clip in any mode, and select mode adds taps and a marquee on empty lane space. The marquee is native state and `clipsInRect` runs natively. Group operations are pure `Timeline -> Timeline` functions (`GroupOps`) behind one command each, so they are all-or-nothing and one undo step.
+**Why:** it reuses the immutable-snapshot undo and the single-clip rules (magnetic base, ClipDeletion), keeps the primary clip for the inspector, and needs no new native selection model beyond a primary flag (snapshot version 6) and the marquee.
+**Alternative:** a native selection set owned by the canvas (more state to keep in step), or moving group selection logic into the view layer.
+
+**Decision:** moving base clips together is only allowed for a run that touches and contains only base clips; it reorders the run (`MagneticBase.reorderBlock`). Mixed base and overlay selections only support attribute operations, with a message.
+**Why:** the base has no gaps, so a free offset move has no meaning there, and mixing would need a rule for what the overlays do.
+**Alternative:** allow mixed moves by reordering the base and shifting the overlays by the same delta.
+
+**Decision:** paste puts overlay clips back on their lane (or the first lane of their kind) and refuses to land on an existing clip; duplicate pastes right after the last selected clip. Nothing is overwritten.
+**Why:** a group edit that silently replaces footage is destructive and hard to see; a message is cheap.
+**Alternative:** overwrite on overlay lanes like a single drop, or put colliding copies on a new lane.
+
+**Decision:** "head and tail" transitions are opacity keyframes (a fade in and a fade out of each picture clip), because the model has transitions only between two clips; audio fades come with the audio tools.
+**Why:** it gives the same visible result as LumaFusion's head and tail dissolves without a new transition type.
+**Alternative:** a one-sided transition type in the domain, rendered by the compositor and exporter.
+
+**Decision:** a group drag shows no insert/overwrite indicator, only the live preview and the cancel tint off the lanes.
+**Why:** group moves on overlays are free-form, and a base run reorders like a single clip, whose insertion marker would be ambiguous for a block.
+**Alternative:** extend `DropPlan` with group decisions.
+
+**Found on the Pixel 8:** a plain tap on a clip that was part of the group left the group alive, and the canvas did not redraw the outlines when only the group changed (the snapshot key lacked `selectedClipIds`). Both are fixed, with a regression test for the first.
+
 ## Audio tools (WP-A)
 
 **Decisions:**

@@ -395,7 +395,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
 
     // Publish what the canvas should draw; drags show a provisional timeline until released.
-    StateEffect(holder, { listOf(it.visibleTimeline, it.selectedClipId, it.missingMedia, it.fps, it.isLoading) }) { s ->
+    StateEffect(holder, { listOf(it.visibleTimeline, it.selectedClipId, it.selectedClipIds, it.missingMedia, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         try {
             engine.setSnapshot(viewModel.snapshotOf(s))
@@ -609,6 +609,13 @@ private fun EditorMain(
     takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
 ) {
     val hasSelection = state.selectedClipId != null
+    val selecting = remember(holder, viewModel) {
+        object : TimelineSelecting {
+            override val selectMode: Boolean get() = holder.value.selectMode
+            override fun onLongPress(hit: TimelineHit) = viewModel.onIntent(SelectionIntent.LongPress(hit))
+            override fun onMarquee(clipKeys: List<Long>) = viewModel.onIntent(SelectionIntent.Marquee(clipKeys))
+        }
+    }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
     var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
@@ -742,6 +749,7 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                         viewModel.onIntent(EditorIntent.RippleDeleteSelected)
                     }
+                    SelectModeButton(state, viewModel::onIntent)
                     ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
                         viewModel.onIntent(EditorIntent.RippleAppendSelected)
                     }
@@ -774,6 +782,7 @@ private fun EditorMain(
                     }
                     SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
                 }
+                if (state.selectMode || state.isMultiSelection) SelectionBar(state, viewModel::onIntent)
                 if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
 
                 }
@@ -787,6 +796,7 @@ private fun EditorMain(
                         onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
                         editing = editing,
                         dropTarget = dropTarget,
+                        selecting = selecting,
                         modifier = Modifier.fillMaxSize(),
                     )
                     if (state.inspectorOpen && inspectorOverlay) {
