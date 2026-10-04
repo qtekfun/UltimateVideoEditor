@@ -909,6 +909,12 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** the Pixel was locked, so a decoder change could not be verified; the root cause was already identified and fixed, and a regression guard that fails if someone raises the in-flight limit is the cheapest protection.
 **Alternative:** allow two frames in flight with a reader that does not drop (would help the decode-bound case, 85% of ideal) or pre-arm the decoder targets of all layers before waiting for the first one (helps cuts with a new decoder). Both need a device to be measured; listed as follow-ups.
 
+## Filter pack (WP-V5)
+
+**Decision:** the 20 built-in looks are functions (a handful of ordered colour operations) in code, baked into 17-point `.cube` files on first use and stored in the existing LUT library; the picker shows them above imported LUTs with a computed swatch.
+**Why:** original work with a clear licence and no assets to ship or download; reusing the LUT library and effect keeps preview/export parity, intensity and keyframes for free. 17 points is enough for smooth looks and small to store.
+**Alternative:** shipping pre-baked `.cube` files in the APK (bigger, hard to review), a dedicated shader effect per look (more native code, no reuse of the LUT path), or 33-point cubes (smoother steep curves, 8x the data).
+
 ## Transition pack (WP-V5)
 
 **Decision:** the new looks are a per-frame modification (pose, mask, effects) evaluated by one pure function that the preview calls directly and the exporter bakes into its existing pose keys and per-frame effect lists; no new shader or native code. Light leak is a warm exposure bloom on top of the crossfade rather than an overlay layer.

@@ -297,6 +297,16 @@ footage the marker can be a few pixels away. Photos and stickers cannot be track
 
 ## Colour grading and scopes
 
+### Filters (the built-in looks)
+
+In **Adjust clip**, choose **Add** in the Effects section and pick **LUT**. The list starts with about twenty
+built-in **filters**, each with a small swatch that shows what it does to skin, sky, foliage, red and two greys:
+Cinematic, Teal and orange, Warm glow, Cool breeze, Faded film, Vintage, Golden hour, Noir, Silver, Bleach bypass,
+Vivid, Muted, Moody blue, Sunset pink, Matte, Cross process, Forest, Day for night, Pastel and Original (no
+change). Tap one and it is added to the clip as a LUT effect, so you can lower its **Intensity**, reorder it or
+combine it with a colour grade. The filters were written for this app and are generated on the device the first
+time you use them (nothing is downloaded); your own imported `.cube` files are listed below them.
+
 ### Colour grade
 
 Select a video clip, open **Adjust clip**, choose **Add** in the Effects section and pick **Colour grade**.
