@@ -85,6 +85,10 @@ android {
             cmake {
                 cppFlags += "-std=c++20"
                 arguments += listOf("-DANDROID_STL=c++_shared")
+                // Optional software-decoding fallback: a directory with include/ and lib/ (libavformat.a,
+                // libavcodec.a, libswscale.a, libswresample.a, libavutil.a) built by scripts/build-ffmpeg-android.sh.
+                // Off by default, so default builds and CI never need FFmpeg. See docs/ffmpeg-fallback.md.
+                providers.gradleProperty("uveditor.ffmpeg").orNull?.let { arguments += "-DUV_FFMPEG_DIR=$it" }
             }
         }
     }
