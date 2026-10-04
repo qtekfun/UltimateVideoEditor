@@ -48,6 +48,10 @@ enum class EffectType : int {
     // Flicker removal: v[0] = strength 0..1; scales the frame so its mean luma follows the mean over the
     // previous, current and next source frame.
     Deflicker = 17,
+    // Secondary colour correction: an HSL key (hue range, saturation range, luma range, each with softness) builds a
+    // matte and the hue shift / saturation gain / lightness correction applies only where it is open. kQualifierParams
+    // values in `grade` (not `v`); see render/qualifier_math.h for the layout and the maths.
+    Qualifier = 18,
 };
 
 inline constexpr int kMaxEffectValues = 6;
@@ -60,10 +64,13 @@ inline constexpr int kGradeParams = 21;
 inline constexpr int kGradeCurveSamples = 33;
 inline constexpr int kGradeWireValues = kGradeParams + kGradeCurveSamples * 4;
 
+// Qualifier wire layout: 14 parameters (render/qualifier_math.h), carried in `grade` like the colour grade's.
+inline constexpr int kQualifierParams = 14;
+
 struct EffectOp {
     EffectType type = EffectType::Brightness;
     float v[kMaxEffectValues] = {0, 0, 0, 0, 0, 0};
-    std::vector<float> grade;  // ColorGrade only: kGradeWireValues floats
+    std::vector<float> grade;  // ColorGrade (kGradeWireValues floats) and Qualifier (kQualifierParams floats) only
 
     bool operator==(const EffectOp& o) const {
         if (type != o.type) return false;
@@ -149,11 +156,11 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
         const int type = static_cast<int>(data[at]);
         const int n = static_cast<int>(data[at + 1]);
         at += 2;
-        if (type < 1 || type > 17 || n < 0 || size - at < static_cast<size_t>(n)) return false;
+        if (type < 1 || type > 18 || n < 0 || size - at < static_cast<size_t>(n)) return false;
         EffectOp op;
         op.type = static_cast<EffectType>(type);
-        if (type == static_cast<int>(EffectType::ColorGrade)) {
-            if (n != kGradeWireValues) return false;
+        if (type == static_cast<int>(EffectType::ColorGrade) || type == static_cast<int>(EffectType::Qualifier)) {
+            if (n != (type == static_cast<int>(EffectType::Qualifier) ? kQualifierParams : kGradeWireValues)) return false;
             op.grade.resize(static_cast<size_t>(n));
             for (int k = 0; k < n; ++k) {
                 const double v = data[at + static_cast<size_t>(k)];

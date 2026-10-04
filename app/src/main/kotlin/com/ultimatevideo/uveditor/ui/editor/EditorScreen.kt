@@ -352,6 +352,15 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             rasterizer = titleRasterizer,
             lutLoader = lutStore::load,
             onProxyFailed = { proxyVm.onIntent(ProxyIntent.PreviewProxyFailed(it)) },
+            onSoftwareDecoding = { heavy ->
+                viewModel.onIntent(
+                    EditorIntent.ReportError(
+                        "Software decoding: this video format is not supported by the phone's decoder, so it is decoded on the CPU and may play slower" +
+                            if (heavy) ". A proxy is advised." else ".",
+                    ),
+                )
+                if (heavy) proxyVm.onIntent(ProxyIntent.SoftwareDecodeHeavy)
+            },
         ) {
             viewModel.onIntent(EditorIntent.ReportError(it))
             // A few stalls while playing are the cue to suggest proxies.

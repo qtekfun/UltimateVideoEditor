@@ -1,0 +1,134 @@
+name: FFmpeg fallback
+
+# The software-decoding fallback is optional and off in the default build (docs/ffmpeg-fallback.md), so its heavy
+# parts never run in CI: this workflow does.
+#   - host-tests: the readers against the distribution's libav (also on pull requests that touch the fallback);
+#   - android-build (manual): builds the pinned minimal static LGPL FFmpeg for arm64 with the NDK and reports sizes;
+#   - app-with-ffmpeg (manual, after the build): compiles and links the engine against it, proving the glue.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/src/main/cpp/decode/**'
+      - 'app/src/main/cpp/audio/ffmpeg_pcm*'
+      - 'app/src/main/cpp/cmake/ffmpeg.cmake'
+      - 'app/src/test/cpp/ffmpeg_*'
+      - 'scripts/*ffmpeg*'
+      - '.github/workflows/ffmpeg.yml'
+
+concurrency:
+  group: ffmpeg-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: FFmpeg host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libav development files and the ffmpeg CLI
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg libavformat-dev libavcodec-dev libswscale-dev libswresample-dev libavutil-dev pkg-config
+
+      - name: Readers against a real libav
+        run: scripts/run-ffmpeg-host-tests.sh
+
+  android-build:
+    name: Build static FFmpeg (arm64)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      # The result only depends on the build script (it pins the FFmpeg version and checksum).
+      - name: Restore a previous build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/ffmpeg-android/install
+          key: ffmpeg-android-${{ hashFiles('scripts/build-ffmpeg-android.sh') }}
+
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build-ffmpeg-android.sh build/ffmpeg-android
+
+      - name: Report sizes
+        run: |
+          {
+            echo "### FFmpeg for arm64-v8a (static, stripped)"
+            echo '```'
+            cat build/ffmpeg-android/install/BUILDINFO.txt
+            echo
+            ls -l build/ffmpeg-android/install/lib/*.a | awk '{printf "%10d  %s\n", $5, $9}'
+            du -ch build/ffmpeg-android/install/lib/*.a | tail -1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-android-arm64
+          path: |
+            build/ffmpeg-android/install/include
+            build/ffmpeg-android/install/lib/*.a
+            build/ffmpeg-android/install/BUILDINFO.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  app-with-ffmpeg:
+    name: Engine linked against FFmpeg
+    needs: android-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install SDK platform, NDK and CMake
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.31.6"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-android-arm64
+          path: ffmpeg-android
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the app with software decoding
+        run: ./gradlew :app:assembleDebug -Puveditor.ffmpeg="$GITHUB_WORKSPACE/ffmpeg-android" --console=plain --max-workers=4
+
+      - name: Report the engine size and check FFmpeg is inside
+        run: |
+          so="$(find app/build -name libuveditor_engine.so -path '*arm64-v8a*' | head -1)"
+          ls -l "$so"
+          NM="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          # FFmpeg's symbols are private (--exclude-libs); its decoder names are still in the binary.
+          strings -a "$so" | grep -m3 -E 'prores|mpeg2video|FFmpeg' || true
+          {
+            echo "### libuveditor_engine.so with FFmpeg"
+            echo '```'
+            ls -l "$so" | awk '{print $5 "  " $9}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          "$NM" -D --defined-only "$so" | grep -c avcodec_ && echo "FFmpeg symbols leaked: check --exclude-libs" && exit 1 || true
