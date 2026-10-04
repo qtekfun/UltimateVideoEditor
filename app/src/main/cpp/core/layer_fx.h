@@ -34,21 +34,30 @@ enum class EffectType : int {
     ChromaKey = 12,
     // v[0] = library key of an uploaded 3D LUT (uploadLut), v[1] = intensity 0..1. A missing LUT is skipped.
     Lut = 13,
+    // The colour grade: kGradeParams values then kGradeCurveSamples x 4 baked curve samples, in `grade`
+    // (not `v`). See render/grade_math.h for the layout and the maths.
+    ColorGrade = 14,
 };
 
 inline constexpr int kMaxEffectValues = 6;
 inline constexpr int kMaxEffectsPerLayer = 8;
 
+// Colour grade wire layout: 21 parameters, then 33 curve samples of (master, red, green, blue).
+inline constexpr int kGradeParams = 21;
+inline constexpr int kGradeCurveSamples = 33;
+inline constexpr int kGradeWireValues = kGradeParams + kGradeCurveSamples * 4;
+
 struct EffectOp {
     EffectType type = EffectType::Brightness;
     float v[kMaxEffectValues] = {0, 0, 0, 0, 0, 0};
+    std::vector<float> grade;  // ColorGrade only: kGradeWireValues floats
 
     bool operator==(const EffectOp& o) const {
         if (type != o.type) return false;
         for (int i = 0; i < kMaxEffectValues; ++i) {
             if (v[i] != o.v[i]) return false;
         }
-        return true;
+        return grade == o.grade;
     }
 };
 
@@ -110,9 +119,22 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
         const int type = static_cast<int>(data[at]);
         const int n = static_cast<int>(data[at + 1]);
         at += 2;
-        if (type < 1 || type > 13 || n < 0 || n > kMaxEffectValues || size - at < static_cast<size_t>(n)) return false;
+        if (type < 1 || type > 14 || n < 0 || size - at < static_cast<size_t>(n)) return false;
         EffectOp op;
         op.type = static_cast<EffectType>(type);
+        if (type == static_cast<int>(EffectType::ColorGrade)) {
+            if (n != kGradeWireValues) return false;
+            op.grade.resize(static_cast<size_t>(n));
+            for (int k = 0; k < n; ++k) {
+                const double v = data[at + static_cast<size_t>(k)];
+                if (!(v == v)) return false;
+                op.grade[static_cast<size_t>(k)] = static_cast<float>(v);
+            }
+            at += static_cast<size_t>(n);
+            fx.effects.push_back(std::move(op));
+            continue;
+        }
+        if (n > kMaxEffectValues) return false;
         for (int k = 0; k < n; ++k) {
             const double v = data[at + static_cast<size_t>(k)];
             if (!(v == v)) return false;

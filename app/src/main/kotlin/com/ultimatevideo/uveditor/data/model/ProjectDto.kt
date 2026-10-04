@@ -186,7 +186,21 @@ data class EffectDto(
     val id: String,
     val type: String,
     val values: List<Double> = emptyList(),
+    /** Colour grade only; absent means identity curves. */
+    val curves: GradeCurvesDto? = null,
 )
+
+/** The four tone curves of a colour grade; each is a list of control points (see `domain/GradeCurve`). */
+@Serializable
+data class GradeCurvesDto(
+    val master: List<CurvePointDto> = emptyList(),
+    val red: List<CurvePointDto> = emptyList(),
+    val green: List<CurvePointDto> = emptyList(),
+    val blue: List<CurvePointDto> = emptyList(),
+)
+
+@Serializable
+data class CurvePointDto(val x: Double, val y: Double)
 
 /** Shape mask in fractions of the layer box; see `domain/ClipMask`. [shape] is `rectangle` or `ellipse`. */
 @Serializable

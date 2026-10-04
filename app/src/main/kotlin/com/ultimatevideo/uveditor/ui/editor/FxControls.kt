@@ -110,6 +110,10 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
         ) { Text("Down") }
         TextButton(onClick = { onIntent(EditorIntent.RemoveEffect(effect.id)) }) { Text("Remove") }
     }
+    if (effect.type == EffectType.COLOR_GRADE) {
+        ColorGradeEditor(effect, onIntent)
+        return
+    }
     if (effect.type == EffectType.CHROMA_KEY) KeyColourSwatches(effect, onIntent)
     effect.type.params.forEachIndexed { i, param ->
         // The key colour is picked from the swatches; its three channels have no sliders.

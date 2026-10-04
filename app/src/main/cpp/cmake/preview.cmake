@@ -6,6 +6,7 @@ target_sources(uveditor_engine PRIVATE
     render/gl_context.cpp
     render/gl_pipeline.cpp
     render/preview_engine.cpp
+    render/scope_renderer.cpp
     jni/preview_jni.cpp
 )
 
