@@ -15,8 +15,10 @@ import com.ultimatevideo.uveditor.domain.CubeLut
 import com.ultimatevideo.uveditor.domain.lutKeys
 import com.ultimatevideo.uveditor.domain.toDirectBuffer
 import com.ultimatevideo.uveditor.engine.export.ExportLut
+import com.ultimatevideo.uveditor.engine.export.ExportPictureProvider
 import com.ultimatevideo.uveditor.engine.export.ExportTitle
 import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
+import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.engine.still.StillRasterException
 import com.ultimatevideo.uveditor.engine.still.StillRasterizer
 import com.ultimatevideo.uveditor.engine.title.TitleRasterException
@@ -226,15 +228,18 @@ class ExportViewModel(
             }
             ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
         }
-        // Photos and stickers reach the engine as pictures too, drawn by the same path as in the preview.
-        val stillImages = plan.stills.map { (key, still) ->
-            val bitmap = try {
-                stillRasterizer.rasterize(still, source.projectWidth, source.projectHeight)
+        // Photos, stickers and frames of animations reach the engine as pictures too, drawn by the same path as in
+        // the preview, but one at a time as the render needs them: an animation of hundreds of frames is never held in
+        // memory all at once. A picture that cannot be read at all is found now, not halfway through the export.
+        val stillByKey = plan.stills
+        for (still in stillByKey.values.distinctBy { it.kind to it.id }) {
+            try {
+                stillRasterizer.rasterize(still.copy(frame = 0), source.projectWidth, source.projectHeight)
             } catch (e: StillRasterException) {
                 throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A picture could not be drawn: ${e.message}")
             }
-            ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels, bitmap.displayWidth, bitmap.displayHeight)
         }
+        val pictures = StillPictureProvider(stillByKey, stillRasterizer, source.projectWidth, source.projectHeight)
         val uriByAsset = source.assets.associate { it.id to it.uri }
         val opened = LinkedHashMap<Long, Int>()
         var outputFd = -1
@@ -270,7 +275,8 @@ class ExportViewModel(
             videoClips = plan.videoClips,
             audioSnapshot = plan.audio?.encode(),
             outputFd = outputFd,
-            titles = titleImages + stillImages,
+            titles = titleImages,
+            pictureProvider = pictures.takeIf { stillByKey.isNotEmpty() },
             luts = source.timeline.lutKeys().mapNotNull { key -> lutLoader(key)?.let { ExportLut(key, it.size, it.toDirectBuffer()) } },
         )
         val totalFrames = request.totalFrames
@@ -339,5 +345,34 @@ class ExportViewModel(
     private companion object {
         const val MAX_NAMED_CLIPS = 3
         const val BITS_PER_MEGABIT = 1_000_000
+    }
+}
+
+/**
+ * Makes the pictures of an export on request: [stills] maps the keys the plan put in the clips to what they show, and
+ * [rasterizer] decodes one (animations replay forward, one frame per step). Called from the native render thread.
+ */
+internal class StillPictureProvider(
+    private val stills: Map<Int, StillRef>,
+    private val rasterizer: StillRasterizer,
+    private val canvasWidth: Int,
+    private val canvasHeight: Int,
+) : ExportPictureProvider {
+    @Volatile
+    override var lastError: String? = null
+        private set
+
+    override fun load(key: Int): ExportTitle? {
+        val still = stills[key] ?: run {
+            lastError = "an unknown picture was requested"
+            return null
+        }
+        return try {
+            val bitmap = rasterizer.rasterize(still, canvasWidth, canvasHeight)
+            ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels, bitmap.displayWidth, bitmap.displayHeight)
+        } catch (e: StillRasterException) {
+            lastError = e.message
+            null
+        }
     }
 }
