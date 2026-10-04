@@ -1228,3 +1228,36 @@ and symbols on the canvas only (the stored name is intact). No snapshot version 
 one line; the note keeps 200 and several lines. **Exports:** the EDL has no marker events; FCPXML markers use the name,
 then the note, then "Marker" / "Beat". **Measured:** the add-marker step in a JVM test is about 0.2 ms median (see the PR).
 
+
+## Dark only with optional pure black; one palette for Compose and the native canvases
+**Chosen:** the light and dynamic-colour schemes are gone. `Palette.kt` holds every colour as plain ARGB ints (`Dark`, `Amoled`); the
+Material scheme is built from it and the same tokens go to the native timeline (`Palette.nativeColours()`, 22 values, JNI `nativeSetPalette`).
+The pure-black switch lives in About, is stored in local SharedPreferences and applies live through Compose state. **Why:** the light theme was
+incoherent next to a video preview, and two palettes (Kotlin and C++) would drift. **Alternative:** keep dynamic colour in dark only (colours
+vary per phone, contrast cannot be tested); a DataStore (a new dependency for one boolean). **Checked:** `PaletteTest`, WCAG 4.5:1 text and 3:1
+graphics over every pair in both variants (I tuned the block colours: first audio, photo, sticker and multicam blocks were 2.9-3.4:1 under white text).
+**Not done:** the splash background is fixed at the dark grey (it cannot follow a runtime choice).
+
+## Timeline text from a Kotlin-made bitmap atlas
+**Chosen:** the canvas draws text from bitmaps rasterised by Kotlin with the system typeface and uploaded to a 2048x1024 RGBA atlas
+(shelf packer, reset-when-full with a generation counter, 512 KB of uploads per frame, text in 2 extra draw calls per frame). Whole labels are one
+bitmap (so emoji sequences and shaping work); ruler, lane names and timecode are composed from single-glyph bitmaps. **Why:** the 3x5 font was
+capital ASCII only and blocky at 2800 px; no third-party font or library is allowed. **Alternatives:** per-codepoint glyph atlas (breaks emoji
+sequences and needs native layout), distance-field text (needs a font file or a generator), a native callback into Kotlin from the render thread
+(blocks the frame). The queue file asked for an LRU label cache; reset-when-full is simpler and safe because Kotlin re-sends what the snapshot
+still needs, and a project with more than 700 distinct labels keeps the old font for the rest. Snapshot version 8 carries UTF-8 labels and a
+clip kind. **Tests:** host tests for hash parity, UTF-8 validation, packer, table reset, ruler plan and labels; JVM tests for the pump (once only,
+re-send after reset, latest request wins, cap) and `ClipLabels`.
+
+## Rounded blocks by cutting corners, not by a new shader
+**Chosen:** content is drawn on plain rectangles and each corner is covered by a 3-triangle fan in the colour behind the block (4 dp). **Why:** a
+signed-distance shader would double the vertex size of every quad (the waveform is the largest user) and a second batch would add a draw call
+per clip; this adds 12 triangles per block and no draw calls. **Cost:** no anti-aliasing on the arc (error under 0.4 px at 2.6x). Corner pieces
+that straddle the clip rectangle are skipped. **Alternatives:** SDF shader, MSAA.
+
+## Timeline performance protocol: what was and was not measured
+The renderer prints its own statistics under `setprop debug.uveditor.timeline_stats 1` (CPU ms to build and submit a frame without the swap,
+p50/p95/p99/max, draw calls and vertices per frame); `scripts/perf-timeline.sh` drives a 110-clip project. A baseline APK (master plus only the
+statistics) was built, but **the Pixel 8 stayed locked behind a secure lock screen for the whole session, so neither baseline nor "after"
+numbers exist**. The 5 % jank / p99 limit is unverified; the PR stays open for that. Structural expectation: the per-frame work grows by two text
+draws, 12 triangles per block and ruler labels from the atlas, and shrinks by the old per-pixel font rectangles (each ruler or label character was up to 15 quads).

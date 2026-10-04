@@ -3,6 +3,7 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include <android/log.h>
+#include <sys/system_properties.h>
 
 #include <algorithm>
 #include <chrono>
@@ -20,8 +21,12 @@
 #include "timeline_view/glyphs.h"
 #include "timeline_view/lane_header.h"
 #include "timeline_view/marker_style.h"
+#include "timeline_view/ruler_ticks.h"
+#include "timeline_view/text_atlas.h"
+#include "timeline_view/timeline_theme.h"
 
 #define LOG_TAG "uv_timeline"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
@@ -29,23 +34,12 @@ namespace uv::timeline {
 
 namespace {
 
-struct Color {
-    float r, g, b, a;
-};
+using Color = Rgba;
 
-constexpr Color kBackground{0.075f, 0.082f, 0.10f, 1.0f};
-constexpr Color kLaneA{0.105f, 0.115f, 0.14f, 1.0f};
-constexpr Color kLaneB{0.125f, 0.135f, 0.16f, 1.0f};
-constexpr Color kRuler{0.14f, 0.15f, 0.18f, 1.0f};
-constexpr Color kTick{0.55f, 0.58f, 0.65f, 1.0f};
-constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
-constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
-// A selected clip that is not the primary one when several are selected: same family, softer.
-constexpr Color kSelectionSecondary{0.55f, 0.78f, 1.0f, 1.0f};
-constexpr Color kMarqueeFill{0.55f, 0.78f, 1.0f, 0.16f};
-constexpr Color kMarqueeEdge{0.55f, 0.78f, 1.0f, 0.95f};
+// Colours that do not come from the app palette: they carry a meaning of their own on every theme (drop targets,
+// transitions, a missing file), so they stay fixed. Everything else is in TimelineTheme (timeline_theme.h).
+constexpr Color kMarqueeAlpha{0.0f, 0.0f, 0.0f, 0.16f};  // fill alpha of the marquee over the theme's primary colour
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
-constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kClipLabel{1.0f, 1.0f, 1.0f, 0.92f};
 constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
@@ -61,30 +55,54 @@ constexpr Color kDropOverwriteEdge{1.0f, 0.42f, 0.2f, 0.95f};
 constexpr Color kDropNewLane{0.3f, 0.9f, 0.5f, 0.3f};
 constexpr Color kDropNewLaneEdge{0.3f, 0.9f, 0.5f, 0.95f};
 constexpr Color kDropCancel{0.9f, 0.2f, 0.2f, 0.24f};
-constexpr Color kMarker{1.0f, 0.45f, 0.8f, 1.0f};
-constexpr Color kMarkerLine{1.0f, 0.45f, 0.8f, 0.35f};
-constexpr Color kHeaderTab{0.06f, 0.065f, 0.085f, 0.84f};
-constexpr Color kHeaderTabBase{0.10f, 0.095f, 0.05f, 0.88f};
+constexpr Color kMarkerLineAlpha{0.0f, 0.0f, 0.0f, 0.35f};
 constexpr Color kHeaderDragging{0.36f, 0.27f, 0.04f, 0.96f};
-constexpr Color kHeaderText{0.86f, 0.89f, 1.0f, 1.0f};
 constexpr Color kHeaderMute{1.0f, 0.36f, 0.36f, 1.0f};
 constexpr Color kHeaderSolo{1.0f, 0.84f, 0.25f, 1.0f};
 constexpr Color kLaneDragBar{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kLaneDragGlow{1.0f, 0.78f, 0.1f, 0.25f};
 constexpr Color kBeat{0.4f, 0.95f, 0.8f, 0.9f};
 
+constexpr int kLabelAtlasW = 2048;                          // text atlas: 2048 x 1024 RGBA (8 MB), see text_atlas.h
+constexpr int kLabelAtlasH = 1024;
+constexpr size_t kLabelUploadBytesPerFrame = 512u * 1024u;  // bitmaps copied to the GPU per frame, at least one
+constexpr size_t kLabelPendingBytes = 16u * 1024u * 1024u;  // queued bitmaps; senders wait past this
+constexpr int kLabelMaxDim = 1700;                          // widest/tallest bitmap accepted
 constexpr size_t kAtlasBudgetBytes = 8u * 1024u * 1024u;  // hard ceiling for thumbnail texture memory
 constexpr size_t kUploadsPerFrame = 6;                     // keeps a frame cheap while tiles stream in
 constexpr float kWaveStripFraction = 0.38f;                // share of the clip body used by the waveform over thumbnails
 
-Color clipColor(TrackType t) {
-    switch (t) {
-        case TrackType::Video: return {0.18f, 0.42f, 0.78f, 1.0f};
-        case TrackType::Audio: return {0.16f, 0.55f, 0.38f, 1.0f};
-        case TrackType::Title: return {0.55f, 0.32f, 0.72f, 1.0f};
+// The block colour: by what the clip is (photo, sticker, multicam) when the snapshot says, else by lane type.
+Color clipColor(const TimelineTheme& th, TrackType t, ClipKind kind = ClipKind::Default) {
+    switch (kind) {
+        case ClipKind::Image: return th.clipImage;
+        case ClipKind::Sticker: return th.clipSticker;
+        case ClipKind::Multicam: return th.clipMulticam;
+        case ClipKind::Default: break;
     }
-    return {0.4f, 0.4f, 0.4f, 1.0f};
+    switch (t) {
+        case TrackType::Video: return th.clipVideo;
+        case TrackType::Audio: return th.clipAudio;
+        case TrackType::Title: return th.clipTitle;
+    }
+    return th.clipVideo;
 }
+
+// Text size classes (text_atlas.h): the regular size for text in the body of a block, a small one for names in the header
+// strip and on the ruler, and a bold one for lane names and timecodes. Kotlin makes the bitmaps (TimelineText.kt).
+constexpr int kTextClassLabel = 0;
+constexpr int kTextClassSmall = 1;
+constexpr int kTextClassBold = 2;
+
+// The size class of a clip's label: a title's text and a sticker's name sit in the body of the block, the name of a media
+// clip in its header strip. Kotlin applies the same rule when it makes the bitmaps (labelNeeds in TimelineText.kt).
+int labelClassOf(const TimelineSnapshot& snap, const ClipSnapshot& c) {
+    const bool body = snap.tracks[static_cast<size_t>(c.trackIndex)].type == TrackType::Title || c.kind == ClipKind::Sticker;
+    return body ? kTextClassLabel : kTextClassSmall;
+}
+
+Color withAlpha(Color c, float a) { return {c.r, c.g, c.b, a}; }
+Color mix(Color a, Color b, float t) { return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t}; }
 
 Color scaled(Color c, float k) { return {c.r * k, c.g * k, c.b * k, c.a}; }
 
@@ -126,6 +144,36 @@ out vec4 outColor;
 void main() { outColor = vec4(texture(uTex, vUV).rgb * 0.88, 1.0); }
 )";
 
+// Text: one quad per bitmap from the label atlas. The bitmap is white-on-transparent (premultiplied) and is tinted by the
+// vertex colour; a coloured glyph (emoji) is flagged by a negative alpha and drawn as it is. Premultiplied output.
+constexpr const char* kTextVertexShader = R"(#version 300 es
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec2 aUV;
+layout(location = 2) in vec4 aColor;
+uniform vec2 uSize;
+out vec2 vUV;
+out vec4 vColor;
+void main() {
+    gl_Position = vec4(aPos.x / uSize.x * 2.0 - 1.0, 1.0 - aPos.y / uSize.y * 2.0, 0.0, 1.0);
+    vUV = aUV;
+    vColor = aColor;
+}
+)";
+
+constexpr const char* kTextFragmentShader = R"(#version 300 es
+precision mediump float;
+uniform sampler2D uTex;
+in vec2 vUV;
+in vec4 vColor;
+out vec4 outColor;
+void main() {
+    vec4 t = texture(uTex, vUV);
+    float coloured = step(vColor.a, 0.0);
+    vec4 mono = vec4(vColor.rgb * t.a, t.a);
+    outColor = mix(mono, t, coloured) * abs(vColor.a);
+}
+)";
+
 GLuint compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, nullptr);
@@ -144,10 +192,21 @@ GLuint compile(GLenum type, const char* src) {
 
 }  // namespace
 
+// A text bitmap waiting for the render thread to place it in the atlas and upload it.
+struct PendingLabel {
+    uint64_t hash;
+    int w, h;
+    bool colour;
+    std::vector<uint8_t> pixels;
+};
+
 // ---------------------------------------------------------------------------------------------
 // Shared state (guarded by TimelineRenderer::mutex_)
 // ---------------------------------------------------------------------------------------------
 struct TimelineRenderer::State {
+    TimelineTheme theme = TimelineTheme::dark();
+    std::vector<PendingLabel> pendingLabels;  // oldest first
+    size_t pendingLabelBytes = 0;
     std::shared_ptr<const TimelineSnapshot> snapshot = std::make_shared<TimelineSnapshot>();
     Viewport vp;
     Layout layout = Layout::forDensity(1.0f);
@@ -227,12 +286,15 @@ public:
     }
 
     // ---- frame drawing ----
-    void beginFrame(int width, int height) {
+    void beginFrame(int width, int height, Color background) {
         width_ = static_cast<float>(width);
         height_ = static_cast<float>(height);
         verts_.clear();
+        gverts_.clear();
+        draws_ = 0;
+        vertCount_ = 0;
         glViewport(0, 0, width, height);
-        glClearColor(kBackground.r, kBackground.g, kBackground.b, 1.0f);
+        glClearColor(background.r, background.g, background.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         setClip(0, 0, width_, height_);
     }
@@ -283,6 +345,145 @@ public:
         }
     }
 
+    // ---- text (see text_atlas.h) ----
+    // Places a bitmap in the atlas and uploads it. A full atlas is emptied first (the generation moves on and Kotlin
+    // sends again what it still needs); a bitmap that cannot fit even then is dropped.
+    void addLabel(const PendingLabel& p) {
+        if (labelTex_ == 0) return;
+        int x = 0, y = 0;
+        LabelTable::Result r = labels_.place(p.hash, p.w, p.h, p.colour, &x, &y);
+        if (r == LabelTable::Result::Full) {
+            labels_.reset();
+            r = labels_.place(p.hash, p.w, p.h, p.colour, &x, &y);
+        }
+        if (r != LabelTable::Result::Placed) return;
+        glBindTexture(GL_TEXTURE_2D, labelTex_);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, p.w, p.h, GL_RGBA, GL_UNSIGNED_BYTE, p.pixels.data());
+    }
+
+    uint32_t labelGeneration() const { return labels_.generation(); }
+
+    const LabelEntry* label(uint64_t hash) const { return textProgram_ != 0 ? labels_.find(hash) : nullptr; }
+
+    // Draws a bitmap with its top-left corner at (x, y), snapped to whole pixels so it stays sharp, cut to the clip
+    // rectangle. Returns false when the bitmap is not in the atlas (yet).
+    bool text(uint64_t hash, float x, float y, Color c) {
+        const LabelEntry* e = label(hash);
+        if (e == nullptr) return false;
+        textQuad(*e, std::round(x), std::round(y), c);
+        return true;
+    }
+
+    // The width of a run of single-glyph bitmaps (ruler digits, lane names); -1 when one of them is missing.
+    float runWidth(const char* s, size_t n, int sizeClass) const {
+        float w = 0.0f;
+        for (size_t i = 0; i < n; ++i) {
+            const LabelEntry* e = label(labelHash(s + i, 1, sizeClass));
+            if (e == nullptr) return -1.0f;
+            w += static_cast<float>(e->w);
+        }
+        return w;
+    }
+
+    // Sets a run of single-glyph bitmaps; false (and nothing drawn) when one is missing.
+    bool run(const char* s, size_t n, int sizeClass, float x, float y, Color c) {
+        if (runWidth(s, n, sizeClass) < 0.0f) return false;
+        x = std::round(x);
+        y = std::round(y);
+        for (size_t i = 0; i < n; ++i) {
+            const LabelEntry* e = label(labelHash(s + i, 1, sizeClass));
+            textQuad(*e, x, y, c);
+            x += static_cast<float>(e->w);
+        }
+        return true;
+    }
+
+    // Draws the queued text over everything queued so far.
+    void flushText() {
+        if (gverts_.empty()) return;
+        flush();
+        if (textProgram_ != 0 && labelTex_ != 0) {
+            glUseProgram(textProgram_);
+            glUniform2f(textSizeLoc_, width_, height_);
+            glUniform1i(textSamplerLoc_, 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, labelTex_);
+            glBindVertexArray(textVao_);
+            glBindBuffer(GL_ARRAY_BUFFER, textVbo_);
+            glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(gverts_.size() * sizeof(float)), gverts_.data(), GL_STREAM_DRAW);
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);  // the text shader outputs premultiplied colour
+            ++draws_;
+            vertCount_ += static_cast<uint32_t>(gverts_.size() / 8);
+            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(gverts_.size() / 8));
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
+        gverts_.clear();
+    }
+
+    // A filled triangle in the coloured batch, kept only when it lies wholly inside the clip rectangle (used for the
+    // tiny corner pieces of rounded blocks, where cutting a triangle would cost more than the corner is worth).
+    void triInside(float x0, float y0, float x1, float y1, float x2, float y2, Color c) {
+        const float loX = std::min({x0, x1, x2}), hiX = std::max({x0, x1, x2});
+        const float loY = std::min({y0, y1, y2}), hiY = std::max({y0, y1, y2});
+        if (loX < clip_[0] || loY < clip_[1] || hiX > clip_[2] || hiY > clip_[3]) return;
+        const float v[3][2] = {{x0, y0}, {x1, y1}, {x2, y2}};
+        for (const auto& p : v) verts_.insert(verts_.end(), {p[0], p[1], c.r, c.g, c.b, c.a});
+    }
+
+    // The area between a block's square corner and its rounded corner, painted in the colour behind the block. Corner
+    // `quadrant`: 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left; (cornerX, cornerY) is the block's corner.
+    void cornerCut(float cornerX, float cornerY, float r, int quadrant, Color behind) {
+        const float sx = (quadrant == 0 || quadrant == 3) ? 1.0f : -1.0f;  // direction into the block
+        const float sy = (quadrant == 0 || quadrant == 1) ? 1.0f : -1.0f;
+        const float cx = cornerX + sx * r, cy = cornerY + sy * r;
+        float prevX = cornerX, prevY = cy;  // the arc starts on the vertical edge
+        for (int i = 1; i <= kCornerSegments; ++i) {
+            const float a = 1.5707963f * static_cast<float>(i) / static_cast<float>(kCornerSegments);
+            const float px = cx - sx * r * std::cos(a), py = cy - sy * r * std::sin(a);
+            triInside(cornerX, cornerY, prevX, prevY, px, py, behind);
+            prevX = px;
+            prevY = py;
+        }
+    }
+
+    // A filled rectangle with rounded corners of radius r: the body as three rectangles and a fan per corner.
+    void roundedRect(float x0, float y0, float x1, float y1, float r, Color c) {
+        r = std::max(0.0f, std::min({r, (x1 - x0) * 0.5f, (y1 - y0) * 0.5f}));
+        rect(x0, y0 + r, x1, y1 - r, c);
+        rect(x0 + r, y0, x1 - r, y0 + r, c);
+        rect(x0 + r, y1 - r, x1 - r, y1, c);
+        const float cxs[4] = {x0 + r, x1 - r, x1 - r, x0 + r};
+        const float cys[4] = {y0 + r, y0 + r, y1 - r, y1 - r};
+        for (int q = 0; q < 4; ++q) {
+            const float sx = (q == 0 || q == 3) ? -1.0f : 1.0f;  // direction away from the block's centre
+            const float sy = (q == 0 || q == 1) ? -1.0f : 1.0f;
+            float prevX = cxs[q] + sx * r, prevY = cys[q];
+            for (int i = 1; i <= kCornerSegments; ++i) {
+                const float a = 1.5707963f * static_cast<float>(i) / static_cast<float>(kCornerSegments);
+                const float px = cxs[q] + sx * r * std::cos(a), py = cys[q] + sy * r * std::sin(a);
+                triInside(cxs[q], cys[q], prevX, prevY, px, py, c);
+                prevX = px;
+                prevY = py;
+            }
+        }
+    }
+
+    // A rectangle that shades from `top` to `bottom`.
+    void rectGradient(float x0, float y0, float x1, float y1, Color top, Color bottom) {
+        const float h = y1 - y0;
+        if (h <= 0.0f) return;
+        const float cy0 = std::max(y0, clip_[1]), cy1 = std::min(y1, clip_[3]);
+        const float cx0 = std::max(x0, clip_[0]), cx1 = std::min(x1, clip_[2]);
+        if (cx1 <= cx0 || cy1 <= cy0) return;
+        const Color a = mix(top, bottom, (cy0 - y0) / h), b = mix(top, bottom, (cy1 - y0) / h);
+        const float q[6][3] = {{cx0, cy0, 0}, {cx1, cy0, 0}, {cx0, cy1, 1}, {cx1, cy0, 0}, {cx1, cy1, 1}, {cx0, cy1, 1}};
+        for (const auto& p : q) {
+            const Color& c = p[2] == 0 ? a : b;
+            verts_.insert(verts_.end(), {p[0], p[1], c.r, c.g, c.b, c.a});
+        }
+        if (verts_.size() > 6 * 20000) flush();
+    }
+
     thumb::ThumbAtlas& atlas() { return atlas_; }
 
     // Queues a textured quad from the thumbnail atlas, clipped like rect().
@@ -314,13 +515,23 @@ public:
             glBindBuffer(GL_ARRAY_BUFFER, texVbo_);
             glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(tverts_.size() * sizeof(float)), tverts_.data(),
                          GL_STREAM_DRAW);
+            ++draws_;
+            vertCount_ += static_cast<uint32_t>(tverts_.size() / 4);
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(tverts_.size() / 4));
         }
         tverts_.clear();
     }
 
+    // Draw calls and vertices submitted since beginFrame(); read by the optional frame statistics.
+    void frameCounters(uint32_t* draws, uint32_t* vertices) const {
+        *draws = draws_;
+        *vertices = vertCount_;
+    }
+
     void flush() {
         if (verts_.empty()) return;
+        ++draws_;
+        vertCount_ += static_cast<uint32_t>(verts_.size() / 6);
         glUseProgram(program_);
         glUniform2f(sizeLoc_, width_, height_);
         glBindVertexArray(vao_);
@@ -332,6 +543,24 @@ public:
     }
 
 private:
+    static constexpr int kCornerSegments = 3;
+
+    // Queues one bitmap quad, cut to the clip rectangle. Coloured glyphs carry their flag as a negative alpha.
+    void textQuad(const LabelEntry& e, float x, float y, Color c) {
+        const float x1 = x + static_cast<float>(e.w), y1 = y + static_cast<float>(e.h);
+        const float cx0 = std::max(x, clip_[0]), cy0 = std::max(y, clip_[1]);
+        const float cx1 = std::min(x1, clip_[2]), cy1 = std::min(y1, clip_[3]);
+        if (cx1 <= cx0 || cy1 <= cy0) return;
+        const float du = e.u1 - e.u0, dv = e.v1 - e.v0;
+        const float w = static_cast<float>(e.w), h = static_cast<float>(e.h);
+        const float u0 = e.u0 + (cx0 - x) / w * du, u1 = e.u0 + (cx1 - x) / w * du;
+        const float v0 = e.v0 + (cy0 - y) / h * dv, v1 = e.v0 + (cy1 - y) / h * dv;
+        const float a = e.colour ? -c.a : c.a;
+        const float q[6][4] = {{cx0, cy0, u0, v0}, {cx1, cy0, u1, v0}, {cx0, cy1, u0, v1},
+                               {cx1, cy0, u1, v0}, {cx1, cy1, u1, v1}, {cx0, cy1, u0, v1}};
+        for (const auto& p : q) gverts_.insert(gverts_.end(), {p[0], p[1], p[2], p[3], c.r, c.g, c.b, a});
+    }
+
     bool initDisplay() {
         display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if (display_ == EGL_NO_DISPLAY || !eglInitialize(display_, nullptr, nullptr)) {
@@ -387,7 +616,56 @@ private:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         const bool coloured = glGetError() == GL_NO_ERROR;
         initThumbnailResources();  // optional: a failure only disables thumbnails
+        initTextResources();       // optional too: without it labels fall back to the built-in font
         return coloured;
+    }
+
+    void initTextResources() {
+        const GLuint vs = compile(GL_VERTEX_SHADER, kTextVertexShader);
+        const GLuint fs = compile(GL_FRAGMENT_SHADER, kTextFragmentShader);
+        if (vs == 0 || fs == 0) return;
+        textProgram_ = glCreateProgram();
+        glAttachShader(textProgram_, vs);
+        glAttachShader(textProgram_, fs);
+        glLinkProgram(textProgram_);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        GLint linked = 0;
+        glGetProgramiv(textProgram_, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            LOGE("text program link failed; text uses the built-in font");
+            glDeleteProgram(textProgram_);
+            textProgram_ = 0;
+            return;
+        }
+        textSizeLoc_ = glGetUniformLocation(textProgram_, "uSize");
+        textSamplerLoc_ = glGetUniformLocation(textProgram_, "uTex");
+        glGenVertexArrays(1, &textVao_);
+        glGenBuffers(1, &textVbo_);
+        glBindVertexArray(textVao_);
+        glBindBuffer(GL_ARRAY_BUFFER, textVbo_);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<const void*>(2 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<const void*>(4 * sizeof(float)));
+        glGenTextures(1, &labelTex_);
+        glBindTexture(GL_TEXTURE_2D, labelTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kLabelAtlasW, kLabelAtlasH, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        if (glGetError() != GL_NO_ERROR) {
+            LOGE("text atlas texture failed; text uses the built-in font");
+            glDeleteTextures(1, &labelTex_);
+            labelTex_ = 0;
+            glDeleteProgram(textProgram_);
+            textProgram_ = 0;
+            return;
+        }
+        labels_.reset();  // a fresh context starts a new generation: whatever Kotlin sent before is gone
     }
 
     void initThumbnailResources() {
@@ -423,6 +701,11 @@ private:
     }
 
     void releaseResources() {
+        if (labelTex_ != 0) glDeleteTextures(1, &labelTex_);
+        if (textVbo_ != 0) glDeleteBuffers(1, &textVbo_);
+        if (textVao_ != 0) glDeleteVertexArrays(1, &textVao_);
+        if (textProgram_ != 0) glDeleteProgram(textProgram_);
+        labelTex_ = textVbo_ = textVao_ = textProgram_ = 0;
         atlas_.release();
         if (texVbo_ != 0) glDeleteBuffers(1, &texVbo_);
         if (texVao_ != 0) glDeleteVertexArrays(1, &texVao_);
@@ -444,7 +727,12 @@ private:
     GLuint texProgram_ = 0, texVao_ = 0, texVbo_ = 0;
     GLint texSizeLoc_ = -1, texSamplerLoc_ = -1;
     thumb::ThumbAtlas atlas_;
+    GLuint textProgram_ = 0, textVao_ = 0, textVbo_ = 0, labelTex_ = 0;
+    GLint textSizeLoc_ = -1, textSamplerLoc_ = -1;
+    LabelTable labels_{kLabelAtlasW, kLabelAtlasH};
+    std::vector<float> gverts_;  // text quads: x, y, u, v, r, g, b, a
     float width_ = 0, height_ = 0;
+    uint32_t draws_ = 0, vertCount_ = 0;
     float clip_[4] = {0, 0, 0, 0};
     std::vector<float> verts_;
     std::vector<float> tverts_;
@@ -461,6 +749,12 @@ struct RenderThreadCtx {
     AChoreographer* choreographer = nullptr;
     bool framePosted = false;
     int64_t lastFrameNanos = 0;
+    // Optional frame statistics (system property debug.uveditor.timeline_stats=1): CPU time to build and submit a
+    // frame, up to but not including the buffer swap, and the draw calls and vertices per frame.
+    std::vector<PendingLabel> uploads;  // text bitmaps taken from the shared queue for this frame (kept to reuse its storage)
+    bool statsOn = false;
+    std::vector<float> statMs;
+    double statDraws = 0.0, statVerts = 0.0;
 };
 
 thread_local RenderThreadCtx* t_ctx = nullptr;
@@ -609,6 +903,31 @@ void TimelineRenderer::setLaneScale(float scale) {
     wake();
 }
 
+void TimelineRenderer::setPalette(const uint32_t* argb, size_t count) {
+    if (argb == nullptr || count != kNativeColourCount) return;  // a mismatch keeps the colours it had
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->theme.assign(argb);
+        state_->dirty = true;
+    }
+    wake();
+}
+
+void TimelineRenderer::putLabel(uint64_t hash, int w, int h, bool colour, const uint8_t* rgba) {
+    if (rgba == nullptr || w <= 0 || h <= 0 || w > kLabelMaxDim || h > kLabelMaxDim) return;
+    PendingLabel p{hash, w, h, colour, std::vector<uint8_t>(rgba, rgba + static_cast<size_t>(w) * static_cast<size_t>(h) * 4)};
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        // Backpressure on the sender (the text thread), never on the render thread.
+        cv_.wait_for(lock, std::chrono::milliseconds(200),
+                     [this] { return state_->pendingLabelBytes < kLabelPendingBytes || quit_.load(); });
+        state_->pendingLabelBytes += p.pixels.size();
+        state_->pendingLabels.push_back(std::move(p));
+        state_->dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::setPlayhead(int64_t frame) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -724,6 +1043,10 @@ void TimelineRenderer::threadMain() {
     ctx.choreographer = AChoreographer_getInstance();
     t_ctx = &ctx;
     {
+        char prop[PROP_VALUE_MAX] = {0};
+        ctx.statsOn = __system_property_get("debug.uveditor.timeline_stats", prop) > 0 && prop[0] == '1';
+    }
+    {
         std::lock_guard<std::mutex> lock(mutex_);
         state_->looperReady = true;
     }
@@ -778,11 +1101,13 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     RenderThreadCtx& ctx = *t_ctx;
     ctx.framePosted = false;
     if (!ctx.gl->hasSurface()) return;
+    const auto frameStart = std::chrono::steady_clock::now();
 
     // Snapshot of shared state for this frame; fling advances the real viewport.
     std::shared_ptr<const TimelineSnapshot> snap;
     Viewport vp;
     Layout layout;
+    TimelineTheme th;
     int width, height;
     int64_t playhead;
     DropHint dropHint;
@@ -790,6 +1115,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     bool marqueeActive = false;
     float marquee[4] = {0, 0, 0, 0};
     bool keepAnimating = false;
+    bool moreLabels = false;
+    bool freedLabels = false;
     std::weak_ptr<thumb::ThumbnailService> thumbWeak;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -814,6 +1141,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         snap = s.snapshot;
         vp = s.vp;
         layout = s.layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(s.height));
+        th = s.theme;
         dropHint = s.dropHint;
         laneDragFrom = s.laneDragFrom;
         laneDragTo = s.laneDragTo;
@@ -826,10 +1154,33 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         height = s.height;
         playhead = s.playhead;
         thumbWeak = s.thumbs;
+        // Text bitmaps from Kotlin: take what the per-frame budget allows (always at least one) to place and upload.
+        if (!s.pendingLabels.empty()) {
+            size_t budget = kLabelUploadBytesPerFrame, take = 0, taken = 0;
+            while (take < s.pendingLabels.size()) {
+                const size_t bytes = s.pendingLabels[take].pixels.size();
+                if (take > 0 && bytes > budget) break;
+                budget -= std::min(budget, bytes);
+                taken += bytes;
+                ++take;
+            }
+            ctx.uploads.assign(std::make_move_iterator(s.pendingLabels.begin()),
+                               std::make_move_iterator(s.pendingLabels.begin() + static_cast<std::ptrdiff_t>(take)));
+            s.pendingLabels.erase(s.pendingLabels.begin(), s.pendingLabels.begin() + static_cast<std::ptrdiff_t>(take));
+            s.pendingLabelBytes -= std::min(s.pendingLabelBytes, taken);
+            moreLabels = !s.pendingLabels.empty();
+            freedLabels = true;
+        }
     }
+    if (freedLabels) cv_.notify_all();  // a sender may be waiting for room
+    Gl& g = *ctx.gl;
+    if (!ctx.uploads.empty()) {
+        for (const PendingLabel& p : ctx.uploads) g.addLabel(p);
+        ctx.uploads.clear();
+    }
+    labelGeneration_.store(g.labelGeneration());
     if (width <= 0 || height <= 0) return;
 
-    Gl& g = *ctx.gl;
     const std::shared_ptr<thumb::ThumbnailService> thumbs = thumbWeak.lock();
     thumb::ThumbAtlas& atlas = g.atlas();
     bool moreTilesReady = false;
@@ -847,8 +1198,34 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     std::map<int64_t, Wanted> wanted;
     std::vector<thumb::CellPlan> cells;
     const float density = layout.rulerHeight / 28.0f;
-    g.beginFrame(width, height);
+    const float hair = std::max(1.0f, std::floor(density * 0.5f));  // a one-pixel line, a little thicker on very dense screens
+    const Color white{1.0f, 1.0f, 1.0f, 1.0f};
+    g.beginFrame(width, height, th.background);
     const float W = static_cast<float>(width), H = static_cast<float>(height);
+
+    // A label as one bitmap at (x, band top), centred in the band; plain ASCII falls back to the built-in font until its
+    // bitmap has arrived, any other text waits for it.
+    auto labelText = [&](const std::string& text, int sizeClass, float x, float bandTop, float bandH, Color colour) {
+        const uint64_t hash = labelHash(text, sizeClass);
+        if (const LabelEntry* e = g.label(hash)) {
+            g.text(hash, x, bandTop + (bandH - static_cast<float>(e->h)) * 0.5f, colour);
+        } else if (isAscii(text)) {
+            const float gs = std::max(1.0f, std::floor(bandH * 0.5f / 5.0f));
+            g.drawNumber(text.c_str(), x, bandTop + (bandH - 5.0f * gs) * 0.5f, gs, colour);
+        }
+    };
+    // A short run of single glyphs (ruler and lane text); returns its width in pixels.
+    auto glyphWidth = [&](const char* s, size_t n, int sizeClass, float fallbackScale) {
+        const float w = g.runWidth(s, n, sizeClass);
+        return w >= 0.0f ? w : static_cast<float>(n) * 4.0f * fallbackScale;
+    };
+    auto glyphRun = [&](const char* s, size_t n, int sizeClass, float x, float bandTop, float bandH, Color colour) {
+        const LabelEntry* first = n > 0 ? g.label(labelHash(s, 1, sizeClass)) : nullptr;
+        if (first != nullptr && g.run(s, n, sizeClass, x, bandTop + (bandH - static_cast<float>(first->h)) * 0.5f, colour)) return;
+        const std::string plain(s, n);
+        const float gs = std::max(1.0f, std::floor(bandH * 0.5f / 5.0f));
+        g.drawNumber(plain.c_str(), x, bandTop + (bandH - 5.0f * gs) * 0.5f, gs, colour);
+    };
 
     // Lanes and clips live below the ruler.
     g.setClip(0, layout.rulerHeight, W, H);
@@ -856,10 +1233,15 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     for (int t = 0; t < trackCount; ++t) {
         const float top = layout.trackTop(t) - static_cast<float>(vp.scrollY);
         if (top + layout.trackHeight < layout.rulerHeight || top > H) continue;
-        g.rect(0, top, W, top + layout.trackHeight, (t % 2 == 0) ? kLaneA : kLaneB);
+        g.rect(0, top, W, top + layout.trackHeight, (t % 2 == 0) ? th.laneA : th.laneB);
+        // Hairlines on both edges so a lane reads as a band even where it is nearly the background colour.
+        g.rect(0, top, W, top + hair, th.ruler);
+        g.rect(0, top + layout.trackHeight - hair, W, top + layout.trackHeight, th.ruler);
     }
 
     const float colW = std::max(1.0f, 2.0f * density);
+    const float cornerR = 4.0f * density;
+    const float headerStrip = 18.0f * density;
     for (const ClipSnapshot& c : snap->clips) {
         const float top = layout.trackTop(c.trackIndex) - static_cast<float>(vp.scrollY);
         const float bottom = top + layout.trackHeight;
@@ -869,21 +1251,46 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         if (x1 < 0 || x0 > W) continue;
 
         const TrackType type = snap->tracks[static_cast<size_t>(c.trackIndex)].type;
-        const Color base = clipColor(type);
+        const Color base = clipColor(th, type, c.kind);
+        const Color laneBg = (c.trackIndex % 2 == 0) ? th.laneA : th.laneB;
         const float fx0 = static_cast<float>(x0) + 1.0f, fx1 = static_cast<float>(x1) - 1.0f;
         g.setClip(0, layout.rulerHeight, W, H);
-        const float header = 14.0f * density;
-        g.rect(fx0, top, fx1, bottom, base);
-        g.rect(fx0, top, fx1, top + header, scaled(base, 0.7f));
+
+        // The block: a rounded outline when selected (the primary clip in the accent, the others softer), then the body
+        // inside it. Content is drawn on a plain rectangle and the corners are cut back at the end, so pictures and
+        // waveforms need no rounding of their own.
+        float ix0 = fx0, ix1 = fx1, itop = top, ibottom = bottom;
+        float radius = std::max(0.0f, std::min({cornerR, (fx1 - fx0) * 0.5f, (bottom - top) * 0.5f}));
+        Color cutColour = laneBg;
+        if (c.selected) {
+            const Color outline = c.primary ? th.selection : th.primary;
+            const float b = std::max(1.0f, (c.primary ? 2.0f : 1.5f) * density);
+            if (fx1 - fx0 > 2.0f * b + 2.0f) {
+                g.roundedRect(fx0, top, fx1, bottom, radius, outline);
+                ix0 += b;
+                ix1 -= b;
+                itop += b;
+                ibottom -= b;
+                radius = std::max(0.0f, radius - b);
+                cutColour = outline;
+            } else {
+                g.rect(fx0, top, fx1, bottom, outline);
+                radius = 0.0f;
+            }
+        }
+        const float header = std::min(headerStrip, 0.42f * (ibottom - itop));
+        g.rect(ix0, itop, ix1, ibottom, base);
+        g.rect(ix0, itop, ix1, itop + header, scaled(base, 0.72f));
+        g.rect(ix0, itop, ix1, itop + std::max(1.0f, 0.75f * density), Color{1.0f, 1.0f, 1.0f, 0.16f});
 
         // Thumbnail filmstrip across the body. Cells are drawn from whatever tile is already in the
         // atlas (the exact one, else a finer/coarser one); missing exact tiles are requested.
-        const float bodyTop = top + header;
+        const float bodyTop = itop + header;
         const RetimeSnapshot* retime = snap->retimeOf(c.clipKey);
         bool hasThumbs = false;
         if (type == TrackType::Video && c.assetKey >= 0 && thumbs && atlas.ready() && thumbs->isActive(c.assetKey)) {
             hasThumbs = true;
-            const float bodyH = bottom - bodyTop;
+            const float bodyH = ibottom - bodyTop;
             const thumb::ClipCellParams params{c.assetKey, x0, x1, 0.0, static_cast<double>(W),
                                                static_cast<double>(bodyH) * thumb::kTileAspect, vp.pxPerFrame,
                                                snap->fpsNum, snap->fpsDen, c.sourceInFrame, c.sourceFpsNum, c.sourceFpsDen,
@@ -891,14 +1298,14 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                                                retime != nullptr && retime->reverse(), retime != nullptr && retime->freeze()};
             thumb::planClipCells(params, &cells);
             Wanted& want = wanted[c.assetKey];
-            g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, bodyTop), std::min(W, fx1), bottom);
+            g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, bodyTop), std::min(W, ix1), ibottom);
             for (const thumb::CellPlan& cell : cells) {
                 thumb::TileKey got;
                 float uv[4];
                 const bool resolved = thumb::resolveTile(
                     cell.key, [&atlas](const thumb::TileKey& k) { return atlas.contains(k); }, &got);
                 if (resolved && atlas.find(got, uv)) {
-                    g.texQuad(static_cast<float>(cell.x0), bodyTop, static_cast<float>(cell.x1), bottom, uv);
+                    g.texQuad(static_cast<float>(cell.x0), bodyTop, static_cast<float>(cell.x1), ibottom, uv);
                 }
                 if (!resolved || !(got == cell.key)) {
                     want.level = cell.key.level;
@@ -914,15 +1321,21 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             if (auto peaks = lookup_(c.assetKey)) {
                 // Without thumbnails the waveform gets the whole body below the header; with them it
                 // sits in a strip along the bottom, over a scrim so it reads against the pictures.
-                const float wTop = hasThumbs ? bottom - kWaveStripFraction * (bottom - bodyTop) : top + header;
-                const float mid = (wTop + bottom) * 0.5f;
-                const float half = (bottom - wTop) * 0.5f - 1.0f;
-                g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
-                if (hasThumbs) g.rect(fx0, wTop, fx1, bottom, kWaveScrim);
+                const float wTop = hasThumbs ? ibottom - kWaveStripFraction * (ibottom - bodyTop) : bodyTop;
+                const float mid = (wTop + ibottom) * 0.5f;
+                const float half = (ibottom - wTop) * 0.5f - 1.0f;
+                g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, itop), std::min(W, ix1), ibottom);
+                const Color wave = mix(base, white, 0.6f);
+                if (hasThumbs) {
+                    g.rect(ix0, wTop, ix1, ibottom, kWaveScrim);
+                } else {
+                    // A soft shading under the waveform and a centre line, so a quiet passage still reads as audio.
+                    g.rectGradient(ix0, wTop, ix1, ibottom, scaled(base, 0.95f), scaled(base, 0.62f));
+                    g.rect(ix0, mid - hair * 0.5f, ix1, mid + hair * 0.5f, withAlpha(wave, 0.35f));
+                }
                 const double ppf = vp.pxPerFrame;
-                const int64_t firstCol = static_cast<int64_t>(std::floor((std::max(0.0f, fx0) + vp.scrollX) / colW));
-                const int64_t lastCol = static_cast<int64_t>(std::floor((std::min(W, fx1) + vp.scrollX) / colW));
-                const Color wave = scaled(base, 1.6f);
+                const int64_t firstCol = static_cast<int64_t>(std::floor((std::max(0.0f, ix0) + vp.scrollX) / colW));
+                const int64_t lastCol = static_cast<int64_t>(std::floor((std::min(W, ix1) + vp.scrollX) / colW));
                 const float reference = audio::referenceLevel(*peaks);
                 for (int64_t col = firstCol; col <= lastCol; ++col) {
                     const int64_t f0 = static_cast<int64_t>(std::floor(col * colW / ppf)) - c.startFrame;
@@ -952,16 +1365,20 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         // Keyframe markers: small diamonds in the clip's header strip, at their time in the clip.
         {
             const auto [first, last] = snap->keyframesOf(c.clipKey);
-            const float cy = top + header * 0.5f;
-            const float s = std::min(3.0f * density, header * 0.45f);
+            const float cy = itop + header * 0.5f;
+            const float s = std::min(3.5f * density, header * 0.4f);
             for (const KeyframeSnapshot* k = first; k != last; ++k) {
                 const float x = static_cast<float>(vp.frameToX(c.startFrame + k->frame));
-                if (x < fx0 || x > fx1) continue;
-                g.rect(x - s * 0.34f, cy - s, x + s * 0.34f, cy + s, kKeyframe);
-                g.rect(x - s * 0.67f, cy - s * 0.67f, x + s * 0.67f, cy + s * 0.67f, kKeyframe);
-                g.rect(x - s, cy - s * 0.34f, x + s, cy + s * 0.34f, kKeyframe);
+                if (x < ix0 || x > ix1) continue;
+                g.rect(x - s * 0.34f, cy - s, x + s * 0.34f, cy + s, th.keyframe);
+                g.rect(x - s * 0.67f, cy - s * 0.67f, x + s * 0.67f, cy + s * 0.67f, th.keyframe);
+                g.rect(x - s, cy - s * 0.34f, x + s, cy + s * 0.34f, th.keyframe);
             }
         }
+
+        // What is crowded into the right end of the header strip: the speed label and the effects badge.
+        float reserveRight = 0.0f;
+        if (c.hasFx) reserveRight += 14.0f * density;
 
         // Speed label at the right end of the header: "2x", "0.5x", "<" for reverse, "||" for a freeze.
         if (retime != nullptr) {
@@ -986,36 +1403,40 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 std::snprintf(label, sizeof(label), "%s%s", retime->reverse() ? "<" : "", number);
             }
             const float gs = std::max(1.0f, header * 0.5f / 5.0f);
-            const float width = static_cast<float>(std::strlen(label)) * 4.0f * gs;
-            if (label[0] != '\0' && fx1 - fx0 > width + 8.0f * density) {
-                g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
-                g.drawNumber(label, fx1 - width - (c.hasFx ? 12.0f : 3.0f) * density, top + (header - 5.0f * gs) * 0.5f, gs, kSpeedLabel);
+            const size_t n = std::strlen(label);
+            const float width = glyphWidth(label, n, kTextClassSmall, gs);
+            if (n > 0 && ix1 - ix0 > width + 8.0f * density) {
+                g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, itop), std::min(W, ix1), ibottom);
+                glyphRun(label, n, kTextClassSmall, ix1 - width - reserveRight - 4.0f * density, itop, header, kSpeedLabel);
                 g.setClip(0, layout.rulerHeight, W, H);
+                reserveRight += width + 8.0f * density;
             }
         }
 
-        // The text of a title or the name of a sticker, so those blocks are not anonymous rectangles. It starts at
-        // the visible left edge of the block (it stays readable while the block is scrolled partly out of view)
-        // and is cut to the room that is left.
+        // The name of a media clip (in the header strip), the text of a title or the name of a sticker (in the body). It
+        // starts at the visible left edge of the block, clear of the lane header, so it stays readable while the block is
+        // scrolled partly out of view, and it is cut at the room that is left.
         if (const std::string* text = snap->labelOf(c.clipKey)) {
-            const float body = bottom - (top + header);
-            const float gs = std::clamp(body * 0.3f / 5.0f, 1.0f, 4.0f * density);
-            const float x0 = std::max(fx0, 0.0f) + 4.0f * density;
-            const size_t fit = fx1 - x0 - 3.0f * density > 0.0f ? static_cast<size_t>((fx1 - x0 - 3.0f * density) / (4.0f * gs)) : 0;
-            if (fit > 0 && body > 5.0f * gs) {
-                const std::string shown = text->substr(0, fit);
-                g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
-                g.drawNumber(shown.c_str(), x0, top + header + (body - 5.0f * gs) * 0.5f, gs, kClipLabel);
+            const int cls = labelClassOf(*snap, c);
+            const float textLeft = std::max(ix0, layout.headerWidth) + 5.0f * density;
+            const float textRight = ix1 - 4.0f * density - (cls == kTextClassLabel ? 0.0f : reserveRight);
+            if (textRight - textLeft > 10.0f * density) {
+                g.setClip(textLeft, std::max(layout.rulerHeight, itop), std::min(W, textRight), ibottom);
+                if (cls == kTextClassLabel) {
+                    labelText(*text, cls, textLeft, bodyTop, ibottom - bodyTop, kClipLabel);
+                } else {
+                    labelText(*text, cls, textLeft, itop, header, kClipLabel);
+                }
                 g.setClip(0, layout.rulerHeight, W, H);
             }
         }
 
         // Effects marker: a small badge at the right end of the header strip, "fx" drawn as two bars.
         if (c.hasFx) {
-            const float cy = top + header * 0.5f;
-            const float s = std::min(3.0f * density, header * 0.45f);
-            const float right = fx1 - s * 1.5f;
-            if (right - s * 4.0f > fx0) {
+            const float cy = itop + header * 0.5f;
+            const float s = std::min(3.0f * density, header * 0.4f);
+            const float right = ix1 - s * 1.5f;
+            if (right - s * 4.0f > ix0) {
                 g.rect(right - s * 3.0f, cy - s, right - s * 2.0f, cy + s, kFxBadge);
                 g.rect(right - s * 1.5f, cy - s, right - s * 0.5f, cy + s, kFxBadge);
                 g.rect(right - s * 3.0f, cy - s * 0.2f, right - s * 0.5f, cy + s * 0.2f, kFxBadge);
@@ -1023,31 +1444,39 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         }
 
         if (c.missing) {
-            g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
-            g.rect(fx0, top, fx1, bottom, kMissingTint);
+            g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, itop), std::min(W, ix1), ibottom);
+            g.rect(ix0, itop, ix1, ibottom, kMissingTint);
             // Stripes stepped down the clip approximate a diagonal hatch with plain rectangles.
             const float step = std::max(6.0f, 8.0f * density);
             const float bar = std::max(1.0f, 1.5f * density);
             const int rows = 6;
-            const float rowH = (bottom - top) / static_cast<float>(rows);
+            const float rowH = (ibottom - itop) / static_cast<float>(rows);
             for (int row = 0; row < rows; ++row) {
-                const float y0 = top + rowH * static_cast<float>(row);
+                const float y0 = itop + rowH * static_cast<float>(row);
                 const float offset = step * static_cast<float>(row) / static_cast<float>(rows);
-                for (float x = fx0 - step + offset; x < fx1; x += step) {
+                for (float x = ix0 - step + offset; x < ix1; x += step) {
                     g.rect(x, y0, x + bar, y0 + rowH, kMissingStripe);
                 }
             }
             g.setClip(0, layout.rulerHeight, W, H);
         }
 
-        if (c.selected) {
-            // Several selected: the primary clip (the inspector's) is yellow and thicker, the others softer blue.
-            const Color& outline = c.primary ? kSelection : kSelectionSecondary;
-            const float b = std::max(1.0f, (c.primary ? 2.0f : 1.5f) * density);
-            g.rect(fx0, top, fx1, top + b, outline);
-            g.rect(fx0, bottom - b, fx1, bottom, outline);
-            g.rect(fx0, top, fx0 + b, bottom, outline);
-            g.rect(fx1 - b, top, fx1, bottom, outline);
+        // Round the corners: paint the corner areas in the colour behind the block.
+        if (radius > 0.5f) {
+            g.cornerCut(ix0, itop, radius, 0, cutColour);
+            g.cornerCut(ix1, itop, radius, 1, cutColour);
+            g.cornerCut(ix1, ibottom, radius, 2, cutColour);
+            g.cornerCut(ix0, ibottom, radius, 3, cutColour);
+        }
+
+        // Trim handles on the clip being edited: a pill at each end, so the edges that can be dragged are visible.
+        if (c.selected && c.primary && ix1 - ix0 > 48.0f * density) {
+            const float pillW = 4.0f * density;
+            const float pillH = std::min(26.0f * density, (ibottom - itop) * 0.5f);
+            const float cy = (itop + ibottom) * 0.5f;
+            const Color pill = withAlpha(th.onClip, 0.9f);
+            g.roundedRect(ix0 + 3.0f * density, cy - pillH * 0.5f, ix0 + 3.0f * density + pillW, cy + pillH * 0.5f, pillW * 0.5f, pill);
+            g.roundedRect(ix1 - 3.0f * density - pillW, cy - pillH * 0.5f, ix1 - 3.0f * density, cy + pillH * 0.5f, pillW * 0.5f, pill);
         }
     }
 
@@ -1073,29 +1502,44 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         }
     }
 
-    // Lane headers: a name tab over the left edge of every lane, with M / S marks on muted and soloed audio lanes. Long
-    // pressing one starts a lane drag (see LaneHeader hits); the dragged lane is tinted and a bar shows where it lands.
+    // Lane headers: a name tab over the left edge of every lane with the lane's colour down its edge, and M / S chips on
+    // muted and soloed audio lanes. Long pressing one starts a lane drag (see LaneHeader hits); the dragged lane is
+    // tinted and a bar shows where it lands.
     if (layout.headerWidth > 0.0f) {
         g.setClip(0, layout.rulerHeight, W, H);
         const int baseLane = baseLaneIndex(*snap);
-        const float gs = std::max(1.0f, std::floor(1.6f * density));
-        const float edge = std::max(1.0f, density);
+        const float accentW = 3.0f * density;
         for (int t = 0; t < trackCount; ++t) {
             const float top = layout.trackTop(t) - static_cast<float>(vp.scrollY);
             const float bottom = top + layout.trackHeight;
             if (bottom < layout.rulerHeight || top > H) continue;
             const TrackSnapshot& track = snap->tracks[static_cast<size_t>(t)];
-            const Color tab = t == laneDragFrom ? kHeaderDragging : (t == baseLane ? kHeaderTabBase : kHeaderTab);
-            g.rect(0, top, layout.headerWidth, bottom, tab);
-            const Color accent = clipColor(track.type);
-            g.rect(layout.headerWidth - edge, top, layout.headerWidth, bottom, accent);
+            const Color tab = t == laneDragFrom ? kHeaderDragging
+                                                 : (t == baseLane ? mix(th.surfaceHigh, th.primary, 0.14f) : th.surfaceHigh);
+            g.rect(0, top, layout.headerWidth, bottom, withAlpha(tab, 0.95f));
+            g.rect(0, top, accentW, bottom, clipColor(th, track.type));
+            g.rect(layout.headerWidth - hair, top, layout.headerWidth, bottom, th.ruler);
             const std::string label = laneLabel(*snap, t);
-            const float textW = static_cast<float>(label.size()) * 4.0f * gs - gs;
-            g.drawNumber(label.c_str(), std::max(edge, (layout.headerWidth - textW) * 0.5f), top + 4.0f * density, gs, kHeaderText);
-            if (track.type == TrackType::Audio) {
-                const float my = top + 4.0f * density + 8.0f * gs;
-                if (track.muted) g.drawNumber("M", (layout.headerWidth - 3.0f * gs) * 0.5f, my, gs, kHeaderMute);
-                if (track.solo) g.drawNumber("S", (layout.headerWidth - 3.0f * gs) * 0.5f, my + 7.0f * gs, gs, kHeaderSolo);
+            const float gs = std::max(1.0f, std::floor(1.6f * density));
+            const float textW = glyphWidth(label.c_str(), label.size(), kTextClassBold, gs);
+            const float labelTop = top + 5.0f * density;
+            const float labelBand = 14.0f * density;
+            glyphRun(label.c_str(), label.size(), kTextClassBold, accentW + (layout.headerWidth - accentW - textW) * 0.5f, labelTop,
+                     labelBand, th.onSurface);
+            if (track.type == TrackType::Audio && (track.muted || track.solo)) {
+                // One chip per state, stacked under the name.
+                const float chip = 13.0f * density;
+                float y = labelTop + labelBand + 3.0f * density;
+                const float cx = accentW + (layout.headerWidth - accentW - chip) * 0.5f;
+                if (track.muted) {
+                    g.roundedRect(cx, y, cx + chip, y + chip, 2.5f * density, kHeaderMute);
+                    glyphRun("M", 1, kTextClassBold, cx + (chip - glyphWidth("M", 1, kTextClassBold, gs)) * 0.5f, y, chip, th.background);
+                    y += chip + 3.0f * density;
+                }
+                if (track.solo) {
+                    g.roundedRect(cx, y, cx + chip, y + chip, 2.5f * density, kHeaderSolo);
+                    glyphRun("S", 1, kTextClassBold, cx + (chip - glyphWidth("S", 1, kTextClassBold, gs)) * 0.5f, y, chip, th.background);
+                }
             }
         }
         bool atTop = false;
@@ -1107,6 +1551,9 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             g.rect(0, y - bar * 0.5f, W, y + bar * 0.5f, kLaneDragBar);
         }
     }
+    // The clip names and lane names go on now, over the blocks and headers and under the indicators drawn next.
+    g.setClip(0, layout.rulerHeight, W, H);
+    g.flushText();
 
     // Drop indicator: what releasing the dragged clip would do.
     if (dropHint.kind != DropHintKind::None) {
@@ -1159,11 +1606,13 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         const float mx0 = std::min(marquee[0], marquee[2]), mx1 = std::max(marquee[0], marquee[2]);
         const float my0 = std::min(marquee[1], marquee[3]), my1 = std::max(marquee[1], marquee[3]);
         const float e = std::max(1.0f, 1.5f * density);
-        g.rect(mx0, my0, mx1, my1, kMarqueeFill);
-        g.rect(mx0, my0, mx1, my0 + e, kMarqueeEdge);
-        g.rect(mx0, my1 - e, mx1, my1, kMarqueeEdge);
-        g.rect(mx0, my0, mx0 + e, my1, kMarqueeEdge);
-        g.rect(mx1 - e, my0, mx1, my1, kMarqueeEdge);
+        const Color fill = withAlpha(th.primary, kMarqueeAlpha.a);
+        const Color edge = withAlpha(th.primary, 0.95f);
+        g.rect(mx0, my0, mx1, my1, fill);
+        g.rect(mx0, my0, mx1, my0 + e, edge);
+        g.rect(mx0, my1 - e, mx1, my1, edge);
+        g.rect(mx0, my0, mx0 + e, my1, edge);
+        g.rect(mx1 - e, my0, mx1, my1, edge);
     }
 
     // A faint line through the lanes at each user marker, so cuts can be lined up against it.
@@ -1174,46 +1623,34 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         if (x < -2.0f) continue;
         if (x > W + 2.0f) break;
         const MarkerRgb rgb = markerRgb(markerColorCode(m.extra));
-        g.rect(x, layout.rulerHeight, x + std::max(1.0f, density), H, Color{rgb.r, rgb.g, rgb.b, kMarkerLine.a});
+        g.rect(x, layout.rulerHeight, x + hair, H, Color{rgb.r, rgb.g, rgb.b, kMarkerLineAlpha.a});
     }
 
-    // Ruler on top so clips scroll underneath it.
+    // Ruler on top so clips scroll underneath it: a long tick and a time label at every step, small ticks between.
     g.setClip(0, 0, W, H);
-    g.rect(0, 0, W, layout.rulerHeight, kRuler);
+    g.rect(0, 0, W, layout.rulerHeight, th.ruler);
+    g.rect(0, layout.rulerHeight - hair, W, layout.rulerHeight, withAlpha(th.tick, 0.45f));
     {
         const int64_t fps = std::max<int64_t>(1, (snap->fpsNum + snap->fpsDen / 2) / snap->fpsDen);
-        const int64_t candidates[] = {1, 2, 5, 10, fps, 2 * fps, 5 * fps, 10 * fps, 15 * fps, 30 * fps,
-                                      60 * fps, 120 * fps, 300 * fps, 600 * fps, 1800 * fps, 3600 * fps};
-        const double minPx = 80.0 * density;
-        int64_t step = candidates[std::size(candidates) - 1];
-        int64_t prev = 0;
-        for (int64_t cand : candidates) {
-            if (cand <= prev) continue;
-            prev = cand;
-            if (static_cast<double>(cand) * vp.pxPerFrame >= minPx) {
-                step = cand;
-                break;
-            }
-        }
-        const int64_t first = std::max<int64_t>(0, vp.xToFrame(0) / step) * step;
-        const float scale = std::max(1.0f, std::round(1.5f * density));
+        const RulerPlan plan = planRuler(fps, vp.pxPerFrame, 72.0 * density, 7.0 * density);
+        const int64_t step = plan.step;
+        // One step before the left edge: the label of a tick just off screen still reaches into view.
+        const int64_t first = std::max<int64_t>(0, vp.xToFrame(0) / step - 1) * step;
+        const float labelBandTop = 3.0f * density;
+        const float labelBandH = 13.0f * density;
+        const Color minorTick = withAlpha(th.tick, 0.7f);
         for (int64_t f = first;; f += step) {
-            const float x = static_cast<float>(vp.frameToX(f));
+            const float x = std::floor(static_cast<float>(vp.frameToX(f)));
             if (x > W) break;
-            g.rect(x, layout.rulerHeight * 0.55f, x + 1.0f, layout.rulerHeight, kTick);
-            if (step % 2 == 0) {
-                const float xm = static_cast<float>(vp.frameToX(f + step / 2));
-                g.rect(xm, layout.rulerHeight * 0.8f, xm + 1.0f, layout.rulerHeight, kTick);
+            g.rect(x, 4.0f * density, x + hair, layout.rulerHeight, th.tick);
+            for (int k = 1; k < plan.minorDiv; ++k) {
+                const float xm = std::floor(static_cast<float>(vp.frameToX(f + step * k / plan.minorDiv)));
+                g.rect(xm, layout.rulerHeight * 0.78f, xm + hair, layout.rulerHeight, minorTick);
             }
             char label[24];
-            if (step % fps == 0) {
-                const int64_t secs = f / fps;
-                std::snprintf(label, sizeof(label), "%lld:%02lld", static_cast<long long>(secs / 60),
-                              static_cast<long long>(secs % 60));
-            } else {
-                std::snprintf(label, sizeof(label), "%lld", static_cast<long long>(f));
-            }
-            g.drawNumber(label, x + 3.0f * density, layout.rulerHeight * 0.12f, scale, kTick);
+            const size_t n = formatRulerLabel(f, fps, step, label, sizeof(label));
+            if (x + 80.0f * density < 0.0f) continue;  // wholly off screen to the left
+            glyphRun(label, n, kTextClassSmall, x + 4.0f * density, labelBandTop, labelBandH, th.rulerText);
         }
     }
 
@@ -1233,46 +1670,78 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 g.rect(x, layout.rulerHeight * 0.62f, x + w * 0.67f, layout.rulerHeight, kBeat);
             } else {
                 const MarkerRgb rgb = markerRgb(markerColorCode(m.extra));
-                const Color flag{rgb.r, rgb.g, rgb.b, kMarker.a};
-                g.rect(x, layout.rulerHeight * 0.30f, x + w, layout.rulerHeight, flag);
-                g.rect(x, layout.rulerHeight * 0.30f, x + 6.0f * density, layout.rulerHeight * 0.30f + 5.0f * density, flag);
+                const Color flag{rgb.r, rgb.g, rgb.b, th.marker.a};
+                g.rect(x, 2.0f * density, x + w, layout.rulerHeight, flag);
+                // The pennant: a pointed flag at the top of the pole.
+                const float fh = 8.0f * density, fw = 8.0f * density;
+                g.rect(x, 2.0f * density, x + fw, 2.0f * density + fh * 0.5f, flag);
+                g.rect(x, 2.0f * density + fh * 0.5f, x + fw * 0.6f, 2.0f * density + fh, flag);
                 if (markerHasNote(m.extra)) {
                     // Note indicator: a small light square under the flag, on the line.
                     const float s = std::max(2.0f, 3.0f * density);
-                    const float y = layout.rulerHeight * 0.30f + 7.0f * density;
+                    const float y = 2.0f * density + fh + 2.0f * density;
                     g.rect(x + w, y, x + w + s, y + s, Color{1.0f, 1.0f, 1.0f, 0.9f});
                 }
-                // The name, when there is room before the next marker: drawn right of the line in the lower part of the ruler.
+                // The name, when there is room before the next marker: drawn right of the flag in the lower part of the ruler.
                 if (const std::string* name = snap->labelOf(markerLabelKey(mi))) {
-                    const float gs = 1.2f * density;
-                    const float left = x + w + 3.0f * density;
+                    const float left = x + w + fw + 3.0f * density;
                     const float nextX = mi + 1 < snap->markers.size() ? static_cast<float>(vp.frameToX(snap->markers[mi + 1].frame)) : W;
-                    const size_t chars = markerLabelChars(nextX - left - 3.0f * density, 4.0f * gs, name->size());
-                    if (chars > 0) {
-                        const std::string shown = name->substr(0, chars);
-                        g.drawNumber(shown.c_str(), left, layout.rulerHeight * 0.60f, gs, flag);
+                    const float room = nextX - left - 3.0f * density;
+                    if (room > 24.0f * density) {
+                        g.setClip(left, 0, std::min(W, left + room), H);
+                        labelText(*name, kTextClassSmall, left, layout.rulerHeight * 0.42f, layout.rulerHeight * 0.58f, flag);
+                        g.setClip(0, 0, W, H);
                     }
                 }
             }
         }
     }
 
-    // Playhead.
+    // Playhead: a line through the lanes and a tag at the top with the time under it.
     {
         const float x = static_cast<float>(vp.frameToX(playhead));
-        const float w = std::max(1.0f, 2.0f * density);
-        g.rect(x - w * 0.5f, 0, x + w * 0.5f, H, kPlayhead);
-        g.rect(x - 6.0f * density, 0, x + 6.0f * density, 8.0f * density, kPlayhead);
+        const float w = std::max(1.0f, std::round(1.5f * density));
+        g.rect(x - w * 0.5f, 0, x + w * 0.5f, H, th.playhead);
+        const int64_t fps = std::max<int64_t>(1, (snap->fpsNum + snap->fpsDen / 2) / snap->fpsDen);
+        char label[24];
+        const size_t n = formatTimecode(playhead, fps, label, sizeof(label));
+        const float gs = std::max(1.0f, std::floor(1.6f * density));
+        const float textW = glyphWidth(label, n, kTextClassBold, gs);
+        const float tagW = textW + 10.0f * density, tagH = 17.0f * density;
+        const float tagX = std::clamp(x - tagW * 0.5f, 0.0f, std::max(0.0f, W - tagW));
+        g.roundedRect(tagX, 0, tagX + tagW, tagH, 4.0f * density, th.playhead);
+        glyphRun(label, n, kTextClassBold, tagX + 5.0f * density, 0, tagH, th.background);
     }
+    g.setClip(0, 0, W, H);
+    g.flushText();
 
+    if (ctx.statsOn) {
+        g.flush();
+        const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
+        uint32_t draws = 0, verts = 0;
+        g.frameCounters(&draws, &verts);
+        ctx.statMs.push_back(ms);
+        ctx.statDraws += draws;
+        ctx.statVerts += verts;
+        if (ctx.statMs.size() >= 240) {
+            std::vector<float> sorted = ctx.statMs;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t n = sorted.size();
+            LOGI("stats frames=%zu cpu_ms p50=%.2f p95=%.2f p99=%.2f max=%.2f draws=%.1f verts=%.0f", n, sorted[n / 2],
+                 sorted[n * 95 / 100], sorted[n * 99 / 100], sorted[n - 1], ctx.statDraws / static_cast<double>(n),
+                 ctx.statVerts / static_cast<double>(n));
+            ctx.statMs.clear();
+            ctx.statDraws = ctx.statVerts = 0.0;
+        }
+    }
     if (!g.endFrame()) return;
 
     bool dirtyAgain;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        dirtyAgain = state_->dirty || state_->flingVelocity != 0.0f;
+        dirtyAgain = state_->dirty || state_->flingVelocity != 0.0f || !state_->pendingLabels.empty();
     }
-    if (keepAnimating || dirtyAgain || moreTilesReady) {
+    if (keepAnimating || dirtyAgain || moreTilesReady || moreLabels) {
         ctx.framePosted = true;
         AChoreographer_postFrameCallback64(ctx.choreographer, &TimelineRenderer::onFrame, this);
     }

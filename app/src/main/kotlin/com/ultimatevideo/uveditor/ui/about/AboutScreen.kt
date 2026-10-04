@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Switch
+import androidx.compose.ui.Alignment
+import com.ultimatevideo.uveditor.ui.theme.AppearanceStore
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -34,7 +38,7 @@ import androidx.compose.ui.unit.dp
 /** Version, licence, privacy, third-party notices, storage and the local crash report. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(controller: AboutController, onBack: () -> Unit) {
+fun AboutScreen(controller: AboutController, appearance: AppearanceStore, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     var snapshot by remember { mutableStateOf(controller.snapshot()) }
@@ -60,6 +64,22 @@ fun AboutScreen(controller: AboutController, onBack: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Section("Appearance") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Pure black backgrounds")
+                        Text(
+                            "The app is always dark. This makes the backgrounds black instead of dark grey, which saves power on OLED screens.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(checked = appearance.amoled, onCheckedChange = { appearance.amoled = it })
+                }
+            }
             Section("Version") {
                 Text("ultimateVE ${snapshot.version.display}")
             }

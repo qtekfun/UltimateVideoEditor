@@ -67,6 +67,13 @@ public:
     // Lane height as a multiple of the default (see Layout::forDensity); redraws and keeps the scroll valid.
     void setLaneScale(float scale);
     HitResult hitTest(float x, float y) const;
+    // The canvas colours from the app palette (kNativeColourCount ARGB values, see timeline_theme.h); other sizes are ignored.
+    void setPalette(const uint32_t* argb, size_t count);
+    // A text bitmap (premultiplied RGBA, w*h*4 bytes) made by Kotlin, keyed by labelHash(); any thread. Blocks briefly when
+    // the render thread is far behind. The render thread places it in the atlas a few per frame.
+    void putLabel(uint64_t hash, int w, int h, bool colour, const uint8_t* rgba);
+    // Moves on whenever the text atlas is emptied: bitmaps sent before are gone and must be sent again.
+    uint32_t labelGeneration() const { return labelGeneration_.load(); }
 
     class Gl;  // render-thread only (public so file-local helpers can name it)
 
@@ -85,6 +92,7 @@ private:
     std::unique_ptr<State> state_;
     WaveformLookup lookup_;
     std::atomic<bool> quit_{false};
+    std::atomic<uint32_t> labelGeneration_{0};
 };
 
 }  // namespace uv::timeline
