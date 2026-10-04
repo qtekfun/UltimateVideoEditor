@@ -45,7 +45,8 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
     using core::Status;
     if (data == nullptr || out == nullptr || size < kAudioSnapshotHeaderBytes) return Status::BadSnapshot;
     if (readLe<uint32_t>(data) != kAudioSnapshotMagic) return Status::BadSnapshot;
-    if (readLe<uint32_t>(data + 4) != kAudioSnapshotVersion) return Status::BadSnapshot;
+    const uint32_t version = readLe<uint32_t>(data + 4);
+    if (version < kAudioSnapshotMinVersion || version > kAudioSnapshotVersion) return Status::BadSnapshot;
 
     AudioSnapshotData result;
     result.fps.num = readLe<int32_t>(data + 8);
@@ -81,18 +82,27 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         return Status::BadSnapshot;
     }
 
-    // First pass over the clips to learn how many knots and profile floats follow them.
+    // First pass over the clips to learn how many knots and profile floats follow them, and how many lanes.
     uint64_t knotsTotal = 0, profilesTotal = 0;
+    std::vector<uint32_t> laneCounts(count, 0);
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t* p = data + duckEnd + static_cast<size_t>(i) * kAudioSnapshotClipBytes;
         knotsTotal += readLe<uint32_t>(p + 60);
         const int32_t bins = readLe<int32_t>(p + 64 + 88);
         if (bins != 0 && bins != kDenoiseBins) return Status::BadSnapshot;
         profilesTotal += static_cast<uint64_t>(bins);
+        // Version 4 left this field reserved (always 0); from version 5 it counts the clip's automation lanes.
+        if (version >= 5) {
+            laneCounts[i] = readLe<uint32_t>(p + 64 + 92);
+            if (laneCounts[i] > kMaxClipLanes) return Status::BadSnapshot;
+        }
     }
     const size_t tail = size - clipsEnd;
     if (knotsTotal > tail / kAudioSnapshotKnotBytes) return Status::BadSnapshot;
-    if (tail != knotsTotal * kAudioSnapshotKnotBytes + profilesTotal * sizeof(float)) return Status::BadSnapshot;
+    const uint64_t fixedTail = knotsTotal * kAudioSnapshotKnotBytes + profilesTotal * sizeof(float);
+    if (fixedTail > tail) return Status::BadSnapshot;
+    // What is left after the knots and profiles is the lanes, checked to fill the buffer exactly further down.
+    const size_t laneRegionBytes = tail - static_cast<size_t>(fixedTail);
     size_t knotsLeft = static_cast<size_t>(knotsTotal);
     const uint8_t* knotData = data + clipsEnd;
     const uint8_t* profileData = knotData + knotsTotal * kAudioSnapshotKnotBytes;
@@ -177,6 +187,48 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         result.clips.push_back(std::move(c));
     }
     if (knotsLeft != 0) return Status::BadSnapshot;  // knots nobody asked for
+
+    // Automation lanes: per clip in order, each a header and its points, filling the rest of the buffer exactly.
+    const uint8_t* laneData = profileData;
+    size_t laneLeft = laneRegionBytes;
+    for (uint32_t i = 0; i < count; ++i) {
+        AudioClipDesc& c = result.clips[i];
+        uint32_t seenParams = 0;
+        for (uint32_t l = 0; l < laneCounts[i]; ++l) {
+            if (laneLeft < kAudioSnapshotLaneBytes) return Status::BadSnapshot;
+            const int32_t param = readLe<int32_t>(laneData);
+            const uint32_t pointCount = readLe<uint32_t>(laneData + 4);
+            laneData += kAudioSnapshotLaneBytes;
+            laneLeft -= kAudioSnapshotLaneBytes;
+            if (param < 0 || param >= kAutoParamCount || (seenParams & (1u << param)) != 0) return Status::BadSnapshot;
+            seenParams |= 1u << param;
+            if (pointCount == 0 || pointCount > kMaxLanePoints || pointCount > laneLeft / kAudioSnapshotPointBytes) {
+                return Status::BadSnapshot;
+            }
+            float lo = kMinGainDb, hi = kMaxGainDb;
+            if (param == static_cast<int32_t>(AutoParam::Pan)) {
+                lo = -1.0f;
+                hi = 1.0f;
+            } else if (param >= static_cast<int32_t>(AutoParam::EqGain0)) {
+                lo = dsp::kMinEqGainDb;
+                hi = dsp::kMaxEqGainDb;
+            }
+            AutoLane lane;
+            lane.param = static_cast<AutoParam>(param);
+            lane.points.reserve(pointCount);
+            for (uint32_t k = 0; k < pointCount; ++k, laneData += kAudioSnapshotPointBytes) {
+                AutoPoint pt;
+                pt.frame = readLe<int64_t>(laneData);
+                pt.value = readLe<float>(laneData + 8);
+                const bool inOrder = lane.points.empty() ? pt.frame >= 0 : pt.frame > lane.points.back().frame;
+                if (!inOrder || pt.frame > c.durationFrames || !finiteIn(pt.value, lo, hi)) return Status::BadSnapshot;
+                lane.points.push_back(pt);
+            }
+            laneLeft -= static_cast<size_t>(pointCount) * kAudioSnapshotPointBytes;
+            c.lanes.push_back(std::move(lane));
+        }
+    }
+    if (laneLeft != 0) return Status::BadSnapshot;  // lanes nobody asked for, or a truncated buffer
     *out = std::move(result);
     return Status::Ok;
 }

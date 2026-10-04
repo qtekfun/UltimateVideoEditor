@@ -4,6 +4,11 @@ import android.content.Context
 import android.net.Uri
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.AudioRole
+import com.ultimatevideo.uveditor.domain.ParamIds
+import com.ultimatevideo.uveditor.domain.ParamTracks
+import com.ultimatevideo.uveditor.engine.audio.AutoParam
+import com.ultimatevideo.uveditor.engine.audio.AutoPoint
+import com.ultimatevideo.uveditor.engine.audio.AutomationLane
 import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
@@ -84,6 +89,7 @@ internal fun audioSnapshotOf(
             eq = eqSpecOf(tools.eq),
             denoiseStrength = denoise?.strength?.toFloat() ?: 0f,
             noiseProfile = denoise?.profile ?: emptyList(),
+            automation = automationLanesOf(clip),
         )
     }
     val tracks = mixerTracks.map { track ->
@@ -106,6 +112,33 @@ internal fun audioSnapshotOf(
         DuckingSpec(it.amountDb.toFloat(), it.thresholdDb.toFloat(), it.attackMs.toFloat(), it.releaseMs.toFloat())
     }
     return AudioSnapshot(fps.num, fps.den, specs, tracks, ducking)
+}
+
+/**
+ * The keyframed volume, pan and EQ band gains of [clip] as mixer lanes. Keys are measured from the clip's own
+ * start, the snapshot from the start of its render window (a transition can begin earlier), so frames are
+ * shifted by the difference. The volume lane carries the same sum the static gain does (volume plus the stored
+ * loudness-normalise gain), so animating the volume never changes the normalised level.
+ */
+internal fun automationLanesOf(clip: RenderClip): List<AutomationLane> {
+    if (clip.params.isEmpty()) return emptyList()
+    val shift = clip.keyframeOriginFrame - clip.startFrame
+    val lanes = ArrayList<AutomationLane>(clip.params.size)
+    for (track in clip.params) {
+        val (param, offset) = when {
+            track.paramId == ParamIds.GAIN_DB -> AutoParam.GAIN_DB to clip.audio.normalizeDb
+            track.paramId == ParamIds.PAN -> AutoParam.PAN to 0.0
+            else -> {
+                val band = ParamIds.parseEqBand(track.paramId)?.takeIf { it in 0 until ClipEq.BAND_COUNT } ?: continue
+                AutoParam.eqGain(band) to 0.0
+            }
+        }
+        val points = ParamTracks.audioPoints(track.keys)
+            .map { (frame, value) -> AutoPoint(frame + shift, (value + offset).toFloat().coerceIn(param.min, param.max)) }
+            .filter { it.frame in 0..clip.durationFrames }
+        if (points.isNotEmpty()) lanes += AutomationLane(param, points)
+    }
+    return lanes
 }
 
 /** A key for a track id that is stable across snapshots, so the mixer keeps its envelopes running through edits. */

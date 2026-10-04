@@ -79,6 +79,13 @@ struct EqChain {
     int stages = 0;
 
     static EqChain design(const EqParams& p, double sampleRate);
+    // Like design(), but every band keeps its stage even at 0 dB, so the stage of band `i` is
+    // `firstBandStage + i` and a band's gain can be animated by rewriting that stage's coefficients
+    // without the filter states of the other stages shifting.
+    static EqChain designAll(const EqParams& p, double sampleRate);
+    // The coefficients of band `band` (0..kEqBands-1) with its parameters; a 0 dB band is an identity stage.
+    static BiquadCoeffs designBand(int band, const EqBandParams& b, double sampleRate);
+    int firstBandStage = 0;  // set by designAll()
     // Frequency response of the whole chain at `freqHz` (linear).
     double magnitude(double sampleRate, double freqHz) const;
 };
