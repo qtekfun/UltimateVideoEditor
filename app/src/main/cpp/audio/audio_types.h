@@ -88,6 +88,26 @@ struct ClipDspState {
     int64_t expectedLocal = -1;  // clip-local sample the next block should start at; else the filters restart
 };
 
+// A keyframed value of a clip converted to the output sample grid: `samples[i]` (clip-local) carries
+// `values[i]`, linear in between, held before the first and after the last. A gain lane holds linear
+// gain (the dB points converted once), the others hold the raw value (pan, EQ gain in dB).
+struct PreparedLane {
+    AutoParam param = AutoParam::GainDb;
+    std::vector<int64_t> samples;
+    std::vector<float> values;
+
+    // The value at clip-local sample `s`.
+    float at(int64_t s) const {
+        if (s <= samples.front()) return values.front();
+        if (s >= samples.back()) return values.back();
+        const auto it = std::upper_bound(samples.begin(), samples.end(), s);
+        const size_t hi = static_cast<size_t>(it - samples.begin());
+        const size_t lo = hi - 1;
+        const double t = static_cast<double>(s - samples[lo]) / static_cast<double>(samples[hi] - samples[lo]);
+        return static_cast<float>(values[lo] + (values[hi] - values[lo]) * t);
+    }
+};
+
 struct PreparedClip {
     int64_t startSample = 0;  // timeline samples at the output rate
     int64_t endSample = 0;
@@ -96,7 +116,13 @@ struct PreparedClip {
     float pan = 0.0f;
     int64_t userFadeInSamples = 0;   // the clip's own fade handles (equal power)
     int64_t userFadeOutSamples = 0;
-    dsp::EqChain eq;                 // coefficients, designed once at the output rate
+    dsp::EqChain eq;                 // coefficients, designed once at the output rate (all five band stages when a lane drives a band)
+    // Keyframed gain, pan and EQ band gains (empty when nothing is animated). While any lane exists the
+    // clip is mixed in short chunks that re-evaluate the lanes; `eqParams` and `sampleRate` redesign a band
+    // whose gain moves.
+    std::vector<PreparedLane> lanes;
+    dsp::EqParams eqParams;
+    double sampleRate = 48000.0;
     mutable ClipDspState dspState;
     // Equal-power crossfade lengths in samples (0 = none): the clip fades in over its first
     // fadeInSamples and out over its last fadeOutSamples (core/crossfade_math.h).

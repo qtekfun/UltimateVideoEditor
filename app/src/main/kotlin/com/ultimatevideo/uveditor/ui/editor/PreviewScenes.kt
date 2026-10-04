@@ -44,7 +44,7 @@ internal fun previewRequestsAt(
                     transform = transform,
                     // An animated caption shows the look of this frame; the preview keys its picture by it.
                     title = CaptionAnimator.contentAt(content, playhead.value - clip.keyframeOriginFrame),
-                    fx = clip.fx,
+                    fx = clip.fxAt(playhead.value),
                 )
             }
             RenderKind.VIDEO -> if (clip.still != null) {
@@ -58,7 +58,7 @@ internal fun previewRequestsAt(
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,
-                        fx = clip.fx,
+                        fx = clip.fxAt(playhead.value),
                         still = ref,
                     )
                 }
@@ -78,7 +78,7 @@ internal fun previewRequestsAt(
                         // retimed clip is re-anchored every tick at the frame its mapping gives, so it has no end.
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
-                        fx = clip.fx,
+                        fx = clip.fxAt(playhead.value),
                         sourceOverride = clip.colorOverride?.transferIndex ?: -1,
                     )
                 }

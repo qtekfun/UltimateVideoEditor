@@ -4,6 +4,7 @@ import com.ultimatevideo.uveditor.data.MediaProblem
 import com.ultimatevideo.uveditor.data.MissingAsset
 import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.BezierHandle
 import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipAudio
@@ -21,6 +22,8 @@ import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.displayedAt
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -35,6 +38,9 @@ import com.ultimatevideo.uveditor.mvi.UiState
 data class NoiseRegion(val clipId: String, val startFrame: Long?, val endFrame: Long?) {
     val isComplete: Boolean get() = startFrame != null && endFrame != null && endFrame > startFrame
 }
+
+/** Keys copied from the track of [paramId], with frames relative to the first key; pasted at the playhead. */
+data class ParamClipboard(val paramId: String, val keys: List<ParamKey>)
 
 data class EditorState(
     val isLoading: Boolean = true,
@@ -93,6 +99,10 @@ data class EditorState(
     val noiseRegion: NoiseRegion? = null,
     /** The track mixer sheet (volume, mute, solo, role, compressor, ducking) is open. */
     val mixerOpen: Boolean = false,
+    /** Keys copied from a parameter's track (frames relative to the first key), ready to paste at the playhead. */
+    val paramClipboard: ParamClipboard? = null,
+    /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
+    val selectedParamKey: Pair<String, Long>? = null,
 ) : UiState {
     /** The timeline the mixer plays: the committed one, or the live audio edit while a slider is dragged. */
     val audioSource: Timeline get() = if (audioSessionActive) visibleTimeline else timeline
@@ -144,6 +154,19 @@ data class EditorState(
 
     /** The selected clip as currently shown, whatever its track type. */
     val selectedClip: Clip? get() = selectedClipId?.let { visibleTimeline.trackOfClip(it)?.clip(it) }
+
+    /** Like [selectedClipFrame] for any selected clip (audio clips too): its own frame under the playhead, or null outside it. */
+    val selectedFrame: Long?
+        get() {
+            val clip = selectedClip ?: return null
+            return if (playhead >= clip.timelineStart && playhead < clip.timelineEnd) playhead - clip.timelineStart else null
+        }
+
+    /**
+     * The selected clip as its controls show it: keyframed effect values, volume, pan and EQ gains evaluated at the
+     * playhead. Edits made from this view write keys at the playhead for the keyframed ones (see `ParamOps.setFxAt`).
+     */
+    val displayedClip: Clip? get() = selectedClip?.displayedAt(selectedFrame)
 
     /** The selected clip if it is something drawn on the canvas: a video clip or a title. */
     val selectedVisualClip: Clip?
@@ -352,6 +375,32 @@ sealed interface EditorIntent : UiIntent {
     data class JumpToKeyframe(val forward: Boolean) : EditorIntent
     data class SetKeyframeInterpolation(val interpolation: Interpolation) : EditorIntent
     data object ClearKeyframes : EditorIntent
+
+    /**
+     * Keyframes of single parameters of the selected clip (effect values, volume, pan, EQ gains, pose
+     * components; ids in `domain/ParamIds`). The diamond next to a control toggles a key at the playhead;
+     * the keyframe lane drags keys (provisionally, then [EndParamKeyEdit]), changes their curve and copies
+     * and pastes them.
+     */
+    data class ToggleParamKey(val paramId: String) : EditorIntent
+    data class JumpToParamKey(val paramId: String, val forward: Boolean) : EditorIntent
+    data class ClearParamTrack(val paramId: String) : EditorIntent
+    data class CopyParamKeys(val paramId: String) : EditorIntent
+    data class PasteParamKeys(val paramId: String) : EditorIntent
+    data class SetParamKeyShape(
+        val paramId: String,
+        val frame: Long,
+        val interpolation: Interpolation,
+        val out: BezierHandle? = null,
+        val inn: BezierHandle? = null,
+    ) : EditorIntent
+
+    /** Moves the key at [fromFrame] to [toFrame] with [value]; shown live until [EndParamKeyEdit]. */
+    data class UpdateParamKey(val paramId: String, val fromFrame: Long, val toFrame: Long, val value: Double) : EditorIntent
+    data class EndParamKeyEdit(val commit: Boolean) : EditorIntent
+
+    /** Which parameter row of the keyframe lane has the key whose curve is being shaped. */
+    data class SelectParamKey(val paramId: String?, val frame: Long?) : EditorIntent
 
     /**
      * Plays the selected clip at [num]/[den] times normal speed (0.1x to 8x). The clip keeps its source

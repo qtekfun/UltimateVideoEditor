@@ -34,6 +34,7 @@ import com.ultimatevideo.uveditor.engine.timeline.WaveformBeatSource
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.editor.EditorScreen
 import com.ultimatevideo.uveditor.ui.editor.EditorViewModel
+import com.ultimatevideo.uveditor.ui.editor.loudnessCacheIn
 import com.ultimatevideo.uveditor.ui.hub.HubIntent
 import com.ultimatevideo.uveditor.ui.hub.HubScreen
 import com.ultimatevideo.uveditor.ui.hub.HubViewModel
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
                                     mediaImporter,
                                     mediaCaches = ProjectDirMediaCaches(File(filesDir, "projects/$projectId")),
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
+                                    loudnessCache = loudnessCacheIn(filesDir),
                                 )
                             }
                         },
