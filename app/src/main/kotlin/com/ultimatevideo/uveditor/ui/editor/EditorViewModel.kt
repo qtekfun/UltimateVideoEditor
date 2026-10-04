@@ -53,6 +53,21 @@ import com.ultimatevideo.uveditor.domain.EditHistory
 import com.ultimatevideo.uveditor.domain.EditResult
 import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.FrameIndex
+import com.ultimatevideo.uveditor.domain.GroupEditUnavailable
+import com.ultimatevideo.uveditor.domain.GroupTransitions
+import com.ultimatevideo.uveditor.domain.GroupSetSpeed
+import com.ultimatevideo.uveditor.domain.GroupSetOpacity
+import com.ultimatevideo.uveditor.domain.GroupSetGain
+import com.ultimatevideo.uveditor.domain.GroupPasteAttributes
+import com.ultimatevideo.uveditor.domain.GroupPaste
+import com.ultimatevideo.uveditor.domain.GroupOps
+import com.ultimatevideo.uveditor.domain.GroupMove
+import com.ultimatevideo.uveditor.domain.GroupDuplicate
+import com.ultimatevideo.uveditor.domain.GroupDelete
+import com.ultimatevideo.uveditor.domain.GroupAlign
+import com.ultimatevideo.uveditor.domain.ClipSelection
+import com.ultimatevideo.uveditor.domain.ClipAttributes
+import com.ultimatevideo.uveditor.domain.Clipboard
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
@@ -112,7 +127,7 @@ class EditorViewModel(
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
 
-    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long) {
+    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long, val group: List<String>? = null) {
         /** Last lane the finger was over, kept while it crosses a gap between lanes. */
         var target: DropTarget? = null
     }
@@ -154,6 +169,7 @@ class EditorViewModel(
     private var appearance: AppearanceSession? = null
     private var titleEdit: TitleSession? = null
     private var fxEdit: FxSession? = null
+    private var clipboard: Clipboard? = null
     private var saveJob: Job? = null
     private var saveRetryJob: Job? = null
     private var saveRetries = 0
@@ -205,7 +221,10 @@ class EditorViewModel(
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
-            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.DeleteClip(it)) }
+            EditorIntent.RippleDeleteSelected -> {
+                val group = state.value.selection
+                if (group.size > 1) deleteSelection() else withSelection { execute(EditCommand.DeleteClip(it)) }
+            }
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
             EditorIntent.TogglePlay -> togglePlay()
             is EditorIntent.AddTrack -> addTrack(intent.type)
@@ -285,6 +304,7 @@ class EditorViewModel(
             EditorIntent.LeaveWithoutSaving -> emit(EditorEffect.Close)
             EditorIntent.Flush -> flush(thenClose = false)
             EditorIntent.Back -> flush(thenClose = true)
+            is SelectionIntent -> selectionIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
         }
     }
@@ -293,9 +313,9 @@ class EditorViewModel(
     fun canDrag(hit: TimelineHit): Boolean {
         // The playhead (or anywhere on the ruler) scrubs; clips only drag once selected.
         if (hit.kind == HitKind.PLAYHEAD || hit.kind == HitKind.RULER) return true
-        val selected = state.value.selectedClipId ?: return false
+        if (state.value.selectedClipId == null) return false
         val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
-        return onClip && clipKeys.idFor(hit.clipKey) == selected
+        return onClip && clipKeys.idFor(hit.clipKey) in state.value.selection
     }
 
     /** The longest transition that fits across [transition]'s cut now; the upper end of the duration control. */
@@ -313,6 +333,7 @@ class EditorViewModel(
     /** Encodes [state] for the native canvas. All keys are stable for the life of this ViewModel. */
     fun snapshotOf(state: EditorState): TimelineSnapshot {
         val timeline = state.visibleTimeline
+        val selection = state.selection
         val tracks = timeline.tracks.map {
             when (it.type) {
                 TrackType.VIDEO -> SnapshotTrackType.VIDEO
@@ -332,7 +353,8 @@ class EditorViewModel(
                     sourceInFrame = clip.sourceIn.value,
                     sourceFpsNum = state.fps.num,
                     sourceFpsDen = state.fps.den,
-                    selected = clip.id == state.selectedClipId,
+                    selected = clip.id in selection,
+                    primary = clip.id == state.selectedClipId,
                     hasFx = !clip.fx.isNeutral,
                     missing = clip.hasMedia && clip.assetId in state.missingMedia,
                 )
@@ -569,13 +591,34 @@ class EditorViewModel(
             HitKind.RULER, HitKind.PLAYHEAD -> seekTo(hit.frame)
             HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> {
                 val clipId = clipKeys.idFor(hit.clipKey)
-                reduce { copy(selectedClipId = clipId, selectedTrackId = clipId?.let { timeline.trackOfClip(it)?.id } ?: selectedTrackId) }
+                if (state.value.selectMode && clipId != null) {
+                    toggleInSelection(clipId)
+                } else {
+                    // A plain tap goes back to a single selection, even on a clip that was in the group.
+                    reduce {
+                        copy(
+                            selectedClipId = clipId,
+                            selectedClipIds = emptySet(),
+                            selectedTrackId = clipId?.let { timeline.trackOfClip(it)?.id } ?: selectedTrackId,
+                        )
+                    }
+                }
             }
-            HitKind.EMPTY_TRACK -> reduce {
-                copy(selectedClipId = null, selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId)
+            // In select mode a tap on empty space keeps the selection (the Clear button drops it).
+            HitKind.EMPTY_TRACK -> if (state.value.selectMode) {
+                reduce { copy(selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId) }
+            } else {
+                reduce {
+                    copy(
+                        selectedClipId = null,
+                        selectedClipIds = emptySet(),
+                        selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId,
+                    )
+                }
             }
             // Above the lanes (room left by the bottom-anchored stack) a tap is a tap on nothing; OUTSIDE only occurs mid-drag.
-            HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE -> reduce { copy(selectedClipId = null) }
+            HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE ->
+                if (!state.value.selectMode) reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
         }
     }
 
@@ -691,6 +734,7 @@ class EditorViewModel(
                 canUndo = canUndo,
                 canRedo = canRedo,
                 selectedClipId = selectedClipId?.takeIf { committed.trackOfClip(it) != null },
+                selectedClipIds = selectedClipIds.filterTo(LinkedHashSet()) { committed.trackOfClip(it) != null },
                 // If the selected track vanished (undo, removal), fall back to the first video track.
                 selectedTrackId = selectedTrackId?.takeIf { committed.track(it) != null }
                     ?: committed.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
@@ -781,7 +825,8 @@ class EditorViewModel(
             HitKind.CLIP_RIGHT_EDGE -> DragMode.TRIM_END
             else -> DragMode.MOVE
         }
-        drag = DragSession(clipId, mode, hit.frame - clip.timelineStart.value)
+        val group = state.value.selection.takeIf { mode == DragMode.MOVE && it.size > 1 && clipId in it }?.toList()
+        drag = DragSession(clipId, mode, hit.frame - clip.timelineStart.value, group)
         pendingDragCommand = null
     }
 
@@ -816,6 +861,10 @@ class EditorViewModel(
         val playhead = state.value.playhead
         val command = when (session.mode) {
             DragMode.MOVE -> {
+                if (session.group != null) {
+                    groupDrag(session, base, frame, trackIndex, zone, playhead)
+                    return
+                }
                 val target = dropTarget(session, base, trackIndex, zone)
                 session.target = target
                 moveDrag(session, base, FrameIndex((frame - session.grabOffset).coerceAtLeast(0)), target ?: DropTarget.Lane(sourceTrack.id), playhead)
@@ -900,6 +949,155 @@ class EditorViewModel(
     /** Snapping for a drag: clip edges and the playhead, plus the ruler markers while marker snapping is on. */
     private fun snapWith(timeline: Timeline, playhead: FrameIndex): Snap =
         Snap(playhead, SNAP_THRESHOLD_FRAMES, if (state.value.snapToMarkers) timeline.markers.map { it.frame } else emptyList())
+
+    // region multi-selection and group edits
+
+    /** Adds [clipId] to the selection, or removes it when it is already in; the clip toggled on becomes the primary one. */
+    private fun toggleInSelection(clipId: String) {
+        val chosen = LinkedHashSet(state.value.selection)
+        if (!chosen.remove(clipId)) chosen += clipId
+        setSelection(chosen, primary = clipId)
+    }
+
+    /** Makes [ids] the selection; [primary] (when among them, else the last one) is the clip the inspector edits. */
+    private fun setSelection(ids: Set<String>, primary: String? = null) {
+        val picked = primary?.takeIf { it in ids } ?: ids.lastOrNull()
+        reduce {
+            copy(
+                selectedClipIds = if (ids.size > 1) LinkedHashSet(ids) else emptySet(),
+                selectedClipId = picked,
+                selectedTrackId = picked?.let { history.timeline.trackOfClip(it)?.id } ?: selectedTrackId,
+            )
+        }
+    }
+
+    private fun selectionIntent(intent: SelectionIntent) {
+        val timeline = history.timeline
+        when (intent) {
+            SelectionIntent.ToggleSelectMode -> reduce { copy(selectMode = !selectMode) }
+            is SelectionIntent.LongPress -> {
+                val onClip = intent.hit.kind == HitKind.CLIP || intent.hit.kind == HitKind.CLIP_LEFT_EDGE || intent.hit.kind == HitKind.CLIP_RIGHT_EDGE
+                clipKeys.idFor(intent.hit.clipKey)?.takeIf { onClip }?.let(::toggleInSelection)
+            }
+            is SelectionIntent.Marquee -> {
+                val ids = intent.clipKeys.mapNotNull { clipKeys.idFor(it) }.filter { timeline.trackOfClip(it) != null }
+                if (ids.isNotEmpty()) setSelection(LinkedHashSet(state.value.selection + ids), primary = ids.last())
+            }
+            SelectionIntent.SelectLane -> {
+                val lane = state.value.selectedTrackId
+                val ids = lane?.let { ClipSelection.allInLane(timeline, it) }.orEmpty()
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("Tap a lane that has clips first")) else setSelection(ids, state.value.selectedClipId)
+            }
+            SelectionIntent.SelectFromPlayhead -> {
+                val ids = ClipSelection.fromPlayhead(timeline, state.value.playhead)
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("No clips after the playhead")) else setSelection(ids)
+            }
+            SelectionIntent.SelectAll -> {
+                val ids = timeline.tracks.flatMapTo(LinkedHashSet()) { track -> track.clips.map { it.id } }
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("There are no clips to select")) else setSelection(ids, state.value.selectedClipId)
+            }
+            SelectionIntent.ClearSelection -> reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
+            SelectionIntent.Copy -> copySelection(announce = true)
+            SelectionIntent.Cut -> if (copySelection(announce = false)) deleteSelection()
+            SelectionIntent.Paste -> pasteClipboard()
+            SelectionIntent.Duplicate -> withGroup { runGroupCommand(GroupDuplicate(it), selectNew = true) }
+            SelectionIntent.DeleteSelection -> deleteSelection()
+            SelectionIntent.PasteAttributes -> {
+                val source = clipboard?.primary
+                if (source == null) emit(EditorEffect.ShowMessage("Copy a clip first, then paste its attributes"))
+                else withGroup { execute(GroupPasteAttributes(ClipAttributes.of(source), it)) }
+            }
+            is SelectionIntent.SetGroupSpeed -> withGroup { execute(GroupSetSpeed(it, intent.num, intent.den)) }
+            is SelectionIntent.SetGroupGain -> withGroup { execute(GroupSetGain(it, intent.gainDb)) }
+            is SelectionIntent.SetGroupOpacity -> withGroup { execute(GroupSetOpacity(it, intent.opacity)) }
+            is SelectionIntent.Align -> withGroup { execute(GroupAlign(it, intent.edge)) }
+            is SelectionIntent.ApplyTransitions -> withGroup { ids ->
+                val frames = state.value.fps.microsToFrames(TRANSITION_DEFAULT_MICROS).coerceAtLeast(Transition.MIN_DURATION_FRAMES)
+                val lengths = ids.mapNotNull { id ->
+                    val clip = timeline.trackOfClip(id)?.clip(id) ?: return@mapNotNull null
+                    assetLengthFrames(clip.assetId)?.let { id to it }
+                }.toMap()
+                execute(GroupTransitions(ids, frames, intent.mode, lengths))
+            }
+        }
+    }
+
+    /** Runs [block] with the selected clip ids, or says that nothing is selected. */
+    private inline fun withGroup(block: (List<String>) -> Unit) {
+        val ids = state.value.selection.toList()
+        if (ids.isEmpty()) emit(EditorEffect.ShowMessage("Select a clip first")) else block(ids)
+    }
+
+    private fun copySelection(announce: Boolean): Boolean {
+        val board = Clipboard.capture(history.timeline, state.value.selection)
+        if (board == null) {
+            emit(EditorEffect.ShowMessage("Select clips to copy first"))
+            return false
+        }
+        clipboard = board
+        val count = board.entries.size
+        reduce { copy(clipboardCount = count) }
+        if (announce) emit(EditorEffect.ShowMessage(if (count == 1) "Copied 1 clip" else "Copied $count clips"))
+        return true
+    }
+
+    private fun pasteClipboard() {
+        val board = clipboard
+        if (board == null) {
+            emit(EditorEffect.ShowMessage("Nothing to paste: copy some clips first"))
+            return
+        }
+        runGroupCommand(GroupPaste(board, state.value.playhead), selectNew = true)
+    }
+
+    private fun deleteSelection() = withGroup { execute(GroupDelete(it)) }
+
+    /** Runs a group [command] as one undo step; with [selectNew] the clips it created become the selection. */
+    private fun runGroupCommand(command: EditCommand, selectNew: Boolean = false): Boolean {
+        val before = history.timeline.tracks.flatMapTo(HashSet()) { track -> track.clips.map { it.id } }
+        if (!execute(command)) return false
+        if (selectNew) {
+            val created = history.timeline.tracks.flatMap { track -> track.clips.map { it.id } }.filter { it !in before }
+            if (created.isNotEmpty()) setSelection(LinkedHashSet(created), primary = created.first())
+        }
+        return true
+    }
+
+    /**
+     * One step of dragging a selected clip with several selected: the whole group moves by the same
+     * frames (snapped as a block) and, when the finger is over another lane of the same kind, by the same
+     * number of lanes. A position that would put a clip on another one keeps the last valid preview.
+     */
+    private fun groupDrag(session: DragSession, base: Timeline, frame: Long, trackIndex: Int, zone: DragZone, playhead: FrameIndex) {
+        val ids = session.group ?: return
+        if (zone == DragZone.OUTSIDE) {
+            pendingDragCommand = null
+            reduce { copy(dragPreview = null, dropHint = DropHint(DropKind.CANCEL, null, 0, 0)) }
+            return
+        }
+        val anchorTrack = base.trackOfClip(session.clipId) ?: return
+        val anchor = anchorTrack.clip(session.clipId) ?: return
+        val earliest = ids.mapNotNull { id -> base.trackOfClip(id)?.clip(id)?.timelineStart?.value }.minOrNull() ?: return
+        val requested = ((frame - session.grabOffset) - anchor.timelineStart.value).coerceAtLeast(-earliest)
+        val delta = GroupOps.snappedDelta(base, ids, requested, snapWith(base, playhead)).coerceAtLeast(-earliest)
+        val command = GroupMove(ids, delta, laneDeltaFor(base, anchorTrack, trackIndex, zone))
+        val result = command.apply(base) as? EditResult.Success ?: return
+        pendingDragCommand = if (result.value == base) null else command
+        reduce { copy(dragPreview = result.value, dropHint = null) }
+    }
+
+    /** Lanes of the same kind between the lane of the grabbed clip and the one under the finger (0 on the base or another kind). */
+    private fun laneDeltaFor(base: Timeline, source: Track, trackIndex: Int, zone: DragZone): Int {
+        if (zone != DragZone.LANES) return 0
+        val baseTrack = ClipDeletion.baseTrack(base)
+        if (baseTrack != null && source.id == baseTrack.id) return 0
+        val under = base.tracks.getOrNull(trackIndex) ?: return 0
+        if (under.type != source.type || under.id == baseTrack?.id) return 0
+        val lanes = base.tracks.filter { it.type == source.type && it.id != baseTrack?.id }
+        return lanes.indexOfFirst { it.id == under.id } - lanes.indexOfFirst { it.id == source.id }
+    }
+
+    // endregion
 
     // region audio tools
 
@@ -1898,6 +2096,7 @@ class EditorViewModel(
         is EditError.MarkerNotFound -> "The marker no longer exists"
         is EditError.InvalidTemplate -> "That text template cannot be placed: ${error.reason}"
         is EditError.CutToBeatUnavailable -> "Cut to beat is not possible: ${error.reason}"
+        is GroupEditUnavailable -> error.reason
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
