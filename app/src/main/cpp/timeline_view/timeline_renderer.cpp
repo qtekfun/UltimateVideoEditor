@@ -291,6 +291,8 @@ public:
         height_ = static_cast<float>(height);
         verts_.clear();
         gverts_.clear();
+        if (verts_.capacity() == 0) verts_.reserve(6 * 21000);
+        if (gverts_.capacity() == 0) gverts_.reserve(8 * 6 * 512);
         draws_ = 0;
         vertCount_ = 0;
         glViewport(0, 0, width, height);
@@ -321,10 +323,13 @@ public:
         x1 = std::min(x1, clip_[2]);
         y1 = std::min(y1, clip_[3]);
         if (x1 <= x0 || y1 <= y0) return;
-        const float quad[6][2] = {{x0, y0}, {x1, y0}, {x0, y1}, {x1, y0}, {x1, y1}, {x0, y1}};
-        for (const auto& p : quad) {
-            verts_.insert(verts_.end(), {p[0], p[1], c.r, c.g, c.b, c.a});
-        }
+        float* v = growColoured(6);
+        putColoured(v, x0, y0, c);
+        putColoured(v + 6, x1, y0, c);
+        putColoured(v + 12, x0, y1, c);
+        putColoured(v + 18, x1, y0, c);
+        putColoured(v + 24, x1, y1, c);
+        putColoured(v + 30, x0, y1, c);
         if (verts_.size() > 6 * 20000) flush();
     }
 
@@ -387,13 +392,17 @@ public:
 
     // Sets a run of single-glyph bitmaps; false (and nothing drawn) when one is missing.
     bool run(const char* s, size_t n, int sizeClass, float x, float y, Color c) {
-        if (runWidth(s, n, sizeClass) < 0.0f) return false;
+        if (textProgram_ == 0 || n > 32) return false;
+        const LabelEntry* found[32];
+        for (size_t i = 0; i < n; ++i) {
+            found[i] = labels_.find(labelHash(s + i, 1, sizeClass));
+            if (found[i] == nullptr) return false;
+        }
         x = std::round(x);
         y = std::round(y);
         for (size_t i = 0; i < n; ++i) {
-            const LabelEntry* e = label(labelHash(s + i, 1, sizeClass));
-            textQuad(*e, x, y, c);
-            x += static_cast<float>(e->w);
+            textQuad(*found[i], x, y, c);
+            x += static_cast<float>(found[i]->w);
         }
         return true;
     }
@@ -426,8 +435,10 @@ public:
         const float loX = std::min({x0, x1, x2}), hiX = std::max({x0, x1, x2});
         const float loY = std::min({y0, y1, y2}), hiY = std::max({y0, y1, y2});
         if (loX < clip_[0] || loY < clip_[1] || hiX > clip_[2] || hiY > clip_[3]) return;
-        const float v[3][2] = {{x0, y0}, {x1, y1}, {x2, y2}};
-        for (const auto& p : v) verts_.insert(verts_.end(), {p[0], p[1], c.r, c.g, c.b, c.a});
+        float* v = growColoured(3);
+        putColoured(v, x0, y0, c);
+        putColoured(v + 6, x1, y1, c);
+        putColoured(v + 12, x2, y2, c);
     }
 
     // The area between a block's square corner and its rounded corner, painted in the colour behind the block. Corner
@@ -438,8 +449,7 @@ public:
         const float cx = cornerX + sx * r, cy = cornerY + sy * r;
         float prevX = cornerX, prevY = cy;  // the arc starts on the vertical edge
         for (int i = 1; i <= kCornerSegments; ++i) {
-            const float a = 1.5707963f * static_cast<float>(i) / static_cast<float>(kCornerSegments);
-            const float px = cx - sx * r * std::cos(a), py = cy - sy * r * std::sin(a);
+            const float px = cx - sx * r * arc().c[i], py = cy - sy * r * arc().s[i];
             triInside(cornerX, cornerY, prevX, prevY, px, py, behind);
             prevX = px;
             prevY = py;
@@ -459,8 +469,7 @@ public:
             const float sy = (q == 0 || q == 1) ? -1.0f : 1.0f;
             float prevX = cxs[q] + sx * r, prevY = cys[q];
             for (int i = 1; i <= kCornerSegments; ++i) {
-                const float a = 1.5707963f * static_cast<float>(i) / static_cast<float>(kCornerSegments);
-                const float px = cxs[q] + sx * r * std::cos(a), py = cys[q] + sy * r * std::sin(a);
+                const float px = cxs[q] + sx * r * arc().c[i], py = cys[q] + sy * r * arc().s[i];
                 triInside(cxs[q], cys[q], prevX, prevY, px, py, c);
                 prevX = px;
                 prevY = py;
@@ -476,11 +485,13 @@ public:
         const float cx0 = std::max(x0, clip_[0]), cx1 = std::min(x1, clip_[2]);
         if (cx1 <= cx0 || cy1 <= cy0) return;
         const Color a = mix(top, bottom, (cy0 - y0) / h), b = mix(top, bottom, (cy1 - y0) / h);
-        const float q[6][3] = {{cx0, cy0, 0}, {cx1, cy0, 0}, {cx0, cy1, 1}, {cx1, cy0, 0}, {cx1, cy1, 1}, {cx0, cy1, 1}};
-        for (const auto& p : q) {
-            const Color& c = p[2] == 0 ? a : b;
-            verts_.insert(verts_.end(), {p[0], p[1], c.r, c.g, c.b, c.a});
-        }
+        float* v = growColoured(6);
+        putColoured(v, cx0, cy0, a);
+        putColoured(v + 6, cx1, cy0, a);
+        putColoured(v + 12, cx0, cy1, b);
+        putColoured(v + 18, cx1, cy0, a);
+        putColoured(v + 24, cx1, cy1, b);
+        putColoured(v + 30, cx0, cy1, b);
         if (verts_.size() > 6 * 20000) flush();
     }
 
@@ -545,6 +556,32 @@ public:
 private:
     static constexpr int kCornerSegments = 3;
 
+    // Appends `n` vertices to the coloured batch and returns where to write them (6 floats each: x, y, r, g, b, a).
+    float* growColoured(size_t n) {
+        const size_t at = verts_.size();
+        verts_.resize(at + n * 6);
+        return verts_.data() + at;
+    }
+    static void putColoured(float* v, float x, float y, const Color& c) {
+        v[0] = x; v[1] = y; v[2] = c.r; v[3] = c.g; v[4] = c.b; v[5] = c.a;
+    }
+
+    // cos/sin of the corner arc steps, computed once: every rounded block uses the same angles.
+    struct ArcTable {
+        float c[kCornerSegments + 1], s[kCornerSegments + 1];
+        ArcTable() {
+            for (int i = 0; i <= kCornerSegments; ++i) {
+                const float a = 1.5707963f * static_cast<float>(i) / static_cast<float>(kCornerSegments);
+                c[i] = std::cos(a);
+                s[i] = std::sin(a);
+            }
+        }
+    };
+    static const ArcTable& arc() {
+        static const ArcTable table;
+        return table;
+    }
+
     // Queues one bitmap quad, cut to the clip rectangle. Coloured glyphs carry their flag as a negative alpha.
     void textQuad(const LabelEntry& e, float x, float y, Color c) {
         const float x1 = x + static_cast<float>(e.w), y1 = y + static_cast<float>(e.h);
@@ -556,9 +593,16 @@ private:
         const float u0 = e.u0 + (cx0 - x) / w * du, u1 = e.u0 + (cx1 - x) / w * du;
         const float v0 = e.v0 + (cy0 - y) / h * dv, v1 = e.v0 + (cy1 - y) / h * dv;
         const float a = e.colour ? -c.a : c.a;
+        const size_t at = gverts_.size();
+        gverts_.resize(at + 48);
+        float* o = gverts_.data() + at;
         const float q[6][4] = {{cx0, cy0, u0, v0}, {cx1, cy0, u1, v0}, {cx0, cy1, u0, v1},
                                {cx1, cy0, u1, v0}, {cx1, cy1, u1, v1}, {cx0, cy1, u0, v1}};
-        for (const auto& p : q) gverts_.insert(gverts_.end(), {p[0], p[1], p[2], p[3], c.r, c.g, c.b, a});
+        for (const auto& p : q) {
+            o[0] = p[0]; o[1] = p[1]; o[2] = p[2]; o[3] = p[3];
+            o[4] = c.r; o[5] = c.g; o[6] = c.b; o[7] = a;
+            o += 8;
+        }
     }
 
     bool initDisplay() {
@@ -754,7 +798,7 @@ struct RenderThreadCtx {
     std::vector<PendingLabel> uploads;  // text bitmaps taken from the shared queue for this frame (kept to reuse its storage)
     bool statsOn = false;
     std::vector<float> statMs;
-    double statDraws = 0.0, statVerts = 0.0;
+    double statDraws = 0.0, statVerts = 0.0, statUploadMs = 0.0, statUploads = 0.0;
 };
 
 thread_local RenderThreadCtx* t_ctx = nullptr;
@@ -1175,7 +1219,10 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     if (freedLabels) cv_.notify_all();  // a sender may be waiting for room
     Gl& g = *ctx.gl;
     if (!ctx.uploads.empty()) {
+        const auto upStart = std::chrono::steady_clock::now();
         for (const PendingLabel& p : ctx.uploads) g.addLabel(p);
+        ctx.statUploadMs += std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - upStart).count();
+        ctx.statUploads += ctx.uploads.size();
         ctx.uploads.clear();
     }
     labelGeneration_.store(g.labelGeneration());
@@ -1727,11 +1774,11 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             std::vector<float> sorted = ctx.statMs;
             std::sort(sorted.begin(), sorted.end());
             const size_t n = sorted.size();
-            LOGI("stats frames=%zu cpu_ms p50=%.2f p95=%.2f p99=%.2f max=%.2f draws=%.1f verts=%.0f", n, sorted[n / 2],
+            LOGI("stats frames=%zu cpu_ms p50=%.2f p95=%.2f p99=%.2f max=%.2f draws=%.1f verts=%.0f uploads=%.0f upload_ms=%.2f", n, sorted[n / 2],
                  sorted[n * 95 / 100], sorted[n * 99 / 100], sorted[n - 1], ctx.statDraws / static_cast<double>(n),
-                 ctx.statVerts / static_cast<double>(n));
+                 ctx.statVerts / static_cast<double>(n), ctx.statUploads, ctx.statUploadMs);
             ctx.statMs.clear();
-            ctx.statDraws = ctx.statVerts = 0.0;
+            ctx.statDraws = ctx.statVerts = ctx.statUploadMs = ctx.statUploads = 0.0;
         }
     }
     if (!g.endFrame()) return;
