@@ -259,6 +259,7 @@ class TemplateWizardViewModel(
                 id = id, uri = uri, durationFrames = project.microsToFrames(PHOTO_DEFAULT_MICROS).coerceAtLeast(1),
                 nativeFpsNum = project.num, nativeFpsDen = project.den, colorSpace = probed.colorSpace,
                 hasVideo = false, hasAudio = false, isImage = true, displayName = probed.displayName,
+                animationDelaysMs = probed.animationDelaysMs,
             )
         }
         // Audio-only files have no native frame rate; use the project's.
