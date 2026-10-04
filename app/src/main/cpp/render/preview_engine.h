@@ -19,6 +19,7 @@
 #include "decode/video_decoder.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
+#include "render/scope_renderer.h"
 
 namespace uv::render {
 
@@ -107,6 +108,15 @@ public:
     // The surface was resized or reformatted: redraw the current frame at the new size.
     void surfaceChanged();
 
+    // The video scopes panel: a second surface the engine draws the waveform, parade, vectorscope or
+    // histogram of what the preview shows on, entirely on the GPU and at most 30 times a second, and only
+    // while the surface is attached. Blocking; call from any thread but the render thread.
+    decode::Status attachScopeSurface(ANativeWindow* window, decode::Error* error);
+    void detachScopeSurface();
+    void scopeSurfaceChanged();
+    // `mode` is a scope::Mode value (0 waveform, 1 parade, 2 vectorscope, 3 histogram).
+    void setScopeMode(int mode);
+
     // Blocking I/O: call from a background thread. Takes ownership of `fd`.
     decode::Result<decode::AssetInfo> openAsset(uint32_t assetId, int fd, decode::Rational fpsOverride);
     void closeAsset(uint32_t assetId);
@@ -185,6 +195,8 @@ private:
     void maybeDraw(bool force, int64_t presentNs = 0);
     // Installs `layers` as the scene and points each decoder at its frame. Returns false if none remain.
     bool applyScene(int canvasW, int canvasH, std::vector<SceneLayer> layers);
+    // Draws the scopes from the last captured frame (render thread only); throttled to ~30 Hz unless `force`.
+    void renderScope(bool force);
     void tick(uint64_t generation);
     void tickScene(uint64_t generation);
     void report(const decode::Error& error);
@@ -198,6 +210,12 @@ private:
     // Render-thread state.
     std::unique_ptr<EglContext> egl_;
     std::unique_ptr<GlPipeline> pipeline_;
+    // Scopes (render thread only).
+    std::unique_ptr<ScopeRenderer> scope_;
+    bool scopeActive_ = false;  // a scope surface is attached and the renderer is ready
+    scope::Mode scopeMode_ = scope::Mode::Waveform;
+    std::chrono::steady_clock::time_point scopeLast_;
+    bool scopeTaskPending_ = false;
     OutputSpace requestedSpace_ = OutputSpace::Sdr709;     // what the caller asked for
     std::atomic<int> effectiveSpace_{static_cast<int>(OutputSpace::Sdr709)};  // what the surface really is
     // Buffers evicted from the cache are recycled: allocating a 4K buffer per frame is too slow.
