@@ -118,8 +118,14 @@ add_executable(uv_decode_sim_host_tests ${CMAKE_CURRENT_SOURCE_DIR}/../../../tes
 target_include_directories(uv_decode_sim_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_decode_sim_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# FFmpeg fallback: decoder selection, budget, timestamp mapping, worker planning (pure logic, no libav).
+add_executable(uv_ffmpeg_selection_host_tests ${CMAKE_CURRENT_SOURCE_DIR}/../../../test/cpp/ffmpeg_selection_tests.cpp)
+target_include_directories(uv_ffmpeg_selection_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_ffmpeg_selection_host_tests PRIVATE -Wall -Wextra -Werror)
+
 enable_testing()
 add_test(NAME uv_decode_sim_host_tests COMMAND uv_decode_sim_host_tests)
+add_test(NAME uv_ffmpeg_selection_host_tests COMMAND uv_ffmpeg_selection_host_tests)
 add_test(NAME uv_track_host_tests COMMAND uv_track_host_tests)
 add_test(NAME uv_stabilise_host_tests COMMAND uv_stabilise_host_tests)
 add_test(NAME uv_hdr_host_tests COMMAND uv_hdr_host_tests)

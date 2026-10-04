@@ -19,7 +19,7 @@ using decode::Error;
 using decode::GpuFrame;
 using decode::Result;
 using decode::Status;
-using decode::VideoDecoder;
+using decode::IVideoDecoder;
 using Clock = std::chrono::steady_clock;
 
 namespace {
@@ -243,7 +243,7 @@ void PreviewEngine::surfaceChanged() {
     thread_->postAt(redraw, now + std::chrono::milliseconds(120));
 }
 
-std::shared_ptr<VideoDecoder> PreviewEngine::decoderFor(uint32_t assetId) {
+std::shared_ptr<IVideoDecoder> PreviewEngine::decoderFor(uint32_t assetId) {
     std::lock_guard<std::mutex> lock(assetMu_);
     auto it = assets_.find(assetId);
     return it == assets_.end() ? nullptr : it->second.decoder;
@@ -257,14 +257,14 @@ Result<AssetInfo> PreviewEngine::openAsset(uint32_t assetId, int fd, decode::Rat
             return Error{Status::InvalidState, "asset " + std::to_string(assetId) + " is already open"};
         }
     }
-    VideoDecoder::Callbacks callbacks;
+    decode::DecoderCallbacks callbacks;
     callbacks.onImageAvailable = [this, assetId] { thread_->post([this, assetId] { drain(assetId); }); };
     callbacks.isCached = [this, assetId](int64_t frame) { return cache_.contains(FrameKey{assetId, frame}); };
     callbacks.onError = [this](const Error& e) { report(e); };
 
-    auto opened = VideoDecoder::open(fd, fpsOverride, std::move(callbacks));
+    auto opened = decode::openVideoDecoder(fd, fpsOverride, std::move(callbacks));
     if (!opened.ok()) return opened.error();
-    std::shared_ptr<VideoDecoder> decoder(std::move(opened.value()));
+    std::shared_ptr<IVideoDecoder> decoder(std::move(opened.value()));
     const AssetInfo info = decoder->info();
     {
         std::lock_guard<std::mutex> lock(assetMu_);
@@ -279,7 +279,7 @@ Result<AssetInfo> PreviewEngine::openAsset(uint32_t assetId, int fd, decode::Rat
 }
 
 void PreviewEngine::closeAsset(uint32_t assetId) {
-    std::shared_ptr<VideoDecoder> decoder;
+    std::shared_ptr<IVideoDecoder> decoder;
     {
         std::lock_guard<std::mutex> lock(assetMu_);
         auto it = assets_.find(assetId);
@@ -303,7 +303,7 @@ void PreviewEngine::closeAsset(uint32_t assetId) {
 void PreviewEngine::applyWindowForBudget() {
     // The windows must fit the cache or the decoders would evict what they just produced and loop.
     // Every open asset gets an equal share of the budget.
-    std::vector<std::pair<uint32_t, std::shared_ptr<VideoDecoder>>> decoders;
+    std::vector<std::pair<uint32_t, std::shared_ptr<IVideoDecoder>>> decoders;
     {
         std::lock_guard<std::mutex> lock(assetMu_);
         for (auto& entry : assets_) decoders.emplace_back(entry.first, entry.second.decoder);

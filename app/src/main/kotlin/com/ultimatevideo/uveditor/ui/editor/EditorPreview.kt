@@ -94,6 +94,8 @@ class EditorPreview(
     private val lutLoader: (Int) -> CubeLut? = { null },
     /** The proxy of this asset could not be opened: the owner stops offering it and the original is shown instead. */
     private val onProxyFailed: (assetId: String) -> Unit = {},
+    /** An asset was opened by the software (FFmpeg) decoder; [proxyAdvised] when it is too heavy for real time. */
+    private val onSoftwareDecoding: (proxyAdvised: Boolean) -> Unit = {},
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -394,12 +396,13 @@ class EditorPreview(
         val key = request.assetKey
         opening += key
         scope.launch {
+            var softwareInfo: com.ultimatevideo.uveditor.engine.preview.AssetInfo? = null
             val error = try {
                 withContext(Dispatchers.IO) {
                     val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(request.uri), "r")
                         ?: throw FileNotFoundException(request.uri)
                     engine.openAsset(key, descriptor, request.fpsNum, request.fpsDen)
-                }
+                }.let { info -> if (info.software) softwareInfo = info }
                 null
             } catch (e: FileNotFoundException) {
                 "A media file is missing, so it cannot be previewed"
@@ -423,6 +426,7 @@ class EditorPreview(
                 return@launch
             }
             open += key
+            softwareInfo?.let { onSoftwareDecoding(it.proxyAdvised) }
             openUris[key] = request.uri
             // The playhead may have moved while the asset was opening. While following, the next
             // tick sees the changed set of ready layers and re-anchors by itself.
