@@ -14,6 +14,7 @@ import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
@@ -333,6 +334,15 @@ sealed interface EditorIntent : UiIntent {
     data class MoveEffect(val effectId: String, val toIndex: Int) : EditorIntent
     data class UpdateEffect(val effectId: String, val values: List<Double>) : EditorIntent
     data class SetBlendMode(val mode: BlendMode) : EditorIntent
+
+    /**
+     * A drag on a colour grade wheel, slider or curve point: the new values and curves of grade effect
+     * [effectId], shown live and committed by [EndFxEdit] like [UpdateEffect].
+     */
+    data class UpdateGrade(val effectId: String, val values: List<Double>, val curves: GradeCurves?) : EditorIntent
+
+    /** Applies a saved look or a pasted grade to the selected clip in one undo step (replaces its grade, or adds one). */
+    data class ApplyGrade(val values: List<Double>, val curves: GradeCurves?) : EditorIntent
 
     /** Reads the selected video clip's source as this colour space; null goes back to what its file says. */
     data class SetClipColor(val space: com.ultimatevideo.uveditor.domain.SourceColorSpace?) : EditorIntent
