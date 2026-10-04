@@ -160,3 +160,25 @@ note indicator, recover from `.bak`, importing a bundle, library and EDL/FCPXML.
 - Files pushed with adb are not offered by the picker until a media scan:
   `adb shell content call --uri content://media/external_primary --method scan_volume --arg external_primary`.
 - While the inspector is open it covers the timeline and ruler; close it (toolbar tune button) before seeking.
+
+# Second round (the areas listed above as not run)
+
+Same Pixel 8, build of master with PRs #84, #86 and #87 merged, appId suffix `qb`. Navigation notes: the clip inspector ("Clip
+appearance") is the sliders-with-lines icon on the second page of the toolbar (swipe the toolbar left); the dotted-square icon on the
+first page is multiselect, not the inspector.
+
+## 2. Keyframes
+
+- Clip of 10 s, inspector > Animation: diamond at 0:00 (scale 100 %), playhead to 4:29, Scale slider dragged to 278 %. The header reads
+  "Animation · 2 keyframes", the diamond is filled at 4:29 and a yellow marker sits on the clip at the playhead. Editing an animated clip
+  at the playhead wrote the keyframe by itself.
+- Interpolation (Linear): at 2:15 the slider reads 190 % (expected 189.6 %).
+- Export 720p/30 H.264 (300 frames, 10.000 s): the exported frame at 2.5 s shows the same crop, grey L-shape and diagonal as the preview
+  at 2:15, and the frame at 4.97 s matches the preview at 4:29 (278 %). PASS.
+- Not run: dragging a point in the Keyframes lane (the lane was not visible with the inspector closed; only the marker on the clip),
+  Ease/Hold/Bezier, copy/paste of keyframes. PARTIAL.
+
+## D3 (found here, fixed in PR #88)
+
+A clip imported in this session was listed in the media tray as `msf%3A1000001071` instead of `clip_a.mp4`: `assetFor` never stored
+`probed.displayName` (only the backfill on reopening did). Fixed with a regression test in `EditorViewModelTest`.
