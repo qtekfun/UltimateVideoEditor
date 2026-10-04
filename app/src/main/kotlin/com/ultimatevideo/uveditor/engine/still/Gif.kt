@@ -137,7 +137,7 @@ internal class GifFrame(
     val transparentIndex: Int,
 )
 
-internal class GifScan(val width: Int, val height: Int, val frames: List<GifFrame>) {
+internal class GifScan(val width: Int, val height: Int, val frames: List<GifFrame>, val repeatCount: Int? = null) {
     companion object {
         /** Walks the blocks of [bytes] and collects every frame; the LZW data is kept, not decoded. */
         fun scan(bytes: ByteArray): GifScan {
@@ -153,6 +153,7 @@ internal class GifScan(val width: Int, val height: Int, val frames: List<GifFram
             val globalPalette = if (packed and 0x80 != 0) palette(r, 1 shl ((packed and 7) + 1)) else null
 
             val frames = ArrayList<GifFrame>()
+            var repeatCount: Int? = null
             var delayCs = 0
             var disposal = 0
             var transparent = -1
@@ -170,6 +171,25 @@ internal class GifScan(val width: Int, val height: Int, val frames: List<GifFram
                             transparent = if (gcePacked and 1 != 0) index else -1
                             r.skip(size - 4)
                             r.skipSubBlocks()
+                        } else if (label == 0xFF) {
+                            // Application extension; NETSCAPE2.0 sub-block 1 carries the repeat count (0 = forever).
+                            val size = r.u8()
+                            val name = r.string(size)
+                            if (name == "NETSCAPE2.0" || name == "ANIMEXTS1.0") {
+                                while (true) {
+                                    val n = r.u8()
+                                    if (n == 0) break
+                                    val id = r.u8()
+                                    if (n >= 3 && id == 1 && repeatCount == null) {
+                                        repeatCount = r.u16()
+                                        r.skip(n - 3)
+                                    } else {
+                                        r.skip(n - 1)
+                                    }
+                                }
+                            } else {
+                                r.skipSubBlocks()
+                            }
                         } else {
                             r.skipSubBlocks()
                         }
@@ -196,7 +216,7 @@ internal class GifScan(val width: Int, val height: Int, val frames: List<GifFram
                 }
             }
             if (frames.isEmpty()) throw GifFormatException("no frames")
-            return GifScan(width, height, frames)
+            return GifScan(width, height, frames, repeatCount)
         }
 
         private fun palette(r: Reader, size: Int): IntArray = IntArray(size) {
@@ -363,6 +383,23 @@ object WebpAnimationScan {
         return if (animated) delays else emptyList()
     }
 
+    /** How many times the animation plays in total from its ANIM chunk (loop count; 0 is forever); 0 when it has none. */
+    fun plays(bytes: ByteArray): Int {
+        if (bytes.size < 12 || tag(bytes, 0) != "RIFF" || tag(bytes, 8) != "WEBP") return 0
+        var at = 12
+        while (at + 8 <= bytes.size) {
+            val size = u32(bytes, at + 4)
+            val body = at + 8
+            if (size < 0 || body + size > bytes.size) return 0
+            if (tag(bytes, at) == "ANIM" && size >= ANIM_HEADER) {
+                // background colour(4) then loop count(2)
+                return (bytes[body + 4].toInt() and 0xFF) or ((bytes[body + 5].toInt() and 0xFF) shl 8)
+            }
+            at = body + size + (size and 1)
+        }
+        return 0
+    }
+
     private fun tag(b: ByteArray, at: Int) = String(b, at, 4, Charsets.ISO_8859_1)
 
     private fun u32(b: ByteArray, at: Int): Int =
@@ -371,6 +408,7 @@ object WebpAnimationScan {
 
     private const val ANIMATION_FLAG = 0x02
     private const val ANMF_HEADER = 16
+    private const val ANIM_HEADER = 6
 }
 
 /** Reads the delays of a GIF without decoding any frame. */
@@ -380,5 +418,15 @@ object GifDelayScan {
         GifScan.scan(bytes).frames.map { it.delayCs * 10 }
     } catch (e: GifFormatException) {
         emptyList()
+    }
+
+    /**
+     * How many times the GIF plays in total, 0 for forever. Without a NETSCAPE2.0 extension a GIF plays once; with
+     * one, a repeat count of N plays it N + 1 times (browsers do the same) and 0 plays it forever.
+     */
+    fun plays(bytes: ByteArray): Int = try {
+        GifScan.scan(bytes).repeatCount.let { if (it == null) 1 else if (it == 0) 0 else it + 1 }
+    } catch (e: GifFormatException) {
+        0
     }
 }

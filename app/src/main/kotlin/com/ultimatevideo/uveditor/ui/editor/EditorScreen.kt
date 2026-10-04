@@ -561,6 +561,16 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
         }
     }
+    // The clips being dragged or trimmed (lifted with a shadow) and the snap line. After the snapshot effect so the keys
+    // name clips the engine already has.
+    StateEffect(holder, { listOf(it.dragOverlay, it.visibleTimeline) }) { s ->
+        val overlay = s.dragOverlay
+        try {
+            engine.setDragOverlay(overlay?.guideFrame, overlay?.let { viewModel.dragOverlayKeys(it) } ?: LongArray(0))
+        } catch (e: EngineException) {
+            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+        }
+    }
     // The lane being dragged by its header and where it would land. After the snapshot effect, like the drop hint,
     // so the indices refer to the timeline the engine already has.
     StateEffect(holder, { listOf(it.laneDrag, it.visibleTimeline) }) { s ->

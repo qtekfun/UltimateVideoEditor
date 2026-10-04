@@ -6,13 +6,17 @@ package com.ultimatevideo.uveditor.domain
  * shows at a project frame is decided here, with exact integer microsecond arithmetic, so the preview and the
  * exporter pick the same one.
  *
+ * [plays] is how many times the file plays the animation in total ([INFINITE], 0, loops for as long as the clip
+ * lasts). After the last pass the clip holds the animation's last frame.
+ *
  * The animation starts at the clip's own first frame ([RenderClip.keyframeOriginFrame]); trimming the clip's
  * start does not move it, because a picture has no source position to trim into.
  */
-data class AnimationTiming(val delaysMs: List<Int>) {
+data class AnimationTiming(val delaysMs: List<Int>, val plays: Int = INFINITE) {
     init {
         require(delaysMs.isNotEmpty()) { "an animation has at least one frame" }
         require(delaysMs.all { it in 1..MAX_DELAY_MS }) { "frame delays must be 1..$MAX_DELAY_MS ms" }
+        require(plays >= 0) { "plays must not be negative: $plays" }
     }
 
     val frameCount: Int get() = delaysMs.size
@@ -35,7 +39,9 @@ data class AnimationTiming(val delaysMs: List<Int>) {
     /** The animation frame shown at [clipFrame] frames after the clip's start (looping), at project rate [fps]. */
     fun frameIndexAt(clipFrame: Long, fps: FrameRate): Int {
         require(clipFrame >= 0) { "clip frame must not be negative: $clipFrame" }
-        return indexAtMicros(fps.framesToMicros(clipFrame) % periodMicros)
+        val micros = fps.framesToMicros(clipFrame)
+        if (plays != INFINITE && micros >= periodMicros * plays) return frameCount - 1
+        return indexAtMicros(micros % periodMicros)
     }
 
     /** Index of the frame whose interval contains [micros] (0 until [periodMicros]). */
@@ -75,6 +81,12 @@ data class AnimationTiming(val delaysMs: List<Int>) {
 
     companion object {
         const val MAX_DELAY_MS = 600_000
+
+        /** [plays] of an animation that never stops. */
+        const val INFINITE = 0
+
+        /** The most passes a file can ask for (a WebP stores 16 bits; a GIF adds the first pass to its repeat count). */
+        const val MAX_PLAYS = 65_536
         private const val MICROS_PER_MS = 1000L
 
         /**
@@ -88,8 +100,8 @@ data class AnimationTiming(val delaysMs: List<Int>) {
         fun effectiveDelay(rawMs: Int): Int = if (rawMs <= MIN_EFFECTIVE_DELAY_MS) DEFAULT_DELAY_MS else rawMs.coerceAtMost(MAX_DELAY_MS)
 
         /** The timing of a picture whose frames are shown for [rawDelaysMs], or null for fewer than two frames. */
-        fun ofRaw(rawDelaysMs: List<Int>): AnimationTiming? =
-            if (rawDelaysMs.size < 2) null else AnimationTiming(rawDelaysMs.map(::effectiveDelay))
+        fun ofRaw(rawDelaysMs: List<Int>, plays: Int = INFINITE): AnimationTiming? =
+            if (rawDelaysMs.size < 2) null else AnimationTiming(rawDelaysMs.map(::effectiveDelay), plays.coerceIn(0, MAX_PLAYS))
     }
 }
 
