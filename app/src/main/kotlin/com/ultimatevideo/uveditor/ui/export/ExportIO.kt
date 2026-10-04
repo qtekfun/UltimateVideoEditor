@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import java.io.FileNotFoundException
 import java.io.IOException
 
@@ -21,6 +22,9 @@ interface ExportIO {
 
     fun close(fd: Int)
 
+    /** The name the document has on disk (the user may have renamed it in the picker), or null when unknown. */
+    fun displayName(uri: String): String? = null
+
     /** Removes a partly written output; failures are ignored (the file may already be gone). */
     fun deleteOutput(uri: String)
 }
@@ -37,6 +41,16 @@ class ContentResolverExportIO(private val context: Context) : ExportIO {
             throw IOException("No permission to open $uri", e)
         }
         return (descriptor ?: throw FileNotFoundException(uri)).detachFd()
+    }
+
+    override fun displayName(uri: String): String? = try {
+        context.contentResolver.query(Uri.parse(uri), arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0)?.takeIf(String::isNotBlank) else null
+        }
+    } catch (e: SecurityException) {
+        null
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     override fun close(fd: Int) {
