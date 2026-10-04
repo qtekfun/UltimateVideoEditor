@@ -162,6 +162,48 @@ object LaneOps {
     }
 
     /**
+     * Display indices (top first) of the lanes that reorder together with [trackId]: lanes of its own kind, never the
+     * base. Empty for the base and for an unknown track.
+     */
+    fun laneGroup(timeline: Timeline, trackId: String): List<Int> {
+        val track = timeline.track(trackId) ?: return emptyList()
+        val baseId = ClipDeletion.baseTrack(timeline)?.id
+        if (track.id == baseId) return emptyList()
+        return timeline.tracks.indices.filter { timeline.tracks[it].type == track.type && timeline.tracks[it].id != baseId }
+    }
+
+    /**
+     * Where a lane dragged by its header lands while the finger is over display lane [hoverIndex]: the nearest lane of
+     * its group (the base and lanes of other kinds are never targets). Null when the lane cannot move at all (it is the
+     * base or the only lane of its kind).
+     */
+    fun laneDropTarget(timeline: Timeline, trackId: String, hoverIndex: Int): Int? {
+        val group = laneGroup(timeline, trackId)
+        if (group.size < 2) return null
+        return group.minByOrNull { kotlin.math.abs(it - hoverIndex) }
+    }
+
+    /**
+     * Moves lane [trackId] to the display slot [targetIndex] of its group, shifting the lanes in between by one place;
+     * lanes of other kinds and the base keep their slots. [targetIndex] must be one of [laneGroup]'s slots.
+     */
+    fun moveTrackTo(timeline: Timeline, trackId: String, targetIndex: Int): EditResult<Timeline> {
+        val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))
+        val base = ClipDeletion.baseTrack(timeline)
+        if (base != null && track.id == base.id) return failure(EditError.BaseTrackCannotMove(trackId))
+        val group = laneGroup(timeline, trackId)
+        if (targetIndex !in group) return failure(EditError.TrackCannotMove(trackId, "lanes only move among lanes of their own kind"))
+        val from = timeline.tracks.indexOfFirst { it.id == trackId }
+        if (from == targetIndex) return EditResult.Success(timeline)
+        val order = group.map { timeline.tracks[it] }.toMutableList()
+        val moved = order.removeAt(group.indexOf(from))
+        order.add(group.indexOf(targetIndex), moved)
+        val tracks = timeline.tracks.toMutableList()
+        group.forEachIndexed { position, slot -> tracks[slot] = order[position] }
+        return EditResult.Success(timeline.copy(tracks = tracks))
+    }
+
+    /**
      * Drops a clip into the cut between two touching clips of an overlay, audio or title lane, opening room
      * for it: the clips after the cut shift right by the clip's length, only on that lane (nothing else
      * moves). A cut inside a clip, or a base lane (use the base insert there), is refused.

@@ -12,8 +12,15 @@ namespace uv::timeline {
 
 enum class TrackType : int32_t { Video = 0, Audio = 1, Title = 2 };
 
+// Wire word of a track: bits 0..7 the type, bit 8 muted, bit 9 solo (audio lanes; bits 10 and up are ignored).
+constexpr int32_t kTrackTypeMask = 0xFF;
+constexpr int32_t kTrackMutedBit = 1 << 8;
+constexpr int32_t kTrackSoloBit = 1 << 9;
+
 struct TrackSnapshot {
     TrackType type;
+    bool muted = false;
+    bool solo = false;
 };
 
 struct ClipSnapshot {
@@ -116,7 +123,7 @@ struct TimelineSnapshot {
 // primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
-//   tracks: i32 type * trackCount
+//   tracks: i32 * trackCount: type in bits 0..7, bit8 = muted, bit9 = solo (the high bits were zero before lane headers)
 //   clips : i64 clipKey, i32 trackIndex, i64 assetKey, i64 start, i64 duration, i64 sourceIn,
 //           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected, bit1=hasFx, bit2=missing, bit3=primary)   (56 bytes each)
 //   trailer: i32 transitionCount, then per transition:

@@ -547,6 +547,79 @@ class EditorViewModelTest {
         assertTrue(h.effects.any { it is EditorEffect.ShowMessage })
     }
 
+    private fun header(track: Int) = TimelineHit(HitKind.LANE_HEADER, track, -1, 0)
+
+    @Test
+    fun `dragging a lane by its header picks the slot under the finger and release is one undo step`() = runTest(dispatcher) {
+        val h = harness(stackedProject()) // display order: v3, v2, base v1, a1
+        h.vm.onIntent(LaneDragIntent.Start(header(1)))
+        assertEquals(LaneDrag("v2", 1, 1), h.state.laneDrag)
+        assertEquals("v2", h.state.selectedTrackId)
+
+        h.vm.onIntent(LaneDragIntent.Move(TimelineHit(HitKind.EMPTY_TRACK, 0, -1, 40)))
+        assertEquals(0, h.state.laneDrag!!.toIndex)
+        // The base is never a target: over it the nearest overlay lane is chosen.
+        h.vm.onIntent(LaneDragIntent.Move(TimelineHit(HitKind.EMPTY_TRACK, 2, -1, 40)))
+        assertEquals(1, h.state.laneDrag!!.toIndex)
+        // Above the lanes means the top of the stack; outside the panel and the gaps keep the last target.
+        h.vm.onIntent(LaneDragIntent.Move(TimelineHit(HitKind.ABOVE_LANES, -1, -1, 0)))
+        assertEquals(0, h.state.laneDrag!!.toIndex)
+        h.vm.onIntent(LaneDragIntent.Move(TimelineHit(HitKind.OUTSIDE, -1, -1, 0)))
+        h.vm.onIntent(LaneDragIntent.Move(TimelineHit(HitKind.NONE, -1, -1, 0)))
+        assertEquals(0, h.state.laneDrag!!.toIndex)
+        // Nothing changes until release.
+        assertEquals(listOf("v3", "v2", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+
+        h.vm.onIntent(LaneDragIntent.End(commit = true))
+        assertNull(h.state.laneDrag)
+        assertEquals(listOf("v2", "v3", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("v3", "v2", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+    }
+
+    @Test
+    fun `a cancelled lane drag changes nothing and drops the indicator`() = runTest(dispatcher) {
+        val h = harness(stackedProject())
+        h.vm.onIntent(LaneDragIntent.Start(header(0)))
+        h.vm.onIntent(LaneDragIntent.Move(TimelineHit(HitKind.EMPTY_TRACK, 1, -1, 0)))
+        assertEquals(1, h.state.laneDrag!!.toIndex)
+        h.vm.onIntent(LaneDragIntent.End(commit = false))
+        assertNull(h.state.laneDrag)
+        assertEquals(listOf("v3", "v2", "v1", "a1"), h.state.timeline.tracks.map { it.id })
+    }
+
+    @Test
+    fun `releasing a lane on its own slot is not an edit`() = runTest(dispatcher) {
+        val h = harness(stackedProject())
+        h.vm.onIntent(LaneDragIntent.Start(header(1)))
+        h.vm.onIntent(LaneDragIntent.End(commit = true))
+        assertNull(h.state.laneDrag)
+        assertEquals(false, h.state.canUndo)
+    }
+
+    @Test
+    fun `the base and a lone lane cannot be picked up and say why`() = runTest(dispatcher) {
+        val h = harness(stackedProject())
+        h.vm.onIntent(LaneDragIntent.Start(header(2)))
+        assertNull(h.state.laneDrag)
+        assertEquals("v1", h.state.selectedTrackId)
+        assertTrue(h.effects.any { it is EditorEffect.ShowMessage })
+
+        h.effects.clear()
+        h.vm.onIntent(LaneDragIntent.Start(header(3))) // the only audio lane
+        assertNull(h.state.laneDrag)
+        assertTrue(h.effects.any { it is EditorEffect.ShowMessage })
+    }
+
+    @Test
+    fun `only a lane header hit starts a lane drag and a tap on a header selects the lane`() = runTest(dispatcher) {
+        val h = harness(stackedProject())
+        h.vm.onIntent(LaneDragIntent.Start(TimelineHit(HitKind.EMPTY_TRACK, 1, -1, 0)))
+        assertNull(h.state.laneDrag)
+        h.vm.onIntent(EditorIntent.TapTimeline(header(0)))
+        assertEquals("v3", h.state.selectedTrackId)
+    }
+
     // endregion
 
     @Test

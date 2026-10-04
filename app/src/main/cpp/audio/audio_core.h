@@ -94,6 +94,10 @@ public:
     // One pass of the decode worker. The worker thread loops on this; tests call it directly.
     void serviceOnce();
 
+    // Invariant check (tests, diagnostics): the snapshot the audio thread last rendered with is still
+    // owned by the core, so the next block cannot adopt state from freed memory.
+    bool audioThreadSnapshotIsAlive() const;
+
 private:
     // clip, asset, source in-point, source rate (num, den), a hash of the retime knots, a hash of the
     // noise-suppression settings (a changed profile or strength makes a new source) and a hash of the voice effect.
@@ -117,6 +121,7 @@ private:
     bool openDecoder(ClipSource& src, int32_t rate);
     void drainRetired(bool force);
     void wake();
+    void pruneAliveLocked();
 
     static constexpr int64_t kNoSeek = INT64_MIN;
     static constexpr int32_t kMaxBlock = 4096;

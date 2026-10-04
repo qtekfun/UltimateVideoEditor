@@ -155,6 +155,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = LaneOps.moveTrack(timeline, trackId, delta)
     }
 
+    /** Moves a lane by dragging its header to the display slot [targetIndex] of its own kind (one undo step). */
+    data class MoveTrackTo(val trackId: String, val targetIndex: Int) : EditCommand {
+        override fun apply(timeline: Timeline) = LaneOps.moveTrackTo(timeline, trackId, targetIndex)
+    }
+
     data class RippleAppend(val clipId: String) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.rippleAppend(timeline, clipId)
     }
