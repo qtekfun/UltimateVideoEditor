@@ -11,7 +11,8 @@ import com.ultimatevideo.uveditor.data.interchange.Edl
 import com.ultimatevideo.uveditor.data.interchange.Fcpxml
 import com.ultimatevideo.uveditor.data.interchange.InterchangeExporter
 import com.ultimatevideo.uveditor.domain.AnimationTiming
-import com.ultimatevideo.uveditor.domain.AnnotateMarker
+import com.ultimatevideo.uveditor.domain.EditMarker
+import com.ultimatevideo.uveditor.domain.MoveMarker
 import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
 import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.BundleExportText
@@ -202,7 +203,7 @@ class EditorViewModel(
     private val multicamServices: MulticamServices = MulticamServices.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
-    private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
+    private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD, MARKER }
 
     private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long, val group: List<String>? = null) {
         /** Last lane the finger was over, kept while it crosses a gap between lanes. */
@@ -336,7 +337,6 @@ class EditorViewModel(
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
             EditorIntent.AddTitle -> addTitle()
-            EditorIntent.ToggleMarkerAtPlayhead -> toggleMarkerAtPlayhead()
             EditorIntent.ClearBeatMarkers -> clearBeatMarkers()
             EditorIntent.ToggleMarkerSnap -> reduce { copy(snapToMarkers = !snapToMarkers) }
             EditorIntent.AnalyzeBeats -> analyzeBeats()
@@ -444,6 +444,7 @@ class EditorViewModel(
             is QualifierIntent -> qualifierIntent(intent)
             is LibraryIntent -> libraryIntent(intent)
             is QuickEditIntent -> quickEditIntent(intent)
+            is MarkerIntent -> markerIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
         }
     }
@@ -451,7 +452,7 @@ class EditorViewModel(
     /** True if a drag that starts on [hit] should edit the clip instead of scrolling the timeline. */
     fun canDrag(hit: TimelineHit): Boolean {
         // The playhead (or anywhere on the ruler) scrubs; clips only drag once selected.
-        if (hit.kind == HitKind.PLAYHEAD || hit.kind == HitKind.RULER) return true
+        if (hit.kind == HitKind.PLAYHEAD || hit.kind == HitKind.RULER || hit.kind == HitKind.MARKER) return true
         if (state.value.selectedClipId == null) return false
         val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
         return onClip && clipKeys.idFor(hit.clipKey) in state.value.selection
@@ -539,7 +540,10 @@ class EditorViewModel(
         val labels = timeline.tracks.flatMap { track ->
             track.clips.mapNotNull { clip -> ClipLabels.of(clip)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels, trackFlags)
+        val markerLabels = timeline.markers.mapIndexedNotNull { index, marker ->
+            ClipLabels.clean(marker.name.orEmpty()).takeIf { it.isNotEmpty() }?.let { SnapshotLabel(SnapshotLabel.markerKey(index), it) }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels + markerLabels, trackFlags)
     }
 
     // region loading and saving
@@ -751,8 +755,10 @@ class EditorViewModel(
     // region selection, playhead, history
 
     private fun tap(hit: TimelineHit) {
+        if (hit.kind != HitKind.MARKER) closeMarkerPopup()
         when (hit.kind) {
             HitKind.RULER, HitKind.PLAYHEAD -> seekTo(hit.frame)
+            HitKind.MARKER -> history.timeline.markers.getOrNull(hit.clipKey.toInt())?.let { openMarker(it.id) }
             HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> {
                 val clipId = clipKeys.idFor(hit.clipKey)
                 if (state.value.selectMode && clipId != null) {
@@ -845,6 +851,7 @@ class EditorViewModel(
                 add(clip.timelineEnd.value)
             }
         }
+        if (state.value.snapToMarkers) history.timeline.markers.forEach { add(it.frame.value) }
     }
 
     private fun previousEditPoint(): Long = editPoints().filter { it < state.value.playhead.value }.maxOrNull() ?: 0
@@ -1308,7 +1315,7 @@ class EditorViewModel(
                 val drag = state.value.laneDrag ?: return
                 val hover = when (intent.hit.kind) {
                     // Above the lanes or in the ruler: the top of the stack.
-                    HitKind.ABOVE_LANES, HitKind.RULER, HitKind.PLAYHEAD -> 0
+                    HitKind.ABOVE_LANES, HitKind.RULER, HitKind.PLAYHEAD, HitKind.MARKER -> 0
                     // Outside the panel or in the gap between lanes: keep the last target.
                     HitKind.OUTSIDE, HitKind.NONE -> return
                     else -> intent.hit.trackIndex
@@ -1352,6 +1359,14 @@ class EditorViewModel(
             setPlayhead(hit.frame)
             return
         }
+        if (hit.kind == HitKind.MARKER) {
+            val marker = history.timeline.markers.getOrNull(hit.clipKey.toInt()) ?: return
+            closeMarkerPopup()
+            pausePlayback()
+            drag = DragSession(clipId = marker.id, mode = DragMode.MARKER, grabOffset = hit.frame - marker.frame.value)
+            pendingDragCommand = null
+            return
+        }
         val clipId = clipKeys.idFor(hit.clipKey) ?: return
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
         val mode = when (hit.kind) {
@@ -1389,6 +1404,10 @@ class EditorViewModel(
             setPlayhead(frame)
             return
         }
+        if (session.mode == DragMode.MARKER) {
+            markerDrag(session, frame)
+            return
+        }
         val base = history.timeline
         val sourceTrack = base.trackOfClip(session.clipId) ?: return
         val clip = sourceTrack.clip(session.clipId) ?: return
@@ -1415,7 +1434,7 @@ class EditorViewModel(
                 frame = snapFrame(base, session.clipId, frame, playhead),
                 sourceLength = assetLengthFrames(clip.assetId),
             )
-            DragMode.PLAYHEAD -> return
+            DragMode.PLAYHEAD, DragMode.MARKER -> return
         }
         // A rejected position (overlap, out of range) keeps the last valid preview on screen.
         val result = command.apply(base)
@@ -1813,14 +1832,146 @@ class EditorViewModel(
 
     // region markers, beats and text templates
 
-    private fun toggleMarkerAtPlayhead() {
+    private fun markerIntent(intent: MarkerIntent) {
+        when (intent) {
+            MarkerIntent.AddAtPlayhead -> addMarkerAtPlayhead()
+            is MarkerIntent.Open -> openMarker(intent.markerId)
+            is MarkerIntent.NameChanged -> editMarkerPopup { copy(name = intent.text.replace('\n', ' ').take(MarkerOps.MAX_NAME_LENGTH)) }
+            is MarkerIntent.NoteChanged -> editMarkerPopup { copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH)) }
+            is MarkerIntent.ColorChosen -> editMarkerPopup { copy(color = intent.color) }
+            MarkerIntent.Close -> closeMarkerPopup()
+            MarkerIntent.DeleteOpen -> deleteOpenMarker()
+            MarkerIntent.PopupPrevious -> stepMarkerPopup(forward = false)
+            MarkerIntent.PopupNext -> stepMarkerPopup(forward = true)
+            MarkerIntent.SeekPrevious -> seekMarker(forward = false)
+            MarkerIntent.SeekNext -> seekMarker(forward = true)
+            MarkerIntent.DismissHint -> clearMarkerHint()
+        }
+    }
+
+    /**
+     * One tap: the marker is on the ruler at once (one command, nothing else runs), with a short "added" hint
+     * that offers Edit. A marker already at the playhead is edited instead of duplicated.
+     */
+    private fun addMarkerAtPlayhead() {
+        closeMarkerPopup()
         val playhead = state.value.playhead
         val existing = MarkerOps.nearest(history.timeline.markers, playhead, MARKER_TOGGLE_RADIUS_FRAMES)
         if (existing != null) {
-            execute(RemoveMarker(existing.id))
-        } else {
-            execute(AddMarker(Marker("marker-${idGenerator()}", playhead, MarkerKind.MANUAL)))
+            openMarker(existing.id)
+            return
         }
+        val marker = Marker("marker-${idGenerator()}", playhead, MarkerKind.MANUAL)
+        if (execute(AddMarker(marker))) showMarkerHint(MarkerHint(marker.id, marker.frame.value))
+    }
+
+    private var markerHintJob: Job? = null
+
+    private fun showMarkerHint(hint: MarkerHint) {
+        reduce { copy(markerHint = hint) }
+        markerHintJob?.cancel()
+        markerHintJob = viewModelScope.launch {
+            delay(MARKER_HINT_MILLIS)
+            reduce { copy(markerHint = null) }
+        }
+    }
+
+    private fun clearMarkerHint() {
+        markerHintJob?.cancel()
+        markerHintJob = null
+        if (state.value.markerHint != null) reduce { copy(markerHint = null) }
+    }
+
+    private fun popupOf(marker: Marker, markers: List<Marker>) = MarkerPopup(
+        markerId = marker.id,
+        frame = marker.frame.value,
+        name = marker.name.orEmpty(),
+        note = marker.note.orEmpty(),
+        color = marker.color,
+        isBeat = marker.kind == MarkerKind.BEAT,
+        hasPrevious = MarkerOps.previous(markers, marker.frame) != null,
+        hasNext = MarkerOps.next(markers, marker.frame) != null,
+    )
+
+    private fun openMarker(markerId: String) {
+        closeMarkerPopup()
+        val markers = history.timeline.markers
+        val marker = markers.firstOrNull { it.id == markerId } ?: return
+        clearMarkerHint()
+        reduce { copy(markerPopup = popupOf(marker, markers)) }
+    }
+
+    /** A change in the popup: shown live through the preview timeline, committed (one step) by [closeMarkerPopup]. */
+    private fun editMarkerPopup(change: MarkerPopup.() -> MarkerPopup) {
+        val popup = state.value.markerPopup ?: return
+        val edited = popup.change()
+        val preview = (EditMarker(edited.markerId, edited.name.ifBlank { null }, edited.note.ifBlank { null }, edited.color).apply(history.timeline) as? EditResult.Success)?.value
+        reduce { copy(markerPopup = edited, dragPreview = preview ?: dragPreview) }
+    }
+
+    private fun closeMarkerPopup() {
+        val popup = state.value.markerPopup ?: return
+        reduce { copy(markerPopup = null, dragPreview = null) }
+        val current = history.timeline.markers.firstOrNull { it.id == popup.markerId } ?: return
+        val name = popup.name.trim().ifBlank { null }
+        val note = popup.note.trim().ifBlank { null }
+        if (current.name == name && current.note == note && current.color == popup.color) return
+        execute(EditMarker(popup.markerId, name, note, popup.color))
+    }
+
+    private fun deleteOpenMarker() {
+        val popup = state.value.markerPopup ?: return
+        reduce { copy(markerPopup = null, dragPreview = null) }
+        execute(RemoveMarker(popup.markerId))
+    }
+
+    private fun stepMarkerPopup(forward: Boolean) {
+        val popup = state.value.markerPopup ?: return
+        closeMarkerPopup()
+        val markers = history.timeline.markers
+        val from = markers.firstOrNull { it.id == popup.markerId }?.frame ?: FrameIndex(popup.frame)
+        val target = (if (forward) MarkerOps.next(markers, from) else MarkerOps.previous(markers, from)) ?: return
+        pausePlayback()
+        setPlayhead(target.frame.value)
+        reduce { copy(markerPopup = popupOf(target, markers)) }
+    }
+
+    private fun seekMarker(forward: Boolean) {
+        val markers = history.timeline.markers
+        val from = state.value.playhead
+        val target = if (forward) MarkerOps.next(markers, from) else MarkerOps.previous(markers, from)
+        if (target == null) {
+            emit(EditorEffect.ShowMessage(if (forward) "No marker after the playhead" else "No marker before the playhead"))
+            return
+        }
+        pausePlayback()
+        setPlayhead(target.frame.value)
+    }
+
+    /** A marker follows the finger in whole frames, snapping to clip edges, the playhead and the other markers. */
+    private fun markerDrag(session: DragSession, fingerFrame: Long) {
+        val base = history.timeline
+        val frame = snapMarkerFrame(base, session.clipId, fingerFrame - session.grabOffset, state.value.playhead)
+        val command = MoveMarker(session.clipId, frame)
+        val result = command.apply(base) as? EditResult.Success ?: return
+        pendingDragCommand = if (result.value == base) null else command
+        reduce { copy(dragPreview = result.value, dropHint = null) }
+    }
+
+    private fun snapMarkerFrame(timeline: Timeline, markerId: String, frame: Long, playhead: FrameIndex): FrameIndex {
+        val targets = buildList {
+            add(0L)
+            add(playhead.value)
+            timeline.markers.forEach { if (it.id != markerId) add(it.frame.value) }
+            for (track in timeline.tracks) {
+                for (clip in track.clips) {
+                    add(clip.timelineStart.value)
+                    add(clip.timelineEnd.value)
+                }
+            }
+        }
+        val nearest = targets.minByOrNull { abs(it - frame) }
+        return FrameIndex(if (nearest != null && abs(nearest - frame) <= SNAP_THRESHOLD_FRAMES) nearest else frame.coerceAtLeast(0))
     }
 
     private fun clearBeatMarkers() {
@@ -2991,11 +3142,6 @@ class EditorViewModel(
                 reduce { copy(library = library.copy(bundleDraft = library.bundleDraft?.copy(choice = intent.choice))) }
             LibraryIntent.DismissBundleExport -> reduce { copy(library = library.copy(bundleDraft = null)) }
             LibraryIntent.ConfirmBundleExport -> confirmBundleExport()
-            LibraryIntent.OpenMarkerEdit -> openMarkerEdit()
-            is LibraryIntent.MarkerNoteChanged -> reduce { copy(markerEdit = markerEdit?.copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH))) }
-            is LibraryIntent.MarkerColorSelected -> reduce { copy(markerEdit = markerEdit?.copy(color = intent.color)) }
-            LibraryIntent.ConfirmMarkerEdit -> confirmMarkerEdit()
-            LibraryIntent.DismissMarkerEdit -> reduce { copy(markerEdit = null) }
         }
     }
 
@@ -3060,21 +3206,6 @@ class EditorViewModel(
         }
         val position = uses.indexOf(use) + 1
         emit(EditorEffect.ShowMessage("Use $position of ${uses.size} (${use.trackLabel}). Choose Find in timeline again for the next one"))
-    }
-
-    private fun openMarkerEdit() {
-        val marker = MarkerOps.nearest(history.timeline.markers, state.value.playhead, MARKER_EDIT_RADIUS_FRAMES)
-        if (marker == null) {
-            emit(EditorEffect.ShowMessage("Put the playhead on a marker first"))
-            return
-        }
-        reduce { copy(markerEdit = MarkerEditDraft(marker.id, marker.frame.value, marker.note.orEmpty(), marker.color)) }
-    }
-
-    private fun confirmMarkerEdit() {
-        val draft = state.value.markerEdit ?: return
-        reduce { copy(markerEdit = null) }
-        execute(AnnotateMarker(draft.markerId, draft.note, draft.color))
     }
 
     /** What the bundle dialog was confirmed with, kept while the document picker is open; consumed by the export that follows. */
@@ -3190,7 +3321,6 @@ class EditorViewModel(
     // endregion
 
     private companion object {
-        const val MARKER_EDIT_RADIUS_FRAMES = 6L
         const val MIN_TARGET_LUFS = -40.0
         const val MAX_TARGET_LUFS = -5.0
         const val MIN_NOISE_SAMPLE_MICROS = 100_000L

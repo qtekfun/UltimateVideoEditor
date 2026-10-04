@@ -19,8 +19,9 @@ enum class EngineStatus(val code: Int) {
  * [ABOVE_LANES] is the free room between the ruler and the first lane (the 'add a lane' zone) and
  * [OUTSIDE] means the finger left the panel; both exist so a drag can tell where it would land.
  * [LANE_HEADER] is the name tab at the left edge of a lane: a long press there starts a lane drag.
+ * [MARKER] is a ruler marker; the hit's `clipKey` is the marker's index in the snapshot's marker list.
  */
-enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE, LANE_HEADER }
+enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE, LANE_HEADER, MARKER }
 
 /** What the indicator drawn over the timeline during a clip drag shows; mirrors the native `DropHintKind`. */
 enum class DropIndicator(val code: Int) { NONE(0), INSERT(1), OVERWRITE(2), NEW_LANE(3), CANCEL(4) }

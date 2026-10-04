@@ -144,7 +144,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ⇄ | Transition | Adds a transition (a crossfade to start with) between the selected clip and the next one; choose its look in Adjust clip. |
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
-| ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
+| ⚑ | Marker | Tap: drop a marker at the playhead. Long press: previous / next marker, beat tools and marker snapping, see [Markers and beats](#markers-and-beats). |
 | Stack of clips with a play triangle | Media library | Opens the media library: tags, notes, where each file is used, remove unused, export a bundle, see [Media library](#media-library). |
 | ▮▮▮ | Quick edits | Cut silences from the selected base clip, or reframe a clip for another canvas shape, see [Quick edits](#quick-edits-cut-silences-and-reframe). |
 | ⚡ (lightning) | Proxy media | Opens the proxy sheet: small copies of heavy video for smooth editing, see [Proxy media](#proxy-media). |
@@ -433,18 +433,38 @@ multilayer title (a caption with word timing stays a plain title).
 
 ## Markers and beats
 
-The flag icon opens:
+**Drop a marker with one tap.** Tap the flag icon: a marker lands at the playhead at once and a small
+"Marker added · Edit" note appears for a few seconds (tap **Edit** to name it). Tapping the flag again with
+the playhead on a marker (within two frames) opens that marker instead of adding a second one. Adding is one
+undo step.
 
-- **Add or remove a marker** at the playhead.
-- **Marker note and colour…**: with the playhead on a marker, type a note (up to 200 characters) and pick one
-  of six colours or none. The note and colour are saved with the project and are written to EDL and FCPXML
-  exports (the colour as a `[red]` prefix in the marker text). It is one undo step. On the ruler the marker's flag
-  and the faint line through the lanes take that colour (pink when there is none), and a small light square under the
-  flag shows that the marker has a note.
+**Edit a marker.** Tap the marker's flag on the ruler (the touch area is about 40 dp wide, bigger than the
+flag). A small panel opens under the ruler with:
+
+- a **name** (one line, up to 40 characters) and a **note** (several lines, up to 200 characters). When the
+  timeline is zoomed in far enough, the name is written next to the flag; the canvas draws capital letters A-Z,
+  digits and "-" only, so accents are dropped there (the full name stays in the project and in exports);
+- six **colours**; tap the chosen one again to clear it. The flag and the faint line through the lanes take the
+  colour (pink when there is none), and a small light square under the flag shows that there is a note;
+- **‹ ›** go to the previous or next marker (the playhead follows);
+- the bin deletes the marker, **Done** closes the panel. Everything you type shows at once, and the whole
+  editing session is one undo step. Tapping the timeline elsewhere also closes the panel and keeps the edits.
+
+**Move a marker.** Touch a marker's flag and drag along the ruler: it follows your finger in whole frames, snaps
+to clip edges, the playhead and other markers (about 8 frames) and cannot sit on another marker. Releasing is one
+undo step. Dragging the playhead or the empty ruler still scrubs.
+
+**Long press the flag** for the rest:
+
+- **Previous marker / Next marker**: move the playhead without opening anything.
 - **Find beats in the selected clip**: detects the rhythm of its audio and drops beat markers on the ruler.
   Works on music with a clear pulse; speech or ambience may report "no clear beat".
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
-- **Clear detected beats** and **Snap to markers** (on/off).
+- **Clear detected beats** and **Snap to markers** (on/off; when on, the previous / next edit point buttons also
+  stop at markers).
+
+Names, notes and colours are saved with the project and are written to FCPXML exports (the name, or the note when
+there is no name, with the colour as a `[red]` prefix in the marker text). Older projects open as before.
 
 ## Quick edits: cut silences and reframe
 
