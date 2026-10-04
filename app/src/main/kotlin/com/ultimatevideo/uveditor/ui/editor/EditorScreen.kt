@@ -426,6 +426,9 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragStart(hit))
             override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
             override fun onDragEnd(commit: Boolean) = viewModel.onIntent(EditorIntent.DragEnd(commit))
+            override fun onLaneDragStart(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Start(hit))
+            override fun onLaneDragMove(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Move(hit))
+            override fun onLaneDragEnd(commit: Boolean) = viewModel.onIntent(LaneDragIntent.End(commit))
         }
     }
 
@@ -540,6 +543,16 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         }
         try {
             engine.setDropHint(indicator, lane, hint?.startFrame ?: 0L, hint?.endFrame ?: 0L)
+        } catch (e: EngineException) {
+            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+        }
+    }
+    // The lane being dragged by its header and where it would land. After the snapshot effect, like the drop hint,
+    // so the indices refer to the timeline the engine already has.
+    StateEffect(holder, { listOf(it.laneDrag, it.visibleTimeline) }) { s ->
+        val drag = s.laneDrag
+        try {
+            engine.setLaneDrag(drag?.fromIndex ?: -1, drag?.toIndex ?: -1)
         } catch (e: EngineException) {
             viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
         }
