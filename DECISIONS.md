@@ -1193,3 +1193,10 @@ inspector closes, with its tab, filter and search kept (`bottomTrayShown`). **Wh
 block, so on a phone it left the inspector, which covers the timeline pane, only three controls of height (seen on the Pixel 8). **Alternative:**
 cap the tray height or give the timeline a minimum height (more layout rules; the tray and the inspector are rarely wanted together on a phone).
 Side-docked trays and a side-docked inspector are unchanged.
+
+## Colour wheels and curves drag only from the handle (QA defect O2)
+**Chosen:** a drag moves a wheel puck only when it starts within 0.3 of the wheel radius of the puck, and moves a curve point only when it starts
+within the existing grab radius of that point; a drag that starts anywhere else is not consumed, so the colour panel scrolls under the finger.
+Taps still place a puck, add a curve point or (long press) remove one, and a double tap still centres a wheel. **Why:** the old drags consumed every
+swipe that began on a wheel or plot, which are most of the panel's width, so scrolling needed a narrow margin. **Alternative:** a dead zone on the
+panel edge or a long-press-to-drag (two gestures to learn, and long press already removes a curve point). Implemented in `detectGrabbedDrag`.
