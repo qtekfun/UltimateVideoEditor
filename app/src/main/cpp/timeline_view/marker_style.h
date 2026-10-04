@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace uv::timeline {
@@ -37,6 +38,21 @@ constexpr MarkerRgb markerRgb(int code) {
         case 6: return {0.70f, 0.53f, 1.00f};  // purple
         default: return {1.00f, 0.45f, 0.80f};
     }
+}
+
+// The label of a marker (its name) travels in the snapshot's label list under a negative key, so it can never clash with
+// a clip's key: marker `index` (in the snapshot's marker list) uses key kMarkerLabelKeyBase - index.
+constexpr int64_t kMarkerLabelKeyBase = -2;
+constexpr int64_t markerLabelKey(size_t index) { return kMarkerLabelKeyBase - static_cast<int64_t>(index); }
+
+// How many characters of a marker's name fit in `availablePx` when every glyph advances `glyphAdvancePx`. Nothing is
+// drawn unless at least `minChars` fit, so a crowded ruler shows flags only; a name that fits is drawn in full.
+constexpr size_t markerLabelChars(float availablePx, float glyphAdvancePx, size_t textLen, size_t minChars = 3) {
+    if (glyphAdvancePx <= 0.0f || availablePx <= 0.0f || textLen == 0) return 0;
+    const size_t fit = static_cast<size_t>(availablePx / glyphAdvancePx);
+    const size_t shown = fit < textLen ? fit : textLen;
+    const size_t needed = minChars < textLen ? minChars : textLen;
+    return shown >= needed ? shown : 0;
 }
 
 }  // namespace uv::timeline

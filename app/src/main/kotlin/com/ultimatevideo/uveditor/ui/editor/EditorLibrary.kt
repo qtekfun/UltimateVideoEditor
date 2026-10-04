@@ -1,7 +1,6 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import com.ultimatevideo.uveditor.data.interchange.BundleChoice
-import com.ultimatevideo.uveditor.domain.MarkerColor
 import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.LibraryFilter
 import com.ultimatevideo.uveditor.ui.library.LibraryQuery
@@ -24,9 +23,6 @@ data class LibraryUiState(
 
 /** The tags (comma separated) and the note being typed for one library file. */
 data class AssetEditDraft(val assetId: String, val name: String, val tags: String, val note: String)
-
-/** The note and colour being typed for the marker at [frame]. */
-data class MarkerEditDraft(val markerId: String, val frame: Long, val note: String, val color: MarkerColor?)
 
 /** The ways a project can leave the app besides the movie export. */
 enum class InterchangeKind(val label: String, val mime: String, val extension: String) {
@@ -80,11 +76,4 @@ sealed interface LibraryIntent : EditorIntent {
     data class BundleChoiceChanged(val choice: BundleChoice) : LibraryIntent
     data object ConfirmBundleExport : LibraryIntent
     data object DismissBundleExport : LibraryIntent
-
-    /** Opens the note and colour dialog of the marker at the playhead. */
-    data object OpenMarkerEdit : LibraryIntent
-    data class MarkerNoteChanged(val text: String) : LibraryIntent
-    data class MarkerColorSelected(val color: MarkerColor?) : LibraryIntent
-    data object ConfirmMarkerEdit : LibraryIntent
-    data object DismissMarkerEdit : LibraryIntent
 }

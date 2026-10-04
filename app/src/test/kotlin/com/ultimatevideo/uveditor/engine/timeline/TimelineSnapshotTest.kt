@@ -330,6 +330,30 @@ class TimelineSnapshotTest {
     }
 
     @Test
+    fun `a marker name is a label under the marker key and rides in the label section`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(clip(1)),
+            markers = listOf(SnapshotMarker(30), SnapshotMarker(90)),
+            labels = listOf(SnapshotLabel(SnapshotLabel.markerKey(1), "DROP")),
+        )
+        val b = snapshot.encode()
+        val labels = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - (TimelineSnapshot.LABEL_FIXED_BYTES + 4)
+        assertEquals(1, b.getInt(labels))
+        assertEquals(SnapshotLabel.markerKey(1), b.getLong(labels + 4))
+        assertEquals(1, SnapshotLabel.markerIndexOf(SnapshotLabel.markerKey(1)))
+        assertEquals(null, SnapshotLabel.markerIndexOf(5))
+    }
+
+    @Test
+    fun `a marker label needs a marker at that index`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, listOf(SnapshotTrackType.VIDEO), listOf(clip(1)), markers = listOf(SnapshotMarker(30)), labels = listOf(SnapshotLabel(SnapshotLabel.markerKey(1), "A")))
+        }
+    }
+
+    @Test
     fun `a marker before frame zero is rejected before reaching native code`() {
         assertThrows(IllegalArgumentException::class.java) {
             TimelineSnapshot(30, 1, emptyList(), emptyList(), markers = listOf(SnapshotMarker(-1)))

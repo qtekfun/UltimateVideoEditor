@@ -121,8 +121,10 @@ data class EditorState(
     val mixerOpen: Boolean = false,
     /** The media library sheet (tags, notes, usage, cleanup, exports to other tools). */
     val library: LibraryUiState = LibraryUiState(),
-    /** The note and colour dialog of a marker, or null when closed. */
-    val markerEdit: MarkerEditDraft? = null,
+    /** The marker popup, or null when closed. */
+    val markerPopup: MarkerPopup? = null,
+    /** "Marker added" confirmation shown for a moment after a one-tap marker. */
+    val markerHint: MarkerHint? = null,
     /** Keys copied from a parameter's track (frames relative to the first key), ready to paste at the playhead. */
     val paramClipboard: ParamClipboard? = null,
     /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
@@ -324,9 +326,6 @@ sealed interface EditorIntent : UiIntent {
 
     /** Puts a new title on the title track (made if needed) at the playhead, selects it and opens the inspector. */
     data object AddTitle : EditorIntent
-
-    /** Adds a marker at the playhead, or removes the one already there (within a couple of frames). */
-    data object ToggleMarkerAtPlayhead : EditorIntent
 
     /** Removes every detected beat marker; markers placed by hand stay. */
     data object ClearBeatMarkers : EditorIntent

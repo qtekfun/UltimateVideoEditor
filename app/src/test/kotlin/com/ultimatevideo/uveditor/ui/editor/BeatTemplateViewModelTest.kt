@@ -118,26 +118,28 @@ class BeatTemplateViewModelTest {
     }
 
     @Test
-    fun `the marker button adds a marker at the playhead and removes it on a second press`() = runTest(dispatcher) {
+    fun `the marker button adds a marker at the playhead and a second press edits it instead of duplicating`() = runTest(dispatcher) {
         val h = harness()
         h.at(90)
-        h.vm.onIntent(EditorIntent.ToggleMarkerAtPlayhead)
+        h.vm.onIntent(MarkerIntent.AddAtPlayhead)
         assertEquals(listOf(90L), h.state.timeline.markers.map { it.frame.value })
         assertEquals(MarkerKind.MANUAL, h.state.timeline.markers.single().kind)
 
         h.at(91)
-        h.vm.onIntent(EditorIntent.ToggleMarkerAtPlayhead)
-        assertEquals(emptyList<Long>(), h.state.timeline.markers.map { it.frame.value })
-
-        h.vm.onIntent(EditorIntent.Undo)
+        h.vm.onIntent(MarkerIntent.AddAtPlayhead)
         assertEquals(listOf(90L), h.state.timeline.markers.map { it.frame.value })
+        assertEquals(90L, h.state.markerPopup?.frame)
+
+        h.vm.onIntent(MarkerIntent.Close)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(emptyList<Long>(), h.state.timeline.markers.map { it.frame.value })
     }
 
     @Test
     fun `markers reach the native snapshot with their kind`() = runTest(dispatcher) {
         val h = harness()
         h.at(60)
-        h.vm.onIntent(EditorIntent.ToggleMarkerAtPlayhead)
+        h.vm.onIntent(MarkerIntent.AddAtPlayhead)
         h.select("c1")
         h.vm.onIntent(EditorIntent.AnalyzeBeats)
         advanceUntilIdle()
@@ -229,7 +231,7 @@ class BeatTemplateViewModelTest {
     fun `clearing beats keeps the markers placed by hand`() = runTest(dispatcher) {
         val h = harness()
         h.at(5)
-        h.vm.onIntent(EditorIntent.ToggleMarkerAtPlayhead)
+        h.vm.onIntent(MarkerIntent.AddAtPlayhead)
         h.select("c1")
         h.vm.onIntent(EditorIntent.AnalyzeBeats)
         advanceUntilIdle()
@@ -254,7 +256,7 @@ class BeatTemplateViewModelTest {
         val h = harness()
         for (frame in listOf(150L, 330L, 500L)) {
             h.at(frame)
-            h.vm.onIntent(EditorIntent.ToggleMarkerAtPlayhead)
+            h.vm.onIntent(MarkerIntent.AddAtPlayhead)
         }
         h.select("c1")
         h.vm.onIntent(EditorIntent.CutToBeatFromSelected)
