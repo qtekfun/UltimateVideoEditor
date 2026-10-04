@@ -146,13 +146,6 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
 | D1 | Native exit report | Tombstone symbols carried stray protobuf tag/length characters | Fixed, PR #84 |
 | D2 | Bundle | Media file name taken from the undecoded document URI | Fixed, PR #87 |
 
-## Not verified in this pass
-
-Keyframes (diamonds, lane, export parity), tracking and attaching a title, auto cut, reframe helper, project templates wizard, filter and
-transition packs, voice effects UI, multicam, proxies (sheet, badges, 4K long-GOP scrub), VTT import, the eight caption styles, title
-presets, photos and EXIF, stickers, HEIC, smooth slow motion, denoise and deflicker, speed export frame by frame, cut to beat, marker
-note indicator, recover from `.bak`, importing a bundle, library and EDL/FCPXML. The OPPO CPH2841 was not used.
-
 ## Notes for the next pass
 
 - The Pixel is shared: Android hands the foreground to whichever test app was last started, and the system picker belongs to the app that
@@ -205,7 +198,42 @@ first page is multiselect, not the inspector.
   on T1, each with keyframe diamonds. PASS.
 - Nit: "1 slots" (plural form with a count of one).
 
+## 8. Filters and transition looks (preview)
+
+- **Filters**: inspector > Effects > Add > LUT lists the built-in filters (Original, Cinematic, Teal and orange, Warm glow, ... Cross
+  process) with descriptions. Teal and orange and Sunset pink were added to a clip; each shows as "LUT · name" with Up/Down/Remove and
+  changes the preview (sampled pixels of the red/yellow/green/blue bars moved, for example the green bar from (0,216,0) to (0,234,0)
+  and (0,238,0)). Two of about twenty tried, and the test pattern is made of pure primaries, so the change is subtle. PARTIAL.
+- **Transition looks**: a clip split at 5 s, inspector > "Transition to next clip" > Add (Crossfade, 1.0 s). With the playhead at 4:29
+  in the middle of the transition each look draws differently in the preview: Slide (new picture enters from the right), Push (old one
+  carried out), Zoom (scaled double exposure), Spin (rotated pictures), Glitch (shifted picture with a black edge), Whip pan (blurred fast
+  push), Light leak (colour-shifted overlay). Crossfade and Wipe look unchanged because both halves are the same source at the same
+  time; they need two different clips to show anything. Preview only; export parity not checked. PASS for the preview of Slide, Push,
+  Zoom, Spin, Glitch, Whip pan and Light leak.
+- Observation: the toolbar transition button stayed greyed with the first clip selected while "Add" in the inspector worked.
+
+## 9. Captions: VTT import and styles
+
+- CC > Choose a .srt or .vtt file > `subs.vtt`: toast "Added 2 captions"; a new T1 track holds "Hello from VTT" at 0.5 to 2.0 s and
+  "Second VTT line" at 2.5 to 4.5 s (block positions match). PASS.
+- Styles applied with "Restyle 2 existing" and viewed at 1:08: Classic (small white, outline), Pop (larger, outlined), Karaoke (yellow
+  highlight), Word pop (large, "from" highlighted in cyan), Typewriter (partial text "Hello f"), Bounce (large, yellow). Bold and Impact
+  were selected in the sheet but the capture was not taken (the chip row did not scroll to them in the script). PARTIAL: 6 of 8 seen.
+
 ## D3 (found here, fixed in PR #88)
 
 A clip imported in this session was listed in the media tray as `msf%3A1000001071` instead of `clip_a.mp4`: `assetFor` never stored
 `probed.displayName` (only the backfill on reopening did). Fixed with a regression test in `EditorViewModelTest`.
+
+## Status after the second round (paused for the Huawei tablet pass)
+
+Done on the Pixel 8: keyframes (lane drag and non-linear interpolation not run), motion tracking and following title, cut silences,
+reframe (single mark), templates wizard (Lower thirds), filters (2 tried), transition looks (preview), VTT import, six of the eight
+caption styles.
+
+Remaining: Bold and Impact caption styles, exported frames of transitions, tracking and filters, multicam, proxies (sheet, badges,
+4K long-GOP scrub), bundle import round trip on a second install (`qb2`), EDL and FCPXML read-back, photos with EXIF rotation, stickers
+and emoji, smooth slow motion, denoise and deflicker export check, speed export frame by frame, restore from `.bak`, marker note tick,
+voice effects UI, title presets, cut to beat, tags/notes/library.
+
+Defects: D1 (PR #84) and D2 (PR #87) merged; D3 (PR #88, import keeps the file name) open.
