@@ -25,7 +25,7 @@ object NoEnvelopeSource : EnvelopeSource {
 }
 
 /** Reads the envelope from the waveform cache the timeline already fills; nothing is decoded again. */
-class WaveformEnvelopeSource(
+class CachedEnvelopeSource(
     private val cache: WaveformCache,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : EnvelopeSource {

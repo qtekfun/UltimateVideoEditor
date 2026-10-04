@@ -22,11 +22,13 @@ import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.MotionPreset
 import com.ultimatevideo.uveditor.domain.ParamKey
 import com.ultimatevideo.uveditor.domain.displayedAt
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLayerEdit
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
@@ -73,6 +75,10 @@ data class EditorState(
     val isPlaying: Boolean = false,
     /** The appearance inspector (transform and gain of the selected clip) replaces the timeline while open. */
     val inspectorOpen: Boolean = false,
+    /** The layer of a multilayer title that the title editor is working on (and that preview gestures move); null for none. */
+    val titleLayerRef: TitleLayerRef? = null,
+    /** Ids of the imported fonts that exist on this device; titles that name others show the default font. */
+    val availableFonts: Set<String> = emptySet(),
     /** Which app's safe zones are outlined over the preview, or null for none. */
     val safeZone: SafeZonePlatform? = null,
     /** The "change canvas" dialog is open. */
@@ -119,6 +125,8 @@ data class EditorState(
     val selectedParamKey: Pair<String, Long>? = null,
     /** Silence auto cut and manual reframe sheets (SPECS.md 9.16). */
     val quickEdits: QuickEditsUiState = QuickEditsUiState(),
+    /** The multicam sheet: angles being picked and synced, and live cutting between the angles of a multicam clip. */
+    val multicam: com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState = com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState(),
 ) : UiState {
     /** The timeline the mixer plays: the committed one, or the live audio edit while a slider is dragged. */
     val audioSource: Timeline get() = if (audioSessionActive) visibleTimeline else timeline
@@ -195,6 +203,19 @@ data class EditorState(
     /** The text and style of the selected clip when it is a title. */
     val selectedTitle: TitleContent? get() = selectedClip?.title
 
+    /** The layer of the selected multilayer title that the title editor works on, when that selection is still valid. */
+    val selectedTitleLayer: Int?
+        get() {
+            val ref = titleLayerRef?.takeIf { it.clipId == selectedClipId } ?: return null
+            return ref.index.takeIf { selectedTitle?.layers?.indices?.contains(it) == true }
+        }
+
+    /** Ids of imported fonts that titles of this project name but this device does not have (they show the default font). */
+    val missingFonts: Set<String>
+        get() = timeline.tracks.flatMapTo(LinkedHashSet()) { track ->
+            track.clips.flatMap { clip -> clip.title?.let { TitleLayerEdit.missingFonts(it, availableFonts) }.orEmpty() }
+        }
+
     /** The clip that starts exactly where the selected one ends on its track: the other side of a cut. */
     val clipAfterSelected: Clip?
         get() {
@@ -236,6 +257,9 @@ data class EditorState(
             return "$prefix$number"
         }
 }
+
+/** A layer of a multilayer title clip, as the title editor and the preview gestures see it. */
+data class TitleLayerRef(val clipId: String, val index: Int)
 
 /** How the speed is spread over the selected clip; [NONE] is a constant speed. */
 enum class SpeedRampShape { NONE, EASE_IN, EASE_OUT, BELL }
@@ -323,12 +347,31 @@ sealed interface EditorIntent : UiIntent {
      */
     data class ApplyTextTemplate(val templateId: String, val text: String) : EditorIntent
 
+    /** Applies a text template that may be a saved preset rather than a built-in. */
+    data class ApplyPreset(val template: com.ultimatevideo.uveditor.domain.TextTemplate, val text: String) : EditorIntent
+
     /**
      * Edits of the selected title's text and style: shown live, committed as one undo step by
      * [EndTitleEdit] (or by the next intent of any other kind).
      */
     data class UpdateTitle(val content: TitleContent) : EditorIntent
     data class EndTitleEdit(val commit: Boolean) : EditorIntent
+
+    /** The title editor selected layer [index] of the selected title (-1 for none). */
+    data class SelectTitleLayer(val index: Int) : EditorIntent
+
+    /**
+     * A step of a pan/pinch/twist on the preview while a layer of a multilayer title is selected: it moves,
+     * scales and turns that layer instead of the whole clip. Part of the title edit session, so it ends with
+     * [EndAppearanceEdit] like any preview gesture.
+     */
+    data class LayerGesture(val panX: Double, val panY: Double, val zoom: Double, val rotationDegrees: Double) : EditorIntent
+
+    /** The imported fonts available on this device changed; titles are drawn again. */
+    data class FontsChanged(val available: Set<String>) : EditorIntent
+
+    /** Gives the selected title the in and out animation [intro]/[outro] (one undo step; it replaces the clip's keyframes). */
+    data class ApplyTitleMotion(val intro: MotionPreset, val outro: MotionPreset) : EditorIntent
 
     /**
      * Generated captions (title clips) go on a new title track on top, as one undo step. The clips are
@@ -381,6 +424,9 @@ sealed interface EditorIntent : UiIntent {
     data object RemoveNoiseSuppression : EditorIntent
     data object CancelAudioAnalysis : EditorIntent
     data object ToggleMixer : EditorIntent
+
+    /** Anything on the multicam sheet (SPECS.md 9.9); handled by `MulticamController`. */
+    data class Multicam(val intent: com.ultimatevideo.uveditor.ui.editor.multicam.MulticamIntent) : EditorIntent
 
     /**
      * Keyframes of the selected clip, placed at the playhead: add one holding the pose shown there

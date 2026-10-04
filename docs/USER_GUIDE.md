@@ -12,7 +12,7 @@ automated tests so far; see [Known limits](#known-limits).
 4. [Media tray](#media-tray) and [Media library](#media-library)
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
 6. [Inspector](#inspector)
-7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
+7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates) (including [layers, fonts and presets](#titles-with-layers-fonts-and-presets))
 8. [Markers and beats](#markers-and-beats) and [Quick edits: cut silences and reframe](#quick-edits-cut-silences-and-reframe)
 9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
 10. [Stabilising shaky footage](#stabilising-shaky-footage)
@@ -20,8 +20,9 @@ automated tests so far; see [Known limits](#known-limits).
 12. [Colour spaces and HDR](#colour-spaces-and-hdr)
 13. [Exporting](#exporting) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
 14. [Proxy media](#proxy-media)
-15. [Missing media and recovery](#missing-media-and-recovery)
-16. [Known limits](#known-limits)
+15. [Multicam](#multicam)
+16. [Missing media and recovery](#missing-media-and-recovery)
+17. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -124,6 +125,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ▮▮▮ | Quick edits | Cut silences from the selected base clip, or reframe a clip for another canvas shape, see [Quick edits](#quick-edits-cut-silences-and-reframe). |
 | ⚡ (lightning) | Proxy media | Opens the proxy sheet: small copies of heavy video for smooth editing, see [Proxy media](#proxy-media). |
 | Two faders | Mixer | Opens the mixer sheet, see [Sound](#sound). |
+| Two overlapping frames | Multicam | Opens the multicam sheet: line up several cameras by their sound and cut between them, see [Multicam](#multicam). |
 | ◫ (safe zone) | Safe zones | Shows TikTok, Reels or Shorts safe areas over the preview. |
 | ▮▮▮ (bars) | Video scopes | Opens or closes the scopes over the preview, see [Colour grading and scopes](#colour-grading-and-scopes). |
 | ◈ (layers) | Add track | Adds a video track (above the others) or an audio track. |
@@ -238,6 +240,8 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 - **Crossfade**: duration of the transition at the cut.
 - **Reset** restores the clip's appearance; **Done** closes the panel.
 
+Title and sticker blocks on the timeline show their text or name (capital letters and digits only; other scripts show "TEXT").
+
 Photos and stickers behave like clips with no source length: stretch them freely from either edge. Speed and
 reverse do not apply to them.
 
@@ -320,8 +324,31 @@ the preview shows, up to 30 times a second, and only while open. The scale is in
 ## Titles, captions, stickers and templates
 
 - **T** adds a title. Drag it on the preview to move it (for a lower third, drag it to the bottom).
-- **Tt** opens the Titles tab of the tray: lower third, pop title, slide-in headline and subtitle bar. Type your
-  text first if you want, then tap a template; each one is a normal editable title with keyframes.
+- **Tt** opens the Titles tab of the tray: lower third, pop title, slide-in headline and subtitle bar, then "My
+  presets". Type your text first if you want, then tap a template; each one is a single editable title.
+
+### Titles with layers, fonts and presets
+
+Select a title and open the inspector. A plain title has one text style; tap **Edit as layers** to turn it into a
+multilayer title (a caption with word timing stays a plain title).
+
+- **Layers** are listed top first. **+ Text**, **+ Shape** (rectangle, rounded rectangle, ellipse, line),
+  **+ Sticker** and **+ Photo** add one on top (up to 16). Tap a layer to edit it; **Up**, **Down**, **Copy** and
+  **Remove** reorder, duplicate or delete it. Every change is one undo step.
+- **Text layers** have text, size, colour, alignment, bold, italic, letter spacing, line height, border, shadow, a
+  background box and a font. **Shapes** have size, fill, outline, shadow and corner radius. **Pictures** have a size
+  and a shadow. Each layer is placed inside the title (across, down, scale, rotation, opacity).
+- **On the preview**, with a layer selected, drag, pinch and twist move, scale and turn that layer (a ring and cross
+  mark it) instead of the whole title.
+- **Fonts**: **Import font…** picks a `.ttf` or `.otf` file from your device. Fonts stay on the device and are not
+  embedded in projects or presets: if a project uses a font this device lacks, a banner says so and the default font
+  is shown until you import the same font file. Check that a font's licence lets you use it in your videos.
+- **Animation**: pick an **In** and an **Out** (fade, slide from a side, pop) and **Apply animation**; it becomes
+  keyframes of the title and replaces any it had.
+- **Presets**: **Save** stores the title (without photos, which belong to one project) with its animation as a preset
+  in "My presets" of the Titles tab. **Export** writes a `.uvtitle` file you can share; **Import a .uvtitle file…**
+  adds one from a file. Nothing is sent anywhere.
+
 - **CC** opens the captions sheet. Type a caption, set where it starts and how long it lasts (the buttons step by one
   frame or one second; the next caption starts where the last one ended), and tap Add. Or import a `.srt` or `.vtt`
   subtitle file (it can start at the project start or at the playhead). Pick a style: Classic, Bold, Pop, Impact,
@@ -475,6 +502,31 @@ sound always comes from the original.
   unless you accept; **Not now** hides the offer for that project.
 - HDR videos get an SDR proxy, so the picture looks flatter while editing with proxies on; the exported movie is
   unaffected.
+
+## Multicam
+
+Use it when two to six cameras (or phones, or a recorder) filmed the same event. Everything is local: the angles are
+lined up by the loudness of their sound, with no network and nothing learned.
+
+1. Import the recordings, then tap the **multicam** button in the toolbar.
+2. Tap the files to use as angles (2 to 6). The first one is the reference; the others are matched against it.
+3. **Sync by sound** finds how much later (or earlier) each angle started. "synced +90" means 90 frames later than
+   the reference; "unsure" or "no match" means the sound did not give a clear answer (silence, very different
+   audio): nudge it with **-1** / **+1** until a clap or a word lines up. Offsets are in project frames.
+4. Put the playhead where the multicam clip should start and tap **Create at playhead**. The clip goes on the base
+   track (later clips move right) and the sound of the first angle goes on a free audio lane.
+5. Select the multicam clip. The sheet now shows one button per angle, labelled **live** (on screen, decoded at full
+   quality), **proxy** (would be played from its small proxy copy) or **still**. Tap an angle to **cut to it at the
+   playhead**.
+6. To cut while the video plays, tap **Record cuts**, press play, tap angles as the action moves, then **Stop
+   recording**: all the cuts are applied together and **Undo** removes the whole recording at once.
+7. **Remove cut here** merges the stretch with the angle before it, **Sound from** chooses which angle's sound plays,
+   **Fine sync** moves one angle by a frame, **Sync again** listens again, and **Flatten** keeps the cuts as normal
+   clips and forgets the multicam group.
+
+Good to know: the cuts are ordinary clips on the timeline, so export, speed, effects and the rest work as usual. If
+you split, trim or delete one of those pieces by hand, the multicam group is dropped automatically (the clips stay).
+An angle can only be cut to where it has recorded: a cut that would go past the start or end of its media is refused.
 
 ## Missing media and recovery
 

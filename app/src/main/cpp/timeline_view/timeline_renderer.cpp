@@ -17,6 +17,7 @@
 #include "thumbnail/thumb_atlas.h"
 #include "thumbnail/thumbnail_service.h"
 #include "thumbnail/tile_math.h"
+#include "timeline_view/glyphs.h"
 
 #define LOG_TAG "uv_timeline"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -44,6 +45,7 @@ constexpr Color kMarqueeEdge{0.55f, 0.78f, 1.0f, 0.95f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
 constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
+constexpr Color kClipLabel{1.0f, 1.0f, 1.0f, 0.92f};
 constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
 // A clip whose media cannot be read: a red veil with darker stripes so it reads as broken, not selected.
 constexpr Color kMissingTint{0.85f, 0.15f, 0.15f, 0.45f};
@@ -75,14 +77,6 @@ Color clipColor(TrackType t) {
 }
 
 Color scaled(Color c, float k) { return {c.r * k, c.g * k, c.b * k, c.a}; }
-
-// 3x5 pixel glyphs for 0-9, ':', 'x', '.', '<' (reverse) and '|' (freeze); bit 14 = top-left, row-major.
-constexpr uint16_t kGlyphs[15] = {
-    0b111101101101111, 0b010110010010111, 0b111001111100111, 0b111001111001111,
-    0b101101111001001, 0b111100111001111, 0b111100111101111, 0b111001001001001,
-    0b111101111101111, 0b111101111001111, 0b000010000010000, 0b101101010101101,
-    0b000000000000010, 0b001010100010001, 0b010010010010010,
-};
 
 constexpr const char* kVertexShader = R"(#version 300 es
 layout(location = 0) in vec2 aPos;
@@ -261,19 +255,14 @@ public:
         if (verts_.size() > 6 * 20000) flush();
     }
 
+    // Draws digits, ':', 'x', '.', '<', '|' and (for clip labels) letters, drawn as capitals, and '-' (see glyphs.h).
     void drawNumber(const char* text, float x, float y, float scale, Color c) {
         for (const char* p = text; *p != '\0'; ++p) {
-            int g = -1;
-            if (*p >= '0' && *p <= '9') g = *p - '0';
-            else if (*p == ':') g = 10;
-            else if (*p == 'x') g = 11;
-            else if (*p == '.') g = 12;
-            else if (*p == '<') g = 13;
-            else if (*p == '|') g = 14;
-            if (g >= 0) {
+            const uint16_t bits = glyphBits(*p);
+            if (bits != 0) {
                 for (int row = 0; row < 5; ++row) {
                     for (int col = 0; col < 3; ++col) {
-                        if ((kGlyphs[g] >> (14 - (row * 3 + col))) & 1) {
+                        if ((bits >> (14 - (row * 3 + col))) & 1) {
                             rect(x + col * scale, y + row * scale, x + (col + 1) * scale, y + (row + 1) * scale, c);
                         }
                     }
@@ -977,6 +966,22 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             if (label[0] != '\0' && fx1 - fx0 > width + 8.0f * density) {
                 g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
                 g.drawNumber(label, fx1 - width - (c.hasFx ? 12.0f : 3.0f) * density, top + (header - 5.0f * gs) * 0.5f, gs, kSpeedLabel);
+                g.setClip(0, layout.rulerHeight, W, H);
+            }
+        }
+
+        // The text of a title or the name of a sticker, so those blocks are not anonymous rectangles. It starts at
+        // the visible left edge of the block (it stays readable while the block is scrolled partly out of view)
+        // and is cut to the room that is left.
+        if (const std::string* text = snap->labelOf(c.clipKey)) {
+            const float body = bottom - (top + header);
+            const float gs = std::clamp(body * 0.3f / 5.0f, 1.0f, 4.0f * density);
+            const float x0 = std::max(fx0, 0.0f) + 4.0f * density;
+            const size_t fit = fx1 - x0 - 3.0f * density > 0.0f ? static_cast<size_t>((fx1 - x0 - 3.0f * density) / (4.0f * gs)) : 0;
+            if (fit > 0 && body > 5.0f * gs) {
+                const std::string shown = text->substr(0, fit);
+                g.setClip(std::max(0.0f, fx0), std::max(layout.rulerHeight, top), std::min(W, fx1), bottom);
+                g.drawNumber(shown.c_str(), x0, top + header + (body - 5.0f * gs) * 0.5f, gs, kClipLabel);
                 g.setClip(0, layout.rulerHeight, W, H);
             }
         }

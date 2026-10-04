@@ -686,6 +686,21 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
 **Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
 
+## WP-T: multilayer titles, fonts and presets
+
+- **A title is one clip drawn into one bitmap.** Layers (text, shape, image) live inside `TitleContent.layers` and are rasterised together by `LayeredTitleDrawer`, instead of making each layer a separate clip. *Why:* preview and export, the key cache, keyframes, effects, blend modes and transitions already work on a title clip; one clip also moves, trims and deletes as a unit and a preset is one file. *Alternative:* a group of clips on several lanes (what the old templates did): flexible per-layer animation but fragile (lanes, collisions, ungrouping). *Consequence:* the whole title animates as one; per-layer animation is not possible (the old lower third staggered its bar and text; the new one slides as a unit).
+- **Plain titles stay.** `layers` is empty for plain titles and captions, which keep their own drawer and word animation; a plain title converts to layers on request (`Edit as layers`), except captions with word timing. *Why:* old projects, captions and their tests keep working unchanged.
+- **Layer order.** Stored in painter's order (index 0 at the bottom), listed top first in the editor. *Why:* matches how drawing works; LumaFusion 5.5.3 lists top first.
+- **The bitmap is symmetric around the canvas centre and cropped.** Because the compositor centres title bitmaps and the native side is unchanged. *Alternative:* full-canvas bitmaps (simple, but up to 33 MB per 4K title; the cap is 0.6 of the canvas beyond each side, so at most 1.2x the canvas per side).
+- **Photo layers store the asset id; the file is resolved at render time** (`ImageLayer.resolvedUri`, never stored). *Why:* relinking a missing photo then just works and changes the cache key. *Alternative:* store the URI (breaks on relink and on other devices).
+- **Photos are not saved in presets.** *Why:* they are files of one project (and privacy: a shared preset must not carry a reference to the user's media). Stickers, text and shapes travel.
+- **Fonts are imported, not downloaded, and not embedded.** Font id = SHA-256 prefix of the file, so a project or preset names a font the same way on every device; a missing font falls back to the system font with a banner. *Why:* privacy (no network), licences (we must not redistribute a font inside a shared file), simplicity. *Alternative:* embed fonts in projects (works anywhere, but redistributes the font); a bundled font set (licence-clean fonts could be added later).
+- **No `.ttc` collections.** The picker gives one file; choosing a face inside a collection needs UI we do not have yet.
+- **Animation is the clip's keyframes.** `MotionPreset` generates ease keyframes over the first and last 0.4 s (editable afterwards with the usual keyframe tools), and applying one replaces the clip's keyframes. *Alternative:* a stored `intro`/`outro` on the clip that is evaluated at render time (cleaner to edit, but a new concept everywhere).
+- **Built-in templates migrated to the preset format** (one multilayer title each). `AddTextTemplate` now needs two ids (clip, spare lane) instead of one per layer plus two.
+- **Layer handles on the preview are a ring and cross** at the layer centre (plus the outline of a shape) with the existing gestures redirected, not corner handles. *Why:* text and picture bounds need native measurement; the gestures cover move, scale and rotate.
+- **Decoding photos for a title happens where the title is rasterised** (the main thread in the preview, with a small cache), not on a worker like photo clips. *Why:* a title is rasterised synchronously today; layers are few and decoded at their drawn size. *Alternative:* a worker with a placeholder (more code); revisit if large photos cause jank.
+
 ## Multi-selection and group edits (WP-S)
 
 **Decision:** selection is `selectedClipId` (primary) plus `selectedClipIds` (the group, when more than one); a plain tap, an empty-space tap or Clear resets the group, long press toggles a clip in any mode, and select mode adds taps and a marquee on empty lane space. The marquee is native state and `clipsInRect` runs natively. Group operations are pure `Timeline -> Timeline` functions (`GroupOps`) behind one command each, so they are all-or-nothing and one undo step.
@@ -847,6 +862,14 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** if the codec had nothing ready right after the seek, each following call seeked to the same place again (the gap exceeded the continue limit), flushing the codec every time, so the clip never became ready (export failed with the audio of clip N not ready after 30 s). Each stalled frame also blocked for 30 s while faults were only polled every 30 frames.
 **Alternative:** a larger continue gap (hides the problem for fast codecs only).
 
+## Text on title and sticker blocks of the timeline
+
+**Decision:** the timeline snapshot (wire version 7) carries an optional short label per clip: a title's first line or a sticker's name, reduced to capital ASCII letters, digits, spaces and '-' (accents dropped, at most 24 characters). The native canvas draws it with its existing 3x5 pixel font, extended with A-Z and '-' (now in `timeline_view/glyphs.h`, host-tested), at the visible left edge of the block, cut to the room left.
+**Why:** title, caption and sticker blocks were plain coloured rectangles, so a timeline with several of them could not be read (QA report, device pass 1).
+**Alternative:** render the label with Android's text engine into a texture (handles every script and emoji, but needs a bitmap upload per label and a font stack on the render thread) or draw only an icon per kind (no text). Titles in other scripts (CJK, Arabic, emoji) show the generic label TEXT; revisit if that matters.
+
+**Not verified:** the drawing itself was not seen on a device (the Pixel's screen was locked); the parser, the glyph shapes and the label rules are covered by host and JVM tests.
+
 
 ## Motion tracking (WP-V1)
 
@@ -879,3 +902,50 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Decision:** silence detection runs on the loudness envelope already cached for waveforms (no audio is decoded again) with a plain level threshold, minimum length and padding; the cuts are applied as one base-track edit that reuses the delete rules (ripple, overlays follow). Reframe is manual: the user marks the point of interest (sliders, one mark per moment) and the app writes cover-fit pose keyframes; there is no subject detection.
 **Why:** the privacy rule excludes models; peak envelopes are cheap and deterministic, and routing the cut through the existing base delete keeps every edit rule in one place. A manual point is predictable and editable afterwards as normal keyframes.
 **Alternative:** spectral voice-activity detection (better in noisy rooms, more code and tuning), letting the user drag a box on the preview to pick the point (nicer, but more gesture code next to the tracker picking), and supporting retimed clips by mapping spans through the retime table (deferred: speed-changed clips are refused with a message).
+
+## Export speed on long-GOP clips: model instead of more code (third pass)
+
+**Decision:** no further production change to the decoder: the slowdown was already removed by keeping one frame in flight (second pass). This pass moves the constant to `decode/pending_policy.h` (`kMaxInFlightFrames`, shared by the decoder and a new host simulation) and adds `decode_sim_tests.cpp`, a deterministic simulation of the decoder worker with a sequential export consumer. It reproduces the old behaviour (138 backward seeks, 1.9 fps with 4 in flight) and guards the fix (1 seek, within 15% of the pipelined ideal), and checks that scrub and long jumps still seek once.
+**Why:** the Pixel was locked, so a decoder change could not be verified; the root cause was already identified and fixed, and a regression guard that fails if someone raises the in-flight limit is the cheapest protection.
+**Alternative:** allow two frames in flight with a reader that does not drop (would help the decode-bound case, 85% of ideal) or pre-arm the decoder targets of all layers before waiting for the first one (helps cuts with a new decoder). Both need a device to be measured; listed as follow-ups.
+
+## Multicam (WP-M)
+
+**Decision:** a multicam clip is realised as ordinary clips on the tracks, and the group (`Timeline.multicams`) is only
+the recipe: angles with offsets, the audio angle, the lane ids and the cuts. Switching angles rewrites the realised
+clips in place; "Flatten" just forgets the group; export needs no special path because it only ever sees plain clips.
+**Why:** preview, export, the magnetic base, group edits, effects and speed all already work on plain clips, so a new
+clip type would have touched every renderer and operation; this keeps the change inside `domain/multicam/`.
+**Alternative:** a dedicated clip type resolved inside `RenderPlan` (smaller project files and angle media kept
+visible in the model, at the cost of new code in the planner, the mixer snapshot, export and every clip operation).
+
+**Decision:** edits on single realised clips (split, trim, retime, deleting one) make the group forget itself
+(`MulticamOps.settle` from `Timeline.pruned()`), while moves of the whole block make it follow; styling keeps it.
+**Why:** a group that no longer matches its clips would lie to the cut buttons.
+**Alternative:** refuse those edits, or rebuild the group from the clips.
+
+**Decision:** sync correlates the loudness envelopes of the waveform cache (the same data beat detection uses) in
+Kotlin, with an FFT, instead of a new native decoder at 8 kHz PCM.
+**Why:** no audio is decoded twice, it is host-testable, and a 100 Hz envelope resolves offsets finer than one frame at
+60 fps; speech, claps and music all give strong loudness shapes.
+**Alternative:** native 8 kHz PCM cross-correlation (finer than 10 ms, needed only for sample-accurate audio alignment
+between recorders, which the picture cuts do not require).
+
+**Decision:** a doubtful sync (confidence below 0.15: correlation minus the best rival peak) is shown as "unsure" and
+not applied; the offset stays 0 until the user nudges it.
+**Why:** a wrong offset looks plausible and wastes the whole edit; silence or unrelated audio must not pretend to match.
+**Alternative:** apply the best guess anyway and show the confidence.
+
+**Decision:** the audio of a multicam is one clip from one angle on a free audio lane, and the picture clips are
+silenced with -96 dB (the gain floor) rather than muting a track. Without a free audio lane the pictures keep their own
+sound and a message says so.
+**Why:** cutting to another camera must not make the sound jump; muting a whole video track would silence the user's
+other clips on the base.
+**Alternative:** a per-clip mute flag (not in the model today).
+
+**Decision:** a multicam clip is created on the base only, at the nearest cut to the playhead, and the other angles are
+shown in the viewer as badges (live / proxy / still) from `MulticamPlanner` instead of moving pictures.
+**Why:** one decoder at full quality is all the preview pipeline guarantees; moving thumbnails of five more angles need a
+low-rate decode path that was not built in this pass.
+**Alternative:** periodic stills from the thumbnail decoder or proxy decoders for each angle (the planner already
+decides which angles would use which).

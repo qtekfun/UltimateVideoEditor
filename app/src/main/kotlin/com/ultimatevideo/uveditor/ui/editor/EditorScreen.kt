@@ -17,6 +17,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.IconButton
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamController
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamIntent
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamSheet
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipDefaults
@@ -119,7 +122,17 @@ import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
 import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
+import com.ultimatevideo.uveditor.data.FontRegistry
 import com.ultimatevideo.uveditor.data.LookStore
+import com.ultimatevideo.uveditor.data.TitlePresetStore
+import com.ultimatevideo.uveditor.domain.TextTemplate
+import com.ultimatevideo.uveditor.engine.still.AndroidLayerImages
+import com.ultimatevideo.uveditor.engine.title.RegistryFontResolver
+import com.ultimatevideo.uveditor.ui.editor.title.ContentResolverBytesReader
+import com.ultimatevideo.uveditor.ui.editor.title.ContentResolverTextWriter
+import com.ultimatevideo.uveditor.ui.editor.title.LayerHandleOverlay
+import com.ultimatevideo.uveditor.ui.editor.title.TitleLibraryViewModel
+import com.ultimatevideo.uveditor.ui.editor.title.TitleTools
 import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
 import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
@@ -196,6 +209,54 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         LookActions(lookState, lookLibrary::save, lookLibrary::delete, lookLibrary::copy, lookLibrary::clearError)
     }
 
+    // Imported fonts, saved title presets and the title drawing that uses them (preview and export share it).
+    // Everything stays on the device; files come only from what the user picks.
+    val fontRegistry = remember(context) { FontRegistry(File(context.applicationContext.filesDir, "fonts")) }
+    val fontResolver = remember(fontRegistry) { RegistryFontResolver(fontRegistry) }
+    val titleRasterizer = remember(context, fontResolver) { AndroidTitleRasterizer(AndroidLayerImages(context.applicationContext), fontResolver) }
+    val titleLibrary: TitleLibraryViewModel = viewModel(
+        key = "title-library",
+        factory = viewModelFactory {
+            initializer {
+                TitleLibraryViewModel(
+                    fontRegistry,
+                    TitlePresetStore(File(context.applicationContext.filesDir, "title-presets")),
+                    ContentResolverBytesReader(context.applicationContext),
+                    ContentResolverTextWriter(context.applicationContext),
+                )
+            }
+        },
+    )
+    val titleLibraryState by titleLibrary.state.collectAsStateWithLifecycle()
+    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) titleLibrary.importFont(uri.toString())
+    }
+    val presetPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) titleLibrary.importPreset(uri.toString())
+    }
+    var presetToExport by remember { mutableStateOf<TextTemplate?>(null) }
+    val presetSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val preset = presetToExport
+        presetToExport = null
+        if (uri != null && preset != null) titleLibrary.exportPreset(preset.id, uri.toString())
+    }
+    val titleTools = remember(titleLibraryState, titleLibrary) {
+        TitleTools(
+            fonts = titleLibraryState.fonts,
+            presets = titleLibraryState.presets,
+            message = titleLibraryState.message,
+            onImportFont = { fontPicker.launch(arrayOf("*/*")) },
+            onSavePreset = { name, content, intro, outro, seconds -> titleLibrary.savePreset(name, content, seconds, intro, outro) },
+            onImportPreset = { presetPicker.launch(arrayOf("*/*")) },
+            onExportPreset = {
+                presetToExport = it
+                presetSaver.launch("${it.name}.uvtitle")
+            },
+            onDeletePreset = { titleLibrary.deletePreset(it.id) },
+            onClearMessage = titleLibrary::clearMessage,
+        )
+    }
+
     val exportViewModel: ExportViewModel = viewModel(
         key = "export-$projectId",
         factory = viewModelFactory {
@@ -203,7 +264,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 ExportViewModel(
                     ContentResolverExportIO(context.applicationContext),
                     NativeExportRunner(),
-                    titleRasterizer = AndroidTitleRasterizer(),
+                    titleRasterizer = titleRasterizer,
                     stillRasterizer = AndroidStillRasterizer(context.applicationContext),
                     hdrSupport = MediaCodecHdrExportSupport(),
                     lutLoader = lutStore::load,
@@ -287,6 +348,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         EditorPreview(
             context,
             scope,
+            rasterizer = titleRasterizer,
             lutLoader = lutStore::load,
             onProxyFailed = { proxyVm.onIntent(ProxyIntent.PreviewProxyFailed(it)) },
         ) {
@@ -296,6 +358,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         }
     }
     DisposableEffect(preview) { onDispose { preview.close() } }
+    // A font that was imported or removed changes how titles that name it are drawn: tell the editor which
+    // fonts exist (for the missing-font notice) and draw the titles again.
+    LaunchedEffect(titleLibraryState.fontIds) {
+        viewModel.onIntent(EditorIntent.FontsChanged(titleLibraryState.fontIds))
+        fontResolver.clear()
+        preview.titlesChanged()
+    }
 
     val audio = remember {
         EditorAudio(context, scope) { viewModel.onIntent(EditorIntent.ReportError(it)) }
@@ -402,6 +471,8 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             onPickSticker = { viewModel.onIntent(EditorIntent.AddSticker(it)) },
             onApplyTemplate = { id, text -> viewModel.onIntent(EditorIntent.ApplyTextTemplate(id, text)) },
             modifier = panelModifier,
+            userPresets = titleLibraryState.presets,
+            onApplyPreset = { template, text -> viewModel.onIntent(EditorIntent.ApplyPreset(template, text)) },
         )
     }
 
@@ -577,7 +648,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                                             trayPanel(false, Modifier.fillMaxSize())
                                         } else {
                                             Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
-                                                InspectorPanel(state = state, onIntent = viewModel::onIntent, transitionLimit = viewModel::transitionLimit)
+                                                InspectorPanel(
+                                                    state = state,
+                                                    onIntent = viewModel::onIntent,
+                                                    transitionLimit = viewModel::transitionLimit,
+                                                    titleTools = titleTools,
+                                                )
                                             }
                                         }
                                     }
@@ -622,6 +698,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                         layout = layout,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
                         onOpenLayout = { layoutSheetOpen = true },
+                        titleTools = titleTools,
                         onOpenTray = { tray = tray.open(it) },
                         bottomTray = {
                             val trayDock = layout.tray
@@ -661,6 +738,7 @@ private fun EditorMain(
     inspectorOverlay: Boolean,
     onOpenLayout: () -> Unit,
     bottomTray: @Composable () -> Unit,
+    titleTools: TitleTools,
     modifier: Modifier = Modifier,
     /** Output peaks since the previous call, for the level meter next to the timecode. */
     takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
@@ -675,6 +753,14 @@ private fun EditorMain(
     }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
     QuickEditSheets(state) { viewModel.onIntent(it) }
+    if (state.multicam.open) {
+        MulticamSheet(
+            state = state,
+            group = MulticamController.groupOf(state.timeline, state.selectedClipId),
+            feedsOf = viewModel::multicamFeeds,
+            onIntent = { viewModel.onIntent(EditorIntent.Multicam(it)) },
+        )
+    }
     LibraryOverlays(state) { viewModel.onIntent(it) }
     LocalProxyUi.current?.let { ProxySheetHost(it, LocalProxyIntent.current) }
     var scopesOpen by remember { mutableStateOf(false) }
@@ -697,7 +783,7 @@ private fun EditorMain(
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
             ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
         }
-        MediaBanners(state) { viewModel.onIntent(it) }
+        MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }
         ProxyBannerHost()
 
         val splitMetrics = remember { SplitMetrics() }
@@ -738,17 +824,24 @@ private fun EditorMain(
                                 .collectAsStateWithLifecycle(initialValue = 0L)
                             TrackPathOverlay(state.track.overlay, trackPlayhead, state.canvasWidth, state.canvasHeight, Modifier.fillMaxSize())
                         }
-                        // Drag, pinch and twist edit the selected clip while it is under the playhead.
+                        // Drag, pinch and twist edit the selected clip while it is under the playhead; with a layer of a
+                        // multilayer title selected they move that layer instead.
+                        val layerTarget = state.selectedTitleLayer != null
                         PreviewGestureLayer(
                             enabled = selectedClipVisible && !state.track.picking,
                             canvasWidth = state.canvasWidth,
                             canvasHeight = state.canvasHeight,
                             onStep = { panX, panY, zoom, rotation ->
-                                viewModel.onIntent(EditorIntent.TransformGesture(panX, panY, zoom, rotation))
+                                viewModel.onIntent(
+                                    if (layerTarget) EditorIntent.LayerGesture(panX, panY, zoom, rotation)
+                                    else EditorIntent.TransformGesture(panX, panY, zoom, rotation),
+                                )
                             },
                             onEnd = { viewModel.onIntent(EditorIntent.EndAppearanceEdit(commit = true)) },
                             modifier = Modifier.fillMaxSize(),
                         )
+                        // A ring and cross on the layer the gestures are moving (nothing unless a layer is selected).
+                        LayerHandleOverlay(state, Modifier.fillMaxSize())
                         if (state.track.picking) {
                             TrackTargetLayer(
                                 canvasWidth = state.canvasWidth,
@@ -840,6 +933,9 @@ private fun EditorMain(
                         proxyIntent(ProxyIntent.OpenSheet)
                     }
                     ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
+                    ToolButton(EditorIcons.Multicam, "Multicam: line up several cameras by their sound and cut between them") {
+                        viewModel.onIntent(EditorIntent.Multicam(MulticamIntent.Open))
+                    }
                     ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
                         scopesOpen = !scopesOpen
                     }
@@ -886,7 +982,12 @@ private fun EditorMain(
                             // Swallow touches so they never reach the timeline underneath.
                             modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } },
                         ) {
-                            InspectorPanel(state = state, onIntent = viewModel::onIntent, transitionLimit = viewModel::transitionLimit)
+                            InspectorPanel(
+                                state = state,
+                                onIntent = viewModel::onIntent,
+                                transitionLimit = viewModel::transitionLimit,
+                                titleTools = titleTools,
+                            )
                         }
                     }
                 }
