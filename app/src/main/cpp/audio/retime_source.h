@@ -76,6 +76,7 @@ private:
     int64_t winEnd_ = 0;         // one past the last decoded source sample
     bool eof_ = false;           // the source ends at winEnd_
     bool haveWindow_ = false;
+    int64_t pendingFillHi_ = -1; // after a seek: the sample the window must reach; -1 when it was reached
     core::Status status_ = core::Status::Ok;
 };
 

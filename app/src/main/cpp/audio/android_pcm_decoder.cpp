@@ -1,4 +1,5 @@
 #include "audio/android_pcm_decoder.h"
+#include "core/fd_util.h"
 
 #include <android/log.h>
 #include <media/NdkMediaFormat.h>
@@ -54,7 +55,7 @@ Status AndroidPcmDecoder::init(int fd) {
         LOGE("fstat failed or empty file");
         return Status::IoError;
     }
-    fd_ = dup(fd);
+    fd_ = core::openIndependent(fd);
     if (fd_ < 0) return Status::IoError;
 
     extractor_ = AMediaExtractor_new();
