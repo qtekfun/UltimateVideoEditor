@@ -25,6 +25,12 @@ const RetimeSnapshot* TimelineSnapshot::retimeOf(int64_t clipKey) const {
     return it != retimes.end() && it->clipKey == clipKey ? &*it : nullptr;
 }
 
+const std::string* TimelineSnapshot::labelOf(int64_t clipKey) const {
+    const auto it = std::lower_bound(labels.begin(), labels.end(), clipKey,
+                                     [](const LabelSnapshot& a, int64_t key) { return a.clipKey < key; });
+    return it != labels.end() && it->clipKey == clipKey ? &it->text : nullptr;
+}
+
 namespace {
 
 class Reader {
@@ -35,6 +41,17 @@ public:
         if (n_ - off_ < sizeof(T)) return false;
         std::memcpy(out, p_ + off_, sizeof(T));  // host is little endian on all Android ABIs
         off_ += sizeof(T);
+        return true;
+    }
+    bool readBytes(char* out, size_t count) {
+        if (n_ - off_ < count) return false;
+        std::memcpy(out, p_ + off_, count);
+        off_ += count;
+        return true;
+    }
+    bool skip(size_t count) {
+        if (n_ - off_ < count) return false;
+        off_ += count;
         return true;
     }
     bool atEnd() const { return off_ == n_; }
@@ -62,6 +79,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     const bool hasKeyframes = version >= 3;
     const bool hasRetimes = version >= 4;
     const bool hasMarkers = version >= 5;
+    const bool hasLabels = version >= 7;
     if (fpsNum <= 0 || fpsDen <= 0 || trackCount < 0 || clipCount < 0) return Status::BadSnapshot;
     // Reject sizes that cannot fit in the buffer before allocating. The transition count follows
     // the clips, so here only the part up to it must fit.
@@ -152,7 +170,9 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     if (hasMarkers) {
         int32_t markerCount = 0;
         if (!r.read(&markerCount) || markerCount < 0) return Status::BadSnapshot;
-        if (r.remaining() != static_cast<size_t>(markerCount) * kSnapshotMarkerBytes) return Status::BadSnapshot;
+        const size_t markerBytes = static_cast<size_t>(markerCount) * kSnapshotMarkerBytes;
+        // Version 7 has the label count after the markers; at least the markers and it must fit.
+        if (hasLabels ? r.remaining() < markerBytes + 4 : r.remaining() != markerBytes) return Status::BadSnapshot;
         snap.markers.reserve(static_cast<size_t>(markerCount));
         for (int32_t i = 0; i < markerCount; ++i) {
             MarkerSnapshot m{};
@@ -162,6 +182,26 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         }
         std::sort(snap.markers.begin(), snap.markers.end(),
                   [](const MarkerSnapshot& a, const MarkerSnapshot& b) { return a.frame < b.frame; });
+    }
+    if (hasLabels) {
+        int32_t labelCount = 0;
+        if (!r.read(&labelCount) || labelCount < 0) return Status::BadSnapshot;
+        // Every label takes at least 12 bytes, so a count the rest of the buffer cannot hold is rejected up front.
+        if (static_cast<size_t>(labelCount) > r.remaining() / 12) return Status::BadSnapshot;
+        snap.labels.reserve(static_cast<size_t>(labelCount));
+        for (int32_t i = 0; i < labelCount; ++i) {
+            LabelSnapshot label{};
+            int32_t length = 0;
+            if (!r.read(&label.clipKey) || !r.read(&length) || length < 0 || length > kSnapshotMaxLabelBytes) {
+                return Status::BadSnapshot;
+            }
+            label.text.resize(static_cast<size_t>(length));
+            if (length > 0 && !r.readBytes(label.text.data(), static_cast<size_t>(length))) return Status::BadSnapshot;
+            if (!r.skip(static_cast<size_t>((4 - length % 4) % 4))) return Status::BadSnapshot;
+            snap.labels.push_back(std::move(label));
+        }
+        std::sort(snap.labels.begin(), snap.labels.end(),
+                  [](const LabelSnapshot& a, const LabelSnapshot& b) { return a.clipKey < b.clipKey; });
     }
     if (!r.atEnd()) return Status::BadSnapshot;
     *out = std::move(snap);
