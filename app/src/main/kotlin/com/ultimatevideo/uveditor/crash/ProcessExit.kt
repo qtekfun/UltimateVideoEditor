@@ -59,6 +59,65 @@ object TombstoneSummary {
     fun extract(trace: ByteArray?): List<String> {
         if (trace == null || trace.isEmpty()) return emptyList()
         val bytes = if (trace.size > MAX_BYTES * 8) trace.copyOf(MAX_BYTES * 8) else trace
+        // First read the stream as protobuf: a text field is a tag byte, a varint length and that many printable
+        // bytes, so the tag and the length are never mistaken for the first characters of a symbol. Anything that
+        // is not protobuf (older Android versions, plain text) falls back to scanning for printable runs.
+        val raw = printableRuns(bytes)
+        val proto = protobufStrings(bytes)
+        val rawInteresting = raw.filter { interesting.containsMatchIn(it) }
+        val explained = rawInteresting.count { run -> proto.any { run.contains(it) } }
+        // The protobuf reading is used when it accounts for most of the readable symbols, otherwise it is not protobuf.
+        val runs = if (proto.isNotEmpty() && rawInteresting.isNotEmpty() && explained * 10 >= rawInteresting.size * 7) proto else raw
+        val seen = LinkedHashSet<String>()
+        var size = 0
+        for (run in runs) {
+            if (!interesting.containsMatchIn(run)) continue
+            val line = CrashReportFormat.scrub(run).trim()
+            if (line.isEmpty() || !seen.add(line)) continue
+            size += line.length + 1
+            if (seen.size > MAX_ENTRIES || size > MAX_BYTES) break
+        }
+        return seen.toList()
+    }
+
+    /** Text fields of a protobuf stream: wire type 2, a varint length of at least [MIN_RUN], all bytes printable. */
+    internal fun protobufStrings(bytes: ByteArray): List<String> {
+        val out = ArrayList<String>()
+        var i = 0
+        while (i < bytes.size - 1) {
+            val tag = bytes[i].toInt() and 0xFF
+            if (tag and 7 == 2) {
+                var length = 0
+                var shift = 0
+                var j = i + 1
+                var complete = false
+                while (j < bytes.size && j <= i + 3) {
+                    val b = bytes[j].toInt() and 0xFF
+                    length = length or ((b and 0x7F) shl shift)
+                    j++
+                    if (b and 0x80 == 0) { complete = true; break }
+                    shift += 7
+                }
+                if (complete && length >= MIN_RUN && j + length <= bytes.size && printable(bytes, j, length)) {
+                    out.add(String(bytes, j, length, Charsets.ISO_8859_1))
+                    i = j + length
+                    continue
+                }
+            }
+            i++
+        }
+        return out
+    }
+
+    private fun printable(bytes: ByteArray, from: Int, length: Int): Boolean {
+        for (k in from until from + length) {
+            val c = bytes[k].toInt() and 0xFF
+            if (c !in 0x20..0x7E) return false
+        }
+        return true
+    }
+
+    private fun printableRuns(bytes: ByteArray): List<String> {
         val runs = ArrayList<String>()
         val current = StringBuilder()
         fun flush() {
@@ -70,16 +129,7 @@ object TombstoneSummary {
             if (c in 0x20..0x7E) current.append(c.toChar()) else flush()
         }
         flush()
-        val seen = LinkedHashSet<String>()
-        var size = 0
-        for (run in runs) {
-            if (!interesting.containsMatchIn(run)) continue
-            val line = CrashReportFormat.scrub(run).trim()
-            if (line.isEmpty() || !seen.add(line)) continue
-            size += line.length + 1
-            if (seen.size > MAX_ENTRIES || size > MAX_BYTES) break
-        }
-        return seen.toList()
+        return runs
     }
 }
 

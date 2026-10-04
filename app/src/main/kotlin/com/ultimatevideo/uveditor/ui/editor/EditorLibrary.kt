@@ -1,6 +1,8 @@
 package com.ultimatevideo.uveditor.ui.editor
 
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.domain.MarkerColor
+import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.LibraryFilter
 import com.ultimatevideo.uveditor.ui.library.LibraryQuery
 
@@ -16,6 +18,8 @@ data class LibraryUiState(
     val confirmDeleteUnused: Int? = null,
     /** An export in progress ("Writing the bundle…"), or null when idle. */
     val busy: String? = null,
+    /** The dialog that asks what a project bundle should hold (media files, LUTs, fonts), or null when closed. */
+    val bundleDraft: BundleExportDraft? = null,
 )
 
 /** The tags (comma separated) and the note being typed for one library file. */
@@ -66,9 +70,16 @@ sealed interface LibraryIntent : EditorIntent {
     /** Selects the next clip on the timeline that uses [assetId] and moves the playhead there; again steps to the one after. */
     data class FindInTimeline(val assetId: String) : LibraryIntent
 
-    /** Asks the screen for a place to write the export (the document picker); [ExportTo] follows. */
+    /**
+     * Asks the screen for a place to write the export (the document picker); [ExportTo] follows. A bundle first
+     * opens the dialog that asks what goes in; the picker comes after [ConfirmBundleExport].
+     */
     data class RequestExport(val kind: InterchangeKind) : LibraryIntent
     data class ExportTo(val kind: InterchangeKind, val uri: String) : LibraryIntent
+
+    data class BundleChoiceChanged(val choice: BundleChoice) : LibraryIntent
+    data object ConfirmBundleExport : LibraryIntent
+    data object DismissBundleExport : LibraryIntent
 
     /** Opens the note and colour dialog of the marker at the playhead. */
     data object OpenMarkerEdit : LibraryIntent

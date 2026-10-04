@@ -19,20 +19,60 @@ data class LutInfo(val key: Int, val name: String, val size: Int)
 class LutStore(private val dir: File) {
 
     /** Validates [text] as a .cube file and stores it. @throws LutParseException when it cannot be used. */
-    fun import(displayName: String, text: String): LutInfo {
+    fun import(displayName: String, text: String): LutInfo = install(displayName, text, keyOf(text)).info
+
+    /** How [install] placed a LUT: stored under [LutInstall.info]'s key, which may differ from the one asked for. */
+    enum class InstallStatus { ADDED, ALREADY_PRESENT, REKEYED }
+
+    class LutInstall(val info: LutInfo, val status: InstallStatus)
+
+    /**
+     * Validates [text] and stores it under [desiredKey] (the key a project already refers to). Keys are a 24-bit
+     * hash, so two different LUTs can share one: the content under the key is compared, and a different LUT
+     * moves the new one to the next free key (the caller rewrites its references when the key changed). A LUT
+     * whose bytes are already stored, under this key or one of the next ones, is not stored twice.
+     * @throws LutParseException when [text] cannot be used, @throws IOException when it cannot be written.
+     */
+    fun install(displayName: String, text: String, desiredKey: Int): LutInstall {
         val lut = CubeParser.parse(text)
-        val key = keyOf(text)
         val name = displayName.removeSuffix(".cube").ifBlank { lut.title ?: "LUT" }.let(::safeName)
         if (!dir.exists() && !dir.mkdirs()) throw IOException("Cannot create ${dir.path}")
-        existing(key)?.let { return it.first }
-        val target = File(dir, "${key}_${lut.size}_$name.cube")
-        val temp = File(dir, "${target.name}.tmp")
-        temp.writeText(text)
-        if (!temp.renameTo(target)) {
-            temp.delete()
-            throw IOException("Cannot save the LUT")
+        var key = desiredKey.coerceIn(1, MAX_KEY)
+        val first = key
+        repeat(MAX_PROBES) {
+            val found = existing(key)
+            if (found == null) {
+                val target = File(dir, "${key}_${lut.size}_$name.cube")
+                val temp = File(dir, "${target.name}.tmp")
+                temp.writeText(text)
+                if (!temp.renameTo(target)) {
+                    temp.delete()
+                    throw IOException("Cannot save the LUT")
+                }
+                return LutInstall(LutInfo(key, name, lut.size), if (key == first) InstallStatus.ADDED else InstallStatus.REKEYED)
+            }
+            if (sameText(found.second, text)) return LutInstall(found.first, InstallStatus.ALREADY_PRESENT)
+            key = if (key >= MAX_KEY) 1 else key + 1
         }
-        return LutInfo(key, name, lut.size)
+        throw IOException("No free key for this LUT")
+    }
+
+    /** The text of the LUT stored under [key], or null when it is not in the library. */
+    fun readText(key: Int): String? = existing(key)?.second?.let { file ->
+        try {
+            file.readText()
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    /** The library entry for [key], or null. */
+    fun info(key: Int): LutInfo? = existing(key)?.first
+
+    private fun sameText(file: File, text: String): Boolean = try {
+        file.readText() == text
+    } catch (e: IOException) {
+        false
     }
 
     fun list(): List<LutInfo> =
@@ -64,6 +104,9 @@ class LutStore(private val dir: File) {
     }
 
     companion object {
+        private const val MAX_KEY = 16_777_215
+        private const val MAX_PROBES = 64
+
         /** A positive 24-bit key from the file's content. */
         fun keyOf(text: String): Int {
             val crc = CRC32().apply { update(text.toByteArray(Charsets.UTF_8)) }
