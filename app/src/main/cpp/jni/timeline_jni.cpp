@@ -145,6 +145,18 @@ JNIEXPORT jint JNICALL JNI_FN(nativeLabelGeneration)(JNIEnv*, jobject, jlong han
     return h == nullptr ? 0 : static_cast<jint>(h->renderer->labelGeneration());
 }
 
+// Fills `out` with the hashes of text bitmaps the atlas evicted (taking them off its list); returns how many.
+JNIEXPORT jint JNICALL JNI_FN(nativeLabelTakeEvicted)(JNIEnv* env, jobject, jlong handle, jlongArray out) {
+    TimelineHandle* h = from(handle);
+    if (h == nullptr || out == nullptr) return 0;
+    const jsize capacity = env->GetArrayLength(out);
+    if (capacity <= 0) return 0;
+    std::vector<uint64_t> taken(static_cast<size_t>(capacity));
+    const size_t n = h->renderer->takeEvictedLabels(taken.data(), taken.size());
+    if (n > 0) env->SetLongArrayRegion(out, 0, static_cast<jsize>(n), reinterpret_cast<const jlong*>(taken.data()));
+    return static_cast<jint>(n);
+}
+
 JNIEXPORT void JNICALL JNI_FN(nativeScrollBy)(JNIEnv*, jobject, jlong handle, jfloat dx, jfloat dy) {
     if (TimelineHandle* h = from(handle)) h->renderer->scrollBy(dx, dy);
 }
@@ -184,6 +196,20 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetDropHint)(JNIEnv*, jobject, jlong handle,
     hint.startFrame = startFrame;
     hint.endFrame = endFrame;
     h->renderer->setDropHint(hint);
+}
+
+// The snap guide frame (negative for none) and the keys of the clips being dragged (null or empty for none).
+JNIEXPORT void JNICALL JNI_FN(nativeSetDragOverlay)(JNIEnv* env, jobject, jlong handle, jlong snapGuideFrame, jlongArray clipKeys) {
+    TimelineHandle* h = from(handle);
+    if (h == nullptr) return;
+    const jsize n = clipKeys == nullptr ? 0 : env->GetArrayLength(clipKeys);
+    if (n <= 0) {
+        h->renderer->setDragOverlay(snapGuideFrame, nullptr, 0);
+        return;
+    }
+    std::vector<int64_t> keys(static_cast<size_t>(n));
+    env->GetLongArrayRegion(clipKeys, 0, n, reinterpret_cast<jlong*>(keys.data()));
+    h->renderer->setDragOverlay(snapGuideFrame, keys.data(), keys.size());
 }
 
 JNIEXPORT void JNICALL JNI_FN(nativeSetMarquee)(JNIEnv*, jobject, jlong handle, jboolean active, jfloat x0, jfloat y0, jfloat x1,
