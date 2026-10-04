@@ -48,7 +48,13 @@ object TimelineOps {
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         if (!clip.hasMedia) return failure(EditError.InvalidAudio("only clips with media have audio settings"))
         audio.problem(clip.durationFrames)?.let { return failure(EditError.InvalidAudio(it)) }
-        return updateClip(timeline, clipId) { it.copy(audio = audio) }
+        // Voice sliders are animated per preset: another preset (or none) takes its own animation, not the old one's.
+        val samePreset = clip.audio.voice?.preset == audio.voice?.preset
+        return updateClip(timeline, clipId) { c ->
+            val next = c.copy(audio = audio)
+            val kept = if (samePreset) next.params else next.params.filter { ParamIds.parseVoice(it.paramId) == null }
+            next.copy(params = kept).withoutDanglingParams()
+        }
     }
 
     /** Replaces the mixer settings of a track (volume, mute, solo, ducking role, bus compressor). */

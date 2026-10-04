@@ -192,7 +192,8 @@ data class ClipAudio(
     val targetLufs: Double? = null,
     /**
      * A voice effect (pitch, whisper, robot, echo, reverb, ...) applied after the noise suppressor and before the
-     * EQ. Its sliders are not keyframable: changing one makes the engine decode the clip again.
+     * EQ. Its sliders can be keyframed (`audio.voice.<index>` tracks, see [ParamIds.voice]); a slider that is not
+     * animated is applied when released and makes the engine decode the clip again.
      */
     val voice: VoiceFx? = null,
 ) {
