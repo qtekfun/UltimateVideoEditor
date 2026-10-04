@@ -379,6 +379,9 @@ void GlPipeline::effectPass(unsigned sourceTexture, const FxTarget& destination,
         glUniform1fv(effectGradeLoc_, core::kGradeParams, op.grade.data());
         glUniform4fv(effectCurveLoc_, core::kGradeCurveSamples, op.grade.data() + core::kGradeParams);
     }
+    if (op.type == core::EffectType::Qualifier && op.grade.size() == static_cast<size_t>(core::kQualifierParams)) {
+        glUniform1fv(effectGradeLoc_, core::kQualifierParams, op.grade.data());  // the qualifier shares the uG array
+    }
     if (op.type == core::EffectType::Denoise || op.type == core::EffectType::Deflicker) {
         glUniform1i(effectHasPrevLoc_, repairBinds_.hasPrev ? 1 : 0);
         glUniform1i(effectHasNextLoc_, repairBinds_.hasNext ? 1 : 0);
