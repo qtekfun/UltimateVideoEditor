@@ -561,6 +561,16 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
         }
     }
+    // The clips being dragged or trimmed (lifted with a shadow) and the snap line. After the snapshot effect so the keys
+    // name clips the engine already has.
+    StateEffect(holder, { listOf(it.dragOverlay, it.visibleTimeline) }) { s ->
+        val overlay = s.dragOverlay
+        try {
+            engine.setDragOverlay(overlay?.guideFrame, overlay?.let { viewModel.dragOverlayKeys(it) } ?: LongArray(0))
+        } catch (e: EngineException) {
+            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+        }
+    }
     // The lane being dragged by its header and where it would land. After the snapshot effect, like the drop hint,
     // so the indices refer to the timeline the engine already has.
     StateEffect(holder, { listOf(it.laneDrag, it.visibleTimeline) }) { s ->
@@ -981,8 +991,8 @@ private fun EditorMain(
                     }
                     ToolButton(
                         EditorIcons.Transition,
-                        "Add a crossfade between the selected clip and the next",
-                        enabled = state.clipAfterSelected != null && state.selectedTransition == null,
+                        "Add a crossfade at the selected cut: select a clip next to another one, or put the playhead on a cut",
+                        enabled = state.transitionCut != null,
                     ) { viewModel.onIntent(EditorIntent.AddTransition) }
                     ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
                         viewModel.onIntent(EditorIntent.ToggleInspector)

@@ -26,9 +26,15 @@ fun interface LabelRasteriser {
     fun render(need: LabelNeed): RasterLabel?
 }
 
-/** The canvas side: takes bitmaps and tells which generation of its atlas it is on (a new one means it dropped them all). */
+/**
+ * The canvas side: takes bitmaps and tells which generation of its atlas it is on (a new one means it dropped them all).
+ * Between generations the atlas also evicts the bitmaps it has used least when it needs room: [takeEvicted] reports them.
+ */
 interface LabelSink {
     fun putLabel(hash: Long, label: RasterLabel)
+
+    /** Fills [out] with hashes of bitmaps the canvas evicted since the last call (each reported once); returns how many. */
+    fun takeEvicted(out: LongArray): Int = 0
 
     fun labelGeneration(): Int
 }
@@ -85,6 +91,7 @@ class LabelPump(
     private val maxLabels: Int = 700,
 ) {
     private val sent = HashSet<Long>()
+    private val evictedScratch = LongArray(256)
     private var generation = Int.MIN_VALUE
     private val pending = AtomicReference<List<LabelNeed>?>(null)
     private val running = AtomicBoolean(false)
@@ -108,6 +115,18 @@ class LabelPump(
         }
     }
 
+    /** Forgets that the bitmaps the canvas evicted were sent, so the next pass sends them again if they are still needed. */
+    private fun forgetEvicted(): Boolean {
+        var any = false
+        while (true) {
+            val n = sink.takeEvicted(evictedScratch)
+            if (n <= 0) return any
+            for (i in 0 until n) sent.remove(evictedScratch[i])
+            any = true
+            if (n < evictedScratch.size) return true
+        }
+    }
+
     internal fun sendMissing(needs: List<LabelNeed>) {
         repeat(2) {
             val gen = sink.labelGeneration()
@@ -115,6 +134,7 @@ class LabelPump(
                 sent.clear()
                 generation = gen
             }
+            forgetEvicted()
             for (need in needs) {
                 if (sent.size >= maxLabels && !StaticGlyphs.contains(need)) continue
                 val hash = LabelHash.of(need.text, need.sizeClass)
@@ -122,8 +142,8 @@ class LabelPump(
                 val raster = rasteriser.render(need) ?: continue
                 sink.putLabel(hash, raster)
             }
-            // The canvas dropped its atlas while we were sending: what went in before that is gone, send it again.
-            if (sink.labelGeneration() == generation) return
+            // The canvas dropped its atlas, or evicted some of what we just sent, while we were sending: send it again.
+            if (sink.labelGeneration() == generation && !forgetEvicted()) return
         }
     }
 }
