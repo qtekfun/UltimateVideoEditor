@@ -24,6 +24,13 @@ struct SoftwareVideoReader::Impl {
     int64_t lastIndex = 0;
     bool haveFrame = false;  // `frame` holds a picture returned by decode()
 
+    // After a seek: the frame the caller wanted, and how far back to try again if the demuxer landed too late
+    // (open GOPs: the key frame found has leading pictures that need the previous GOP, so they are never output).
+    int64_t goal = 0;
+    bool checkLanding = false;
+    int64_t backoff = 0;
+    int attempts = 0;
+
     ~Impl() {
         if (sws != nullptr) sws_freeContext(sws);
         if (frame != nullptr) av_frame_free(&frame);
@@ -100,8 +107,13 @@ Result<std::unique_ptr<SoftwareVideoReader>> SoftwareVideoReader::open(int fd, R
         info.durationFrames = durationToFrames(stream->duration, m.timeBase, m.fps);
         info.durationKnown = info.durationFrames > 0;
     } else if (fmt->duration > 0 && fmt->duration != AV_NOPTS_VALUE) {
+        // The container-level duration of formats without an index (MPEG-PS/TS) is an estimate from the first and
+        // last timestamps, which misses the last picture and the reordering delay by a few frames: round it up by
+        // 100 ms rather than hide real pictures. Frames past the true end are reported unavailable at end of stream.
+        const int64_t slack = (m.fps.num + 10 * m.fps.den - 1) / (10 * m.fps.den);
         info.durationFrames = durationToFrames(fmt->duration, TimeBase{1, AV_TIME_BASE}, m.fps);
         info.durationKnown = info.durationFrames > 0;
+        if (info.durationKnown) info.durationFrames += slack;
     }
     if (!info.durationKnown) info.durationFrames = kUnknownDurationFrames;
 
@@ -117,6 +129,15 @@ Result<std::unique_ptr<SoftwareVideoReader>> SoftwareVideoReader::open(int fd, R
 }
 
 bool SoftwareVideoReader::seek(int64_t frame, std::string* error) {
+    Impl& m = *impl_;
+    m.goal = std::max<int64_t>(frame, 0);
+    m.checkLanding = true;
+    m.backoff = 0;
+    m.attempts = 0;
+    return seekDemuxer(m.goal, error);
+}
+
+bool SoftwareVideoReader::seekDemuxer(int64_t frame, std::string* error) {
     Impl& m = *impl_;
     const int64_t target = std::max(frameToPtsFloor(std::max<int64_t>(frame, 0), m.timeBase, m.startPts, m.fps), m.startPts);
     int ret = av_seek_frame(m.format.ctx, m.streamIndex, target, AVSEEK_FLAG_BACKWARD);
@@ -145,12 +166,33 @@ ReadStatus SoftwareVideoReader::decode(int64_t* frameOut, std::string* error) {
             const int64_t pts = m.frame->best_effort_timestamp;
             if (pts != AV_NOPTS_VALUE) {
                 index = ptsToFrame(pts, m.timeBase, m.startPts, m.fps);
+            } else if (m.haveLast) {
+                index = m.lastIndex + 1;
             } else {
-                index = m.haveLast ? m.lastIndex + 1 : 0;
+                av_frame_unref(m.frame);  // the first picture after a seek with no usable timestamp: skip it
+                continue;
             }
             if (m.haveLast && index <= m.lastIndex) {  // a duplicate index after rounding (variable frame rate)
                 av_frame_unref(m.frame);
                 continue;
+            }
+            if (m.checkLanding) {
+                m.checkLanding = false;
+                // Landed after the frame the caller wanted: the demuxer chose a key frame whose leading pictures
+                // belong to the previous GOP and are never output. Seek further back, geometrically, until the
+                // stream starts at or before the goal (or at its beginning).
+                if (index > m.goal && m.goal > 0 && m.attempts < 8) {
+                    ++m.attempts;
+                    m.backoff = m.backoff == 0 ? 4 : m.backoff * 4;
+                    av_frame_unref(m.frame);
+                    std::string seekError;
+                    if (!seekDemuxer(std::max<int64_t>(m.goal - m.backoff, 0), &seekError)) {
+                        *error = seekError;
+                        return ReadStatus::Failed;
+                    }
+                    m.checkLanding = true;
+                    continue;
+                }
             }
             m.lastIndex = index;
             m.haveLast = true;

@@ -301,8 +301,7 @@ bool FfmpegDecoder::step() {
                 plan_.seekGoal = -1;
                 sharedSeekGoal_.store(-1);
             }
-            if (eos_ && frame > lastFrame_) lastFrame_ = frame;
-            if (!eos_ && info_.durationFrames == kUnknownDurationFrames && frame > lastFrame_) lastFrame_ = frame;
+            if (frame > lastFrame_) lastFrame_ = frame;  // the container's duration was an underestimate
             sharedDecodePos_.store(plan_.decodePos);
         }
 
