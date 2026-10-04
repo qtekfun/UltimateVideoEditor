@@ -1001,3 +1001,9 @@ and next frame (from the cache in the preview, fetched in the export); Denoise m
 **Why:** this fits the keyframable `Clip.params` model, and smoothing the previous frame first beat a raw temporal average.
 Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma rises 24.8 to 29.7 dB.
 **Alternative:** separate repair pass with its own UI, or per-channel strengths.
+
+## Project templates (WP-V5)
+
+**Decision:** a template is the project structure with media replaced by placeholders (clips with the asset id `slot:<id>`); filling it reuses the base-track rules (trim and ripple when a file is short, delete when an optional slot is empty, `Reframe` for the centre crop, transition clamping with `maxTransitionFrames`). The file is the `project.json` structure plus a placeholder list, never media. The entry point is the hub menu rather than a third mode of the New project sheet.
+**Why:** every edit rule stays in one place and is already tested; sharing structure only keeps `.uvtemplate` files tiny and private. A separate wizard needs the media importer and creates the project in one step, which does not fit the sheet's format selectors.
+**Alternative:** a Template start mode inside the New project sheet (one flow, but entangled with the selectors and the match-first-clip probing), or placeholder clips with retained stand-in media references (they would break when the media is missing).
