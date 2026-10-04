@@ -11,6 +11,8 @@ android {
 
     defaultConfig {
         applicationId = "com.ultimatevideo.uveditor"
+        // Debug-only helper for shared test devices: -PappIdSuffix=.mine installs next to the normal app.
+        (findProperty("appIdSuffix") as String?)?.let { applicationIdSuffix = it }
         minSdk = 33
         targetSdk = 36
         versionCode = 1

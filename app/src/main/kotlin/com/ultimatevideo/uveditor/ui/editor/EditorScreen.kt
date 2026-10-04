@@ -133,6 +133,7 @@ import com.ultimatevideo.uveditor.ui.preview.PreviewSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.gestures.Orientation
@@ -762,11 +763,17 @@ private fun EditorMain(
                             )
                         }
                         state.safeZone?.let { SafeZoneOverlay(it, state.canvasWidth, state.canvasHeight) }
+                        if (state.track.overlay.size >= 2) {
+                            // The playhead is read here, in the overlay's own scope, so a tick redraws only the dot.
+                            val trackPlayhead by remember(viewModel) { viewModel.state.map { it.playhead.value }.distinctUntilChanged() }
+                                .collectAsStateWithLifecycle(initialValue = 0L)
+                            TrackPathOverlay(state.track.overlay, trackPlayhead, state.canvasWidth, state.canvasHeight, Modifier.fillMaxSize())
+                        }
                         // Drag, pinch and twist edit the selected clip while it is under the playhead; with a layer of a
                         // multilayer title selected they move that layer instead.
                         val layerTarget = state.selectedTitleLayer != null
                         PreviewGestureLayer(
-                            enabled = selectedClipVisible,
+                            enabled = selectedClipVisible && !state.track.picking,
                             canvasWidth = state.canvasWidth,
                             canvasHeight = state.canvasHeight,
                             onStep = { panX, panY, zoom, rotation ->
@@ -780,6 +787,14 @@ private fun EditorMain(
                         )
                         // A ring and cross on the layer the gestures are moving (nothing unless a layer is selected).
                         LayerHandleOverlay(state, Modifier.fillMaxSize())
+                        if (state.track.picking) {
+                            TrackTargetLayer(
+                                canvasWidth = state.canvasWidth,
+                                canvasHeight = state.canvasHeight,
+                                onPick = { x, y, w, h -> viewModel.onIntent(EditorIntent.PickTrackTarget(x, y, w, h)) },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                         if (scopesOpen) {
                             ScopesPanel(
                                 engine = previewEngine,

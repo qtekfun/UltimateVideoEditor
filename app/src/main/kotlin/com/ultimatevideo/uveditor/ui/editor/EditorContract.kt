@@ -99,6 +99,8 @@ data class EditorState(
     val isAnalyzingBeats: Boolean = false,
     /** The stabiliser's status for the selected clip (see [StabUiState]). */
     val stab: StabUiState = StabUiState(),
+    /** Motion tracking for the selected clip: its targets, the analysis progress, target picking and the path overlay. */
+    val track: TrackUiState = TrackUiState(),
     /** Select mode: a tap toggles clips in the selection and dragging empty space draws a marquee. */
     val selectMode: Boolean = false,
     /** The selected clips when more than one is selected (includes [selectedClipId]); read them through [selection]. */
@@ -500,6 +502,32 @@ sealed interface EditorIntent : UiIntent {
 
     /** The inspector shows a video clip: reads its analysis status and makes its correction table available. */
     data object RefreshStabilise : EditorIntent
+
+    /** Re-reads the selected clip's motion tracks and their analysis status for the inspector and the preview overlay. */
+    data object RefreshTrack : EditorIntent
+
+    /** Waits for the user to tap a point or drag a box on the preview to track on the selected video clip. */
+    data object BeginTrackPick : EditorIntent
+    data object CancelTrackPick : EditorIntent
+
+    /** Side of the box a tap makes, as a fraction of the frame height. */
+    data class SetTrackBox(val side: Double) : EditorIntent
+
+    /**
+     * The user's pick on the preview, in canvas pixels from the canvas centre: a tap ([w] and [h] null) or the centre and
+     * size of a dragged box. Adds a motion track at the playhead's frame and starts its analysis.
+     */
+    data class PickTrackTarget(val x: Double, val y: Double, val w: Double?, val h: Double?) : EditorIntent
+
+    data object CancelTrack : EditorIntent
+    data class ReanalyseTrack(val trackId: String) : EditorIntent
+    data class RemoveMotionTrack(val trackId: String) : EditorIntent
+
+    /** Shows the path of [trackId] over the preview, or hides it with null. */
+    data class ShowTrack(val trackId: String?) : EditorIntent
+
+    /** Makes the selected clip follow [trackId]: position keyframes along the path, one undo step. */
+    data class FollowTrack(val trackId: String) : EditorIntent
     data class EndFxEdit(val commit: Boolean) : EditorIntent
     data object ClearFx : EditorIntent
 
@@ -576,4 +604,29 @@ data class StabUiState(
     val clipId: String? = null,
     val status: com.ultimatevideo.uveditor.engine.stabilise.StabStatus = com.ultimatevideo.uveditor.engine.stabilise.StabStatus.Off,
     val progress: Float? = null,
+)
+
+/** A motion track of the selected clip and where its analysis stands. */
+data class TrackItem(val track: com.ultimatevideo.uveditor.domain.MotionTrack, val status: com.ultimatevideo.uveditor.engine.track.TrackStatus)
+
+/** A motion track of another clip that the selected clip can follow; [ready] when its analysis covers that clip. */
+data class FollowItem(val track: com.ultimatevideo.uveditor.domain.MotionTrack, val ready: Boolean)
+
+/**
+ * Motion tracking (SPECS.md 9.15) for the selected clip: [canTrack] when it is a video clip, its [items], the tracks of
+ * other clips it can [followable] follow, whether the preview is waiting for a pick ([picking], with the tap's box
+ * [boxSide]), the analysis [progress] (null when none runs, [analysingId] says which), the [activeId] track drawn on
+ * the preview and its canvas-space [overlay].
+ */
+data class TrackUiState(
+    val clipId: String? = null,
+    val canTrack: Boolean = false,
+    val items: List<TrackItem> = emptyList(),
+    val followable: List<FollowItem> = emptyList(),
+    val picking: Boolean = false,
+    val boxSide: Double = com.ultimatevideo.uveditor.domain.TrackSeed.DEFAULT_SIDE,
+    val progress: Float? = null,
+    val analysingId: String? = null,
+    val activeId: String? = null,
+    val overlay: List<com.ultimatevideo.uveditor.domain.TrackMath.CanvasPoint> = emptyList(),
 )

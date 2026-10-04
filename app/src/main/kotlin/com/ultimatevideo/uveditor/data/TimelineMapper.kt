@@ -21,6 +21,9 @@ import com.ultimatevideo.uveditor.data.model.EffectDto
 import com.ultimatevideo.uveditor.data.model.GradeCurvesDto
 import com.ultimatevideo.uveditor.data.model.KeyframeDto
 import com.ultimatevideo.uveditor.data.model.MarkerDto
+import com.ultimatevideo.uveditor.data.model.MotionTrackDto
+import com.ultimatevideo.uveditor.domain.MotionTrack
+import com.ultimatevideo.uveditor.domain.TrackSeed
 import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
@@ -98,6 +101,7 @@ object TimelineMapper {
             project.transitions.map(::toTransition),
             project.markers.map(::toMarker).sortedBy { it.frame },
             project.ducking?.let { toDucking(it) },
+            project.motionTracks.map(::toMotionTrack),
         )
         val violations = timeline.invariantViolations()
         if (violations.isNotEmpty()) throw ProjectError.Corrupt("invalid timeline: ${violations.first()}")
@@ -123,8 +127,12 @@ object TimelineMapper {
             transitions = transitions,
             markers = markers,
             ducking = timeline.ducking?.let { DuckingDto(it.amountDb, it.thresholdDb, it.attackMs, it.releaseMs) },
+            motionTracks = timeline.motionTracks.map { MotionTrackDto(it.id, it.clipId, it.name, it.seed.sourceFrame, it.seed.cx, it.seed.cy, it.seed.w, it.seed.h) },
         )
     }
+
+    private fun toMotionTrack(dto: MotionTrackDto) = MotionTrack(dto.id, dto.clipId, dto.name, TrackSeed(dto.seedFrame, dto.cx, dto.cy, dto.w, dto.h))
+        .also { t -> t.problem()?.let { throw ProjectError.Corrupt("invalid motion track: $it") } }
 
     private fun toDucking(dto: DuckingDto) = Ducking(dto.amountDb, dto.thresholdDb, dto.attackMs, dto.releaseMs)
         .also { d -> d.problem()?.let { throw ProjectError.Corrupt("invalid ducking: $it") } }

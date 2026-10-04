@@ -660,6 +660,66 @@ confidence (0 means lost and the box stays); `stabilise/similarity.h` has `Simil
 covered by `tests/stabilise_host_tests.cpp`. Frames come from `LumaDecoder::run`, which hands each decoded frame to a
 callback with its time from the media's first frame.
 
+### 5.22 Motion tracking
+
+Follow a point or a region of a video clip's picture through the clip, and make another clip (a title, a sticker, an
+overlay) follow it. Classical computer vision only, on the device: the tracker is the stabiliser's `BoxTracker`
+(Shi-Tomasi corners, pyramidal Lucas-Kanade with a forward-backward check, a similarity fit per frame), no models, no
+third-party libraries, no network.
+
+**Model.** `Timeline.motionTracks: List<MotionTrack(id, clipId, name, seed)>` with `TrackSeed(sourceFrame, cx, cy, w, h)`:
+the point or box the user picked, in fractions of the upright source frame (0..1 across and down), at a source frame in
+project frames (like every source range, so retiming, trimming and moving the clip do not invalidate it). JSON optional
+field `motionTracks` (`MotionTrackDto`); an invalid one is a corrupt project. Only a video clip that plays a video file
+can be tracked. Deleting the clip removes its tracks (`Timeline.pruned`). `EditCommand.AddMotionTrack`,
+`RemoveMotionTrack` and `AttachToMotionTrack` are undoable; the analysis itself is not an edit.
+
+**Analysis** (`track/`, one decode pass, background priority, cancellable, progress polled like the stabiliser's):
+1. `TrackService` opens the media with `stab::LumaDecoder` (own `AMediaCodec`, luma only, rotated upright, scaled to
+   320 px on the long side) over the clip's source range plus 0.5 s each side, widened to hold the seed.
+2. Frames before the seed are kept as 8-bit copies (at most 900, about 50 MB; the ones closest to the seed). At the first
+   frame within half a frame of the seed time, a backward `TrackRunner` walks the kept frames in reverse from the seed
+   while a forward one starts; the decoder then goes on and the forward runner follows each new frame. The two runs are
+   merged into one chronological path with the seed once (`mergeRuns`).
+3. `TrackRunner` marks a frame **lost** when the box tracker's confidence (share of tracked points that agree with the
+   estimated motion) is below 0.15; the box then stays at its last believable position, so a blank or blurred stretch
+   never throws it away, and tracking resumes when the target is back. Boxes smaller than 12 px are grown.
+4. The path is written to `track/<assetId>.<hash>` (`track/track_path.h`: `UVTK`, header with aspect, seed time and range,
+   36-byte samples with fractions of the frame, rotation, confidence, lost flag, CRC-32; temp file then rename). The hash
+   covers the media (URI, length, frame rate), the analysis version and the seed, so another target, a relinked file or a
+   tracker change finds no cache. Kotlin parses the file (`engine/track/TrackCacheFile`), checks the CRC and numbers frames
+   with the project frame rate (`microsToFrames` after adding half a frame), which is how the preview decoder numbers them.
+5. `FileMotionTracker.statusOf`: `NotAnalysed` (no valid file or an older analysis version), `Stale` (the clip now
+   reaches outside the analysed range, with a two-frame tolerance), `Ready(lost, frames)`.
+
+**From the picture to the canvas** (`domain/MotionTracking.kt`, pure, the same fit as the compositor): the clip's frame is
+fitted ("contain") into the canvas, then scaled about its centre, rotated clockwise and moved by its position.
+`TrackMath.toCanvas(u, v, aspect, canvas, pose)` gives canvas pixels from the canvas centre; `fromCanvas` is its exact
+inverse (used to turn a tap on the preview into a point of the picture). `canvasPath` walks the project frames of the
+tracked clip, maps each to its source frame with the clip's retiming (`sourceFrameAtProjectFrame`: trim, speed, ramps,
+reverse, freeze) and its pose at that frame (its own keyframes), and returns canvas points flagged lost or not.
+The stabiliser's correction is not applied to the path: a stabilised clip shows a slightly warped picture, so the target
+can be a few pixels off on very shaky footage.
+
+**Following.** `TrackMath.attachKeyframes(path, tracked, attached, canvas, offset, tolerance)` computes the target's canvas
+position at every project frame the attached clip occupies (before and after the tracked clip the first or last position
+holds), reduces it with Douglas-Peucker on (frame, x, y) to keys within 1 px of every dropped frame under linear
+interpolation (a straight drift is two keys), and merges them with the attached clip's existing keyframe frames. Only the
+position follows the path: scale, rotation and opacity are the clip's own (evaluated from its existing keyframes), and
+existing keys keep their interpolation and handles. Preview and export need nothing new: they are plain position
+keyframes. The result replaces the clip's keyframes in one undo step and is editable afterwards. The attached clip is
+centred on the target (offset 0).
+
+**UI.** Inspector section "Track motion" (`TrackControls`): *Track an object* waits for a pick on the preview
+(`TrackTargetLayer`: a tap picks a point with a box of 7, 12 or 20 % of the frame height, a drag draws the box), adds the
+target at the playhead's frame (the playhead must be on the clip) and starts the analysis with progress and cancel; each
+target has *Show path* (a line on the preview, red where lost, a dot at the playhead), *Analyse (again)* and *Delete*.
+For any other visual clip the section lists the targets of other clips with *Follow*. The path overlay reads the
+playhead in its own scope so a tick redraws only the dot.
+
+**Limits.** Position only (no scale or rotation following); one target at a time is analysed; a photo or sticker cannot be
+tracked; frames more than 900 before the seed are not tracked backward (the path holds its first position there).
+
 ### 5.20 Parameter keyframes (WP-K)
 
 Any single value of a clip can be animated, not only its pose. A clip carries `params: List<ParamTrack>`; each
