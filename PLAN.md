@@ -170,7 +170,7 @@ waves of SPECS 9.20.
 - [ ] WP-V5 Project templates, transition and filter packs. _Transition pack:_ slide, push, zoom, spin, glitch, wipe, whip pan and light leak with directions, a look picker with a three-frame preview, preview/export parity by one shared evaluator (SPECS 5.25), JVM tests for the looks, the render plan, export keys and per-frame effects, JSON and undo; not yet seen on a device.
 
 ### Wave 8
-- [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
+- [x] WP-M Multicam (after WP-A, WP-S, WP-P). _Status:_ implemented (SPECS 5.26) and covered by JVM tests (sync recovers known offsets from synthetic shifted audio with noise, cut/record/undo, flatten equivalence, following moves, decoder budget planner, JSON round trips); nothing seen on a device (the Pixel was locked with a credential), so the sheet layout, a real sync of two phone recordings and live recording during playback are unverified
 - [ ] WP-R Release preparation
 
 ### Standing requirements for every package

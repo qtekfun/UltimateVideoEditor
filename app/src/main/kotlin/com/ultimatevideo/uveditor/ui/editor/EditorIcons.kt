@@ -137,6 +137,7 @@ internal object EditorIcons {
     val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
 
     /** Two vertical faders: the track mixer. */
+    val Multicam = icon("Multicam", "M3,5h12v9H3zM9,10h12v9H9z")
     val Mixer = icon("Mixer", "M7,4v7H5v2h2v7h2v-7h2v-2H9V4H7zM15,4v3h-2v2h2v11h2V9h2V7h-2V4h-2z")
     /** Four bars of different heights: the video scopes. */
     val Scopes = icon("Scopes", "M4,14h3v6H4zM9,8h3v12H9zM14,11h3v9h-3zM19,4h3v16h-3z")
