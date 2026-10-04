@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer: the same shapes in one colour; the system tints it. Same geometry as the foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M34,35 L55,35 Q58,35 58,38 L58,40 Q58,43 55,43 L34,43 Q31,43 31,40 L31,38 Q31,35 34,35 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M43,48 L74,48 Q77,48 77,51 L77,53 Q77,56 74,56 L43,56 Q40,56 40,53 L40,51 Q40,48 43,48 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M34,61 L67,61 Q70,61 70,64 L70,66 Q70,69 67,69 L34,69 Q31,69 31,66 L31,64 Q31,61 34,61 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M52,33 L56,33 L56,80 L52,80 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M47,27 L61,27 L54,35 Z" />
+</vector>
