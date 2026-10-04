@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "decode/decoder_ladder.h"
 #include "decode/log.h"
 #include "decode/pending_policy.h"
 #include "decode/seek_policy.h"
@@ -138,39 +139,69 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     d->lastFrame_ = d->info_.durationFrames > 0 ? d->info_.durationFrames - 1 : 0;
     d->sharedLastFrame_.store(d->lastFrame_);
 
-    // Decoder output goes to an AImageReader so every frame arrives as an AHardwareBuffer.
-    constexpr int32_t kMaxImages = 8;
-    media_status_t st = AImageReader_newWithUsage(width, height, AIMAGE_FORMAT_PRIVATE,
-                                                  AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, kMaxImages, &d->reader_);
-    if (st != AMEDIA_OK || d->reader_ == nullptr) {
-        AMediaFormat_delete(format);
-        return Error{Status::CodecError, "AImageReader_newWithUsage failed (" + std::to_string(st) + ")"};
-    }
-    AImageReader_ImageListener listener{};
-    listener.context = d.get();
-    listener.onImageAvailable = [](void* context, AImageReader*) {
-        auto* self = static_cast<VideoDecoder*>(context);
-        if (self->callbacks_.onImageAvailable) self->callbacks_.onImageAvailable();
-    };
-    AImageReader_setImageListener(d->reader_, &listener);
+    // Opening walks the ladder in decode/decoder_ladder.h: the first configuration whose codec starts wins and every
+    // failed rung is logged with its reason, so an unknown device degrades to a working decoder instead of showing a
+    // black preview.
+    const std::vector<DecoderRung> ladder = buildDecoderLadder(mimeCopy);
+    std::string failures;
+    bool started = false;
+    for (const DecoderRung& rung : ladder) {
+        const char* label = rung.label.c_str();
+        const media_status_t readerStatus = AImageReader_newWithUsage(
+            width, height, rung.format == ReaderFormat::Private ? AIMAGE_FORMAT_PRIVATE : AIMAGE_FORMAT_YUV_420_888,
+            AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE, rung.maxImages, &d->reader_);
+        if (readerStatus != AMEDIA_OK || d->reader_ == nullptr) {
+            d->reader_ = nullptr;
+            UV_LOGW("decoder rung '%s': AImageReader_newWithUsage failed (%d)", label, static_cast<int>(readerStatus));
+            failures += rung.label + ": reader " + std::to_string(readerStatus) + "; ";
+            continue;
+        }
+        AImageReader_ImageListener listener{};
+        listener.context = d.get();
+        listener.onImageAvailable = [](void* context, AImageReader*) {
+            auto* self = static_cast<VideoDecoder*>(context);
+            if (self->callbacks_.onImageAvailable) self->callbacks_.onImageAvailable();
+        };
+        AImageReader_setImageListener(d->reader_, &listener);
 
-    ANativeWindow* window = nullptr;
-    AImageReader_getWindow(d->reader_, &window);
+        ANativeWindow* window = nullptr;
+        AImageReader_getWindow(d->reader_, &window);
 
-    d->codec_ = AMediaCodec_createDecoderByType(mimeCopy.c_str());
-    if (d->codec_ == nullptr) {
-        AMediaFormat_delete(format);
-        return Error{Status::UnsupportedFormat, "no decoder available for " + mimeCopy};
+        d->codec_ = rung.software() ? AMediaCodec_createCodecByName(rung.codecName.c_str())
+                                    : AMediaCodec_createDecoderByType(mimeCopy.c_str());
+        if (d->codec_ == nullptr) {
+            UV_LOGW("decoder rung '%s': no codec", label);
+            failures += rung.label + ": no codec; ";
+        } else {
+            const media_status_t configured = AMediaCodec_configure(d->codec_, format, window, nullptr, 0);
+            const media_status_t result = configured == AMEDIA_OK ? AMediaCodec_start(d->codec_) : configured;
+            if (result == AMEDIA_OK) {
+                UV_LOGI("decoder rung '%s' started", label);
+                d->softwareDecoder_ = rung.software();
+                d->rungLabel_ = rung.label;
+                started = true;
+                break;
+            }
+            UV_LOGW("decoder rung '%s': %s failed (%d)", label, configured != AMEDIA_OK ? "configure" : "start",
+                    static_cast<int>(result));
+            failures += rung.label + (configured != AMEDIA_OK ? ": configure " : ": start ") + std::to_string(result) + "; ";
+            AMediaCodec_delete(d->codec_);
+            d->codec_ = nullptr;
+        }
+        AImageReader_delete(d->reader_);
+        d->reader_ = nullptr;
     }
-    st = AMediaCodec_configure(d->codec_, format, window, nullptr, 0);
     AMediaFormat_delete(format);
-    if (st != AMEDIA_OK) return Error{Status::CodecError, "AMediaCodec_configure failed (" + std::to_string(st) + ")"};
-    st = AMediaCodec_start(d->codec_);
-    if (st != AMEDIA_OK) return Error{Status::CodecError, "AMediaCodec_start failed (" + std::to_string(st) + ")"};
+    if (!started) {
+        return Error{Status::CodecError, "this device could not start a " + mimeCopy + " decoder for " +
+                                             std::to_string(width) + "x" + std::to_string(height) +
+                                             " video, hardware or software (" + failures + ")"};
+    }
 
-    UV_LOGI("opened %s %dx%d %lld/%lld fps, %lld frames, transfer=%d rotation=%d", mimeCopy.c_str(), width, height,
+    UV_LOGI("opened %s %dx%d %lld/%lld fps, %lld frames, transfer=%d rotation=%d%s", mimeCopy.c_str(), width, height,
             static_cast<long long>(d->info_.fps.num), static_cast<long long>(d->info_.fps.den),
-            static_cast<long long>(d->info_.durationFrames), d->info_.colorTransfer, d->info_.rotationDegrees);
+            static_cast<long long>(d->info_.durationFrames), d->info_.colorTransfer, d->info_.rotationDegrees,
+            d->softwareDecoder_ ? " (software decoder)" : "");
 
     d->thread_ = std::thread([raw = d.get()] { raw->threadMain(); });
     return d;
@@ -342,10 +373,10 @@ void VideoDecoder::logDiag() {
     const auto now = std::chrono::steady_clock::now();
     if (diag_.last.time_since_epoch().count() == 0) diag_.last = now;
     if (now - diag_.last < std::chrono::seconds(1)) return;
-    UV_LOGI("decode/s: rendered %lld dropped %lld seeks %lld backpressure %lld dequeue wait %.1f ms (%lld empty)",
+    UV_LOGI("decode/s: rendered %lld dropped %lld seeks %lld backpressure %lld dequeue wait %.1f ms (%lld empty) [%s]",
             static_cast<long long>(diag_.rendered), static_cast<long long>(diag_.dropped),
             static_cast<long long>(diag_.seeks), static_cast<long long>(diag_.backpressure),
-            static_cast<double>(diag_.dequeueNs) / 1e6, static_cast<long long>(diag_.dequeueEmpty));
+            static_cast<double>(diag_.dequeueNs) / 1e6, static_cast<long long>(diag_.dequeueEmpty), rungLabel_.c_str());
     diag_ = Diag{};
     diag_.last = now;
 }
