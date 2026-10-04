@@ -173,7 +173,7 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
             val bitmap = thumbnail
             if (bitmap != null) {
                 Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(56.dp))
-            } else {
+            } else if (!item.missing) {
                 Text(kindLabel(item.kind).take(1), style = MaterialTheme.typography.titleMedium)
             }
             if (item.missing) {
@@ -204,20 +204,20 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
 @Composable
 private fun LibraryFooter(unusedCount: Int, busy: String?, onIntent: (EditorIntent) -> Unit) {
     var exportOpen by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = { onIntent(LibraryIntent.AskDeleteUnused) }, enabled = unusedCount > 0) { Text("Remove unused ($unusedCount)") }
-        Box(Modifier.weight(1f)) {
-            if (busy != null) Text(busy, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Box {
-            TextButton(onClick = { exportOpen = true }, enabled = busy == null) { Text("Export to another tool…") }
-            DropdownMenu(expanded = exportOpen, onDismissRequest = { exportOpen = false }) {
-                for (kind in InterchangeKind.entries) {
-                    DropdownMenuItem(text = { Text(kind.label) }, onClick = { exportOpen = false; onIntent(LibraryIntent.RequestExport(kind)) })
+    Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+        if (busy != null) Text(busy, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = { onIntent(LibraryIntent.AskDeleteUnused) }, enabled = unusedCount > 0) { Text("Remove unused ($unusedCount)", maxLines = 1) }
+            Box {
+                TextButton(onClick = { exportOpen = true }, enabled = busy == null) { Text("Export…", maxLines = 1) }
+                DropdownMenu(expanded = exportOpen, onDismissRequest = { exportOpen = false }) {
+                    for (kind in InterchangeKind.entries) {
+                        DropdownMenuItem(text = { Text(kind.label) }, onClick = { exportOpen = false; onIntent(LibraryIntent.RequestExport(kind)) })
+                    }
                 }
             }
+            TextButton(onClick = { onIntent(LibraryIntent.Close) }) { Text("Close", maxLines = 1) }
         }
-        TextButton(onClick = { onIntent(LibraryIntent.Close) }) { Text("Close") }
     }
 }
 

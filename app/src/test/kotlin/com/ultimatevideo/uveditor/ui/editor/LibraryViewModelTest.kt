@@ -275,7 +275,7 @@ class LibraryViewModelTest {
         val picker = h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().single()
         assertEquals(InterchangeKind.EDL, picker.kind)
         assertEquals("Test.edl", picker.suggestedFileName)
-        assertEquals("text/plain", picker.mime)
+        assertEquals(INTERCHANGE_MIME, picker.mime)
 
         h.vm.onIntent(LibraryIntent.ExportTo(InterchangeKind.EDL, "doc://out"))
         assertEquals("Writing EDL…", h.state.library.busy)
@@ -290,7 +290,7 @@ class LibraryViewModelTest {
     fun `an FCPXML export writes the document`() = runTest(dispatcher) {
         val h = harness()
         h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.FCPXML))
-        assertEquals("application/xml", h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().single().mime)
+        assertEquals(INTERCHANGE_MIME, h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().single().mime)
         h.vm.onIntent(LibraryIntent.ExportTo(InterchangeKind.FCPXML, "doc://x"))
         advanceUntilIdle()
         val xml = h.interchange.documents.getValue("doc://x").toString(Charsets.UTF_8)
@@ -329,5 +329,24 @@ class LibraryViewModelTest {
         h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.EDL))
         assertTrue(h.effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().isEmpty())
         assertEquals("There are no video or audio clips to put in an EDL", h.messages().last())
+    }
+
+    @Test
+    fun `an EDL of several tracks is a zip with its own type`() = runTest(dispatcher) {
+        val h = harness()
+        val project = project().copy(
+            tracks = project().tracks + TrackDto("a1", "audio", 1, listOf(ClipDto("m1", "a1", 0, 0, 100))),
+        )
+        h.store.project = project
+        // Reload through a fresh view model so the second track is part of the timeline.
+        var counter = 0
+        val vm = EditorViewModel("p1", FakeStore(project), NoImporter(), idGenerator = { "q${counter++}" }, interchange = h.interchange)
+        val effects = mutableListOf<EditorEffect>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.effects.collect { effects += it } }
+        advanceUntilIdle()
+        vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.EDL))
+        val picker = effects.filterIsInstance<EditorEffect.LaunchInterchangePicker>().single()
+        assertEquals("Test.zip", picker.suggestedFileName)
+        assertEquals(ZIP_MIME, picker.mime)
     }
 }

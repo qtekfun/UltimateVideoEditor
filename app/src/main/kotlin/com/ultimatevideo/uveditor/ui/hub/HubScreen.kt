@@ -79,7 +79,8 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnai
     }
     var pendingBundle by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val bundleLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/zip"),
+        // A generic type keeps the suggested ".uvbundle" name (a zip type makes Android add ".zip").
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
     ) { uri ->
         val pending = pendingBundle
         pendingBundle = null

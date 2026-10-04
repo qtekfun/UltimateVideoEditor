@@ -387,9 +387,8 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         interchangeKind = null
         if (uri != null && kind != null) viewModel.onIntent(LibraryIntent.ExportTo(kind, uri.toString()))
     }
-    val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip"), onInterchangeUri)
-    val textPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain"), onInterchangeUri)
-    val xmlPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/xml"), onInterchangeUri)
+    val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ZIP_MIME), onInterchangeUri)
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(INTERCHANGE_MIME), onInterchangeUri)
 
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
@@ -405,11 +404,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 }
                 is EditorEffect.LaunchInterchangePicker -> {
                     interchangeKind = effect.kind
-                    when (effect.mime) {
-                        "application/zip" -> zipPicker.launch(effect.suggestedFileName)
-                        "text/plain" -> textPicker.launch(effect.suggestedFileName)
-                        else -> xmlPicker.launch(effect.suggestedFileName)
-                    }
+                    if (effect.mime == ZIP_MIME) zipPicker.launch(effect.suggestedFileName) else filePicker.launch(effect.suggestedFileName)
                 }
             }
         }

@@ -155,7 +155,7 @@ waves of SPECS 9.20.
 
 ### Wave 4
 - [ ] WP-X Stabiliser (builds the shared tracker and smoother)
-- [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search. _Status:_ implemented (SPECS 5.21) and covered by JVM tests: bundle round trips, zip-slip, size limits and atomic import, auto-relink, EDL and FCPXML golden files with a well-formedness check, library queries, marker notes and the view models. Device status is filled in below once checked.
+- [x] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search. _Status:_ implemented (SPECS 5.21) and covered by JVM tests (bundle round trips, zip-slip, size limits and atomic import, auto-relink, EDL and FCPXML golden files plus an XML well-formedness check, library queries, marker notes, view models). Checked on the Pixel 8 (not the reference phone, project built with its own id suffix): the library sheet shows pictures, lengths, usage counts, the red Missing mark and the filters; FCPXML, a bundle with media and an EDL (two tracks, so a zip) were written through the system picker and read back (the zip passes `testzip`, holds the manifest, the project, the card picture and the three readable media files, the unreadable one is listed with no entry; the FCPXML parses as XML); importing that bundle in the hub created "Interchange Test (2)" with the media unpacked into the project's own folder and the unreadable file left pointing at its old address. Not seen on a device: tags and notes dialog, find in timeline, remove unused, the marker note dialog, relink by name and size, and any import into Final Cut Pro, DaVinci Resolve or another editor.
 
 ### Wave 5 — CapCut-style creator tools
 - [ ] WP-V1 Motion tracking (classical tracker)
