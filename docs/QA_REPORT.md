@@ -278,7 +278,14 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Timeline | Scrub: dragging on the ruler moves the playhead both ways (00:00:04:02 to 00:00:18:17 and back) | PASS | |
 | Audio | Mixer sheet: per-track Mute, Solo, volume, role (Normal/Voice/Music), compressor, duck-under-voice switch with its hint | PASS | each toggle changed state; reset afterwards |
 | Audio | Output level meter under the timecode lights up during playback | PASS | green bar at 00:00:05:13 |
+| Colour | Import of an HLG clip made with ffmpeg (HEVC Main10, BT.2020, arib-std-b67): the tray tile carries an "HLG" badge | PASS | adding it to the timeline and judging the tone-mapped picture is still to do |
 
 ### Observations (pass A2)
 
 - **O3, cosmetic, open:** the notices and the privacy statement in About show Markdown source and hard line breaks (for example `[Oboe](https://github.com/google/oboe)` and sentences broken mid-line), because the text files are displayed raw.
+
+### Pass A2 status at the pause
+
+- **Fix PRs open:** #89 (A1, export dialog shows the saved name), #90 (O1, bottom tray gives way to the overlay inspector), #91 (O2, wheels and curves drag only from their handle). O1 and O2 are verified on the Pixel 8 with a local build merging the three branches; A1 has a unit test but was not re-run on the device.
+- **Still to run:** HLG clip on the timeline (look of the tone-mapped picture, the HDR option message in the export dialog), long-GOP export throughput numbers (`longgop.mp4` is in Downloads), HSL eyedropper end to end, relink/recover flow, inspector docked at a side in the wide window, and the A1 re-check after an export renamed in the picker.
+- **Device state:** the qa package holds a local build with the three fixes (not pushed); `wm size` is back at 1080x2400; no lock is held.
