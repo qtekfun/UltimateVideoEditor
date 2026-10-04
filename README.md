@@ -98,6 +98,17 @@ adb -s <serial> shell am start -n com.ultimatevideo.uveditor/.MainActivity
 CI runs the unit tests, the debug build and the native host tests on every pull request
 (`.github/workflows/ci.yml`) and uploads the debug APK as an artifact.
 
+### Release build
+
+```sh
+./gradlew :app:assembleRelease :app:bundleRelease   # R8-minified; unsigned unless a keystore is configured
+```
+
+The version lives in `gradle/version.properties`; signing values come from a git-ignored `keystore.properties` or
+`UVEDITOR_*` environment variables, never from the repository. The `Release build` workflow (manual or on a `v*` tag)
+builds the unsigned APK and AAB with checksums and the R8 mapping, and needs no secrets. Details, the store listing
+text and the release checklist are in [docs/RELEASE.md](docs/RELEASE.md).
+
 ### Device notes
 
 - **Wireless adb** can list the same phone under several transports (for example `...(2)._adb-tls-connect._tcp`).
@@ -109,7 +120,8 @@ CI runs the unit tests, the debug build and the native host tests on every pull 
 
 ## Privacy
 
-ultimateVE works entirely on the device: no network access, no accounts, no analytics, no crash reporting, no AI or
+ultimateVE works entirely on the device: no network access, no accounts, no analytics, no crash-reporting service (a
+crash only leaves a small text file on the phone that you can read, share or delete in About), no AI or
 machine-learning features and no third-party services. See [docs/PRIVACY.md](docs/PRIVACY.md) for what is stored, which
 permissions are used and how to verify it yourself.
 

@@ -19,6 +19,13 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.ultimatevideo.uveditor.crash.CrashReportStore
+import com.ultimatevideo.uveditor.ui.about.AboutController
+import com.ultimatevideo.uveditor.ui.about.AboutScreen
+import com.ultimatevideo.uveditor.ui.about.AppVersion
+import com.ultimatevideo.uveditor.ui.about.StorageMeter
+import com.ultimatevideo.uveditor.ui.onboarding.OnboardingTips
+import com.ultimatevideo.uveditor.ui.onboarding.PreferencesOnboardingStore
 import com.ultimatevideo.uveditor.data.AndroidClipPeeker
 import com.ultimatevideo.uveditor.data.AndroidMediaImporter
 import com.ultimatevideo.uveditor.data.AndroidProjectThumbnails
@@ -82,6 +89,13 @@ class MainActivity : ComponentActivity() {
         val session = PreferencesSessionStore(applicationContext)
         val newProjectDefaults = PreferencesNewProjectDefaults(applicationContext)
         val clipPeeker = AndroidClipPeeker(applicationContext)
+        val onboardingStore = PreferencesOnboardingStore(applicationContext)
+        val aboutController = AboutController(
+            version = AppVersion.of(this),
+            crashStore = CrashReportStore(File(filesDir, "crash")),
+            storage = StorageMeter(filesDir, cacheDir),
+            onboarding = onboardingStore,
+        )
         // Android drops the oldest persisted file permissions past its limit, which would leave old projects
         // with missing media: give back the ones no project uses before that can happen.
         lifecycleScope.launch {
@@ -118,8 +132,11 @@ class MainActivity : ComponentActivity() {
                     },
                 )
                 var openProjectId by rememberSaveable { mutableStateOf<String?>(null) }
+                var showAbout by rememberSaveable { mutableStateOf(false) }
                 val projectId = openProjectId
-                if (projectId == null) {
+                if (projectId == null && showAbout) {
+                    AboutScreen(aboutController, onBack = { showAbout = false })
+                } else if (projectId == null) {
                     // Project timestamps and names may have changed while editing.
                     LaunchedEffect(Unit) { hubViewModel.onIntent(HubIntent.Refresh) }
                     HubScreen(
@@ -130,7 +147,11 @@ class MainActivity : ComponentActivity() {
                         },
                         thumbnails = projectThumbnails,
                         templates = templateWizard,
+                        onOpenAbout = { showAbout = true },
                     )
+                    // First launch (or after About -> Show tips again): three dismissible tips over the hub.
+                    var tipsOpen by remember { mutableStateOf(!onboardingStore.seen()) }
+                    if (tipsOpen) OnboardingTips(onFinished = { onboardingStore.markSeen(); tipsOpen = false })
                 } else {
                     val owner = rememberScopedViewModelOwner(projectId)
                     val editorViewModel: EditorViewModel = viewModel(

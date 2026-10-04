@@ -69,6 +69,7 @@ fun HubScreen(
     onOpenProject: (String) -> Unit,
     thumbnails: ProjectThumbnails? = null,
     templates: TemplateWizardViewModel? = null,
+    onOpenAbout: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -124,6 +125,7 @@ fun HubScreen(
         onPickMatchClip = { matchLauncher.launch(arrayOf("video/*", "image/*")) },
         thumbnails = thumbnails,
         onTemplates = if (templates != null) ({ wizardOpen = true }) else null,
+        onOpenAbout = onOpenAbout,
     )
     if (wizardOpen && templates != null) {
         TemplateWizardSheet(
@@ -149,13 +151,14 @@ internal fun HubContent(
     onPickMatchClip: () -> Unit = {},
     thumbnails: ProjectThumbnails? = null,
     onTemplates: (() -> Unit)? = null,
+    onOpenAbout: () -> Unit = {},
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = { Text("ultimateVE") },
-                actions = { HubOverflowMenu(onImport, onTemplates) },
+                actions = { HubOverflowMenu(onImport, onOpenAbout, onTemplates) },
             )
         },
         floatingActionButton = {
@@ -209,13 +212,14 @@ internal fun HubContent(
 
 /** The one overflow menu of the top bar: importing a project file lives here, not on its own button. */
 @Composable
-private fun HubOverflowMenu(onImport: () -> Unit, onTemplates: (() -> Unit)? = null) {
+private fun HubOverflowMenu(onImport: () -> Unit, onOpenAbout: () -> Unit, onTemplates: (() -> Unit)? = null) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             if (onTemplates != null) DropdownMenuItem(text = { Text("New from a template…") }, onClick = { open = false; onTemplates() })
             DropdownMenuItem(text = { Text("Import project file or bundle") }, onClick = { open = false; onImport() })
+            DropdownMenuItem(text = { Text("About, privacy and help") }, onClick = { open = false; onOpenAbout() })
         }
     }
 }
