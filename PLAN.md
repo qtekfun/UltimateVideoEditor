@@ -127,13 +127,13 @@ the Pixel 8 is named; the Pixel 8 is a debug device, not the reference).
 
 | Area | Seen on a device | Still to check on the OPPO |
 |---|---|---|
-| Hub and projects | Project list (OPPO); new-project sheet opens in a wide window (Pixel) | Selector sheet, presets, "match first clip", thumbnails on cards, search/sort, About and tips, bundle import/export, template wizard, recover/reopen banners |
+| Hub and projects | Project list (OPPO); new-project sheet opens in a wide window (Pixel); thumbnails on cards, rename, duplicate, delete, bundle export with media and import, reopen offer after a forced stop (Pixel, pass A) | Selector sheet, presets, "match first clip", search/sort, About and tips, template wizard |
 | Timeline editing | Layer layout, horizontal and vertical drags, lift from base, new lane, undo, scrub (OPPO); split, import, lanes (Pixel) | Trim handles, insert at junctions (base and overlay), overwrite, delete rules, group moves, magnetic reorder |
-| Media tray | Not seen | Tray layout and snap heights, drag onto the canvas with the live indicator, edge auto-scroll, drops from other apps, reordering |
-| Layout | Divider drag, layout sheet, Large lanes, presets (Pixel) | Inspector docked to a side, customise mode, folding a side column, persistence across restart, split screen |
-| Playback and audio | AAudio started, clock drift 0.4 ms in 55 s (OPPO); playback with the v4 mixer, meter and Mixer sheet (Pixel) | Hearing it: sync by ear, EQ, noise suppression on speech, ducking, fades, pan; export audio against preview; 5-minute drift run |
-| Export | Many ffprobe-checked exports on the OPPO; ETA text and a full UI export (Pixel) | Cancel, Share, HDR HEVC Main10 on an HDR display, real footage colour, long-GOP 4K, two-layer speed |
-| Colour | Grade and scopes render and respond (Pixel) | HLG/SDR mixing look, LUT 3D path, save/apply a look, copy/paste, scopes cost at 4K60 |
+| Media tray | Expanded tray, tabs, filters, search, long-press drag onto a base junction inserts the clip (Pixel, pass A) | Snap heights, drag onto the canvas with the live indicator, edge auto-scroll, drops from other apps, reordering |
+| Layout | Divider drag, layout sheet, Large lanes, presets (Pixel) | Inspector docked to a side on a wide window, folding a side column, split screen (persistence across a forced stop, Reset and customise switch seen on the Pixel, pass A) |
+| Playback and audio | AAudio started, clock drift 0.4 ms in 55 s (OPPO); playback with the v4 mixer, meter and Mixer sheet (Pixel); 7.6-minute play/pause/background stress without a crash (Pixel, pass A) | Hearing it: sync by ear, EQ, noise suppression on speech, ducking, fades, pan; export audio against preview; 5-minute drift run |
+| Export | Many ffprobe-checked exports on the OPPO; ETA text and a full UI export (Pixel); H.264 and HEVC 1080p30 ffprobe-checked, Cancel leaves no file, Share chooser opens (Pixel, pass A) | HDR HEVC Main10 on an HDR display, real footage colour, long-GOP 4K, two-layer speed |
+| Colour | Grade and scopes render and respond (Pixel); save look, copy/paste grade, filter packs, `.cube` import, forced-HLG tone-map message (Pixel, pass A) | HLG/SDR mixing look on real HLG footage, HSL eyedropper, scopes cost at 4K60 |
 | Titles, captions, stickers | Title and sticker blocks (Pixel) | Layer editor, fonts import, presets, SRT/VTT import, the eight caption styles, stickers and emoji art, photos (EXIF, HEIC) |
 | Animated GIF/WebP, picture memory | Not seen | Import and play a GIF and an animated WebP (lossy, lossless, transparent), loop, scrub back, export one with hundreds of frames on a 4K canvas (check the picture budget in `dumpsys meminfo`), stills drawn at the same size and place as before the native-size change (EXIF-rotated photo, small photo on a big canvas, effects on a still) |
 | Keyframes | Not seen | Diamonds, lane drag, exported frames against preview |
