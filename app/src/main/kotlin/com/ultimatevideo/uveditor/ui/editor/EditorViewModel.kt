@@ -2861,6 +2861,7 @@ class EditorViewModel(
                 hasVideo = false,
                 hasAudio = false,
                 isImage = true,
+                displayName = probed.displayName,
                 animationDelaysMs = probed.animationDelaysMs,
             )
             reduce { copy(assets = assets + image) }
@@ -2880,6 +2881,7 @@ class EditorViewModel(
             colorSpace = probed.colorSpace,
             hasVideo = probed.hasVideo,
             hasAudio = probed.hasAudio,
+            displayName = probed.displayName,
         )
         reduce { copy(assets = assets + asset) }
         scheduleSave()

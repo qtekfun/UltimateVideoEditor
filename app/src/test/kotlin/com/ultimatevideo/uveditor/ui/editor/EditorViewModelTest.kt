@@ -877,6 +877,17 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `an imported file keeps the name the document provider reported`() = runTest(dispatcher) {
+        val named = video5s.copy(displayName = "holiday.mp4")
+        val h = harness(importer = FakeImporter(mapOf("content://new" to named)))
+
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://new")))
+        advanceUntilIdle()
+
+        assertEquals("holiday.mp4", h.state.assets.last { it.uri == "content://new" }.displayName)
+    }
+
+    @Test
     fun `importing with the playhead inside a base clip inserts at the nearest cut and ripples the rest`() = runTest(dispatcher) {
         val h = harness(importer = FakeImporter(mapOf("content://new" to video5s)))
         h.vm.onIntent(EditorIntent.SetPlayhead(130))
