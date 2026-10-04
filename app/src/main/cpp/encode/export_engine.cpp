@@ -1,4 +1,5 @@
 #include "encode/export_engine.h"
+#include "core/fd_util.h"
 
 #include <android/native_window.h>
 #include <media/NdkMediaCodec.h>
@@ -21,6 +22,7 @@
 #include "decode/video_decoder.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
+#include "stabilise/stab_registry.h"
 
 namespace uv::encode {
 
@@ -413,6 +415,7 @@ public:
             layer.mode = render::colorModeFor(render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)), space_);
             layer.turns = asset.turns;
             layer.fx = fxAt(*clip, projectFrame);
+            stab::resolveStabilisation(&layer.fx, source);  // the stabiliser's correction for this source frame
             layer.transform = render::LayerTransform{
                 static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
                 static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
@@ -452,7 +455,7 @@ private:
         auto fdIt = fds_.find(key);
         if (fdIt == fds_.end() || fdIt->second < 0) fail(Status::InvalidArgument, "a clip refers to media that was not provided");
         // The decoder takes ownership of its descriptor, even when opening fails; the job keeps the original.
-        const int fd = ::dup(fdIt->second);
+        const int fd = core::openIndependent(fdIt->second);
         if (fd < 0) fail(Status::IoError, "cannot duplicate a media file descriptor");
 
         auto state = std::make_unique<AssetState>();
@@ -763,7 +766,9 @@ void ExportJob::execute() {
             if (audioPump) {
                 audioPump->pumpTo(framesToSamples(frame + 1, params_.fps, kAudioSampleRate));
                 audioPump->drain();
-                if (frame % 30 == 0) audioPump->checkFaults();
+                // Every frame: a clip whose audio never becomes ready blocks each render for 30 s, so a check every 30
+                // frames would let such an export run for the better part of an hour before failing.
+                audioPump->checkFaults();
             }
             const int32_t permille = progressPermille(frame + 1, params_.totalFrames);
             if (permille != lastReport) {

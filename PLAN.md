@@ -154,11 +154,11 @@ waves of SPECS 9.20.
 - [ ] WP-K Generalised keyframes (after WP-C and WP-A): implemented and covered by JVM and native host tests (tracks, Bezier, cropping, migration, preview/export parity, audio automation v5, lane UI, loudness cache wiring); NOT yet verified on the Pixel (diamond, lane drag, exported frames) so left unticked
 
 ### Wave 4
-- [ ] WP-X Stabiliser (builds the shared tracker and smoother)
+- [ ] WP-X Stabiliser (builds the shared tracker and smoother). _Status:_ engine, JNI, shader stage, model, undo, JSON, analysis controller and inspector section are implemented; host tests (tracker, analyser, smoothing, crop, cache, registry, wire) and 1383 JVM tests pass; the box stays open until a device run is recorded below.
 - [x] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search. _Status:_ implemented (SPECS 5.21) and covered by JVM tests (bundle round trips, zip-slip, size limits and atomic import, auto-relink, EDL and FCPXML golden files plus an XML well-formedness check, library queries, marker notes, view models). Checked on the Pixel 8 (not the reference phone, project built with its own id suffix): the library sheet shows pictures, lengths, usage counts, the red Missing mark and the filters; FCPXML, a bundle with media and an EDL (two tracks, so a zip) were written through the system picker and read back (the zip passes `testzip`, holds the manifest, the project, the card picture and the three readable media files, the unreadable one is listed with no entry; the FCPXML parses as XML); importing that bundle in the hub created "Interchange Test (2)" with the media unpacked into the project's own folder and the unreadable file left pointing at its old address. Not seen on a device: tags and notes dialog, find in timeline, remove unused, the marker note dialog, relink by name and size, and any import into Final Cut Pro, DaVinci Resolve or another editor.
 
 ### Wave 5 — CapCut-style creator tools
-- [ ] WP-V1 Motion tracking (classical tracker)
+- [ ] WP-V1 Motion tracking (classical tracker). _Status:_ implemented (SPECS 5.22) and covered by JVM tests (domain maths, source-to-project mapping with trim, speed and reverse, decimation, attach keyframes, undo, cache reading, analysis controller, view model) and native host tests (synthetic pan: 0.9 px worst error forward and both ways, loss marked and recovered, cache format); the NDK build with `-Werror` links the JNI symbols. Not seen on a device yet: the picking layer, the path overlay and a real analysis; the box is not ticked until they are.
 - [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker
 
 ### Wave 6

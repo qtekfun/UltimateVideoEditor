@@ -21,6 +21,21 @@ data class ProjectDto(
     val markers: List<MarkerDto> = emptyList(),
     /** Sidechain ducking of music tracks by voice tracks; absent means off. */
     val ducking: DuckingDto? = null,
+    /** Tracking targets on video clips (SPECS.md 9.15); absent in projects written before motion tracking existed. */
+    val motionTracks: List<MotionTrackDto> = emptyList(),
+)
+
+/** A tracking target: where [clipId]'s picture was pointed at, in fractions of the upright frame. See `domain/MotionTrack`. */
+@Serializable
+data class MotionTrackDto(
+    val id: String,
+    val clipId: String,
+    val name: String,
+    val seedFrame: Long,
+    val cx: Double,
+    val cy: Double,
+    val w: Double,
+    val h: Double,
 )
 
 /** See `domain/Ducking`. */
@@ -180,8 +195,17 @@ data class ClipDto(
     val still: String? = null,
     /** Pan, fade handles, EQ, noise suppression and loudness normalisation; absent when unused. */
     val audio: ClipAudioDto? = null,
+    /** Camera-shake correction; absent when off. The analysis it needs is a cache file, never part of the project. */
+    val stabilise: StabiliseDto? = null,
     /** Keyframes of single parameters (effect values, volume, pan, EQ gains); absent when nothing is animated. */
     val params: List<ParamTrackDto> = emptyList(),
+)
+
+/** Settings of the stabiliser: [strength] 0..1 and [crop] (`tight`, `medium` or `full`). */
+@Serializable
+data class StabiliseDto(
+    val strength: Double = 0.3,
+    val crop: String = "medium",
 )
 
 /** Keyframes of one parameter; [paramId] is `fx.<effectId>.<index>`, `audio.gainDb`, `audio.pan` or `audio.eq.<band>.gainDb`. */

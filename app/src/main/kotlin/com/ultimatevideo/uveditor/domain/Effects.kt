@@ -176,9 +176,15 @@ data class ClipFx(
     val effects: List<Effect> = emptyList(),
     val blendMode: BlendMode = BlendMode.NORMAL,
     val mask: ClipMask? = null,
+    /**
+     * Key of the stabiliser's correction table (see [StabKey]); null when the clip is not stabilised. It is
+     * derived from the clip's [Stabilise] settings when the render plan is built and is not stored, so it is
+     * not part of [problem] or of any project file.
+     */
+    val stabKey: Int? = null,
 ) {
     /** True when rendering the clip needs nothing beyond the plain draw. */
-    val isNeutral: Boolean get() = effects.isEmpty() && blendMode == BlendMode.NORMAL && mask == null
+    val isNeutral: Boolean get() = effects.isEmpty() && blendMode == BlendMode.NORMAL && mask == null && stabKey == null
 
     fun effect(id: String): Effect? = effects.firstOrNull { it.id == id }
 

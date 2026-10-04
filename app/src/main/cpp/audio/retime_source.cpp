@@ -44,6 +44,7 @@ void RetimedReader::reset() {
     winStart_ = winEnd_ = 0;
     eof_ = false;
     haveWindow_ = false;
+    pendingFillHi_ = -1;
 }
 
 RetimedReader::Result RetimedReader::fillTo(int64_t hi) {
@@ -70,6 +71,18 @@ RetimedReader::Result RetimedReader::fillTo(int64_t hi) {
 RetimedReader::Result RetimedReader::ensureWindow(int64_t lo, int64_t hi, bool reverse) {
     const bool covered = haveWindow_ && lo >= winStart_ && (hi < winEnd_ || eof_);
     if (covered) return Result::Ok;
+
+    // A reverse block is decoded from a seek point up to the playhead, which can be a whole block (96000 samples)
+    // above it. If the decoder had nothing ready yet when the seek was made, the next call must keep filling that
+    // window rather than seek again to the same place: the gap to the playhead is larger than kContinueGapSamples,
+    // so it used to seek, flush the codec and start over on every call, forever, whenever the codec took longer than
+    // one read budget to produce its first output (a reversed clip that never became ready in an export).
+    const bool resuming = haveWindow_ && !eof_ && pendingFillHi_ >= 0 && lo >= winStart_ && lo <= pendingFillHi_;
+    if (resuming) {
+        const Result r = fillTo(std::max(hi, pendingFillHi_));
+        if (r != Result::NotReady) pendingFillHi_ = -1;
+        return r;
+    }
 
     const bool canContinue = haveWindow_ && !eof_ && lo >= winStart_ && lo <= winEnd_ + kContinueGapSamples &&
                              winEnd_ - winStart_ < kMaxWindowSamples;
@@ -98,7 +111,10 @@ RetimedReader::Result RetimedReader::ensureWindow(int64_t lo, int64_t hi, bool r
     winStart_ = winEnd_ = start;
     eof_ = false;
     haveWindow_ = true;
-    return fillTo(hi);
+    pendingFillHi_ = hi;
+    const Result r = fillTo(hi);
+    if (r != Result::NotReady) pendingFillHi_ = -1;
+    return r;
 }
 
 RetimedReader::Result RetimedReader::render(int64_t from, int32_t frames, float* dst) {

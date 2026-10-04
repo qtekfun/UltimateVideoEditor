@@ -37,10 +37,17 @@ enum class EffectType : int {
     // The colour grade: kGradeParams values then kGradeCurveSamples x 4 baked curve samples, in `grade`
     // (not `v`). See render/grade_math.h for the layout and the maths.
     ColorGrade = 14,
+    // Camera-shake correction (stabiliser), always first in a layer's list. Wire values: v[0] = table key
+    // (stabilise/stab_registry.h), v[1] = edge mode (1 repeats the border pixels, 0 leaves them transparent),
+    // v[2..5] = dx, dy (height units), theta (radians, clockwise), scale: the correction of the frame being
+    // drawn, filled in by resolveStabilisation() from the registered table (the wire carries placeholders).
+    Stabilise = 15,
 };
 
 inline constexpr int kMaxEffectValues = 6;
 inline constexpr int kMaxEffectsPerLayer = 8;
+// A layer may also carry the stabiliser's effect on top of its user effects.
+inline constexpr int kMaxWireEffectsPerLayer = kMaxEffectsPerLayer + 1;
 
 // Colour grade wire layout: 21 parameters, then 33 curve samples of (master, red, green, blue).
 inline constexpr int kGradeParams = 21;
@@ -103,7 +110,7 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
     const int blend = static_cast<int>(h[0]);
     const int shape = static_cast<int>(h[1]);
     const int count = static_cast<int>(h[8]);
-    if (blend < 0 || blend > 4 || shape < 0 || shape > 2 || count < 0 || count > kMaxEffectsPerLayer) return false;
+    if (blend < 0 || blend > 4 || shape < 0 || shape > 2 || count < 0 || count > kMaxWireEffectsPerLayer) return false;
     LayerFx fx;
     fx.blend = static_cast<BlendMode>(blend);
     fx.mask.shape = shape;
@@ -119,7 +126,7 @@ inline bool parseLayerFx(const double* data, size_t size, size_t* offset, LayerF
         const int type = static_cast<int>(data[at]);
         const int n = static_cast<int>(data[at + 1]);
         at += 2;
-        if (type < 1 || type > 14 || n < 0 || size - at < static_cast<size_t>(n)) return false;
+        if (type < 1 || type > 15 || n < 0 || size - at < static_cast<size_t>(n)) return false;
         EffectOp op;
         op.type = static_cast<EffectType>(type);
         if (type == static_cast<int>(EffectType::ColorGrade)) {
