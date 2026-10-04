@@ -9,11 +9,13 @@
 
 #include "audio/waveform_peaks.h"
 #include "timeline_view/drop_hint.h"
+#include "timeline_view/fade_curve.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/hit_test.h"
 #include "timeline_view/lane_header.h"
 #include "timeline_view/marker_style.h"
 #include "timeline_view/ruler_ticks.h"
+#include "timeline_view/snap_guide.h"
 #include "timeline_view/text_atlas.h"
 #include "timeline_view/timeline_theme.h"
 #include "timeline_view/timeline_snapshot.h"
@@ -565,15 +567,232 @@ static void testShelfPackerAndLabelTable() {
     CHECK(table.place(1, 40, 20, false, &x, &y) == timeline::LabelTable::Result::Exists);  // sent twice: kept once
     CHECK(table.place(2, 30, 20, true, &x, &y) == timeline::LabelTable::Result::Placed && table.find(2)->colour);
     CHECK(table.place(3, 500, 20, false, &x, &y) == timeline::LabelTable::Result::TooBig);
-    // Fill it: every place() either lands or reports Full, never overlaps (checked through the entries' rectangles).
+    // Fill it: every place() either lands or reports Full (nothing has aged out yet, so nothing may be evicted).
     uint64_t key = 100;
     bool sawFull = false;
     for (int i = 0; i < 200 && !sawFull; ++i) sawFull = table.place(key++, 33, 17, false, &x, &y) == timeline::LabelTable::Result::Full;
     CHECK(sawFull);
-    // The atlas is emptied when full: a new generation, nothing found, the same bitmap can be placed again.
+    // The last resort empties the atlas: a new generation, nothing found, the same bitmap can be placed again.
     table.reset();
     CHECK(table.generation() == 1 && table.size() == 0 && table.find(1) == nullptr);
     CHECK(table.place(1, 40, 20, false, &x, &y) == timeline::LabelTable::Result::Placed && x == 0 && y == 0);
+}
+
+// Two frames on: what was placed or found before is no longer protected from eviction.
+static void ageLabels(timeline::LabelTable& table) {
+    table.beginFrame();
+    table.beginFrame();
+}
+
+static std::vector<uint64_t> takeEvictedLabels(timeline::LabelTable& table) {
+    std::vector<uint64_t> out;
+    table.takeEvicted(&out);
+    return out;
+}
+
+static void testLabelLruBudget() {
+    using Result = timeline::LabelTable::Result;
+    int x = 0, y = 0;
+    // Three 10x10 bitmaps (400 bytes each) fill a 1200 byte budget in a 200x100 atlas that has plenty of room.
+    timeline::LabelTable table(200, 100, 1200);
+    CHECK(table.budgetBytes() == 1200);
+    CHECK(table.place(1, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK(table.place(2, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK(table.place(3, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK(table.liveBytes() == 1200 && table.size() == 3);
+
+    // Everything was placed this frame: a fourth bitmap has nothing it may evict.
+    CHECK(table.place(4, 10, 10, false, &x, &y) == Result::Full);
+    CHECK(table.size() == 3 && takeEvictedLabels(table).empty());
+
+    // Two frames on, the budget is held by dropping the least recently used bitmap, and only that one.
+    ageLabels(table);
+    CHECK(table.place(4, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK(table.liveBytes() == 1200 && table.size() == 3);
+    CHECK((takeEvictedLabels(table) == std::vector<uint64_t>{1}));
+    CHECK(table.find(1) == nullptr && table.find(2) != nullptr && table.find(3) != nullptr && table.find(4) != nullptr);
+    CHECK(takeEvictedLabels(table).empty());  // reported once
+    CHECK(table.generation() == 0);           // evicting is not a reset: Kotlin keeps everything else
+
+    // A bitmap larger than the whole budget can never be held; a repeated one is kept once.
+    CHECK(table.place(9, 30, 20, false, &x, &y) == Result::TooBig);
+    CHECK(table.place(4, 10, 10, false, &x, &y) == Result::Exists);
+}
+
+static void testLabelLruOrder() {
+    using Result = timeline::LabelTable::Result;
+    int x = 0, y = 0;
+    timeline::LabelTable table(200, 100, 1200);
+    for (uint64_t k = 1; k <= 3; ++k) CHECK(table.place(k, 10, 10, false, &x, &y) == Result::Placed);
+    ageLabels(table);
+    // Drawing 1 makes it the most recently used, and (drawn this frame) protected; 2 is now the oldest.
+    CHECK(table.find(1) != nullptr);
+    CHECK(table.place(4, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK((takeEvictedLabels(table) == std::vector<uint64_t>{2}));
+    CHECK(table.peek(1) != nullptr && table.peek(3) != nullptr && table.peek(4) != nullptr);
+
+    // peek() does not count as use: 3 stays the oldest unprotected one once the frames have moved on.
+    ageLabels(table);
+    CHECK(table.peek(3) != nullptr);
+    CHECK(table.find(4) != nullptr);
+    CHECK(table.place(5, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK((takeEvictedLabels(table) == std::vector<uint64_t>{3}));  // 1 was drawn after 3 was placed: only find() refreshes
+
+    // What was drawn in the previous frame is still protected; only the frame after that releases it.
+    timeline::LabelTable small(200, 100, 800);
+    CHECK(small.place(1, 10, 10, false, &x, &y) == Result::Placed && small.place(2, 10, 10, false, &x, &y) == Result::Placed);
+    small.beginFrame();
+    small.beginFrame();
+    CHECK(small.find(1) != nullptr && small.find(2) != nullptr);  // both drawn in this frame
+    small.beginFrame();                                          // the next frame: they were used in the previous one
+    CHECK(small.place(3, 10, 10, false, &x, &y) == Result::Full);
+    small.beginFrame();                                          // and now they are two frames old
+    CHECK(small.place(3, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK((takeEvictedLabels(small) == std::vector<uint64_t>{1}));
+}
+
+static void testLabelLruReuse() {
+    using Result = timeline::LabelTable::Result;
+    int x = 0, y = 0, ax = 0, ay = 0;
+    // An evicted rectangle is reused by the next bitmap that fits, without taking new space from the packer.
+    timeline::LabelTable table(100, 30, 800);
+    CHECK(table.place(1, 10, 10, false, &ax, &ay) == Result::Placed);
+    CHECK(table.place(2, 10, 10, false, &x, &y) == Result::Placed);
+    const size_t packed = table.usedPixels();
+    ageLabels(table);
+    CHECK(table.place(3, 10, 10, false, &x, &y) == Result::Placed);
+    CHECK(x == ax && y == ay);
+    CHECK(table.usedPixels() == packed);
+    CHECK(table.freeSlotCount() == 0);
+
+    // A smaller bitmap goes in the same place and the unused right end stays available.
+    // A tight budget forces the eviction of the 40 wide one.
+    timeline::LabelTable tight(100, 30, 1700);
+    CHECK(tight.place(1, 40, 10, false, &ax, &ay) == Result::Placed);
+    ageLabels(tight);
+    CHECK(tight.place(2, 10, 10, false, &x, &y) == Result::Placed && x == ax && y == ay);
+    CHECK(tight.freeSlotCount() == 1);  // the 29 pixels left of the 40 wide slot
+    CHECK(tight.place(3, 20, 10, false, &x, &y) == Result::Placed && x == ax + 11 && y == ay);
+    CHECK(tight.freeSlotCount() == 1);  // 8 pixels still left (29 - 20 - 1)
+}
+
+static void testLabelLruMergesNeighbours() {
+    using Result = timeline::LabelTable::Result;
+    int x = 0, y = 0, ax = 0, ay = 0;
+    // Three bitmaps side by side go in turn; a wide one then fits only where the three freed rectangles merged.
+    timeline::LabelTable table(200, 100, 1300);
+    CHECK(table.place(1, 10, 10, false, &ax, &ay) == Result::Placed);
+    CHECK(table.place(2, 10, 10, false, &x, &y) == Result::Placed && y == ay && x == ax + 11);
+    CHECK(table.place(3, 10, 10, false, &x, &y) == Result::Placed && y == ay && x == ax + 22);
+    const size_t packed = table.usedPixels();
+    ageLabels(table);
+    CHECK(table.place(4, 30, 10, false, &x, &y) == Result::Placed);  // 1200 bytes: all three go, in the order 1, 2, 3
+    CHECK((takeEvictedLabels(table) == std::vector<uint64_t>{1, 2, 3}));
+    CHECK(x == ax && y == ay);
+    CHECK(table.usedPixels() == packed);  // no new packer space
+    CHECK(table.size() == 1 && table.liveBytes() == 1200);
+}
+
+static void testLabelLruResetIsTheLastResort() {
+    using Result = timeline::LabelTable::Result;
+    int x = 0, y = 0;
+    // Everything in use and no room: place() says Full, the caller resets, and Kotlin sees a new generation.
+    timeline::LabelTable table(64, 32, 1000000);
+    uint64_t key = 1;
+    Result r = Result::Placed;
+    while (r == Result::Placed) r = table.place(key++, 20, 10, false, &x, &y);
+    CHECK(r == Result::Full && table.generation() == 0 && table.size() > 1);
+    table.reset();
+    CHECK(table.generation() == 1 && table.size() == 0 && table.liveBytes() == 0 && table.freeSlotCount() == 0);
+    CHECK(takeEvictedLabels(table).empty());
+    CHECK(table.place(1, 20, 10, false, &x, &y) == Result::Placed && x == 0 && y == 0);
+
+    // The same stream of bitmaps with frames passing never needs the reset: it keeps evicting the oldest.
+    timeline::LabelTable churn(64, 32, 1000000);
+    size_t evictions = 0;
+    for (uint64_t k = 1; k <= 200; ++k) {
+        churn.beginFrame();
+        churn.beginFrame();
+        CHECK(churn.place(k, 20, 10, false, &x, &y) == Result::Placed);
+        evictions += takeEvictedLabels(churn).size();
+    }
+    CHECK(churn.generation() == 0 && evictions > 100 && churn.find(200) != nullptr && churn.find(1) == nullptr);
+}
+
+static void testSnapGuideRect() {
+    auto lay = timeline::Layout::forDensity(1.0f).withHeaders(60.0f);  // ruler 28
+    timeline::Viewport vp;
+    vp.pxPerFrame = 2.0;
+    vp.scrollX = 20.0;
+
+    // A 2 px line centred on frame 100 (x = 180), from the ruler to the bottom of the view.
+    auto r = timeline::snapGuideRect(100, vp, lay, 400.0f, 600.0f, 2.0f);
+    CHECK(r.valid && r.x0 == 179.0f && r.x1 == 181.0f && r.y0 == 28.0f && r.y1 == 600.0f);
+    // A 1 px line is exactly on the pixel; a line is never thinner than a pixel.
+    r = timeline::snapGuideRect(100, vp, lay, 400.0f, 600.0f, 1.0f);
+    CHECK(r.valid && r.x0 == 180.0f && r.x1 == 181.0f);
+    r = timeline::snapGuideRect(100, vp, lay, 400.0f, 600.0f, 0.2f);
+    CHECK(r.valid && r.x1 - r.x0 == 1.0f);
+    // Fractional positions land on whole pixels.
+    vp.scrollX = 20.4;
+    r = timeline::snapGuideRect(100, vp, lay, 400.0f, 600.0f, 1.0f);
+    CHECK(r.valid && r.x0 == 179.0f && r.x1 == 180.0f);
+    vp.scrollX = 20.0;
+
+    // No guide, a guide off the left of the view, under the header column, or off the right.
+    CHECK(!timeline::snapGuideRect(timeline::kNoSnapGuide, vp, lay, 400.0f, 600.0f, 2.0f).valid);
+    CHECK(!timeline::snapGuideRect(0, vp, lay, 400.0f, 600.0f, 2.0f).valid);      // x = -20
+    CHECK(!timeline::snapGuideRect(20, vp, lay, 400.0f, 600.0f, 2.0f).valid);     // x = 20, inside the 60 px header
+    CHECK(!timeline::snapGuideRect(220, vp, lay, 400.0f, 600.0f, 2.0f).valid);    // x = 420, past the right edge
+    // On the header's edge only the part to its right is drawn.
+    r = timeline::snapGuideRect(40, vp, lay, 400.0f, 600.0f, 4.0f);               // x = 60: 58..62
+    CHECK(r.valid && r.x0 == 60.0f && r.x1 == 62.0f);
+    // Frame 0 at no scroll sits left of the lanes' header only when there is one.
+    vp.scrollX = 0.0;
+    CHECK(!timeline::snapGuideRect(0, vp, lay, 400.0f, 600.0f, 2.0f).valid);
+    CHECK(timeline::snapGuideRect(0, vp, timeline::Layout::forDensity(1.0f), 400.0f, 600.0f, 2.0f).valid);
+    // A view too short to have lanes draws nothing.
+    CHECK(!timeline::snapGuideRect(100, vp, lay, 400.0f, 28.0f, 2.0f).valid);
+}
+
+static void testDragShadowLayers() {
+    const float spread = 9.0f;
+    for (float peak : {0.0f, 0.25f, 0.5f, 1.0f}) {
+        float transmitted = 1.0f;  // what still shows through of what is underneath after each layer
+        float lastGrow = spread + 1.0f;
+        for (int i = 0; i < timeline::kShadowLayers; ++i) {
+            const auto layer = timeline::shadowLayer(i, spread, peak);
+            CHECK(layer.alpha >= 0.0f && layer.alpha <= 1.0f);
+            CHECK(layer.grow > 0.0f && layer.grow < lastGrow);  // the widest layer first, each tighter than the last
+            lastGrow = layer.grow;
+            transmitted *= 1.0f - layer.alpha;
+            // The opacity next to the block builds up evenly to `peak`.
+            const float opacity = 1.0f - transmitted;
+            const float wanted = peak * static_cast<float>(i + 1) / static_cast<float>(timeline::kShadowLayers);
+            CHECK(std::fabs(opacity - wanted) < 1e-5f);
+        }
+    }
+    CHECK(timeline::shadowLayer(0, spread, 0.5f).grow == spread);
+    CHECK(timeline::shadowLayer(timeline::kShadowLayers - 1, spread, 0.5f).grow == spread / static_cast<float>(timeline::kShadowLayers));
+    // A fully opaque peak never divides by zero.
+    CHECK(timeline::shadowLayer(timeline::kShadowLayers - 1, spread, 1.0f).alpha == 1.0f);
+}
+
+static void testThumbnailFadeCurve() {
+    const int64_t d = timeline::kThumbFadeNanos;
+    CHECK(timeline::fadeAlpha(0, d) == 0.0f);                // just uploaded: invisible
+    CHECK(timeline::fadeAlpha(d, d) == 1.0f);                // done
+    CHECK(timeline::fadeAlpha(d / 2, d) > 0.499f && timeline::fadeAlpha(d / 2, d) < 0.501f);
+    CHECK(timeline::fadeAlpha(d * 3, d) == 1.0f);            // long after: fully visible
+    CHECK(timeline::fadeAlpha(-5, d) == 1.0f);               // a clock that went backwards never hides a tile
+    CHECK(timeline::fadeAlpha(10, 0) == 1.0f);               // no fade configured
+    float previous = -1.0f;
+    for (int64_t t = 0; t <= d; t += d / 64) {               // monotonic, within [0, 1], eased at both ends
+        const float a = timeline::fadeAlpha(t, d);
+        CHECK(a >= previous && a >= 0.0f && a <= 1.0f);
+        previous = a;
+    }
+    CHECK(timeline::fadeAlpha(d / 20, d) < 0.05f && timeline::fadeAlpha(d - d / 20, d) > 0.95f);
 }
 
 static void testRulerPlanAndLabels() {
@@ -1019,6 +1238,14 @@ int main() {
     testClipKinds();
     testLabelHashAndUtf8();
     testShelfPackerAndLabelTable();
+    testLabelLruBudget();
+    testLabelLruOrder();
+    testLabelLruReuse();
+    testLabelLruMergesNeighbours();
+    testLabelLruResetIsTheLastResort();
+    testSnapGuideRect();
+    testDragShadowLayers();
+    testThumbnailFadeCurve();
     testRulerPlanAndLabels();
     testTheme();
     testGlyphFont();

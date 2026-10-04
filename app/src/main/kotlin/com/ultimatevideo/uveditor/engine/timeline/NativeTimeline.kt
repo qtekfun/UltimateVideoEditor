@@ -30,6 +30,9 @@ internal object NativeTimeline {
 
     external fun nativeSetDropHint(handle: Long, kind: Int, trackIndex: Int, startFrame: Long, endFrame: Long)
 
+    /** The snap guide frame (negative for none) and the keys of the clips being dragged or trimmed (empty for none). */
+    external fun nativeSetDragOverlay(handle: Long, snapGuideFrame: Long, clipKeys: LongArray?)
+
     external fun nativeSetMarquee(handle: Long, active: Boolean, x0: Float, y0: Float, x1: Float, y1: Float)
     external fun nativeSetLaneDrag(handle: Long, from: Int, to: Int)
     external fun nativeClipsInRect(handle: Long, x0: Float, y0: Float, x1: Float, y1: Float): LongArray?
@@ -45,6 +48,9 @@ internal object NativeTimeline {
 
     /** Moves on each time the canvas drops its text atlas; the bitmaps sent before are gone. */
     external fun nativeLabelGeneration(handle: Long): Int
+
+    /** Fills [out] with hashes of text bitmaps the canvas evicted to make room (each reported once); returns how many. */
+    external fun nativeLabelTakeEvicted(handle: Long, out: LongArray): Int
 
     external fun nativeRequestWaveform(handle: Long, assetKey: Long, fd: Int, cachePath: String): Int
 }

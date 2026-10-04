@@ -26,7 +26,7 @@ namespace uv::audio {
 struct ClipSource {
     ClipSource(int64_t key, int64_t asset, int64_t srcInMicros, int32_t bufferFrames, std::vector<RetimeKnot> retimeKnots = {},
                Rational projectFps = {}, float strength = 0.0f, std::vector<float> profile = {}, uint64_t hash = 0,
-               VoiceParams voiceParams = {}, uint64_t voiceHashValue = 0)
+               VoiceParams voiceParams = {}, uint64_t voiceHashValue = 0, std::shared_ptr<const VoiceSchedule> schedule = nullptr)
         : buffer(bufferFrames),
           clipKey(key),
           assetKey(asset),
@@ -37,7 +37,9 @@ struct ClipSource {
           noiseProfile(std::move(profile)),
           denoiseHash(hash),
           voice(voiceParams),
-          voiceHash(voiceHashValue) {}
+          voiceHash(voiceHashValue),
+          voiceSchedule(std::move(schedule)),
+          voiceEnvelope(voiceSchedule && !voiceSchedule->empty() ? voiceSchedule->envelope(voiceParams) : voiceParams) {}
 
     ClipBuffer buffer;
     const int64_t clipKey;
@@ -57,6 +59,10 @@ struct ClipSource {
     // source's identity like the denoise settings: a changed effect makes a new source and restarts decoding.
     const VoiceParams voice;
     const uint64_t voiceHash;
+    // Keyframed voice settings (null: fixed) and the widest setting over them, which decides whether the effect exists and
+    // how long its tail is. Both are part of the identity through voiceHash.
+    const std::shared_ptr<const VoiceSchedule> voiceSchedule;
+    const VoiceParams voiceEnvelope;
     std::atomic<int64_t> eofAt{INT64_MAX};  // clip-local sample where decoded audio ends
     std::atomic<bool> failed{false};
     std::atomic<int32_t> failures{0};  // consecutive failures; reset once the clip decodes again

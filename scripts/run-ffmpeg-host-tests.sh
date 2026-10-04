@@ -33,6 +33,8 @@ mk mpeg2_gop100.mpg 100 25 -c:v mpeg2video -g 100 -bf 2 -sc_threshold 1000000000
 mk mpeg4.avi 100 25 -c:v mpeg4 -g 25 -sc_threshold 1000000000 -pix_fmt yuv420p -b:v 4M
 mk prores.mov 100 25 -c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le
 mk ntsc.mpg 90 30000/1001 -c:v mpeg2video -g 15 -sc_threshold 1000000000 -pix_fmt yuv420p -b:v 4M
+# AV1: the fallback's decoder is libdav1d; the distribution's libav decodes it with the same library. libaom makes the clip.
+if has_encoder libaom-av1; then mk av1.mkv 100 25 -c:v libaom-av1 -cpu-used 8 -row-mt 1 -g 50 -b:v 0 -crf 24 -pix_fmt yuv420p; fi
 if has_encoder libx264; then mk h264.mp4 100 25 -c:v libx264 -g 50 -keyint_min 50 -sc_threshold 0 -bf 2 -pix_fmt yuv420p -crf 12; fi
 
 # Audio: a 440 Hz sine, 2 s at 48 kHz.
