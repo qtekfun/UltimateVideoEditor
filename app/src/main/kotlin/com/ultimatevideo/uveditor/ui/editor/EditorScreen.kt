@@ -1,6 +1,14 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import android.net.Uri
+import com.ultimatevideo.uveditor.proxy.MediaPurpose
+import com.ultimatevideo.uveditor.proxy.ProxyManager
+import com.ultimatevideo.uveditor.ui.editor.proxy.LocalProxyIntent
+import com.ultimatevideo.uveditor.ui.editor.proxy.LocalProxyUi
+import com.ultimatevideo.uveditor.ui.editor.proxy.ProxyBannerHost
+import com.ultimatevideo.uveditor.ui.editor.proxy.ProxyIntent
+import com.ultimatevideo.uveditor.ui.editor.proxy.ProxySheetHost
+import com.ultimatevideo.uveditor.ui.editor.proxy.ProxyViewModel
 import com.ultimatevideo.uveditor.ui.library.LibraryButton
 import com.ultimatevideo.uveditor.ui.library.LibraryOverlays
 import android.os.Handler
@@ -267,8 +275,25 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     DisposableEffect(engine) { onDispose { engine.close() } }
 
+    // Proxy media: small copies the preview and the thumbnails use while editing. Export never asks for them.
+    val proxyManager = remember(context) { ProxyManager.of(context.applicationContext) }
+    val proxyVm: ProxyViewModel = viewModel(
+        key = "proxy-$projectId",
+        factory = viewModelFactory { initializer { ProxyViewModel(proxyManager, projectId) } },
+    )
+    val proxyHolder = proxyVm.state.collectAsStateWithLifecycle()
+
     val preview = remember {
-        EditorPreview(context, scope, lutLoader = lutStore::load) { viewModel.onIntent(EditorIntent.ReportError(it)) }
+        EditorPreview(
+            context,
+            scope,
+            lutLoader = lutStore::load,
+            onProxyFailed = { proxyVm.onIntent(ProxyIntent.PreviewProxyFailed(it)) },
+        ) {
+            viewModel.onIntent(EditorIntent.ReportError(it))
+            // A few stalls while playing are the cue to suggest proxies.
+            if (it.contains("stall", ignoreCase = true)) proxyVm.onIntent(ProxyIntent.ReportStall)
+        }
     }
     DisposableEffect(preview) { onDispose { preview.close() } }
 
@@ -303,10 +328,17 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     // per tick. It follows the visible timeline, so a transform being dragged shows live.
     StateEffect(
         holder,
-        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading) },
+        // The proxy version changes when the switch flips or a proxy finishes: the preview then opens another file.
+        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading, proxyHolder.value.resolveVersion) },
     ) { s ->
         if (s.isLoading) return@StateEffect
-        val layers = previewRequestsAt(s.visibleTimeline, s.playableAssets, s.fps, s.playhead) { viewModel.assetKey(it).toInt() }
+        val layers = previewRequestsWithSources(
+            s.visibleTimeline,
+            s.playableAssets,
+            s.fps,
+            s.playhead,
+            sourceOf = { proxyVm.resolve(it, MediaPurpose.PREVIEW) },
+        ) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)
         when {
             s.isPlaying -> preview.follow(scene, s.playhead.value, s.fps)
@@ -462,9 +494,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     StateEffect(holder, { listOf(it.assets, it.missingMedia) }) { s ->
         for (asset in s.playableAssets) {
             if (!(asset.hasVideo || asset.isImage) || !requestedThumbnails.add("${asset.id}|${asset.uri}")) continue
-            requestThumbnails(context, engine, viewModel, projectId, asset)
+            // Filmstrips are cheaper to decode from a ready proxy; they are cached under the original's identity.
+            requestThumbnails(context, engine, viewModel, projectId, asset.copy(uri = proxyVm.resolve(asset, MediaPurpose.THUMBNAIL).uri))
         }
     }
+    // The proxy side learns the project's media (to queue, validate and suggest proxies).
+    StateEffect(holder, { it.assets }) { s -> proxyVm.onIntent(ProxyIntent.SetAssets(s.assets)) }
 
     BackHandler { viewModel.onIntent(EditorIntent.Back) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
@@ -473,7 +508,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         audio.releaseDevice()
     }
 
-    CompositionLocalProvider(LocalLutNames provides lutState.names, LocalLookActions provides lookActions) {
+    CompositionLocalProvider(
+        LocalLutNames provides lutState.names,
+        LocalLookActions provides lookActions,
+        LocalProxyUi provides proxyHolder,
+        LocalProxyIntent provides proxyVm::onIntent,
+    ) {
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         when {
             state.isLoading -> Column(
@@ -635,6 +675,7 @@ private fun EditorMain(
     }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
     LibraryOverlays(state) { viewModel.onIntent(it) }
+    LocalProxyUi.current?.let { ProxySheetHost(it, LocalProxyIntent.current) }
     var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
@@ -656,6 +697,7 @@ private fun EditorMain(
             ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
         }
         MediaBanners(state) { viewModel.onIntent(it) }
+        ProxyBannerHost()
 
         val splitMetrics = remember { SplitMetrics() }
         val ticker = rememberTicker()
@@ -791,6 +833,10 @@ private fun EditorMain(
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
                     MarkerMenu(state, viewModel::onIntent)
                     LibraryButton(viewModel::onIntent)
+                    val proxyIntent = LocalProxyIntent.current
+                    ToolButton(EditorIcons.Proxy, "Proxy media: small copies for smooth editing of heavy video; export always uses the originals") {
+                        proxyIntent(ProxyIntent.OpenSheet)
+                    }
                     ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
                     ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
                         scopesOpen = !scopesOpen
