@@ -107,6 +107,7 @@ import com.ultimatevideo.uveditor.domain.sourceSpan
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotKeyframe
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotLabel
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotRetime
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
@@ -457,7 +458,10 @@ class EditorViewModel(
             }
         }
         val markers = timeline.markers.map { SnapshotMarker(it.frame.value, beat = it.kind == MarkerKind.BEAT) }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers)
+        val labels = timeline.tracks.flatMap { track ->
+            track.clips.mapNotNull { clip -> ClipLabels.of(clip)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels)
     }
 
     // region loading and saving

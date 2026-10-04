@@ -30,7 +30,7 @@ class TimelineSnapshotTest {
         assertEquals(
             TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
                 TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
-                TimelineSnapshot.MARKER_TRAILER_BYTES,
+                TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -76,7 +76,7 @@ class TimelineSnapshotTest {
             ),
         )
         val b = snapshot.encode()
-        assertEquals(6, TimelineSnapshot.VERSION)
+        assertEquals(7, TimelineSnapshot.VERSION)
         val first = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES
         fun flags(index: Int) = b.getInt(first + index * TimelineSnapshot.CLIP_BYTES + 52)
         assertEquals(0b1001, flags(0)) // selected + primary
@@ -90,7 +90,7 @@ class TimelineSnapshotTest {
         val buffer = TimelineSnapshot(30, 1, emptyList(), emptyList()).encode()
         assertEquals(
             TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
-                TimelineSnapshot.MARKER_TRAILER_BYTES,
+                TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
             buffer.remaining(),
         )
     }
@@ -109,7 +109,7 @@ class TimelineSnapshotTest {
         val trailer = TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES
         assertEquals(
             trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
-                TimelineSnapshot.MARKER_TRAILER_BYTES,
+                TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
             b.remaining(),
         )
         assertEquals(2, b.getInt(trailer))
@@ -144,7 +144,7 @@ class TimelineSnapshotTest {
         val b = snapshot.encode()
         val keyframes = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 3 * TimelineSnapshot.CLIP_BYTES +
             TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.KEYFRAME_BYTES
-        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES + TimelineSnapshot.MARKER_TRAILER_BYTES, b.remaining())
+        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES + TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES, b.remaining())
         assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
         assertEquals(2, b.getInt(keyframes))
         assertEquals(9L, b.getLong(keyframes + 4))
@@ -182,7 +182,7 @@ class TimelineSnapshotTest {
             TimelineSnapshot.TRAILER_BYTES
         assertEquals(
             keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
-                TimelineSnapshot.MARKER_TRAILER_BYTES,
+                TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
             b.remaining(),
         )
         assertEquals(2, b.getInt(keys))
@@ -213,7 +213,7 @@ class TimelineSnapshotTest {
     }
 
     @Test
-    fun `markers are the last section with frame and beat flag`() {
+    fun `markers come before the label trailer with frame and beat flag`() {
         val snapshot = TimelineSnapshot(
             30, 1,
             listOf(SnapshotTrackType.VIDEO),
@@ -221,14 +221,57 @@ class TimelineSnapshotTest {
             markers = listOf(SnapshotMarker(30), SnapshotMarker(90, beat = true)),
         )
         val b = snapshot.encode()
-        val markers = b.remaining() - TimelineSnapshot.MARKER_TRAILER_BYTES - 2 * TimelineSnapshot.MARKER_BYTES
+        val markers = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - TimelineSnapshot.MARKER_TRAILER_BYTES -
+            2 * TimelineSnapshot.MARKER_BYTES
         assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
         assertEquals(2, b.getInt(markers))
         assertEquals(30L, b.getLong(markers + 4))
         assertEquals(0, b.getInt(markers + 12))
         assertEquals(90L, b.getLong(markers + 20))
         assertEquals(1, b.getInt(markers + 28))
-        assertEquals(markers + TimelineSnapshot.MARKER_TRAILER_BYTES + 2 * TimelineSnapshot.MARKER_BYTES, b.remaining())
+        assertEquals(0, b.getInt(markers + TimelineSnapshot.MARKER_TRAILER_BYTES + 2 * TimelineSnapshot.MARKER_BYTES))
+        assertEquals(
+            markers + TimelineSnapshot.MARKER_TRAILER_BYTES + 2 * TimelineSnapshot.MARKER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
+            b.remaining(),
+        )
+    }
+
+    @Test
+    fun `labels are the last section with the key, the length and the text padded to four bytes`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.TITLE),
+            listOf(clip(1), clip(2, start = 100)),
+            labels = listOf(SnapshotLabel(1, "HI"), SnapshotLabel(2, "LOWER THIRD")),
+        )
+        val b = snapshot.encode()
+        val labels = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES -
+            (TimelineSnapshot.LABEL_FIXED_BYTES + 4) - (TimelineSnapshot.LABEL_FIXED_BYTES + 12)
+        assertEquals(2, b.getInt(labels))
+        assertEquals(1L, b.getLong(labels + 4))
+        assertEquals(2, b.getInt(labels + 12))
+        assertEquals('H'.code.toByte(), b.get(labels + 16))
+        assertEquals('I'.code.toByte(), b.get(labels + 17))
+        assertEquals(0.toByte(), b.get(labels + 18))
+        val second = labels + 4 + TimelineSnapshot.LABEL_FIXED_BYTES + 4
+        assertEquals(2L, b.getLong(second))
+        assertEquals(11, b.getInt(second + 8))
+        assertEquals('L'.code.toByte(), b.get(second + 12))
+        assertEquals(second + TimelineSnapshot.LABEL_FIXED_BYTES + 12, b.remaining())
+        assertEquals(4, TimelineSnapshot.paddedLength("HI"))
+        assertEquals(0, TimelineSnapshot.paddedLength(""))
+        assertEquals(24, TimelineSnapshot.paddedLength("A".repeat(24)))
+    }
+
+    @Test
+    fun `a label must be short printable ASCII for a clip that exists`() {
+        val tracks = listOf(SnapshotTrackType.TITLE)
+        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "A".repeat(25)) }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotLabel(1, "CAFÉ") }
+        assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(1)), labels = listOf(SnapshotLabel(2, "A"))) }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(1)), labels = listOf(SnapshotLabel(1, "A"), SnapshotLabel(1, "B")))
+        }
     }
 
     @Test
