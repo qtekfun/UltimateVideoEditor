@@ -1187,6 +1187,13 @@ its two bundle entries, which open the same dialog with the media switch preset.
 (too many combinations). **Not covered:** parameter keyframes of a LUT effect's key (`fx.<id>.0`) are not rewritten when a LUT is re-keyed;
 the LUT picker never keyframes it.
 
+## Overlay inspector hides a bottom media tray (QA defect O1)
+**Chosen:** while the inspector is open as an overlay (the phone default), a tray docked at the bottom is not drawn; it comes back when the
+inspector closes, with its tab, filter and search kept (`bottomTrayShown`). **Why:** the expanded tray is measured before the preview/timeline
+block, so on a phone it left the inspector, which covers the timeline pane, only three controls of height (seen on the Pixel 8). **Alternative:**
+cap the tray height or give the timeline a minimum height (more layout rules; the tray and the inspector are rarely wanted together on a phone).
+Side-docked trays and a side-docked inspector are unchanged.
+
 ## Colour wheels and curves drag only from the handle (QA defect O2)
 **Chosen:** a drag moves a wheel puck only when it starts within 0.3 of the wheel radius of the puck, and moves a curve point only when it starts
 within the existing grab radius of that point; a drag that starts anywhere else is not consumed, so the colour panel scrolls under the finger.
