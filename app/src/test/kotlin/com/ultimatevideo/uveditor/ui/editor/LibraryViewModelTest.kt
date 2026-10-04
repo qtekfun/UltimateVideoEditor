@@ -262,38 +262,6 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun `a marker gets a note and a colour in one undo step`() = runTest(dispatcher) {
-        val h = harness()
-        h.at(90)
-        h.vm.onIntent(EditorIntent.ToggleMarkerAtPlayhead)
-        h.at(92)
-        h.vm.onIntent(LibraryIntent.OpenMarkerEdit)
-        assertEquals(90L, h.state.markerEdit?.frame)
-        h.vm.onIntent(LibraryIntent.MarkerNoteChanged("fix the audio here"))
-        h.vm.onIntent(LibraryIntent.MarkerColorSelected(MarkerColor.BLUE))
-        h.vm.onIntent(LibraryIntent.ConfirmMarkerEdit)
-        assertNull(h.state.markerEdit)
-        val marker = h.state.timeline.markers.single()
-        assertEquals("fix the audio here", marker.note)
-        assertEquals(MarkerColor.BLUE, marker.color)
-
-        h.vm.onIntent(EditorIntent.Undo)
-        assertNull(h.state.timeline.markers.single().note)
-        assertNull(h.state.timeline.markers.single().color)
-    }
-
-    @Test
-    fun `the marker dialog needs the playhead on a marker`() = runTest(dispatcher) {
-        val h = harness()
-        h.at(200)
-        h.vm.onIntent(LibraryIntent.OpenMarkerEdit)
-        assertNull(h.state.markerEdit)
-        assertEquals("Put the playhead on a marker first", h.messages().last())
-        h.vm.onIntent(LibraryIntent.DismissMarkerEdit)
-        assertNull(h.state.markerEdit)
-    }
-
-    @Test
     fun `an EDL export asks for a file and writes the track`() = runTest(dispatcher) {
         val h = harness()
         h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.EDL))

@@ -11,8 +11,27 @@ HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout
     res.frame = std::max<int64_t>(0, vp.xToFrame(x));
     if (y < layout.rulerHeight) {
         res.kind = HitKind::Ruler;
-        if (playheadFrame >= 0 && std::abs(x - vp.frameToX(playheadFrame)) <= layout.handleWidth * 1.5) {
-            res.kind = HitKind::Playhead;
+        double playheadDistance = 1.0e18;
+        if (playheadFrame >= 0) {
+            playheadDistance = std::abs(x - vp.frameToX(playheadFrame));
+            if (playheadDistance <= layout.handleWidth * 1.5) res.kind = HitKind::Playhead;
+        }
+        // A marker takes the touch when it is within its (finger sized) target and not strictly farther than the
+        // playhead handle, so a marker just dropped under the playhead can still be tapped.
+        if (layout.markerHitHalf > 0.0f) {
+            double best = layout.markerHitHalf + 1.0;
+            int bestIndex = -1;
+            for (size_t i = 0; i < snap.markers.size(); ++i) {
+                const double d = std::abs(x - vp.frameToX(snap.markers[i].frame));
+                if (d <= layout.markerHitHalf && d < best) {
+                    best = d;
+                    bestIndex = static_cast<int>(i);
+                }
+            }
+            if (bestIndex >= 0 && (res.kind != HitKind::Playhead || best <= playheadDistance)) {
+                res.kind = HitKind::Marker;
+                res.clipKey = bestIndex;  // `frame` stays the frame under the finger, so a drag can follow it
+            }
         }
         return res;
     }

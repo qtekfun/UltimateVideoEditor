@@ -17,12 +17,16 @@ struct Layout {
     // Width of the lane header column drawn over the left edge of every lane (name tab, mute/solo marks) and the
     // area that long-pressing starts a lane drag from; 0 hides the headers (hit tests in the tests use 0).
     float headerWidth = 0.0f;
+    // Half the width of the touch target of a ruler marker (a marker is easier to hit than its 1.5dp line is wide).
+    float markerHitHalf = 0.0f;
 
     // [laneScale] stretches only the lanes (small / medium / large lane heights); the ruler, gaps and touch
     // slop keep their size. It is clamped to a sane range so a bad value cannot hide the lanes.
     static Layout forDensity(float density, float laneScale = 1.0f) {
         const float scale = std::min(2.0f, std::max(0.5f, laneScale));
-        return {28.0f * density, 64.0f * density * scale, 4.0f * density, 14.0f * density};
+        Layout l{28.0f * density, 64.0f * density * scale, 4.0f * density, 14.0f * density};
+        l.markerHitHalf = 20.0f * density;
+        return l;
     }
     // Copy of this layout with a lane header column of the given width.
     Layout withHeaders(float width) const {

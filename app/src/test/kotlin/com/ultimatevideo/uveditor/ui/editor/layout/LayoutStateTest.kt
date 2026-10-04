@@ -196,6 +196,25 @@ class LayoutStateTest {
     // region which panels a side shows
 
     @Test
+    fun `a bottom tray gives way while the overlay inspector is open`() {
+        val phone = LayoutState()
+        assertEquals(true, bottomTrayShown(phone, inspectorOpen = false))
+        assertEquals(false, bottomTrayShown(phone, inspectorOpen = true))
+    }
+
+    @Test
+    fun `a bottom tray stays when the inspector is docked at a side`() {
+        val docked = LayoutState().let { it.copy(inspector = it.inspector.copy(dock = Dock.RIGHT)) }
+        assertEquals(true, bottomTrayShown(docked, inspectorOpen = true))
+    }
+
+    @Test
+    fun `a tray docked at a side is never a bottom tray`() {
+        val side = LayoutState().let { it.copy(tray = it.tray.copy(dock = Dock.LEFT)) }
+        assertEquals(false, bottomTrayShown(side, inspectorOpen = false))
+    }
+
+    @Test
     fun `the inspector only takes a side column while it is open`() {
         val state = LayoutState.preset(LayoutPreset.TWO_PANELS, tablet)
         assertEquals(listOf(Panel.TRAY), visiblePanels(state, Side.LEFT, inspectorOpen = false))

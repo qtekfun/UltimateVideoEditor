@@ -182,6 +182,14 @@ fun visiblePanels(state: LayoutState, side: Side, inspectorOpen: Boolean): List<
         state.panel(panel).dock == side.dock && (panel != Panel.INSPECTOR || inspectorOpen)
     }
 
+/**
+ * Whether the tray docked at the bottom is drawn. While the inspector is open as an overlay it covers the
+ * timeline pane, which the tray would squeeze to a sliver on a phone, so the tray gives way until the
+ * inspector closes (its state, tab and search are kept). Side-docked panels never compete for that height.
+ */
+fun bottomTrayShown(state: LayoutState, inspectorOpen: Boolean): Boolean =
+    state.tray.dock == Dock.BOTTOM && !(inspectorOpen && state.inspector.dock == Dock.OVERLAY)
+
 /** A side column is collapsed to its strip when every panel in it is. */
 fun sideCollapsed(state: LayoutState, panels: List<Panel>): Boolean = panels.isNotEmpty() && panels.all { state.panel(it).collapsed }
 

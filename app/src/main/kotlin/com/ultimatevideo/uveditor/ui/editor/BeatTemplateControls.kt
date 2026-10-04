@@ -1,5 +1,14 @@
 package com.ultimatevideo.uveditor.ui.editor
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,25 +37,44 @@ import com.ultimatevideo.uveditor.domain.TextTemplate
 import com.ultimatevideo.uveditor.domain.TextTemplates
 
 /**
- * Ruler markers and beats: add a marker at the playhead, find the beats of the selected clip, cut the
- * base track to the beats, clear detected beats, and switch snapping to markers on or off.
+ * The marker button. One tap drops a marker at the playhead (the hint chip over the timeline offers Edit);
+ * a long press opens the rest: previous and next marker, the beat tools and marker snapping.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val markers = state.timeline.markers
     val beatCount = markers.count { it.kind == MarkerKind.BEAT }
+    val description = "Add a marker at the playhead; long press for beats and marker tools. ${markers.size - beatCount} markers, $beatCount beats"
     Box {
-        ToolButton(EditorIcons.Flag, "Markers and beats: ${markers.size - beatCount} markers, $beatCount beats") { open = true }
+        // Not a ToolButton: its tooltip also listens for a long press and would fight the menu.
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .combinedClickable(
+                    role = Role.Button,
+                    onClickLabel = "Add a marker at the playhead",
+                    onLongClickLabel = "Open marker and beat tools",
+                    onClick = { onIntent(MarkerIntent.AddAtPlayhead) },
+                    onLongClick = { open = true },
+                )
+                .semantics { contentDescription = description },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(imageVector = EditorIcons.Flag, contentDescription = null, modifier = Modifier.size(22.dp))
+        }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("Add or remove a marker at the playhead") },
-                onClick = { open = false; onIntent(EditorIntent.ToggleMarkerAtPlayhead) },
+                text = { Text("Previous marker") },
+                enabled = markers.isNotEmpty(),
+                onClick = { open = false; onIntent(MarkerIntent.SeekPrevious) },
             )
             DropdownMenuItem(
-                text = { Text("Marker note and colour…") },
+                text = { Text("Next marker") },
                 enabled = markers.isNotEmpty(),
-                onClick = { open = false; onIntent(LibraryIntent.OpenMarkerEdit) },
+                onClick = { open = false; onIntent(MarkerIntent.SeekNext) },
             )
             DropdownMenuItem(
                 text = { Text(if (state.isAnalyzingBeats) "Finding beats…" else "Find beats in the selected clip") },

@@ -1187,6 +1187,13 @@ its two bundle entries, which open the same dialog with the media switch preset.
 (too many combinations). **Not covered:** parameter keyframes of a LUT effect's key (`fx.<id>.0`) are not rewritten when a LUT is re-keyed;
 the LUT picker never keyframes it.
 
+## Overlay inspector hides a bottom media tray (QA defect O1)
+**Chosen:** while the inspector is open as an overlay (the phone default), a tray docked at the bottom is not drawn; it comes back when the
+inspector closes, with its tab, filter and search kept (`bottomTrayShown`). **Why:** the expanded tray is measured before the preview/timeline
+block, so on a phone it left the inspector, which covers the timeline pane, only three controls of height (seen on the Pixel 8). **Alternative:**
+cap the tray height or give the timeline a minimum height (more layout rules; the tray and the inspector are rarely wanted together on a phone).
+Side-docked trays and a side-docked inspector are unchanged.
+
 ## Colour wheels and curves drag only from the handle (QA defect O2)
 **Chosen:** a drag moves a wheel puck only when it starts within 0.3 of the wheel radius of the puck, and moves a curve point only when it starts
 within the existing grab radius of that point; a drag that starts anywhere else is not consumed, so the colour panel scrolls under the finger.
@@ -1204,3 +1211,31 @@ status and the winner shows in the `decode/s` log line. If every rung fails the 
 images, so the preview was black. Six images start the hardware decoder and play 4K60 with no stalls. Larger counts (24) are worse: the decoder's
 minimum undequeued buffers grows with them. **Alternative:** always use the software decoder on Huawei (works, but 4K60 would not play in real time)
 or a device allow-list (needs hardware to test each model; the ladder needs none).
+
+## Quick markers, LumaFusion style
+**Chosen:** one tap on the marker button drops a marker at the playhead (one `AddMarker`, nothing else runs) and shows a
+state-based "Marker added · Edit" chip for 3 s; a marker within 2 frames of the playhead opens its popup instead of
+adding a second one (it used to remove it, which made a double tap undo itself). The beat tools, previous / next marker
+and marker snapping moved behind a long press of the same button. **Why:** the old flow was flag → dropdown → "Add or
+remove a marker" (a menu animation and a second tap) and the button was a tooltip-wrapped `ToolButton`; the user found it
+slow. **Alternative:** keep the menu and add a second button (more toolbar width on a phone). The marker button is a
+`combinedClickable`, not a `ToolButton`, because the Material tooltip also reacts to a long press.
+**Hint, not a snackbar:** the chip is state in `EditorState` (`markerHint`, cleared by a 3 s job), so it is drawn in the
+frame of the tap and can never queue up behind older messages. **Alternative:** the existing message snackbar (queued, and
+its Undo action was not wired to this step).
+**Popup:** a compact card over the top of the timeline, under the ruler, not at the marker's x. **Why:** Kotlin does not
+know the canvas viewport (scroll and zoom live in native code), so it cannot place a popup at the marker without a new
+round trip; the card is under the ruler so the marker stays visible. **Alternative:** a native-computed anchor (a bigger
+JNI surface and a moving popup while scrolling). **One undo step:** the draft shows live through `dragPreview` and
+commits one `EditMarker` on close, on stepping to another marker, or on a tap elsewhere.
+**Drag:** a drag that starts on a marker moves it (integer frames, snapping to clip edges, the playhead and other
+markers; a taken frame keeps the last valid spot). Releasing is one `MoveMarker`. Long press does not start it: a plain
+drag already does, and the long press belongs to nothing on the ruler. **Navigation:** previous / next arrows in the
+popup and "Previous marker" / "Next marker" in the long-press menu; the edit-point buttons also include markers when
+"Snap to markers" is on (it is on by default).
+**Hit target and labels stay native:** `HitKind.Marker` and the 40 dp target are in `hit_test.cpp` / `layout.h` (the viewport is
+native); the marker name is a snapshot label under `-2 - index` drawn with the existing ASCII font, so names lose accents
+and symbols on the canvas only (the stored name is intact). No snapshot version bump. **Name:** at most 40 characters,
+one line; the note keeps 200 and several lines. **Exports:** the EDL has no marker events; FCPXML markers use the name,
+then the note, then "Marker" / "Beat". **Measured:** the add-marker step in a JVM test is about 0.2 ms median (see the PR).
+

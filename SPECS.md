@@ -940,6 +940,26 @@ or on the clipboard, so an undo can never meet a file that is no longer in the l
 green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
 a snapshot version bump); the colour shows in the dialog and in exports.
 
+**Quick markers (LumaFusion style).** `Marker` also has an optional `name` (`MarkerDto.name`, 40 characters, blank
+means none; older files load without it). `MarkerOps.update` sets name, note and colour together (`EditMarker`),
+`MarkerOps.move` moves a marker to another frame (`MoveMarker`; frames stay unique and sorted, a taken frame is
+refused), `previous` / `next` find the neighbours. Each command is one undo step and undo is exact.
+In the editor: `MarkerIntent.AddAtPlayhead` (one tap) runs only `AddMarker` and sets the `markerHint` state
+(cleared after 3 s); a marker within 2 frames of the playhead opens its popup instead. The popup (`markerPopup`)
+keeps a draft, shows it live through `dragPreview` and commits one `EditMarker` when it closes, steps to the
+previous / next marker, or is dismissed by a tap on the timeline; delete is one `RemoveMarker`. A drag that starts
+on a marker (`HitKind.MARKER`, `DragMode.MARKER`) previews `MoveMarker` with the clip-edge, playhead and marker snap
+(8 frames) and commits it on release. Beat tools, previous / next marker and marker snapping sit behind a long
+press of the marker button. With "Snap to markers" on, markers are also edit points for the previous / next edit
+point buttons.
+**Canvas:** the finger target is native (`HitKind.Marker = 10`, `Layout::markerHitHalf` = 20 dp each side, so a 40 dp
+wide target; the nearest marker within it wins, a marker beats the playhead unless the playhead is strictly
+nearer, the hit carries the marker's index in `clipKey` and the finger frame in `frame`). A marker's name is a
+snapshot label under the key `-2 - markerIndex` (`SnapshotLabel.markerKey`), drawn beside the flag only when it fits
+before the next marker (at least 3 characters, cut at the next marker's tick) with the existing ASCII label font. No
+snapshot version bump: the label section already carries arbitrary keys and an old canvas simply ignores keys it does
+not know. The EDL has no markers (a CMX3600 list has no place for them); FCPXML uses the name, then the note.
+
 ### 5.25 Silence auto cut and manual reframe (WP-V2, no AI)
 
 Both work from data the app already has and send nothing anywhere.

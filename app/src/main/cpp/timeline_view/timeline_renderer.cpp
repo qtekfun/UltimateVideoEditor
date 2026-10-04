@@ -1222,7 +1222,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     {
         const float w = std::max(1.0f, std::round(1.5f * density));
         float lastBeatX = -1.0e9f;
-        for (const auto& m : snap->markers) {
+        for (size_t mi = 0; mi < snap->markers.size(); ++mi) {
+            const auto& m = snap->markers[mi];
             const float x = static_cast<float>(vp.frameToX(m.frame));
             if (x < -w) continue;
             if (x > W + w) break;
@@ -1240,6 +1241,17 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                     const float s = std::max(2.0f, 3.0f * density);
                     const float y = layout.rulerHeight * 0.30f + 7.0f * density;
                     g.rect(x + w, y, x + w + s, y + s, Color{1.0f, 1.0f, 1.0f, 0.9f});
+                }
+                // The name, when there is room before the next marker: drawn right of the line in the lower part of the ruler.
+                if (const std::string* name = snap->labelOf(markerLabelKey(mi))) {
+                    const float gs = 1.2f * density;
+                    const float left = x + w + 3.0f * density;
+                    const float nextX = mi + 1 < snap->markers.size() ? static_cast<float>(vp.frameToX(snap->markers[mi + 1].frame)) : W;
+                    const size_t chars = markerLabelChars(nextX - left - 3.0f * density, 4.0f * gs, name->size());
+                    if (chars > 0) {
+                        const std::string shown = name->substr(0, chars);
+                        g.drawNumber(shown.c_str(), left, layout.rulerHeight * 0.60f, gs, flag);
+                    }
                 }
             }
         }
