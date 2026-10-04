@@ -5,6 +5,7 @@
 
 #include "cache/lru_cache.h"
 #include "decode/frame_rate.h"
+#include "decode/seek_policy.h"
 #include "render/color_math.h"
 #include "render/layout_math.h"
 
@@ -353,6 +354,24 @@ static void opacityIsClamped() {
     CHECK(clampOpacity(std::nanf("")) == 0.0f);
 }
 
+static void seekPolicyDoesNotRestartWhileApproachingTheGoal() {
+    using uv::decode::needsSeek;
+    // Long GOP: the seek to 126 landed on frame 0, the decoder is at frame 1 and the goal is still 126.
+    CHECK(!needsSeek(false, true, false, /*decodePos*/ 1, /*missing*/ 126, /*seekGoal*/ 126));
+    CHECK(!needsSeek(false, true, false, 60, 126, 126));
+    // A new target far ahead of the decode position (not the goal just issued) seeks.
+    CHECK(needsSeek(false, true, false, 1, 400, 126));
+    // Behind the decode position always seeks, even with the same goal.
+    CHECK(needsSeek(false, true, false, 130, 126, 126));
+    // Within the forward-skip distance no seek is needed.
+    CHECK(!needsSeek(false, true, false, 100, 150, -1));
+    CHECK(needsSeek(false, true, false, 1, 150, -1));
+    // First use, forced seek (watchdog) and waiting for the first output.
+    CHECK(needsSeek(false, false, false, 0, 10, -1));
+    CHECK(needsSeek(true, true, false, 1, 126, 126));
+    CHECK(!needsSeek(false, true, true, 0, 500, 500));
+}
+
 int main() {
     layerIdentityFillsCanvasWhenAspectMatches();
     layerFitLetterboxesMismatchedAspect();
@@ -370,6 +389,7 @@ int main() {
     lruEraseIf();
     lruProtectedEvictionKeepsWindow();
     frameRateSnapAndConversions();
+    seekPolicyDoesNotRestartWhileApproachingTheGoal();
     hlgTransferCurves();
     gamutMatrixPreservesWhite();
     toneMapProperties();
