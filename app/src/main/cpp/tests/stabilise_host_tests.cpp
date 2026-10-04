@@ -284,6 +284,31 @@ void analyserRecoversCameraMotion() {
     }
 }
 
+void analyserFollowsLargeJumps() {
+    // A violent shake: the picture jumps by about 20 px (8% of the width) between frames on a 240 px wide frame.
+    const int fw = 240, fh = 135;
+    const Gray world = makeWorld(900, 420);
+    const auto cam = [](int t) { return Similarity::fromParams(1.0, 0.0, (t % 2 == 0 ? 1.0 : -1.0) * 9.0 + 3.0 * t, (t % 3 == 0 ? 4.0 : -4.0)); };
+    MotionAnalyser analyser;
+    Similarity previous;
+    int valid = 0, frames = 0;
+    for (int t = 0; t < 10; ++t) {
+        const Similarity c = cam(t);
+        const FrameMotion m = analyser.feed(renderFrame(world, fw, fh, c));
+        if (t > 0) {
+            ++frames;
+            const Similarity expected = compose(c.inverse(), previous);
+            if (m.valid && m.quality > 0.0f) {
+                ++valid;
+                CHECK_NEAR(m.tx, expected.tx / fh, 0.01);
+                CHECK_NEAR(m.ty, expected.ty / fh, 0.01);
+            }
+        }
+        previous = c;
+    }
+    CHECK(valid >= frames - 1);  // the deeper retry finds the motion in (nearly) every frame
+}
+
 void analyserCopesWithAMovingObject() {
     const int fw = 240, fh = 135;
     const Gray world = makeWorld(700, 360);
@@ -302,6 +327,24 @@ void analyserCopesWithAMovingObject() {
         CHECK_NEAR(m.tx, expected.tx / fh, 0.01);
         CHECK_NEAR(m.ty, expected.ty / fh, 0.01);
     }
+}
+
+void analyserDoesNotLoseMotionAcrossAFailedFrame() {
+    // The picture slides 3 px per frame; frame 3 is blank (nothing to track). The motion across the gap must still
+    // be counted once, in the next frame, so the sum over the clip equals the real total.
+    const int fw = 240, fh = 135;
+    const Gray world = makeWorld(700, 360);
+    MotionAnalyser analyser;
+    double sumTx = 0;
+    int invalid = 0;
+    for (int t = 0; t < 8; ++t) {
+        Gray frame = t == 3 ? Gray(fw, fh) : renderFrame(world, fw, fh, Similarity::fromParams(1.0, 0.0, 3.0 * t, 0.0));
+        const FrameMotion m = analyser.feed(frame);
+        if (!m.valid) ++invalid;
+        sumTx += m.tx * fh;
+    }
+    CHECK(invalid >= 1);
+    CHECK_NEAR(sumTx, -21.0, 0.6);  // 7 frames x 3 px, the picture moving left
 }
 
 void analyserOnATexturelessFrameReportsNoMotion() {
@@ -788,7 +831,9 @@ int main() {
     lucasKanadeRejectsFlatPoints();
     boxTrackerFollowsAPatch();
     analyserRecoversCameraMotion();
+    analyserFollowsLargeJumps();
     analyserCopesWithAMovingObject();
+    analyserDoesNotLoseMotionAcrossAFailedFrame();
     analyserOnATexturelessFrameReportsNoMotion();
     smoothingReducesJitterByAFactor();
     strengthZeroAndShortInputGiveIdentity();

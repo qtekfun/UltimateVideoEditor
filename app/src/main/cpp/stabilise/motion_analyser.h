@@ -33,16 +33,23 @@ public:
     explicit MotionAnalyser(int pyramidLevels = 3);
 
     // Feeds the next frame (all frames must have the same size). The first call returns no motion with
-    // `valid` true; later calls return the motion from the previous frame.
+    // `valid` true; later calls return the motion from the previous frame, or, when the previous frame
+    // could not be measured, from the last one that could (so a gap does not lose motion).
     FrameMotion feed(const Gray& frame);
 
     // Forgets the previous frame (a discontinuity: the next frame is treated as a first one).
     void reset();
 
 private:
+    // Levels of the retry pyramid used when the normal one finds nothing.
+    static constexpr int kDeepLevels = 5;
+    // Frames the reference may stay behind while nothing can be measured.
+    static constexpr int kMaxHeldFrames = 6;
+
     int levels_;
     std::vector<Gray> prev_;
     uint64_t frameCounter_ = 0;
+    int heldFrames_ = 0;
 };
 
 }  // namespace uv::stab
