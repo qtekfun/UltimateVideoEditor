@@ -58,6 +58,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.ultimatevideo.uveditor.engine.stabilise.ContentResolverFdOpener
+import com.ultimatevideo.uveditor.engine.sample.AndroidFrameSampler
 import com.ultimatevideo.uveditor.engine.stabilise.FileStabiliser
 import com.ultimatevideo.uveditor.engine.multicam.MulticamServices
 import com.ultimatevideo.uveditor.engine.multicam.WaveformEnvelopeSource
@@ -165,6 +166,7 @@ class MainActivity : ComponentActivity() {
                                     mediaCaches = ProjectDirMediaCaches(File(filesDir, "projects/$projectId")),
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                     stabiliser = FileStabiliser(File(filesDir, "projects/$projectId/stab"), ContentResolverFdOpener(contentResolver)),
+                                    frameSampler = AndroidFrameSampler(applicationContext),
                                     interchange = interchange,
                                     envelopeSource = CachedEnvelopeSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                     multicamServices = MulticamServices(

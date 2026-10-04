@@ -115,6 +115,10 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
         ColorGradeEditor(effect, onIntent)
         return
     }
+    if (effect.type == EffectType.QUALIFIER) {
+        QualifierEditor(effect, onIntent)
+        return
+    }
     if (effect.type == EffectType.CHROMA_KEY) KeyColourSwatches(effect, onIntent)
     effect.type.params.forEachIndexed { i, param ->
         // The key colour is picked from the swatches; its three channels have no sliders.

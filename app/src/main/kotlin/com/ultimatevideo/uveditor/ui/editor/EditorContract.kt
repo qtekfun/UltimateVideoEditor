@@ -103,6 +103,8 @@ data class EditorState(
     val track: TrackUiState = TrackUiState(),
     /** Select mode: a tap toggles clips in the selection and dragging empty space draws a marquee. */
     val selectMode: Boolean = false,
+    /** The HSL qualifier's eyedropper: armed on an effect while the preview waits for a tap. */
+    val qualifierPick: QualifierPickState = QualifierPickState(),
     /** A lane picked up by its header and where it would land; null when no lane header drag is running. */
     val laneDrag: LaneDrag? = null,
     /** The selected clips when more than one is selected (includes [selectedClipId]); read them through [selection]. */

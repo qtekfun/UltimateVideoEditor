@@ -33,6 +33,19 @@ object Qualifier {
     /** Below this HSL saturation a picked colour is a grey: its hue means nothing, so the key takes every hue. */
     const val GREY_SATURATION = 0.06
 
+    /**
+     * [values] with the bound at [index] set to [v] while keeping a range valid: moving a minimum above its maximum
+     * pushes the maximum up with it, and moving a maximum below its minimum pulls the minimum down.
+     */
+    fun withBound(values: List<Double>, minIndex: Int, maxIndex: Int, index: Int, v: Double): List<Double> {
+        require(index == minIndex || index == maxIndex) { "index $index is not a bound of this range" }
+        val out = values.toMutableList()
+        out[index] = v
+        if (index == minIndex && out[maxIndex] < v) out[maxIndex] = v
+        if (index == maxIndex && out[minIndex] > v) out[minIndex] = v
+        return out
+    }
+
     /** HSL of straight RGB in 0..1: hue on the wheel in 0..1 (0 = red), saturation and lightness in 0..1. */
     fun hsl(r: Double, g: Double, b: Double): Triple<Double, Double, Double> {
         val mx = max(r, max(g, b))

@@ -115,7 +115,8 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 
 ## Deferred
 - Frame blending option for slow motion, pitch-preserving time stretch, animated GIF/WebP (first frame only), dragging lane headers,
-  dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
+  dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, viewer thumbnails in motion for multicam.
+  (HSL qualifier: the effect, its grouped editor and the eyedropper are done, see DECISIONS.md "HSL qualifier"; host-tested only.)
 
 ## Verification debt
 
