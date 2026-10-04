@@ -1,15 +1,16 @@
 name: Release build
 
-# Builds the release APK and AAB (R8-minified) and keeps them as workflow artifacts. It needs no secrets: without
-# a signing key the files are unsigned, which is enough to inspect, size-check and sign by hand. Nothing is
-# published anywhere by this workflow.
+# Builds the release APK and AAB (R8-minified). A `v<versionName>` tag publishes a GitHub Release with the signed
+# APK, the AAB, SHA256SUMS.txt and the R8 mapping (a pre-release while the major version is 0). It needs the four
+# UVEDITOR_* signing secrets (docs/RELEASE.md); a tagged build without them fails, so nothing unsigned is ever
+# published. A manual run only builds and keeps the files as workflow artifacts (signed if the secrets exist).
 on:
   workflow_dispatch:
   push:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,7 +18,7 @@ concurrency:
 
 jobs:
   release:
-    name: Unsigned release APK and AAB
+    name: Release APK and AAB
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -46,16 +47,31 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Decode the signing keystore
+        env:
+          UVEDITOR_KEYSTORE_BASE64: ${{ secrets.UVEDITOR_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$UVEDITOR_KEYSTORE_BASE64" ]; then
+            echo "$UVEDITOR_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "UVEDITOR_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "::error::A tagged release must be signed: set the UVEDITOR_* secrets (see docs/RELEASE.md)."; exit 1
+          else
+            echo "::warning::UVEDITOR_KEYSTORE_BASE64 is not set; this manual build stays unsigned."
+          fi
+
       # The unit tests include OfflineGuaranteeTest, so a release can never ship a network permission or tracker.
       - name: Tests, lint and release build
+        env:
+          UVEDITOR_KEYSTORE_PASSWORD: ${{ secrets.UVEDITOR_KEYSTORE_PASSWORD }}
+          UVEDITOR_KEY_ALIAS: ${{ secrets.UVEDITOR_KEY_ALIAS }}
+          UVEDITOR_KEY_PASSWORD: ${{ secrets.UVEDITOR_KEY_PASSWORD }}
         run: ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:bundleRelease --console=plain --max-workers=4
-        # Optional signing, only if the repository owner adds these four secrets. Without them the build stays unsigned.
-        # env:
-        #   UVEDITOR_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
-        #   UVEDITOR_KEYSTORE_PASSWORD: ${{ secrets.UVEDITOR_KEYSTORE_PASSWORD }}
-        #   UVEDITOR_KEY_ALIAS: ${{ secrets.UVEDITOR_KEY_ALIAS }}
-        #   UVEDITOR_KEY_PASSWORD: ${{ secrets.UVEDITOR_KEY_PASSWORD }}
-        # (decode the keystore first: echo "${{ secrets.UVEDITOR_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks")
+
+      - name: Show the signing certificate
+        run: |
+          apk="$(ls app/build/outputs/apk/release/*.apk | head -n1)"
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$apk" | grep -E "certificate (DN|SHA-256)" || echo "unsigned build"
 
       - name: Checksums
         run: |
@@ -84,3 +100,18 @@ jobs:
           path: dist/mapping.txt
           if-no-files-found: error
           retention-days: 30
+
+      # Only a tag publishes: the GitHub Release carries the signed APK, the AAB, the checksums and the mapping.
+      - name: Publish the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(sed -n 's/^versionName=//p' gradle/version.properties | tr -d '[:space:]')"
+          flags=""
+          case "$version" in 0.*) flags="--prerelease" ;; esac
+          cp dist/*.apk "dist/ultimateVE-${version}.apk"
+          rm -f dist/app-release*.apk
+          (cd dist && sha256sum "ultimateVE-${version}.apk" *.aab > SHA256SUMS.txt)
+          gh release create "$GITHUB_REF_NAME" "dist/ultimateVE-${version}.apk" dist/*.aab dist/SHA256SUMS.txt dist/mapping.txt \
+            --target "$GITHUB_SHA" --title "ultimateVE ${version}" --generate-notes $flags

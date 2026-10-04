@@ -62,9 +62,23 @@ If only some of the four values are present the build stays unsigned, so a parti
 ## CI
 
 - **`ci.yml`** runs the unit tests, host tests and a debug build on every pull request.
-- **`release.yml`** (manual run or a `v*` tag) runs the tests, lint, and builds the unsigned APK and AAB, then uploads
-  them with `SHA256SUMS.txt` and the R8 mapping as workflow artifacts (30 days). It needs no secrets and publishes
-  nothing. The commented block shows how a maintainer can add signing secrets later.
+- **`release.yml`** (manual run or a `v*` tag) runs the tests, lint, and builds the APK and AAB. A **tag** publishes a
+  GitHub Release with `ultimateVE-<version>.apk`, the AAB, `SHA256SUMS.txt` and the R8 `mapping.txt`; it is marked as a
+  pre-release while the major version is 0. A tagged build **fails if the signing secrets are missing**, so an unsigned
+  file is never published. A manual run only keeps the files as workflow artifacts (30 days).
+
+### GitHub secrets (one time, same scheme as the other ultimate* repositories)
+
+Create the key on your own machine (step 1 of Signing above) and then add the four repository secrets:
+
+```sh
+base64 -w0 ~/ultimatevideo-release.jks | gh secret set UVEDITOR_KEYSTORE_BASE64 -R qtekfun/UltimateVideoEditor
+gh secret set UVEDITOR_KEYSTORE_PASSWORD -R qtekfun/UltimateVideoEditor
+gh secret set UVEDITOR_KEY_ALIAS -R qtekfun/UltimateVideoEditor        # ultimatevideo
+gh secret set UVEDITOR_KEY_PASSWORD -R qtekfun/UltimateVideoEditor
+```
+
+To publish: set `versionName` in `gradle/version.properties`, merge, then `git tag v<versionName> && git push origin v<versionName>`.
 
 ## Release checklist
 
