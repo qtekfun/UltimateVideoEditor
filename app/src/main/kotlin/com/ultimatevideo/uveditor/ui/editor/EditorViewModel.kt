@@ -126,6 +126,7 @@ import com.ultimatevideo.uveditor.domain.isRetimed
 import com.ultimatevideo.uveditor.domain.sourceSpan
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotClipKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotKeyframe
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotLabel
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotRetime
@@ -489,6 +490,7 @@ class EditorViewModel(
                 0
             }
         }
+        val assetNames = state.assets.associate { it.id to it.displayName }
         val clips = timeline.tracks.flatMapIndexed { trackIndex, track ->
             track.clips.map { clip ->
                 SnapshotClip(
@@ -505,6 +507,12 @@ class EditorViewModel(
                     primary = clip.id == state.selectedClipId,
                     hasFx = !clip.fx.isNeutral,
                     missing = clip.hasMedia && clip.assetId in state.missingMedia,
+                    kind = when {
+                        clip.still == StillKind.STICKER -> SnapshotClipKind.STICKER
+                        clip.still == StillKind.PHOTO -> SnapshotClipKind.IMAGE
+                        timeline.multicams.isNotEmpty() && clip.id.startsWith("mc-") -> SnapshotClipKind.MULTICAM
+                        else -> SnapshotClipKind.DEFAULT
+                    },
                 )
             }
         }
@@ -538,7 +546,7 @@ class EditorViewModel(
             )
         }
         val labels = timeline.tracks.flatMap { track ->
-            track.clips.mapNotNull { clip -> ClipLabels.of(clip)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
+            track.clips.mapNotNull { clip -> ClipLabels.of(clip, clip.assetId?.let(assetNames::get))?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
         }
         val markerLabels = timeline.markers.mapIndexedNotNull { index, marker ->
             ClipLabels.clean(marker.name.orEmpty()).takeIf { it.isNotEmpty() }?.let { SnapshotLabel(SnapshotLabel.markerKey(index), it) }
