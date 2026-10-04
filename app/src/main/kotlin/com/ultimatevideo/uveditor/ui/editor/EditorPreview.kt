@@ -56,6 +56,8 @@ data class PreviewRequest(
     val still: StillRef? = null,
     /** The clip's colour space override as a native index (0 SDR, 1 HLG, 2 PQ), or -1 for the file's own. */
     val sourceOverride: Int = -1,
+    /** Smooth slow motion: how far the shown moment is from [sourceFrame] towards its neighbour, 0..1 (0 shows the frame alone). */
+    val mix: Float = 0f,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -259,6 +261,8 @@ class EditorPreview(
                     reverse = request.reverse,
                     fx = request.fx,
                     sourceOverride = request.sourceOverride,
+                    mix = request.mix,
+                    mixTowardsPrevious = request.reverse,
                 )
             }
     }

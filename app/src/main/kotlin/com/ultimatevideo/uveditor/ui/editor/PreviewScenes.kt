@@ -67,10 +67,12 @@ internal fun previewRequestsAt(
                 if (asset == null || !asset.hasVideo) {
                     null
                 } else {
+                    val shown = clip.sourceMixAt(playhead.value)
                     PreviewRequest(
                         assetKey = assetKeyOf(asset.id) + clip.lane * LANE_STRIDE,
                         uri = asset.uri,
-                        sourceFrame = clip.sourceFrameAt(playhead.value),
+                        sourceFrame = shown.frame,
+                        mix = if (shown.blended) shown.mixPermille / 1000f else 0f,
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,

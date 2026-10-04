@@ -144,14 +144,37 @@ inline int64_t outputToProjectFrame(int64_t outFrame, Fps out, Fps project) {
                                 (static_cast<i128>(out.num) * project.den));
 }
 
+// A source-table entry is the source frame, with the smooth-slow-motion mix towards the neighbouring frame
+// (permille, 1..999) in the bits from kSourceMixShift up when the picture is interpolated. Frames of
+// interpolated entries are never negative, so an entry below kSourceMixBase is a plain (possibly negative) frame.
+constexpr int kSourceMixShift = 44;
+constexpr int64_t kSourceMixBase = static_cast<int64_t>(1) << kSourceMixShift;
+
+inline int64_t sourceEntryFrame(int64_t entry) { return entry >= kSourceMixBase ? (entry & (kSourceMixBase - 1)) : entry; }
+inline int sourceEntryMix(int64_t entry) { return entry >= kSourceMixBase ? static_cast<int>(entry >> kSourceMixShift) : 0; }
+
+inline int64_t sourceEntryFor(const VideoClip& clip, int64_t frame) {
+    if (clip.sourceTable.empty()) return clip.sourceInFrame + (frame - clip.startFrame);
+    const int64_t last = static_cast<int64_t>(clip.sourceTable.size()) - 1;
+    return clip.sourceTable[static_cast<size_t>(std::clamp<int64_t>(frame - clip.startFrame, 0, last))];
+}
+
 inline int64_t sourceFrameFor(const VideoClip& clip, int64_t frame, int64_t assetFrames) {
-    int64_t wanted = clip.sourceInFrame + (frame - clip.startFrame);
-    if (!clip.sourceTable.empty()) {
-        const int64_t last = static_cast<int64_t>(clip.sourceTable.size()) - 1;
-        wanted = clip.sourceTable[static_cast<size_t>(std::clamp<int64_t>(frame - clip.startFrame, 0, last))];
-    }
+    const int64_t wanted = sourceEntryFrame(sourceEntryFor(clip, frame));
     if (assetFrames <= 0) return std::max<int64_t>(wanted, 0);
     return std::clamp<int64_t>(wanted, 0, assetFrames - 1);
+}
+
+// Smooth slow motion: how far project frame `frame` of `clip` is from its source frame towards the
+// neighbouring one in the direction of play, in permille (0 shows the source frame alone).
+inline int sourceMixFor(const VideoClip& clip, int64_t frame) { return sourceEntryMix(sourceEntryFor(clip, frame)); }
+
+// The frame the mix blends with: after the shown one, or before it for a clip that plays backwards; -1 when
+// that lies outside the media.
+inline int64_t blendFrameFor(const VideoClip& clip, int64_t source, int64_t assetFrames) {
+    const int64_t other = source + (clip.reverse ? -1 : 1);
+    if (other < 0 || (assetFrames > 0 && other >= assetFrames)) return -1;
+    return other;
 }
 
 // What the exporter does about source frame `wanted` given the frames decoded so far (`cached`, an

@@ -355,6 +355,7 @@ public:
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
         space_ = params.hdr ? render::OutputSpace::Hlg2020 : render::OutputSpace::Sdr709;
         pipeline_->setOutputSpace(space_);
+        pipeline_->setInterpolationQuality(2);  // the exporter has the time for the wide flow search
         for (const TitleImage& title : params.titles) {
             if (pipeline_->uploadTitle(title.key, title.width, title.height, title.rgba.data(), &e) != decode::Status::Ok) {
                 failDecode(e, "a title could not be prepared for the export");
@@ -387,6 +388,7 @@ public:
             AssetState* asset;
             int64_t source;
             bool reverse;
+            int64_t keepBehind;  // frames behind `source` (in the direction of play) that the next frame still reads
         };
         std::vector<std::shared_ptr<decode::GpuFrame>> held;
         std::vector<render::LayerDraw> layers;
@@ -411,6 +413,37 @@ public:
             held.push_back(fetch(asset, source));
             render::LayerDraw layer;
             layer.frame = held.back().get();
+            const int64_t direction = clip->reverse ? -1 : 1;
+            // Smooth slow motion blends with the neighbouring frame; noise reduction and flicker removal read the
+            // neighbours in time. The neighbour ahead is waited for, the one behind is only used if still decoded.
+            const int mixPermille = sourceMixFor(*clip, projectFrame);
+            if (mixPermille > 0) {
+                const int64_t other = blendFrameFor(*clip, source, asset.info.durationFrames);
+                if (other >= 0) {
+                    held.push_back(fetch(asset, other));
+                    layer.blendWith = held.back().get();
+                    layer.blendMix = static_cast<float>(mixPermille) / 1000.0f;
+                }
+            }
+            const core::NeighbourNeeds needs = core::neighbourNeeds(fxAt(*clip, projectFrame));
+            int64_t keepBehind = 0;
+            if (needs.next) {
+                const int64_t ahead = source + direction;
+                if (ahead >= 0 && (asset.info.durationFrames <= 0 || ahead < asset.info.durationFrames)) {
+                    held.push_back(fetch(asset, ahead));
+                    layer.next = held.back().get();
+                }
+            }
+            if (needs.prev) {
+                keepBehind = 1;
+                const int64_t behind = source - direction;
+                std::lock_guard<std::mutex> lock(asset.mu);
+                const auto it = asset.frames.find(behind);
+                if (it != asset.frames.end()) {
+                    held.push_back(it->second);
+                    layer.prev = held.back().get();
+                }
+            }
             // The clip carries what its source is (render::ColorMode value of any target); the target is the export's.
             layer.mode = render::colorModeFor(render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)), space_);
             layer.turns = asset.turns;
@@ -420,7 +453,7 @@ public:
                 static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
                 static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
             layers.push_back(layer);
-            used.push_back({&asset, source, clip->reverse});
+            used.push_back({&asset, source, clip->reverse, keepBehind});
         }
         // No layers draws black: a gap in the timeline.
         if (pipeline_->drawScene(layers, params_.canvasWidth, params_.canvasHeight, w, h, &e) != decode::Status::Ok) {
@@ -428,9 +461,9 @@ public:
         }
         for (const Used& u : used) {
             if (u.reverse) {
-                evictAfter(*u.asset, u.source);
+                evictAfter(*u.asset, u.source + u.keepBehind);
             } else {
-                evictBefore(*u.asset, u.source);
+                evictBefore(*u.asset, u.source - u.keepBehind);
             }
         }
         if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
