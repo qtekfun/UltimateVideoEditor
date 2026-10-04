@@ -183,11 +183,36 @@ class TimelineSurfaceView(
         }
     }
 
+    private val pinchAxis = PinchAxisLock(slopPx = 12f * resources.displayMetrics.density)
+    private var pendingFactor = 1f
+
     private val scaleDetector = ScaleGestureDetector(
         context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                pinchAxis.begin(detector.currentSpanX, detector.currentSpanY)
+                pendingFactor = 1f
+                return true
+            }
+
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                engine.zoomBy(detector.scaleFactor, detector.focusX)
+                // The axis the fingers spread along decides what scales; until it is clear the factor is held back, so a
+                // horizontal pinch ends up with the same total zoom as before.
+                val axis = pinchAxis.update(detector.currentSpanX, detector.currentSpanY)
+                when (axis) {
+                    PinchAxis.UNDECIDED -> pendingFactor *= detector.scaleFactor
+                    PinchAxis.HORIZONTAL -> {
+                        engine.zoomBy(pendingFactor * detector.scaleFactor, detector.focusX)
+                        pendingFactor = 1f
+                    }
+                    PinchAxis.VERTICAL -> {
+                        engine.zoomLanesBy(
+                            pinchAxis.verticalFactor(pendingFactor, detector.currentSpanY, detector.previousSpanY),
+                            detector.focusY,
+                        )
+                        pendingFactor = 1f
+                    }
+                }
                 return true
             }
         },
