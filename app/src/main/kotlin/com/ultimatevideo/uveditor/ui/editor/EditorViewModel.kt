@@ -108,6 +108,7 @@ import com.ultimatevideo.uveditor.domain.paramKeys
 import com.ultimatevideo.uveditor.domain.paramSpec
 import com.ultimatevideo.uveditor.domain.paramValueAt
 import com.ultimatevideo.uveditor.domain.Snap
+import com.ultimatevideo.uveditor.domain.SnapGuides
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -909,6 +910,7 @@ class EditorViewModel(
             copy(
                 timeline = committed,
                 dragPreview = null,
+                dragOverlay = null,
                 audioSessionActive = false,
                 noiseRegion = noiseRegion?.takeIf { committed.trackOfClip(it.clipId) != null },
                 dropHint = null,
@@ -1407,6 +1409,26 @@ class EditorViewModel(
     }
 
     private fun dragMove(frame: Long, trackIndex: Int, zone: DragZone) {
+        dragStep(frame, trackIndex, zone)
+        updateDragOverlay()
+    }
+
+    /** The clips being dragged or trimmed and where a moved edge snapped, read from the preview the step just produced. */
+    private fun updateDragOverlay() {
+        val session = drag ?: return
+        if (session.mode == DragMode.PLAYHEAD || session.mode == DragMode.MARKER) return
+        val ids = session.group ?: listOf(session.clipId)
+        val base = history.timeline
+        val preview = state.value.dragPreview
+        val guide = preview?.let { SnapGuides.guideFrame(base, it, ids, snapWith(base, state.value.playhead)) }
+        val overlay = DragOverlay(ids, guide)
+        if (state.value.dragOverlay != overlay) reduce { copy(dragOverlay = overlay) }
+    }
+
+    /** Snapshot keys of the dragged clips, for the canvas. */
+    fun dragOverlayKeys(overlay: DragOverlay): LongArray = LongArray(overlay.clipIds.size) { clipKeys.keyFor(overlay.clipIds[it]) }
+
+    private fun dragStep(frame: Long, trackIndex: Int, zone: DragZone) {
         val session = drag ?: return
         if (session.mode == DragMode.PLAYHEAD) {
             setPlayhead(frame)
@@ -1487,7 +1509,7 @@ class EditorViewModel(
         drag = null
         pendingDragCommand = null
         if (commit && command != null && execute(command)) return
-        reduce { copy(dragPreview = null, dropHint = null) }
+        reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
     }
 
     private fun snapFrame(timeline: Timeline, movingClipId: String, frame: Long, playhead: FrameIndex): FrameIndex {
@@ -2778,23 +2800,25 @@ class EditorViewModel(
 
     // endregion
 
-    private fun addTransition() = withSelection { clipId ->
+    private fun addTransition() {
         val timeline = history.timeline
-        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
-        val next = timeline.trackOfClip(clipId)?.clips?.firstOrNull { it.timelineStart == clip.timelineEnd }
-        if (next == null) {
-            emit(EditorEffect.ShowMessage("Place another clip right after this one to add a transition"))
-            return@withSelection
+        val cut = state.value.transitionCut
+        if (cut == null) {
+            val message = if (state.value.selectedClip != null && state.value.visibleTimeline.transitions.isNotEmpty() && state.value.clipAfterSelected != null) {
+                "These clips already have a transition"
+            } else {
+                "Place another clip right after this one, or put the playhead on a cut, to add a transition"
+            }
+            emit(EditorEffect.ShowMessage(message))
+            return
         }
-        if (timeline.transitionBetween(clip.id, next.id) != null) {
-            emit(EditorEffect.ShowMessage("These clips already have a transition"))
-            return@withSelection
-        }
+        val clip = cut.from
+        val next = cut.to
         val sourceLength = assetLengthFrames(clip.assetId)
         val room = TimelineOps.maxTransitionFrames(timeline, clip.id, next.id, sourceLength)
         if (room < Transition.MIN_DURATION_FRAMES) {
             emit(EditorEffect.ShowMessage("There is not enough extra footage around the cut for a transition"))
-            return@withSelection
+            return
         }
         val wanted = state.value.fps.microsToFrames(TRANSITION_DEFAULT_MICROS).coerceAtLeast(Transition.MIN_DURATION_FRAMES)
         execute(EditCommand.AddTransition(Transition("transition-${idGenerator()}", clip.id, next.id, minOf(wanted, room)), sourceLength))
