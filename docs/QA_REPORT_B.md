@@ -178,6 +178,33 @@ first page is multiselect, not the inspector.
 - Not run: dragging a point in the Keyframes lane (the lane was not visible with the inspector closed; only the marker on the clip),
   Ease/Hold/Bezier, copy/paste of keyframes. PARTIAL.
 
+## 4. Motion tracking and attaching a title
+
+- Inspector > Track motion > Track an object, Small box, tap on the checkerboard patch of the test pattern at 0:00: the track ran in
+  the background and reads "Ready: lost in 152 of 300 frames; it holds the last position there." with Hide path / Delete. The path is
+  drawn on the preview.
+- A new title, inspector > Track motion > "Make this clip follow a track" > Follow: the title is placed on the patch and follows it at
+  0:00, 1:00, 2:15 and 3:24 (the ring marker and the text move with the checkerboard). The title block shows four position keyframe
+  diamonds. PASS. Not run: exported frame of the following title.
+- Observation: after a Reframe zoom (below) the tracking ring stays at the same screen position, i.e. the path overlay is not moved with
+  the clip's own transform. Cosmetic.
+
+## 6. Quick edits: cut silences, reframe
+
+- **Cut silences** on `silence.mp4` (12 s, 4.0 to 7.0 s silent) at -40 dB / 0.5 s / keep 0.10 s: "1 of 1 cuts, 2.8 s shorter",
+  `00:00:04:04 -> 00:00:06:27 (2.8 s)`. Remove: toast "Removed 1 silences, 2.8 s shorter", the gap closes and the title overlay moved
+  left by the same amount (10.8 s to 8.0 s). One Undo restored the clips and the title. PASS.
+- **Reframe** (zoom slider to 2.90x, "Mark at playhead", Apply): toast "Reframed", the preview is zoomed on the marked point. Undo restores.
+  The point sliders and the multi-mark path were not exercised. PASS for the single-mark case.
+
+## 7. Project templates wizard
+
+- Home > top-bar menu > New from a template: lists Vertical montage (6 slots, 1080 x 1920), Intro and outro (3 slots), Lower thirds (1
+  slot), and "Make a template from one of your projects" with Save as template for each project, Import template file and Close.
+  Lower thirds with `clip_a.mp4` as the main clip: the project opens with the clip on V1 and three titles (FIRST S..., SECOND, THIRD S...)
+  on T1, each with keyframe diamonds. PASS.
+- Nit: "1 slots" (plural form with a count of one).
+
 ## D3 (found here, fixed in PR #88)
 
 A clip imported in this session was listed in the media tray as `msf%3A1000001071` instead of `clip_a.mp4`: `assetFor` never stored
