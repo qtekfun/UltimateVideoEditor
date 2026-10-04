@@ -20,7 +20,7 @@ using uv::encode::VideoClip;
 
 constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/export/ExportException";
 constexpr size_t kClipLongs = 9;     // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey
-constexpr size_t kTitleInts = 3;     // key, width, height per title
+constexpr size_t kTitleInts = 5;     // key, width, height, displayWidth, displayHeight per title
 constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
 constexpr size_t kKeyClipLongs = 2;  // keyframe origin frame, keyframe count per clip
 constexpr size_t kKeyLongs = 2;      // frame, interpolation per keyframe
@@ -279,7 +279,7 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
         for (size_t n = 0; n < clipCount; ++n) params.clips[n].fxFrames = std::move(tables[n]);
     }
 
-    // Titles: `titleMeta` holds {key, width, height} per title and `titlePixels` one direct
+    // Titles: `titleMeta` holds {key, width, height, displayWidth, displayHeight} per title and `titlePixels` one direct
     // premultiplied RGBA buffer each; the pixels are copied.
     const jsize metaLength = titleMeta == nullptr ? 0 : env->GetArrayLength(titleMeta);
     const jsize pixelCount = titlePixels == nullptr ? 0 : env->GetArrayLength(titlePixels);
@@ -295,16 +295,20 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
             const jint key = meta[static_cast<size_t>(n) * kTitleInts];
             const jint w = meta[static_cast<size_t>(n) * kTitleInts + 1];
             const jint h = meta[static_cast<size_t>(n) * kTitleInts + 2];
+            const jint dw = meta[static_cast<size_t>(n) * kTitleInts + 3];
+            const jint dh = meta[static_cast<size_t>(n) * kTitleInts + 4];
             jobject buffer = env->GetObjectArrayElement(titlePixels, n);
             const void* data = buffer == nullptr ? nullptr : env->GetDirectBufferAddress(buffer);
             const jlong capacity = buffer == nullptr ? 0 : env->GetDirectBufferCapacity(buffer);
             const int64_t needed = static_cast<int64_t>(w) * h * 4;
-            const bool valid = key > 0 && w > 0 && h > 0 && data != nullptr && capacity >= needed;
+            const bool valid = key > 0 && w > 0 && h > 0 && dw >= 0 && dh >= 0 && data != nullptr && capacity >= needed;
             if (valid) {
                 uv::encode::TitleImage image;
                 image.key = static_cast<uint32_t>(key);
                 image.width = w;
                 image.height = h;
+                image.displayWidth = dw;
+                image.displayHeight = dh;
                 const auto* bytes = static_cast<const uint8_t*>(data);
                 image.rgba.assign(bytes, bytes + needed);
                 params.titles.push_back(std::move(image));

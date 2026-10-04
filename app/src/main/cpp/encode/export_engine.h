@@ -25,6 +25,8 @@ struct TitleImage {
     uint32_t key = 0;
     int32_t width = 0;
     int32_t height = 0;
+    int32_t displayWidth = 0;   // canvas pixels it covers at scale 1; 0 = width (titles are 1:1)
+    int32_t displayHeight = 0;
     std::vector<uint8_t> rgba;
 };
 

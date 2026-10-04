@@ -358,7 +358,8 @@ public:
         pipeline_->setOutputSpace(space_);
         pipeline_->setInterpolationQuality(2);  // the exporter has the time for the wide flow search
         for (const TitleImage& title : params.titles) {
-            if (pipeline_->uploadTitle(title.key, title.width, title.height, title.rgba.data(), &e) != decode::Status::Ok) {
+            if (pipeline_->uploadTitle(title.key, title.width, title.height, title.rgba.data(), &e, title.displayWidth,
+                                       title.displayHeight) != decode::Status::Ok) {
                 failDecode(e, "a title could not be prepared for the export");
             }
         }

@@ -132,6 +132,8 @@ class NativeExportRunner : ExportRunner {
             titleMeta[i * TITLE_INTS] = title.key
             titleMeta[i * TITLE_INTS + 1] = title.width
             titleMeta[i * TITLE_INTS + 2] = title.height
+            titleMeta[i * TITLE_INTS + 3] = title.displayWidth
+            titleMeta[i * TITLE_INTS + 4] = title.displayHeight
         }
         val titlePixels = Array(request.titles.size) { request.titles[it].pixels }
         val lutMeta = IntArray(request.luts.size * 2)
@@ -180,6 +182,6 @@ class NativeExportRunner : ExportRunner {
         const val KEY_LONGS = 2
         const val KEY_DOUBLES = 6
         const val SOURCE_CLIP_LONGS = 2
-        const val TITLE_INTS = 3
+        const val TITLE_INTS = 5
     }
 }

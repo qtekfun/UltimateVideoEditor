@@ -70,7 +70,10 @@ public:
 
     // Stores a rasterised title: premultiplied RGBA8, `width` x `height` canvas pixels, top row
     // first. Replaces any texture under `key`. Keys are chosen by the caller and are never 0.
-    decode::Status uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, decode::Error* error);
+    // `displayWidth` x `displayHeight` (canvas pixels) is the size the picture is drawn at; 0 means the texture's own
+    // size (titles are rasterised 1:1). Stills are stored at their native size and drawn scaled to their fit.
+    decode::Status uploadTitle(uint32_t key, int width, int height, const uint8_t* rgba, decode::Error* error,
+                               int displayWidth = 0, int displayHeight = 0);
     void releaseTitle(uint32_t key);
 
     // Stores a 3D LUT for the LUT effect: `size`^3 RGB float triples, red varying fastest (the .cube
@@ -219,6 +222,8 @@ private:
         unsigned texture = 0;
         int width = 0;
         int height = 0;
+        int displayWidth = 0;   // canvas pixels the picture covers at scale 1
+        int displayHeight = 0;
     };
     std::unordered_map<uint32_t, TitleTexture> titleTextures_;
     struct LutTexture {
