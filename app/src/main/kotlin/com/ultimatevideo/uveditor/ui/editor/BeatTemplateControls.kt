@@ -72,7 +72,13 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
  * Shown as the Titles tab of the media tray.
  */
 @Composable
-internal fun TextTemplateChooser(onApply: (templateId: String, text: String) -> Unit, modifier: Modifier = Modifier) {
+internal fun TextTemplateChooser(
+    onApply: (templateId: String, text: String) -> Unit,
+    modifier: Modifier = Modifier,
+    /** Presets the user saved or imported, listed after the built-in templates. */
+    userPresets: List<TextTemplate> = emptyList(),
+    onApplyPreset: (TextTemplate, text: String) -> Unit = { _, _ -> },
+) {
     var text by remember { mutableStateOf("") }
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -87,6 +93,12 @@ internal fun TextTemplateChooser(onApply: (templateId: String, text: String) -> 
         )
         for (template in TextTemplates.all) {
             TemplateRow(template) { onApply(template.id, text) }
+        }
+        if (userPresets.isNotEmpty()) {
+            Text("My presets", style = MaterialTheme.typography.titleSmall)
+            for (preset in userPresets) {
+                TemplateRow(preset) { onApplyPreset(preset, text) }
+            }
         }
     }
 }

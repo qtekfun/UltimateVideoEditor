@@ -158,6 +158,14 @@ object TimelineOps {
     fun clearFx(timeline: Timeline, clipId: String): EditResult<Timeline> =
         updateFx(timeline, clipId) { ClipFx.NONE }
 
+    /** Replaces all keyframes of the clip with [keys] (strictly increasing clip frames, valid poses); empty clears them. */
+    fun setKeyframes(timeline: Timeline, clipId: String, keys: List<Keyframe>): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (timeline.trackOfClip(clipId)?.type == TrackType.AUDIO) return failure(EditError.InvalidKeyframe("audio clips have nothing to animate"))
+        Keyframes.problem(keys, clip.durationFrames)?.let { return failure(EditError.InvalidKeyframe(it)) }
+        return updateClip(timeline, clipId) { it.copy(keyframes = keys) }
+    }
+
     /** Adds a keyframe at [keyframe].frame (clip frames), or replaces the one already there. */
     fun setKeyframe(timeline: Timeline, clipId: String, keyframe: Keyframe): EditResult<Timeline> {
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))

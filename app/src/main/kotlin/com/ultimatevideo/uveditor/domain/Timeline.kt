@@ -110,14 +110,30 @@ data class TitleContent(
     val highlightArgb: Int = DEFAULT_HIGHLIGHT_ARGB,
     /** Set by renderers per frame; stored projects always have the full look. */
     val look: TitleLook = TitleLook.FULL,
+    /**
+     * A multilayer title: text, shapes and pictures drawn bottom to top (see [TitleLayer]). When not
+     * empty the title is drawn from these layers and the single-text fields above are ignored, except
+     * [text], which mirrors the first text layer so lists and labels have something to show.
+     */
+    val layers: List<TitleLayer> = emptyList(),
 ) {
-    fun problem(): String? = when {
+    /** True for a multilayer title. */
+    val isLayered: Boolean get() = layers.isNotEmpty()
+
+    fun problem(): String? = if (isLayered) layeredProblem() else plainProblem()
+
+    private fun plainProblem(): String? = when {
         text.isBlank() -> "title text must not be blank"
         !(sizeFraction.isFinite() && sizeFraction in MIN_SIZE_FRACTION..MAX_SIZE_FRACTION) ->
             "title size must be between $MIN_SIZE_FRACTION and $MAX_SIZE_FRACTION of the canvas height"
         words.any { it.text.isBlank() || it.endFrame < it.startFrame } -> "caption words must have text and end after they start"
         words.zipWithNext().any { (a, b) -> b.startFrame < a.startFrame } -> "caption words must be in order"
         else -> null
+    }
+
+    private fun layeredProblem(): String? = when {
+        layers.size > TitleLayers.MAX_LAYERS -> "a title can have at most ${TitleLayers.MAX_LAYERS} layers"
+        else -> layers.firstNotNullOfOrNull { it.problem() }
     }
 
     /** The same title with every word [delta] frames earlier, for a clip whose start moved [delta] frames later. */
