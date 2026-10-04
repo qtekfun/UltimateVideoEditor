@@ -909,6 +909,12 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** the Pixel was locked, so a decoder change could not be verified; the root cause was already identified and fixed, and a regression guard that fails if someone raises the in-flight limit is the cheapest protection.
 **Alternative:** allow two frames in flight with a reader that does not drop (would help the decode-bound case, 85% of ideal) or pre-arm the decoder targets of all layers before waiting for the first one (helps cuts with a new decoder). Both need a device to be measured; listed as follow-ups.
 
+## Transition pack (WP-V5)
+
+**Decision:** the new looks are a per-frame modification (pose, mask, effects) evaluated by one pure function that the preview calls directly and the exporter bakes into its existing pose keys and per-frame effect lists; no new shader or native code. Light leak is a warm exposure bloom on top of the crossfade rather than an overlay layer.
+**Why:** preview/export parity falls out of sharing the function (and is tested frame by frame); the compositor already has masks, blur, exposure and pose keys, and it re-anchors per frame for animated clips, so nothing else changes. A synthetic overlay layer would have needed new layer plumbing in the plan, the preview and the exporter.
+**Alternative:** a native two-input transition shader (true wipes with arbitrary shapes, real light leak textures, better glitch with channel split) with the picture of both clips composited in one pass, at the cost of new GLES code in preview and export and a texture for the outgoing frame; or a procedural overlay layer for the light leak.
+
 ## Multicam (WP-M)
 
 **Decision:** a multicam clip is realised as ordinary clips on the tracks, and the group (`Timeline.multicams`) is only
