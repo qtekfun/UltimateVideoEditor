@@ -873,3 +873,9 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Decision:** picking is a tap (box of 7, 12 or 20 % of the frame height by chip) or a dragged box on the preview, at the playhead's frame, which must be on the clip.
 **Why:** a tap is the common case and the chips cover sizes without a second gesture; the playhead frame is what the user is looking at.
 **Alternative:** a draggable box with handles over the preview (more precise, more code to keep out of the gesture layer used for moving clips).
+
+## Silence auto cut and manual reframe (WP-V2)
+
+**Decision:** silence detection runs on the loudness envelope already cached for waveforms (no audio is decoded again) with a plain level threshold, minimum length and padding; the cuts are applied as one base-track edit that reuses the delete rules (ripple, overlays follow). Reframe is manual: the user marks the point of interest (sliders, one mark per moment) and the app writes cover-fit pose keyframes; there is no subject detection.
+**Why:** the privacy rule excludes models; peak envelopes are cheap and deterministic, and routing the cut through the existing base delete keeps every edit rule in one place. A manual point is predictable and editable afterwards as normal keyframes.
+**Alternative:** spectral voice-activity detection (better in noisy rooms, more code and tuning), letting the user drag a box on the preview to pick the point (nicer, but more gesture code next to the tracker picking), and supporting retimed clips by mapping spans through the retime table (deferred: speed-changed clips are refused with a message).

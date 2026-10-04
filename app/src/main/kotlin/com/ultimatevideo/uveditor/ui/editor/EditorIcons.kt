@@ -136,6 +136,9 @@ internal object EditorIcons {
     /** A flag: markers and beats on the ruler. */
     val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
 
+    /** Three bars of different heights: a level meter, for the quick edits that read the clip's audio. */
+    val Silence = icon("Silence", "M10,20h4V4h-4v16zM4,20h4v-8H4v8zM16,9v11h4V9h-4z")
+
     /** Two vertical faders: the track mixer. */
     val Mixer = icon("Mixer", "M7,4v7H5v2h2v7h2v-7h2v-2H9V4H7zM15,4v3h-2v2h2v11h2V9h2V7h-2V4h-2z")
     /** Four bars of different heights: the video scopes. */

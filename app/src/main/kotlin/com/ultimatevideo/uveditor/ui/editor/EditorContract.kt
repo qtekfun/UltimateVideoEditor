@@ -117,6 +117,8 @@ data class EditorState(
     val paramClipboard: ParamClipboard? = null,
     /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
     val selectedParamKey: Pair<String, Long>? = null,
+    /** Silence auto cut and manual reframe sheets (SPECS.md 9.16). */
+    val quickEdits: QuickEditsUiState = QuickEditsUiState(),
 ) : UiState {
     /** The timeline the mixer plays: the committed one, or the live audio edit while a slider is dragged. */
     val audioSource: Timeline get() = if (audioSessionActive) visibleTimeline else timeline

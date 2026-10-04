@@ -851,6 +851,25 @@ or on the clipboard, so an undo can never meet a file that is no longer in the l
 green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
 a snapshot version bump); the colour shows in the dialog and in exports.
 
+### 5.23 Silence auto cut and manual reframe (WP-V2, no AI)
+
+Both work from data the app already has and send nothing anywhere.
+
+**Silence auto cut.** `SilenceDetector` (domain) reads the loudness envelope of the clip's source (the peak cache
+the timeline fills for waveforms, through `EnvelopeSource`) and returns the runs of bins under a level that last
+at least a minimum, shortened by a padding at both ends. `AutoCutPlanner` maps those spans to timeline frames
+through the clip's source range (only for a clip that maps frame for frame onto its source: no speed change, no
+reverse), shrinking each to whole frames inside the clip. `AutoCut(spans)` is one `EditCommand`: spans are removed
+from the end backwards; each is split out of its base clip and removed with `ClipDeletion.delete`, so the base
+closes and overlays follow exactly as for a manual delete (6.1). The sheet lets the user tune level, length and
+padding, lists the proposals with timecodes and lets each be switched off before applying.
+
+**Reframe helper.** `Reframe.poseFor` returns the pose that fills the canvas with a clip's frame (cover, times a
+zoom up to 4x) and puts the user's point of interest in the middle, with the offset limited so no canvas edge is
+uncovered (it uses the same contain-fit as the compositor, `TrackMath.fitSize`). `ReframeClip` writes one fixed pose
+for one point or an eased position/scale keyframe per marked moment (frames relative to the clip), replacing earlier
+keyframes, as one undo step. The picture's shape comes from the existing aspect probe. No subject detection.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
