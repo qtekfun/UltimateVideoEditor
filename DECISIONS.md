@@ -682,7 +682,7 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - The lane height is a scale (0.75, 1, 1.4) applied by the native timeline (`setLaneScale`), so waveforms, thumbnails and diamonds follow without Kotlin knowing about them. Alternative: scale in Compose (not possible, the lanes are drawn natively).
 - Side docks need a window of at least 600 dp; below that docks fall back to bottom / over the timeline. The editor keeps at least 30 % of the width.
 - The bottom tray's collapsed state is a thin bar of the layout (the tray's own snap heights stay inside it).
-- Lane height has +/- and chips but no vertical pinch: a two-finger vertical gesture would conflict with the timeline's pinch-zoom, and it can be added later in the native gesture code.
+- Lane height has +/- and chips; the vertical pinch was added later (see "Vertical lane zoom and Fit" below).
 - Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
 **Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
 
@@ -1322,3 +1322,9 @@ The stats line also reports `uploads` and `upload_ms` (label bitmaps placed in t
 | delta | +2.7 % | +4.0 % | -8.4 % | | | |
 
 p95 and p99 are within 5 % of baseline. **Unverified:** the test project's media are missing, so no thumbnails were drawn (fade-in path not measured or seen on a device); a drag could not be started through adb (a swipe scrolls, `draganddrop` did nothing), so the guide and the shadow were not seen on screen and their drag-time cost was not measured.
+
+## 2026-10-04 · Vertical lane zoom and Fit
+**Context:** lane heights were three presets only. Many lanes needed scrolling and there was no way to see the whole stack.
+**Chosen:** a pinch whose fingers spread mostly vertically scales the lane height (0.5x to 3x of the default, anchored under the fingers); a horizontal pinch is unchanged. The axis is decided once per pinch, after a 12 dp slop, so a diagonal wobble cannot zoom both. The existing Fit button (it already fitted the time axis) now also fits the lanes and keeps following the panel and the lane count until the user zooms by hand. The scale is one Q12 integer in native code; the renderer only reads it through `Layout`. The initial view still uses the Small / Medium / Large preset (fit is an explicit action), because starting every project at 3x tall lanes would change the familiar default.
+**Alternatives:** a second Fit button (rejected: one already exists); scale-follows-both-axes with one finger-distance factor (rejected: a vertical pinch would also change the time zoom); per-lane heights (not needed, bigger change to hit testing and snapshots); persisting the scale (the horizontal zoom is not persisted, so neither is this).
+**Open:** the pinch itself could not be exercised on a device (adb cannot pinch); the debug harness extras `--ef vzoom`, `--ez fit`, `--ei lanes` call the same native code. Tiny pinch spans (fingers nearly level) give no vertical factor.
