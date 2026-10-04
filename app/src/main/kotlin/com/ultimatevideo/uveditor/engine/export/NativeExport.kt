@@ -6,6 +6,12 @@ import com.ultimatevideo.uveditor.engine.fx.FxWire
 internal interface NativeExportListener {
     fun onProgress(permille: Int)
     fun onFinished(code: Int, message: String)
+
+    /**
+     * Called from the render thread for a still the export draws: returns its pixels (a direct buffer) and writes
+     * {width, height, displayWidth, displayHeight} into [meta], or returns null.
+     */
+    fun loadPicture(key: Int, meta: IntArray): ByteBuffer?
 }
 
 /** JNI bindings only; use [NativeExportRunner]. */
@@ -47,6 +53,7 @@ internal object NativeExport {
         lutData: Array<ByteBuffer>,
         audioSnapshot: ByteBuffer?,
         outputFd: Int,
+        pictureBudget: Long,
     ): Long
 
     external fun nativeCancel(handle: Long)
@@ -60,7 +67,19 @@ class NativeExportRunner : ExportRunner {
             override fun onProgress(permille: Int) = listener.onProgress(permille)
 
             override fun onFinished(code: Int, message: String) {
-                listener.onFinished(if (code == 0) null else ExportException(code, message))
+                // A picture that could not be made is reported with the reason, not the engine's generic text.
+                val reason = request.pictureProvider?.lastError
+                val text = if (code != 0 && reason != null) "A picture could not be drawn: $reason" else message
+                listener.onFinished(if (code == 0) null else ExportException(code, text))
+            }
+
+            override fun loadPicture(key: Int, meta: IntArray): ByteBuffer? {
+                val picture = request.pictureProvider?.load(key) ?: return null
+                meta[0] = picture.width
+                meta[1] = picture.height
+                meta[2] = picture.displayWidth
+                meta[3] = picture.displayHeight
+                return picture.pixels
             }
         }
         val keys = request.assetFds.keys.toLongArray()
@@ -132,6 +151,8 @@ class NativeExportRunner : ExportRunner {
             titleMeta[i * TITLE_INTS] = title.key
             titleMeta[i * TITLE_INTS + 1] = title.width
             titleMeta[i * TITLE_INTS + 2] = title.height
+            titleMeta[i * TITLE_INTS + 3] = title.displayWidth
+            titleMeta[i * TITLE_INTS + 4] = title.displayHeight
         }
         val titlePixels = Array(request.titles.size) { request.titles[it].pixels }
         val lutMeta = IntArray(request.luts.size * 2)
@@ -147,6 +168,7 @@ class NativeExportRunner : ExportRunner {
                 request.canvasWidth, request.canvasHeight, s.codec.value or (if (s.hdr) HDR_FLAG else 0), s.videoBitrate, s.audioBitrate, request.totalFrames,
                 keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
                 fxFrameClips, fxFrameData, sourceClips, sourceTable, titleMeta, titlePixels, lutMeta, lutData, request.audioSnapshot, request.outputFd,
+                request.pictureBudgetBytes,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
@@ -180,6 +202,6 @@ class NativeExportRunner : ExportRunner {
         const val KEY_LONGS = 2
         const val KEY_DOUBLES = 6
         const val SOURCE_CLIP_LONGS = 2
-        const val TITLE_INTS = 3
+        const val TITLE_INTS = 5
     }
 }

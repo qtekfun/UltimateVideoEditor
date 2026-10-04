@@ -43,7 +43,7 @@ internal object NativePreview {
         fpsNum: Int,
         fpsDen: Int,
     )
-    external fun nativeUploadTitle(handle: Long, key: Int, width: Int, height: Int, pixels: java.nio.ByteBuffer)
+    external fun nativeUploadTitle(handle: Long, key: Int, width: Int, height: Int, displayWidth: Int, displayHeight: Int, pixels: java.nio.ByteBuffer)
     external fun nativeReleaseTitle(handle: Long, key: Int)
     external fun nativeSeek(handle: Long, assetId: Int, frame: Long)
     external fun nativePlay(handle: Long, assetId: Int, startFrame: Long)
@@ -178,13 +178,23 @@ class PreviewEngine private constructor(
      * Stores a rasterised title under [key] (positive, chosen by the caller): [width] x [height]
      * premultiplied RGBA pixels in a direct buffer, top row first, in project canvas pixels (drawn
      * 1:1). The pixels are copied. Upload before the scene that uses it; re-uploading a key replaces it.
+     * A still stored at its native size passes the canvas size it is drawn at as [displayWidth] x [displayHeight]
+     * (the default is the texture's own size).
      */
-    fun uploadTitle(key: Int, width: Int, height: Int, pixels: java.nio.ByteBuffer) {
+    fun uploadTitle(
+        key: Int,
+        width: Int,
+        height: Int,
+        pixels: java.nio.ByteBuffer,
+        displayWidth: Int = width,
+        displayHeight: Int = height,
+    ) {
+        require(displayWidth > 0 && displayHeight > 0) { "display size must be positive: ${displayWidth}x$displayHeight" }
         require(key > 0) { "title keys must be positive" }
         require(width > 0 && height > 0 && pixels.isDirect && pixels.remaining() >= width * height * 4) {
             "title pixels must be a direct buffer of ${width}x$height RGBA"
         }
-        NativePreview.nativeUploadTitle(requireHandle(), key, width, height, pixels)
+        NativePreview.nativeUploadTitle(requireHandle(), key, width, height, displayWidth, displayHeight, pixels)
     }
 
     fun releaseTitle(key: Int) = NativePreview.nativeReleaseTitle(requireHandle(), key)

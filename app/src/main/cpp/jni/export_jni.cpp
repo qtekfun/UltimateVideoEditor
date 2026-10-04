@@ -20,7 +20,7 @@ using uv::encode::VideoClip;
 
 constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/export/ExportException";
 constexpr size_t kClipLongs = 9;     // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey
-constexpr size_t kTitleInts = 3;     // key, width, height per title
+constexpr size_t kTitleInts = 5;     // key, width, height, displayWidth, displayHeight per title
 constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
 constexpr size_t kKeyClipLongs = 2;  // keyframe origin frame, keyframe count per clip
 constexpr size_t kKeyLongs = 2;      // frame, interpolation per keyframe
@@ -59,6 +59,45 @@ struct ListenerRef {
     jobject listener = nullptr;  // global ref
     jmethodID onProgress = nullptr;
     jmethodID onFinished = nullptr;
+    jmethodID loadPicture = nullptr;  // optional: (I[I)Ljava/nio/ByteBuffer;
+
+    // Asks the listener for the still behind `key`. The returned direct buffer is kept alive by `out->hold` until the
+    // caller has uploaded it, then its local reference is deleted. False when the listener has none or it is unusable.
+    bool pictureFor(uint32_t key, uv::encode::PictureData* out) const {
+        JNIEnv* env = envForCurrentThread(vm);
+        if (env == nullptr || loadPicture == nullptr) return false;
+        jintArray meta = env->NewIntArray(4);
+        if (meta == nullptr) return false;
+        jobject buffer = env->CallObjectMethod(listener, loadPicture, static_cast<jint>(key), meta);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();  // a listener bug must not unwind the render thread
+            if (buffer != nullptr) env->DeleteLocalRef(buffer);
+            env->DeleteLocalRef(meta);
+            return false;
+        }
+        jint sizes[4] = {0, 0, 0, 0};
+        env->GetIntArrayRegion(meta, 0, 4, sizes);
+        env->DeleteLocalRef(meta);
+        if (buffer == nullptr) return false;
+        const void* data = env->GetDirectBufferAddress(buffer);
+        const jlong capacity = env->GetDirectBufferCapacity(buffer);
+        const int64_t needed = static_cast<int64_t>(sizes[0]) * sizes[1] * 4;
+        if (data == nullptr || sizes[0] <= 0 || sizes[1] <= 0 || sizes[2] < 0 || sizes[3] < 0 || capacity < needed) {
+            env->DeleteLocalRef(buffer);
+            return false;
+        }
+        out->width = sizes[0];
+        out->height = sizes[1];
+        out->displayWidth = sizes[2];
+        out->displayHeight = sizes[3];
+        out->rgba = static_cast<const uint8_t*>(data);
+        JavaVM* machine = vm;
+        out->hold = std::shared_ptr<void>(static_cast<void*>(buffer), [machine](void* ref) {
+            JNIEnv* e = envForCurrentThread(machine);
+            if (e != nullptr) e->DeleteLocalRef(static_cast<jobject>(ref));
+        });
+        return true;
+    }
 
     void progress(int32_t permille) const {
         JNIEnv* env = envForCurrentThread(vm);
@@ -104,7 +143,7 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jlongArray fxFrameClips,
     jdoubleArray fxFrameData, jlongArray sourceClips,
     jlongArray sourceTable, jintArray titleMeta, jobjectArray titlePixels, jintArray lutMeta, jobjectArray lutData, jobject audioSnapshot,
-    jint outputFd) {
+    jint outputFd, jlong pictureBudget) {
     ExportParams params;
     params.width = width;
     params.height = height;
@@ -279,7 +318,7 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
         for (size_t n = 0; n < clipCount; ++n) params.clips[n].fxFrames = std::move(tables[n]);
     }
 
-    // Titles: `titleMeta` holds {key, width, height} per title and `titlePixels` one direct
+    // Titles: `titleMeta` holds {key, width, height, displayWidth, displayHeight} per title and `titlePixels` one direct
     // premultiplied RGBA buffer each; the pixels are copied.
     const jsize metaLength = titleMeta == nullptr ? 0 : env->GetArrayLength(titleMeta);
     const jsize pixelCount = titlePixels == nullptr ? 0 : env->GetArrayLength(titlePixels);
@@ -295,16 +334,20 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
             const jint key = meta[static_cast<size_t>(n) * kTitleInts];
             const jint w = meta[static_cast<size_t>(n) * kTitleInts + 1];
             const jint h = meta[static_cast<size_t>(n) * kTitleInts + 2];
+            const jint dw = meta[static_cast<size_t>(n) * kTitleInts + 3];
+            const jint dh = meta[static_cast<size_t>(n) * kTitleInts + 4];
             jobject buffer = env->GetObjectArrayElement(titlePixels, n);
             const void* data = buffer == nullptr ? nullptr : env->GetDirectBufferAddress(buffer);
             const jlong capacity = buffer == nullptr ? 0 : env->GetDirectBufferCapacity(buffer);
             const int64_t needed = static_cast<int64_t>(w) * h * 4;
-            const bool valid = key > 0 && w > 0 && h > 0 && data != nullptr && capacity >= needed;
+            const bool valid = key > 0 && w > 0 && h > 0 && dw >= 0 && dh >= 0 && data != nullptr && capacity >= needed;
             if (valid) {
                 uv::encode::TitleImage image;
                 image.key = static_cast<uint32_t>(key);
                 image.width = w;
                 image.height = h;
+                image.displayWidth = dw;
+                image.displayHeight = dh;
                 const auto* bytes = static_cast<const uint8_t*>(data);
                 image.rgba.assign(bytes, bytes + needed);
                 params.titles.push_back(std::move(image));
@@ -374,6 +417,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     jclass cls = env->GetObjectClass(listener);
     handle->listener->onProgress = env->GetMethodID(cls, "onProgress", "(I)V");
     handle->listener->onFinished = env->GetMethodID(cls, "onFinished", "(ILjava/lang/String;)V");
+    handle->listener->loadPicture = env->GetMethodID(cls, "loadPicture", "(I[I)Ljava/nio/ByteBuffer;");
+    if (handle->listener->loadPicture == nullptr) env->ExceptionClear();  // optional: stills may all be uploaded up front
     env->DeleteLocalRef(cls);
     if (handle->listener->onProgress == nullptr || handle->listener->onFinished == nullptr) {
         env->DeleteGlobalRef(handle->listener->listener);
@@ -382,6 +427,10 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     }
 
     ListenerRef* ref = handle->listener.get();
+    if (pictureBudget > 0) params.pictureBudgetBytes = pictureBudget;
+    if (ref->loadPicture != nullptr) {
+        params.pictureLoader = [ref](uint32_t key, uv::encode::PictureData* out) { return ref->pictureFor(key, out); };
+    }
     handle->job = std::make_unique<ExportJob>(
         std::move(params), [ref](int32_t permille) { ref->progress(permille); },
         [ref](Status status, const std::string& message) { ref->finished(status, message); });
