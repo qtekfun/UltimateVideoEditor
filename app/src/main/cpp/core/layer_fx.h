@@ -167,4 +167,31 @@ inline bool parseSceneFx(const double* data, size_t size, size_t layerCount, std
     return offset == size;
 }
 
+// Keyframed effect values for the exporter: `pairs` lists {clipIndex, frameCount} for each clip whose effects
+// change over its length, and `data` holds, in that order, `frameCount` consecutive blobs per entry (one per
+// project frame of the clip). `(*out)[clipIndex]` receives the table; clips not listed get an empty one.
+// Returns false when an index is out of range or repeated, a count is negative, or the blobs do not fill
+// `data` exactly.
+inline bool parseFxFrameTables(const int64_t* pairs, size_t pairLongs, const double* data, size_t size, size_t clipCount,
+                               std::vector<std::vector<LayerFx>>* out) {
+    out->assign(clipCount, std::vector<LayerFx>{});
+    if (pairLongs == 0) return size == 0;
+    if (pairs == nullptr || pairLongs % 2 != 0) return false;
+    size_t offset = 0;
+    for (size_t p = 0; p < pairLongs; p += 2) {
+        const int64_t index = pairs[p];
+        const int64_t count = pairs[p + 1];
+        if (index < 0 || static_cast<uint64_t>(index) >= clipCount || count < 0) return false;
+        auto& table = (*out)[static_cast<size_t>(index)];
+        if (!table.empty()) return false;
+        // Never trust the count to size an allocation: every blob is at least a header long.
+        if (static_cast<uint64_t>(count) > (size - offset) / kLayerFxHeaderDoubles) return false;
+        table.resize(static_cast<size_t>(count));
+        for (auto& layer : table) {
+            if (!parseLayerFx(data, size, &offset, &layer)) return false;
+        }
+    }
+    return offset == size;
+}
+
 }  // namespace uv::core
