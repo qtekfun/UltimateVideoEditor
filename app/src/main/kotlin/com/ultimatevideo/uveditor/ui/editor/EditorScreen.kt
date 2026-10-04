@@ -991,8 +991,8 @@ private fun EditorMain(
                     }
                     ToolButton(
                         EditorIcons.Transition,
-                        "Add a crossfade between the selected clip and the next",
-                        enabled = state.clipAfterSelected != null && state.selectedTransition == null,
+                        "Add a crossfade at the selected cut: select a clip next to another one, or put the playhead on a cut",
+                        enabled = state.transitionCut != null,
                     ) { viewModel.onIntent(EditorIntent.AddTransition) }
                     ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
                         viewModel.onIntent(EditorIntent.ToggleInspector)
