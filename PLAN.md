@@ -140,11 +140,14 @@ waves of SPECS 9.20.
     Seen on the Pixel 8 (not the reference phone): divider drag, the layout sheet, Large lanes, the Timeline focus preset, and the Two panels preset in a
     widened (762 dp) window with the tray in a left column. Not seen: the inspector docked to a side, customise mode buttons, collapsing a side column,
     persistence across a restart, split-screen/fold changes, and the OPPO. Pinch-to-resize lanes is not built (the -/+ control is).
-- [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect; looks (after the 3D LUT and per-clip colour PRs)
+- [x] WP-C Colour tools and scopes: waveform, RGB parade, vectorscope, histogram; colour grade effect (lift/gamma/gain wheels, offset, contrast + pivot, saturation, vibrance, temperature, tint, four tone curves); looks, copy and paste. _Status:_ implemented with CPU-reference, wire, JSON, undo and ViewModel tests (host and JVM pass) and checked on the Pixel 8 (not the reference OPPO): the grade shader compiles and renders (gain wheel towards red tints the preview and shifts the waveform), the four scopes draw on their own surface with graticule and scale labels, a curve point can be added and dragged and the mid tones follow, and no GL or fatal errors appear in logcat. Not seen: saving and applying a look and copy/paste on the device, an HLG project (scale labels), the export of a graded clip, scope cost at 4K60, and the OPPO. The HSL qualifiers of the spec are deferred (see DECISIONS.md).
 
 ### Wave 2
-- [x] WP-S Multiselect and bulk edits (SPECS 5.18). _Status:_ domain operations, view model, native marquee/primary outline and snapshot v6 are covered by JVM and host tests. Seen working on the Pixel 8 (not the reference phone): select mode and the selection bar, blue/yellow outlines, tap and long press, the marquee rectangle, dragging a group, and return to a single clip. Not yet seen on a device: cut, paste, duplicate and paste attributes success paths, align, transitions, group speed/volume/opacity.
+- [x] WP-S Multiselect and bulk edits (SPECS 5.19). _Status:_ domain operations, view model, native marquee/primary outline and snapshot v6 are covered by JVM and host tests. Seen working on the Pixel 8 (not the reference phone): select mode and the selection bar, blue/yellow outlines, tap and long press, the marquee rectangle, dragging a group, and return to a single clip. Not yet seen on a device: cut, paste, duplicate and paste attributes success paths, align, transitions, group speed/volume/opacity.
 - [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness, track mixer, auto-ducking, meters
+    Built and covered by host/JVM tests (DSP vectors, LUFS, ducking envelope, realtime vs offline parity, snapshot v4, model/undo/JSON). On the Pixel 8:
+    app starts, playback with the v4 mixer, level meter and Mixer sheet render. Not verified: how denoise/EQ sound on real speech, ducking by ear, export audio
+    compared by ear, fade handles on the clip, the inspector Sound tools on a device, the noise-region marking flow. Left unticked until those are checked.
 
 ### Wave 3
 - [ ] WP-T Multilayer titles and fonts

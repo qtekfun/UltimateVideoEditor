@@ -226,9 +226,39 @@ uniform vec2 uTexel;  // 1 / texture size
 uniform vec2 uDir;    // blur axis: (1,0) or (0,1)
 uniform float uSigma; // blur sigma in pixels
 uniform float uStep;  // blur tap spacing in texels
+uniform float uG[21];       // type 14: the grade parameters (render/grade_math.h)
+uniform vec4 uCurve[33];    // type 14: baked curve samples (master, red, green, blue)
 out vec4 outColor;
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+float curveAt(float x, int ch) {
+    float pos = clamp(x, 0.0, 1.0) * 32.0;
+    int i = min(int(pos), 31);
+    float t = pos - float(i);
+    return mix(uCurve[i][ch], uCurve[i + 1][ch], t);
+}
+
+// Mirrors applyGrade in render/grade_math.h.
+vec3 applyGrade(vec3 c) {
+    c.r *= (1.0 + 0.2 * uG[19]) * (1.0 + 0.1 * uG[20]);
+    c.g *= 1.0 - 0.2 * uG[20];
+    c.b *= (1.0 - 0.2 * uG[19]) * (1.0 + 0.1 * uG[20]);
+    vec3 offset = vec3(uG[12], uG[13], uG[14]);
+    c = clamp((c + offset - uG[16]) * uG[15] + uG[16], 0.0, 1.0);
+    vec3 lift = 0.5 * (uG[3] + vec3(uG[0], uG[1], uG[2]));
+    c = c + lift * (1.0 - c);
+    c = clamp(c * exp2(uG[11] + vec3(uG[8], uG[9], uG[10])), 0.0, 1.0);
+    c = pow(c, exp2(-(uG[7] + vec3(uG[4], uG[5], uG[6]))));
+    float l = luma(c);
+    float chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+    float factor = max(0.0, uG[17] * (1.0 + uG[18] * (1.0 - chroma)));
+    c = vec3(l) + (c - vec3(l)) * factor;
+    float mr = curveAt(c.r, 0);
+    float mg = curveAt(c.g, 0);
+    float mb = curveAt(c.b, 0);
+    return clamp(vec3(curveAt(mr, 1), curveAt(mg, 2), curveAt(mb, 3)), 0.0, 1.0);
+}
 
 void main() {
     vec2 uv = vPos * 0.5 + 0.5;
@@ -284,6 +314,8 @@ void main() {
         // Texel centres: input 0 maps to the middle of the first texel, 1 to the middle of the last.
         vec3 coord = (clamp(rgb, vec3(0.0), vec3(1.0)) * (uLutSize - 1.0) + 0.5) / uLutSize;
         rgb = mix(rgb, texture(uLut, coord).rgb, uP[1]);
+    } else if (uType == 14) {
+        rgb = applyGrade(rgb);
     } else if (uType == 12) {
         vec3 key = vec3(uP[0], uP[1], uP[2]);
         float ky = luma(key);

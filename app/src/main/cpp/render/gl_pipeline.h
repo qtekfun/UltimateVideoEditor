@@ -136,6 +136,8 @@ private:
     int effectSigmaLoc_ = -1;
     int effectStepLoc_ = -1;
     int effectLutSizeLoc_ = -1;
+    int effectGradeLoc_ = -1;
+    int effectCurveLoc_ = -1;
     unsigned fxFbo_ = 0;
     FxTarget fxTargets_[2];
     FxTarget dstSnapshot_;  // copy of the target under a blended layer

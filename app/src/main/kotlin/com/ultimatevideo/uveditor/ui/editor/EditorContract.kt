@@ -6,6 +6,9 @@ import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipAudio
+import com.ultimatevideo.uveditor.domain.Ducking
+import com.ultimatevideo.uveditor.domain.TrackAudio
 import com.ultimatevideo.uveditor.domain.DropHint
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.domain.ClipDeletion
@@ -14,6 +17,7 @@ import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
@@ -26,6 +30,11 @@ import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
 import com.ultimatevideo.uveditor.mvi.UiState
+
+/** A stretch of clip [clipId], in clip frames [start, end), marked as the noise sample. */
+data class NoiseRegion(val clipId: String, val startFrame: Long?, val endFrame: Long?) {
+    val isComplete: Boolean get() = startFrame != null && endFrame != null && endFrame > startFrame
+}
 
 data class EditorState(
     val isLoading: Boolean = true,
@@ -82,7 +91,18 @@ data class EditorState(
     val selectedClipIds: Set<String> = emptySet(),
     /** How many clips the clipboard holds. */
     val clipboardCount: Int = 0,
+    /** A slider drag on an audio tool is in progress: [dragPreview] holds it and the mixer plays it live. */
+    val audioSessionActive: Boolean = false,
+    /** What the audio analysis in progress is doing ("Measuring loudness…"), or null when idle. */
+    val audioBusy: String? = null,
+    /** The quiet region (clip frames) marked on the selected clip as the noise sample, if any. */
+    val noiseRegion: NoiseRegion? = null,
+    /** The track mixer sheet (volume, mute, solo, role, compressor, ducking) is open. */
+    val mixerOpen: Boolean = false,
 ) : UiState {
+    /** The timeline the mixer plays: the committed one, or the live audio edit while a slider is dragged. */
+    val audioSource: Timeline get() = if (audioSessionActive) visibleTimeline else timeline
+
     /** The unreadable files, with how many clips depend on each. */
     val missingAssets: List<MissingAsset> get() = MissingMedia.summarize(timeline, assets, missingMedia)
 
@@ -307,6 +327,28 @@ sealed interface EditorIntent : UiIntent {
     /** Back to the original placement and unity gain, as one undo step. */
     data object ResetAppearance : EditorIntent
 
+    // Audio tools. The Update* intents are shown and heard live and committed as one undo step by
+    // EndAudioEdit (a slider drag sends many of them); toggles send an Update and an End together.
+    data class UpdateClipAudio(val audio: ClipAudio) : EditorIntent
+    data class UpdateTrackAudio(val trackId: String, val audio: TrackAudio) : EditorIntent
+    data class UpdateDucking(val ducking: Ducking?) : EditorIntent
+    data class EndAudioEdit(val commit: Boolean = true) : EditorIntent
+    data object ResetClipAudio : EditorIntent
+
+    /** Measures the selected clip's loudness and stores the gain that brings it to [targetLufs]. */
+    data class NormalizeLoudness(val targetLufs: Double) : EditorIntent
+    data object ClearNormalize : EditorIntent
+
+    /** Marks the start or the end of the noise sample at the playhead (inside the selected clip). */
+    data class MarkNoiseRegion(val atStart: Boolean) : EditorIntent
+    data object ClearNoiseRegion : EditorIntent
+
+    /** Measures the marked region and turns noise suppression on at [strength] (0..1). */
+    data class AnalyzeNoise(val strength: Double) : EditorIntent
+    data object RemoveNoiseSuppression : EditorIntent
+    data object CancelAudioAnalysis : EditorIntent
+    data object ToggleMixer : EditorIntent
+
     /**
      * Keyframes of the selected clip, placed at the playhead: add one holding the pose shown there
      * or remove the one that is there; jump to the previous / next one; choose how the animation
@@ -339,6 +381,15 @@ sealed interface EditorIntent : UiIntent {
     data class MoveEffect(val effectId: String, val toIndex: Int) : EditorIntent
     data class UpdateEffect(val effectId: String, val values: List<Double>) : EditorIntent
     data class SetBlendMode(val mode: BlendMode) : EditorIntent
+
+    /**
+     * A drag on a colour grade wheel, slider or curve point: the new values and curves of grade effect
+     * [effectId], shown live and committed by [EndFxEdit] like [UpdateEffect].
+     */
+    data class UpdateGrade(val effectId: String, val values: List<Double>, val curves: GradeCurves?) : EditorIntent
+
+    /** Applies a saved look or a pasted grade to the selected clip in one undo step (replaces its grade, or adds one). */
+    data class ApplyGrade(val values: List<Double>, val curves: GradeCurves?) : EditorIntent
 
     /** Reads the selected video clip's source as this colour space; null goes back to what its file says. */
     data class SetClipColor(val space: com.ultimatevideo.uveditor.domain.SourceColorSpace?) : EditorIntent

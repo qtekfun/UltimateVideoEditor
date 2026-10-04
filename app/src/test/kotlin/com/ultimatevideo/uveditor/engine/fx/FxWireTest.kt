@@ -4,7 +4,10 @@ import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.ClipFx
 import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.Effect
+import com.ultimatevideo.uveditor.domain.CurvePoint
 import com.ultimatevideo.uveditor.domain.EffectType
+import com.ultimatevideo.uveditor.domain.GradeCurve
+import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TimelineOps
 import com.ultimatevideo.uveditor.domain.clip
@@ -61,10 +64,36 @@ class FxWireTest {
             EffectType.BRIGHTNESS to 1, EffectType.CONTRAST to 2, EffectType.SATURATION to 3, EffectType.EXPOSURE to 4,
             EffectType.TEMPERATURE to 5, EffectType.TINT to 6, EffectType.BLUR to 7, EffectType.SHARPEN to 8,
             EffectType.VIGNETTE to 9, EffectType.GRAYSCALE to 10, EffectType.SEPIA to 11, EffectType.CHROMA_KEY to 12, EffectType.LUT to 13,
+            EffectType.COLOR_GRADE to 14,
         )
         for ((type, code) in expected) assertEquals(type.name, code, type.code)
         assertEquals(EffectType.entries.size, expected.size)
         assertEquals(listOf(0, 1, 2, 3, 4), BlendMode.entries.map { it.code })
+    }
+
+    @Test
+    fun `a colour grade writes its 21 values then 33 baked samples of four curves`() {
+        val values = EffectType.COLOR_GRADE.defaults.toMutableList().also { it[11] = 0.5 }
+        val curves = GradeCurves(red = GradeCurve(listOf(CurvePoint(0.0, 0.2), CurvePoint(1.0, 0.2))))
+        val wire = FxWire.encode(listOf(ClipFx(effects = listOf(Effect("g", EffectType.COLOR_GRADE, values, curves)))))
+        val at = FxWire.HEADER_DOUBLES
+        assertEquals(14.0, wire[at], 0.0)
+        assertEquals(153.0, wire[at + 1], 0.0)
+        assertEquals(FxWire.HEADER_DOUBLES + 2 + 153, wire.size)
+        assertEquals(0.5, wire[at + 2 + 11], 0.0)
+        // sample 0 of each curve at wire[at + 2 + 21 + 0..3]: master 0, red 0.2, green 0, blue 0
+        assertEquals(0.0, wire[at + 2 + 21], 1e-12)
+        assertEquals(0.2, wire[at + 2 + 21 + 1], 1e-12)
+        assertEquals(1.0, wire[at + 2 + 21 + 32 * 4 + 2], 1e-12) // green identity at x = 1
+        assertEquals(0.2, wire[at + 2 + 21 + 32 * 4 + 1], 1e-12)
+    }
+
+    @Test
+    fun `a grade without curves writes identity curves`() {
+        val wire = FxWire.encode(listOf(ClipFx(effects = listOf(Effect("g", EffectType.COLOR_GRADE)))))
+        val samples = wire.drop(FxWire.HEADER_DOUBLES + 2 + 21)
+        assertEquals(132, samples.size)
+        for (i in 0 until 33) for (c in 0 until 4) assertEquals(i / 32.0, samples[i * 4 + c], 1e-12)
     }
 
     @Test

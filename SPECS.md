@@ -535,7 +535,7 @@ interpolation) that become ordinary keyframes in clip frames, so preview and exp
 on an overlay lane (never the base); a lane is reused only when it is free over the template's range, otherwise a new one is added, so
 nothing is overwritten. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar.
 
-### 5.18 Multi-selection and group edits
+### 5.19 Multi-selection and group edits
 
 State (`EditorState`): `selectedClipId` stays the primary clip (the inspector's); `selectedClipIds` holds the whole
 group when more than one clip is selected and always contains the primary one; `selectMode` and `clipboardCount`
@@ -566,6 +566,44 @@ all-or-nothing and one undo step.
 | Speed / gain / opacity | Per clip through the single-clip rules (`MagneticBase.setSpeed` ripples as for one clip); opacity also sets the keyframes of an animated clip. |
 | Align | Starts or ends on the first start / last end; clips of one lane that would stack are refused; refused for the base. |
 | Transitions | BETWEEN: crossfade at the cut after each selected clip that touches the next (shortened to what clips and media allow, an existing one is resized). HEAD_AND_TAIL: opacity keyframes fade a picture clip in and out. |
+
+### 5.18 Colour grade, looks and video scopes
+
+**The effect.** `EffectType.COLOR_GRADE` (code 14) is a normal effect of the chain with 21 values, in this
+order (also documented in `render/grade_math.h`): lift R G B master (0..3), gamma R G B master (4..7), gain
+R G B master (8..11), each -1..1; offset R G B (12..14, -0.5..0.5); contrast (15, 0..2), pivot (16, 0..1),
+saturation (17, 0..2), vibrance (18, -1..1), temperature (19) and tint (20), -1..1. `Effect.curves`
+(optional, only for a grade) holds four `GradeCurve`s (master, red, green, blue), each 2..8 control points in
+0..1 with increasing x; the curve is the monotone cubic (Fritsch-Carlson) through them and flat outside the
+end points. JSON: `EffectDto.curves` with a list of `{x, y}` per curve, omitted/empty meaning identity.
+
+**Maths** (straight display-referred RGB in the project's working space): white balance (temperature and tint
+as the standalone effects), plus offset, contrast about the pivot, then lift (`x + lift (1 - x)`, lift =
+0.5 x (master + channel)), gain (`x 2^(master + channel)`), gamma (`x^(2^-(master + channel))`), saturation and
+vibrance (`mix(luma, x, sat x (1 + vibrance (1 - chroma)))`), then the master curve and the channel curve.
+`render/grade_math.h` is the CPU reference and `kEffectFragment` (type 14) the GLSL.
+
+**Wire.** The grade writes 153 values: the 21 values then 33 curve samples x (master, red, green, blue)
+(`FxWire.effectValues`, `core::kGradeWireValues`). The shader holds them in `uG[21]` and `uCurve[33]` and
+interpolates linearly between samples.
+
+**Edits.** Wheel, slider and curve drags send `EditorIntent.UpdateGrade` (shown live, committed by
+`EndFxEdit` as one undo step like every effect slider); `ApplyGrade` applies a saved look or a pasted grade
+to the selected clip (`EditCommand.SetGrade`, one step: replaces the clip's first grade or appends one).
+Looks are `looks/<id>.json` in the app's private storage (`LookStore`), listed by `LookLibraryViewModel`
+together with the in-memory copy/paste clipboard.
+
+**Scopes.** `render/scope_renderer.cpp`: while a scope surface is attached, `PreviewEngine::maybeDraw` blits
+the letterboxed picture from the window framebuffer (before the swap) into a 320 x 180 texture; a vertex
+shader turns each of its pixels into one point added to a half-float accumulation texture (waveform and
+vectorscope into alpha, parade into the channel's own colour, histogram into R, G, B and luma); a display
+pass draws the picture and graticule on a second EGL window surface of the same context, at most 30 times a
+second (a late redraw keeps a paused scope current). Nothing is read back to the CPU. Modes:
+`ScopeMode.WAVEFORM / PARADE / VECTORSCOPE / HISTOGRAM` (`scope::Mode`). The maths of where a sample lands is
+`render/scope_math.h` (with a CPU accumulator used by the host tests). The scale labels (percent, and 203 and
+1000 nit marks in an HLG project) are Compose text over the surface (`ui/editor/ScopeScale.kt`).
+
+**Not included:** secondary HSL qualifiers (see `DECISIONS.md`).
 
 ## 6. Timeline operations (specification for tests)
 

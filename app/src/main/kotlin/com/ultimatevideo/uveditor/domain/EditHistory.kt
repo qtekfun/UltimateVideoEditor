@@ -111,6 +111,18 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setTransform(timeline, clipId, transform)
     }
 
+    data class SetClipAudio(val clipId: String, val audio: ClipAudio) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setClipAudio(timeline, clipId, audio)
+    }
+
+    data class SetTrackAudio(val trackId: String, val audio: TrackAudio) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setTrackAudio(timeline, trackId, audio)
+    }
+
+    data class SetDucking(val ducking: Ducking?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setDucking(timeline, ducking)
+    }
+
     data class SetGain(val clipId: String, val gainDb: Double) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setGain(timeline, clipId, gainDb)
     }
@@ -130,6 +142,15 @@ sealed interface EditCommand {
 
     data class SetEffectValues(val clipId: String, val effectId: String, val values: List<Double>) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setEffectValues(timeline, clipId, effectId, values)
+    }
+
+    data class SetEffectCurves(val clipId: String, val effectId: String, val curves: GradeCurves?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setEffectCurves(timeline, clipId, effectId, curves)
+    }
+
+    /** Values and curves of a colour grade in one undo step (apply a look, paste a grade). */
+    data class SetGrade(val clipId: String, val effectId: String, val values: List<Double>, val curves: GradeCurves?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setGrade(timeline, clipId, effectId, values, curves)
     }
 
     data class MoveEffect(val clipId: String, val effectId: String, val toIndex: Int) : EditCommand {

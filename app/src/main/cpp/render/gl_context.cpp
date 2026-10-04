@@ -26,6 +26,7 @@ Status fail(Error* error, Status code, const std::string& what) {
 }  // namespace
 
 EglContext::~EglContext() {
+    detachScopeWindow();
     detachWindow();
     if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -138,6 +139,55 @@ void EglContext::detachWindow() {
         ANativeWindow_release(nativeWindow_);
         nativeWindow_ = nullptr;
     }
+}
+
+Status EglContext::attachScopeWindow(ANativeWindow* window, Error* error) {
+    detachScopeWindow();
+    ANativeWindow_acquire(window);
+    scopeWindow_ = window;
+    scopeSurface_ = eglCreateWindowSurface(display_, config_, scopeWindow_, nullptr);
+    if (scopeSurface_ == EGL_NO_SURFACE) {
+        ANativeWindow_release(scopeWindow_);
+        scopeWindow_ = nullptr;
+        return fail(error, Status::EglError, "eglCreateWindowSurface(scopes)");
+    }
+    return Status::Ok;
+}
+
+void EglContext::detachScopeWindow() {
+    if (scopeSurface_ != EGL_NO_SURFACE) {
+        eglMakeCurrent(display_, pbuffer_, pbuffer_, context_);
+        eglDestroySurface(display_, scopeSurface_);
+        scopeSurface_ = EGL_NO_SURFACE;
+    }
+    if (scopeWindow_ != nullptr) {
+        ANativeWindow_release(scopeWindow_);
+        scopeWindow_ = nullptr;
+    }
+}
+
+Status EglContext::makeCurrentScope(Error* error) {
+    if (!eglMakeCurrent(display_, scopeSurface_, scopeSurface_, context_)) {
+        return fail(error, Status::EglError, "eglMakeCurrent(scopes)");
+    }
+    return Status::Ok;
+}
+
+Status EglContext::swapScope(Error* error) {
+    if (!eglSwapBuffers(display_, scopeSurface_)) return fail(error, Status::EglError, "eglSwapBuffers(scopes)");
+    return Status::Ok;
+}
+
+int EglContext::scopeWidth() const {
+    EGLint w = 0;
+    eglQuerySurface(display_, scopeSurface_, EGL_WIDTH, &w);
+    return w;
+}
+
+int EglContext::scopeHeight() const {
+    EGLint h = 0;
+    eglQuerySurface(display_, scopeSurface_, EGL_HEIGHT, &h);
+    return h;
 }
 
 Status EglContext::makeCurrentWindow(Error* error) {
