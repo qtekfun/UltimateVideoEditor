@@ -9,7 +9,7 @@ automated tests so far; see [Known limits](#known-limits).
 1. [Project hub](#project-hub)
 2. [Editor layout](#editor-layout) and [Layout](#layout)
 3. [Toolbar icons](#toolbar-icons)
-4. [Media tray](#media-tray)
+4. [Media tray](#media-tray) and [Media library](#media-library)
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
 6. [Inspector](#inspector)
 7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
@@ -17,7 +17,7 @@ automated tests so far; see [Known limits](#known-limits).
 9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
 10. [Colour grading and scopes](#colour-grading-and-scopes)
 11. [Colour spaces and HDR](#colour-spaces-and-hdr)
-12. [Exporting](#exporting)
+12. [Exporting](#exporting) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
 13. [Missing media and recovery](#missing-media-and-recovery)
 14. [Known limits](#known-limits)
 
@@ -27,8 +27,10 @@ The first screen lists your projects as cards: the first frame of the first clip
 format line ("1080p · 30 fps · SDR"), the length and the last change. Tap a card to open it.
 
 - **New project** (the one button at the bottom right): opens the sheet described below.
-- **⋮ in the top bar**: **Import project file** brings in a `project.json` exported from another device.
-- **⋮ on a card**: rename, duplicate, export the project file, delete.
+- **⋮ in the top bar**: **Import project file or bundle** brings in a `project.json` or a `.uvbundle`
+  exported from another device (see [Sharing a project](#sharing-a-project-with-other-devices-and-tools)).
+- **⋮ on a card**: rename, duplicate, export the project file, export a bundle (names and sizes, or with the
+  media files), delete.
 - With more than six projects a **search field** and **Sort by** (Recent or Name) appear.
 - Projects that cannot be read are listed with **Recover** (from the `.bak` of the last good save) and
   **Delete**. After a crash the hub offers to reopen the project you had open.
@@ -283,6 +285,9 @@ the preview shows, up to 30 times a second, and only while open. The scale is in
 The flag icon opens:
 
 - **Add or remove a marker** at the playhead.
+- **Marker note and colour…**: with the playhead on a marker, type a note (up to 200 characters) and pick one
+  of six colours or none. The note and colour are saved with the project and are written to EDL and FCPXML
+  exports (the colour as a `[red]` prefix in the marker text). It is one undo step.
 - **Find beats in the selected clip**: detects the rhythm of its audio and drops beat markers on the ruler.
   Works on music with a clear pulse; speech or ambience may report "no clear beat".
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
@@ -331,6 +336,51 @@ Tap the export icon, choose resolution, frame rate, codec (H.264 or HEVC), bitra
 shown while it renders; you can cancel (the partial file is removed) and share the file when it finishes.
 Export is refused, with the clips named, if some media is missing.
 
+## Media library
+
+The **library icon** in the toolbar (a stack of clips with a play triangle) opens the project's media library.
+With a clip selected it opens on that clip's file, so it also works as **find in library**.
+
+- **Search** matches names, tags and notes; filter by **All, Video, Audio, Images or Unused**, and tap a
+  `#tag` chip to show only files with that tag (the number is how many files carry it).
+- Each row shows a picture, the name, the kind, the length, an HLG or PQ badge, **how many times it is used**,
+  the tags and the note. Missing files are marked in red.
+- **Find in timeline** selects the next clip that uses the file and moves the playhead there; press it again for the
+  one after, wrapping round. A message says which use it is ("Use 2 of 4 (V1)").
+- **Tags & note** opens a small form: tags separated by commas (up to 16, 32 characters each; duplicates ignoring
+  case are dropped) and a note of up to 280 characters. Tags and notes belong to the library, like its order:
+  they are saved with the project and are not part of Undo.
+- **Remove unused** takes out of the library the files that no clip uses, after asking. It only edits the
+  project's list: the files on your device are not touched. A file that **Undo could still bring back** to the
+  timeline (or that is on the clipboard) is kept.
+- **Export to another tool…** writes the project as a bundle, an EDL or an FCPXML file (see below).
+
+## Sharing a project with other devices and tools
+
+Everything goes through the system file picker and stays on your device: nothing is uploaded.
+
+- **Project bundle (`.uvbundle`)**, from the library's export menu or from a project card in the hub. It is a zip
+  with the project file, a card picture and a list of the media (name and size). Choose **with media files**
+  to copy the media into it (it can be large); files the app cannot read are named and left out.
+- **Importing a bundle** (hub, top-right ⋮): the project is unpacked next to your other projects, renamed if the
+  name is taken ("Name (2)"), and its media is set up for you: files that came inside the bundle are used from
+  the project's own folder; for the others the app looks among the files your other projects already use for one
+  with **the same name and size** and relinks it; whatever is left is listed, and you can relink it in the
+  editor ([Missing media and recovery](#missing-media-and-recovery)). A damaged or unsafe bundle is refused with a
+  message and leaves nothing behind.
+- **EDL (CMX3600)**: one file per video or audio track (`-V1` is the base, `-V2` the overlay above it, `-A1`
+  the first audio track), saved as a single `.edl` when there is one track and as a `.zip` when there are
+  several. 29.97 and 59.94 are written in drop frame, other rates in non-drop frame. Titles, stickers, photos,
+  effects, transforms and transitions are not part of the format (transitions become cuts); a speed change is
+  written on an `M2` line.
+- **FCPXML 1.9**: the base track is the primary storyline, the other tracks are clips connected to it (video
+  and titles above, audio below), with trims, constant speed and reverse, position, scale, rotation, opacity,
+  clip gain, titles as generators and markers. Effects, LUTs, colour grades, keyframes, masks, speed ramps,
+  stickers, transitions and the audio tools are left out. The message after exporting names what was left
+  out, and the same list is written in the sequence's note. Media is referenced by its Android address, so
+  relink it in the other editor. Positions use a percentage of the frame height and retimes use a time map;
+  both are untested against a real Final Cut Pro or DaVinci Resolve.
+
 ## Missing media and recovery
 
 If a file was moved or its permission was lost, a banner appears in the editor and the affected clips are
@@ -354,5 +404,9 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
   by starting the drag on a heading or in the gap between two wheels.
 - The scopes read the preview at 320 x 180 pixels, so fine detail in a 4K picture is sampled, not counted.
 - Inserting (shifting later clips) works on the base track only; other tracks overwrite.
+- Bundles, EDL and FCPXML exports have been checked with automated tests and golden files, not yet in a real
+  editor. A bundle's media is matched on another device only by name and size, among files your other projects
+  already use; there is no search of the whole device.
+- The library's tags and notes are not undoable (like reordering the tray).
 - Fading in and out (head and tail) uses opacity keyframes and does not fade the sound of video clips yet.
 - Dragging stickers and templates onto the timeline is not available yet (tap them); dragging media assets is.
