@@ -425,7 +425,8 @@ void main() {
 )";
 
 // Mirrors blockMatch in render/repair_math.h: 3 x 3 SAD, search -uRadius..uRadius, scan order dy then dx,
-// strict improvement so ties keep the shortest earlier candidate. Output: dx, dy (flow pixels, A to B), confidence.
+// strict improvement so ties keep the shortest earlier candidate, then a parabola fit refines the best
+// displacement to a fraction of a pixel. Output: dx, dy (flow pixels, A to B), confidence.
 inline constexpr const char* kFlowFragment = R"(#version 320 es
 precision highp float;
 in vec2 vPos;
@@ -436,9 +437,23 @@ uniform int uRadius;
 out vec4 outColor;
 float fetchA(ivec2 p) { return texelFetch(uA, clamp(p, ivec2(0), uSize - 1), 0).r; }
 float fetchB(ivec2 p) { return texelFetch(uB, clamp(p, ivec2(0), uSize - 1), 0).r; }
+float a[9];
+float meanSad(ivec2 p, ivec2 d) {
+    float sad = 0.0;
+    for (int by = -1; by <= 1; ++by) {
+        for (int bx = -1; bx <= 1; ++bx) {
+            sad += abs(a[(by + 1) * 3 + bx + 1] - fetchB(p + ivec2(bx, by) + d));
+        }
+    }
+    return sad / 9.0;
+}
+float parabolic(float before, float centre, float after) {
+    float den = before - 2.0 * centre + after;
+    if (den < 1e-6) return 0.0;
+    return clamp(0.5 * (before - after) / den, -0.5, 0.5);
+}
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
-    float a[9];
     for (int by = -1; by <= 1; ++by) {
         for (int bx = -1; bx <= 1; ++bx) a[(by + 1) * 3 + bx + 1] = fetchA(p + ivec2(bx, by));
     }
@@ -447,13 +462,7 @@ void main() {
     ivec2 bestD = ivec2(0);
     for (int dy = -uRadius; dy <= uRadius; ++dy) {
         for (int dx = -uRadius; dx <= uRadius; ++dx) {
-            float sad = 0.0;
-            for (int by = -1; by <= 1; ++by) {
-                for (int bx = -1; bx <= 1; ++bx) {
-                    sad += abs(a[(by + 1) * 3 + bx + 1] - fetchB(p + ivec2(bx + dx, by + dy)));
-                }
-            }
-            float mean = sad / 9.0;
+            float mean = meanSad(p, ivec2(dx, dy));
             float cost = mean + 0.0005 * float(abs(dx) + abs(dy));
             if (cost < best) {
                 best = cost;
@@ -463,13 +472,20 @@ void main() {
         }
     }
     float conf = 1.0 - smoothstep(0.03, 0.12, bestMean);
-    if (max(abs(bestD.x), abs(bestD.y)) >= uRadius) conf = 0.0;
-    outColor = vec4(vec2(bestD), conf, 0.0);
+    vec2 d = vec2(bestD);
+    if (max(abs(bestD.x), abs(bestD.y)) >= uRadius) {
+        conf = 0.0;
+    } else {
+        d.x += parabolic(meanSad(p, bestD + ivec2(-1, 0)), bestMean, meanSad(p, bestD + ivec2(1, 0)));
+        d.y += parabolic(meanSad(p, bestD + ivec2(0, -1)), bestMean, meanSad(p, bestD + ivec2(0, 1)));
+    }
+    outColor = vec4(d, conf, 0.0);
 }
 )";
 
-// Mirrors interpolatePixel: A from where the content was, B from where it is going, along the flow at this
-// pixel, mixed by uT; plain blending where the flow has no confidence (or uUseFlow is 0).
+// Mirrors interpolatePixel: A from where the content was, B from where it is going, along the flow of the content that
+// is at this pixel at time uT (the flow lives on A's grid, so it is looked up again where the content came from), mixed by
+// uT; plain blending where the flow has no confidence (or uUseFlow is 0).
 inline constexpr const char* kInterpFragment = R"(#version 320 es
 precision highp float;
 in vec2 vPos;
@@ -487,7 +503,8 @@ void main() {
         outColor = vec4(plain, 1.0);
         return;
     }
-    vec3 f = texture(uFlow, uv).xyz;
+    vec3 first = texture(uFlow, uv).xyz;
+    vec3 f = texture(uFlow, uv - uT * first.xy / uFlowSize).xyz;
     vec2 d = f.xy / uFlowSize;
     vec3 fromA = texture(uA, uv - uT * d).rgb;
     vec3 fromB = texture(uB, uv + (1.0 - uT) * d).rgb;

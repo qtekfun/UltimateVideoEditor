@@ -112,10 +112,52 @@ void blockMatchingRecoversAKnownShift() {
         for (int x = 8; x < w - 8; ++x) {
             const FlowSample& f = flow[static_cast<size_t>(y) * w + static_cast<size_t>(x)];
             ++counted;
-            if (f.dx == static_cast<float>(shiftX) && f.dy == static_cast<float>(shiftY) && f.conf > 0.9f) ++exact;
+            if (std::fabs(f.dx - static_cast<float>(shiftX)) < 0.35f && std::fabs(f.dy - static_cast<float>(shiftY)) < 0.35f &&
+                f.conf > 0.9f) {
+                ++exact;
+            }
         }
     }
     CHECK(exact > counted * 95 / 100);
+}
+
+void blockMatchingRefinesToSubPixelShifts() {
+    const int w = 64;
+    const int h = 32;
+    Image a(w, h);
+    Lcg rng;
+    // A smoothed random texture, like footage: neighbouring pixels are correlated.
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const float v = 0.5f + 0.4f * std::sin(0.45f * static_cast<float>(x) + 1.7f * rng.next()) * std::cos(0.38f * static_cast<float>(y) + 1.1f * rng.next());
+            a.set(x, y, {v, v, v});
+        }
+    }
+    for (const float shift : {0.25f, 0.5f, 0.75f}) {
+        Image b(w, h);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) b.set(x, y, mix3(a.at(x, y), a.at(x - 1, y), shift));  // content moved right by `shift`
+        }
+        const auto flow = blockMatch(lumaOf(a), lumaOf(b), w, h, 6, 1);
+        double sum = 0.0;
+        int n = 0;
+        for (int y = 8; y < h - 8; ++y) {
+            for (int x = 8; x < w - 8; ++x) {
+                const FlowSample& f = flow[static_cast<size_t>(y) * w + static_cast<size_t>(x)];
+                if (f.conf > 0.5f) {
+                    sum += f.dx;
+                    ++n;
+                }
+            }
+        }
+        CHECK(n > 100);
+        CHECK_NEAR(sum / n, shift, 0.2);
+    }
+    CHECK_NEAR(parabolicOffset(1.0f, 0.0f, 1.0f), 0.0, 1e-6);
+    CHECK_NEAR(parabolicOffset(2.0f, 0.0f, 1.0f), 0.1666667, 1e-5);  // minimum between the centre and the cheaper side
+    CHECK_NEAR(parabolicOffset(0.0f, 0.0f, 0.0f), 0.0, 1e-6);  // flat: no clear minimum
+    CHECK_NEAR(parabolicOffset(5.0f, 0.0f, 0.1f), 0.4803922, 1e-5);  // a steep side pulls it almost half a pixel
+    CHECK(std::fabs(parabolicOffset(1.0f, 0.9f, 0.2f)) <= 0.5f);     // never beyond half a pixel
 }
 
 void flatAreasStayAtRestAndMotionBeyondTheWindowHasNoConfidence() {
@@ -397,6 +439,7 @@ void wireFormatAcceptsTheRepairEffects() {
 
 int main() {
     blockMatchingRecoversAKnownShift();
+    blockMatchingRefinesToSubPixelShifts();
     flatAreasStayAtRestAndMotionBeyondTheWindowHasNoConfidence();
     interpolationPlacesTheSquareHalfwayWhereBlendingGhostsIt();
     interpolationFollowsTheFraction();
