@@ -136,6 +136,7 @@ fun InspectorPanel(
                 if (clip.still == null) StabiliseControls(clip, if (state.stab.clipId == clip.id) state.stab else StabUiState(), onIntent)
             }
             FxControls(clip.fx, onIntent)
+            TrackControls(clip.id, state.track, onIntent)
         }
         if (clip.hasMedia) SpeedControls(state, clip, isVisual, onIntent)
         if (clip.hasMedia) {

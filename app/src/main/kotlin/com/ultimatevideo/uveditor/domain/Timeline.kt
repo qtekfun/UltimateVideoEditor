@@ -262,8 +262,12 @@ data class Timeline(
     val markers: List<Marker> = emptyList(),
     /** Sidechain ducking of the MUSIC tracks by the VOICE tracks; null is off. */
     val ducking: Ducking? = null,
+    /** Targets the user asked to track on video clips (SPECS.md 9.15); the analysed paths live in cache files. */
+    val motionTracks: List<MotionTrack> = emptyList(),
 ) {
     fun track(id: String): Track? = tracks.firstOrNull { it.id == id }
+
+    fun motionTrack(id: String): MotionTrack? = motionTracks.firstOrNull { it.id == id }
 
     fun transition(id: String): Transition? = transitions.firstOrNull { it.id == id }
 
@@ -312,7 +316,12 @@ data class Timeline(
     internal fun pruned(): Timeline {
         var current = this
         while (true) {
-            val broken = current.transitions.firstOrNull { current.transitionProblem(it) != null } ?: return current
+            val broken = current.transitions.firstOrNull { current.transitionProblem(it) != null }
+            if (broken == null) {
+                // A motion track whose clip is gone has nothing to follow.
+                val alive = current.motionTracks.filter { current.trackOfClip(it.clipId) != null }
+                return if (alive.size == current.motionTracks.size) current else current.copy(motionTracks = alive)
+            }
             current = current.copy(transitions = current.transitions - broken)
         }
     }
