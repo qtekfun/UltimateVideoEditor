@@ -241,6 +241,7 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Colour | HSL qualifier section (hue/saturation/luma ranges, softness, hue shift, saturation, lightness, reset) | PARTIAL | the controls render; the eyedropper was not exercised |
 | Hub | Export project with media as `.uvbundle` | PASS | valid zip, 40,459,573 bytes: bundle.json, project.json, thumbnails/project.jpg, both media files |
 | Hub | Import the bundle from the ⋮ menu | PASS | "New project (2)" appears at the top with thumbnail, 1080p 30 fps SDR, 0:28; its `media/` folder holds both clips |
+| Hub | Rename (dialog, new name shown), Duplicate ("copy" suffix), Delete (confirmation names the project) | PASS | list updates after each |
 
 ### Defects and observations (pass A)
 
