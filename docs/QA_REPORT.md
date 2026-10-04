@@ -273,6 +273,11 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Timeline | Overlay overwrite: a tray clip dropped over the middle of an overlay clip replaces that stretch (the old clip is cut short, nothing is pushed) | PASS | |
 | Timeline | Overlay insert: a tray clip dropped on the cut between two touching overlay clips opens room (the right clip moved later by the new clip's length) | PASS | |
 | Timeline | Overlay delete leaves a gap and does not move the neighbours; Undo x3 returns to the original layout | PASS | |
+| Layout | Preview/timeline divider: drag down grows the preview, double tap resets it | PASS | |
+| Layout | Wide window (`wm size 2400x1080`, restored with `wm size reset`, 914 x 411 dp): the tray docks in a left side panel with a title bar, collapse chevron and its own resize handle; timeline and preview fill the rest | PASS | the timeline shows two of the three lanes at that height; the inspector docked at a side was not opened in this window |
+| Timeline | Scrub: dragging on the ruler moves the playhead both ways (00:00:04:02 to 00:00:18:17 and back) | PASS | |
+| Audio | Mixer sheet: per-track Mute, Solo, volume, role (Normal/Voice/Music), compressor, duck-under-voice switch with its hint | PASS | each toggle changed state; reset afterwards |
+| Audio | Output level meter under the timecode lights up during playback | PASS | green bar at 00:00:05:13 |
 
 ### Observations (pass A2)
 
