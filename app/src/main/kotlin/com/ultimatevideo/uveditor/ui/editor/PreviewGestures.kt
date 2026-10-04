@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
@@ -48,13 +49,22 @@ fun PreviewGestureLayer(
                 val rect = PreviewGeometry.canvasRect(canvasWidth, canvasHeight, size.width.toFloat(), size.height.toFloat())
                 val viewScale = PreviewGeometry.viewScale(rect, canvasWidth)
                 if (viewScale <= 0f) return@pointerInput
+                val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     var moved = false
+                    // A finger that only jitters under the touch slop is a tap, not an edit: the pan is held back
+                    // until it passes the slop (then applied in one step), and a second finger starts at once.
+                    var held = Offset.Zero
                     do {
                         val event = awaitPointerEvent(PointerEventPass.Main)
                         if (event.changes.any { it.positionChanged() }) {
-                            val pan = event.calculatePan()
+                            var pan = event.calculatePan()
+                            if (!moved) {
+                                held += pan
+                                if (event.changes.size < 2 && held.getDistance() <= slop) continue
+                                pan = held
+                            }
                             moved = true
                             currentOnStep(
                                 (pan.x / viewScale).toDouble(),
