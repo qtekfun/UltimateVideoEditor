@@ -248,3 +248,12 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 - **A1, cosmetic, open:** after an export the dialog says "Saved New project.mp4." even when the file was saved under another name in the picker (it showed the suggested name, the file on disk had the chosen one).
 - **O1, usability:** with the media tray expanded the inspector shows only three controls (Position X/Y, Scale) and the timeline is hidden; collapsing the tray gives it room. Consider collapsing the tray when the inspector opens on a phone.
 - **O2, usability:** in the colour grade panel a vertical swipe that starts over a wheel or a curve moves the control instead of scrolling the panel (this is documented in the guide); scrolling needs a finger on a free margin, which is narrow. A grab strip or two-finger scroll over the widgets would help.
+
+## Fixes verified on the Pixel 8 (build of the three fix branches merged locally, `-Puveditor.appIdSuffix=qa`)
+
+| Defect | Step | Result | Evidence |
+|---|---|---|---|
+| O1 (PR #90) | Expand the media tray, select a clip, open Adjust clip | PASS | the tray is gone while the inspector is open and the inspector shows the full list (position, scale, rotation, opacity, source colour ...) instead of three controls |
+| O2 (PR #91) | Colour grade: swipe up starting on the Gamma wheel away from the puck | PASS | the panel scrolled, the three pucks stayed centred, the Reset buttons stayed disabled |
+| O2 (PR #91) | Drag the Gamma puck | PASS | the puck followed the finger, Gamma's Reset became enabled |
+| A1 (PR #89) | Name shown after an export renamed in the picker | not yet re-run on device | covered by a unit test; the on-device check follows with the export runs below |
