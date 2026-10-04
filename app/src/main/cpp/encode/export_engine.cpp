@@ -15,12 +15,14 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <unordered_set>
 
 #include "audio/audio_engine.h"
 #include "decode/gpu_frame.h"
 #include "decode/log.h"
 #include "decode/open_decoder.h"
 #include "decode/video_decoder_api.h"
+#include "encode/picture_residency.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
 #include "stabilise/stab_registry.h"
@@ -338,7 +340,7 @@ struct AssetState {
 
 class Renderer {
 public:
-    Renderer(const ExportParams& params, ANativeWindow* window) : params_(params) {
+    Renderer(const ExportParams& params, ANativeWindow* window) : params_(params), residency_(params.pictureBudgetBytes) {
         decode::Error e{decode::Status::Ok, ""};
         if (egl_.init(&e, true, params.hdr) != decode::Status::Ok) failDecode(e, "EGL setup failed");
         if (params.hdr && !egl_.tenBit()) {
@@ -358,6 +360,7 @@ public:
         pipeline_->setOutputSpace(space_);
         pipeline_->setInterpolationQuality(2);  // the exporter has the time for the wide flow search
         for (const TitleImage& title : params.titles) {
+            upfront_.insert(title.key);
             if (pipeline_->uploadTitle(title.key, title.width, title.height, title.rgba.data(), &e, title.displayWidth,
                                        title.displayHeight) != decode::Status::Ok) {
                 failDecode(e, "a title could not be prepared for the export");
@@ -379,11 +382,34 @@ public:
         pipeline_.reset();
     }
 
+    // Loads a still the first time a frame draws it and releases the least recently used ones beyond the budget; the
+    // pictures this frame draws are never released. Titles are uploaded up front and are not managed here.
+    void ensurePicture(uint32_t key) {
+        framePictures_.insert(key);
+        if (!params_.pictureLoader || upfront_.count(key) != 0) return;
+        if (residency_.contains(key)) {
+            residency_.touch(key);
+            return;
+        }
+        PictureData picture;
+        if (!params_.pictureLoader(key, &picture) || picture.rgba == nullptr) {
+            fail(Status::InvalidArgument, "a picture could not be loaded for the export");
+        }
+        decode::Error e{decode::Status::Ok, ""};
+        if (pipeline_->uploadTitle(key, picture.width, picture.height, picture.rgba, &e, picture.displayWidth,
+                                   picture.displayHeight) != decode::Status::Ok) {
+            failDecode(e, "a picture could not be prepared for the export");
+        }
+        const int64_t bytes = static_cast<int64_t>(picture.width) * picture.height * 4;
+        for (uint32_t gone : residency_.admit(key, bytes, framePictures_)) pipeline_->releaseTitle(gone);
+    }
+
     void renderFrame(int64_t frame) {
         decode::Error e{decode::Status::Ok, ""};
         const int w = egl_.windowWidth();
         const int h = egl_.windowHeight();
         const int64_t projectFrame = outputToProjectFrame(frame, params_.fps, params_.projectFps);
+        framePictures_.clear();
 
         // Every clip under the playhead, bottom layer first. `held` keeps the frames alive until the draw.
         struct Used {
@@ -399,6 +425,7 @@ public:
             const core::Pose pose = poseAt(*clip, projectFrame);
             const float opacity = static_cast<float>(opacityAt(*clip, projectFrame));
             if (clip->titleKey != 0) {
+                ensurePicture(clip->titleKey);
                 render::LayerDraw title;
                 title.titleKey = clip->titleKey;
                 title.fx = fxAt(*clip, projectFrame);
@@ -670,6 +697,9 @@ private:
     }
 
     const ExportParams& params_;
+    PictureResidency residency_;                // stills loaded on demand and their bytes
+    std::unordered_set<uint32_t> upfront_;       // title keys uploaded before the first frame
+    std::unordered_set<uint32_t> framePictures_;  // pictures the frame being rendered draws
     render::EglContext egl_;
     std::unique_ptr<render::GlPipeline> pipeline_;
     render::OutputSpace space_ = render::OutputSpace::Sdr709;

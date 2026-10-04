@@ -1,5 +1,6 @@
 package com.ultimatevideo.uveditor.engine.export
 
+import com.ultimatevideo.uveditor.engine.still.PictureBudget
 import java.nio.ByteBuffer
 import com.ultimatevideo.uveditor.domain.ClipFx
 
@@ -126,6 +127,18 @@ class ExportTitle(
     val displayHeight: Int = height,
 )
 
+/**
+ * Supplies the pictures (photos, stickers, frames of animations) the export draws, one at a time and only when a frame
+ * first needs it, so an animation of hundreds of frames is never held in memory all at once. Called on the native
+ * render thread. Returns null when the picture cannot be made; [lastError] then says why for the user.
+ */
+interface ExportPictureProvider {
+    fun load(key: Int): ExportTitle?
+
+    /** Why the last [load] returned null, or null if nothing failed. */
+    val lastError: String?
+}
+
 /** A 3D LUT for the export: [size]^3 RGB floats (red varying fastest) in a direct, native-order buffer. */
 class ExportLut(val key: Int, val size: Int, val rgb: ByteBuffer)
 
@@ -149,6 +162,9 @@ class ExportRequest(
     val audioSnapshot: ByteBuffer?,
     val outputFd: Int,
     val titles: List<ExportTitle> = emptyList(),
+    /** Pictures loaded on demand, within [pictureBudgetBytes] of memory; null when all are in [titles]. */
+    val pictureProvider: ExportPictureProvider? = null,
+    val pictureBudgetBytes: Long = PictureBudget.DEFAULT_BYTES,
     /** The LUTs the clips' LUT effects refer to; a LUT that is absent leaves its clip ungraded. */
     val luts: List<ExportLut> = emptyList(),
 )
