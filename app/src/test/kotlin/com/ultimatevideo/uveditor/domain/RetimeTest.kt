@@ -152,12 +152,13 @@ class RetimeTest {
     }
 
     @Test
-    fun `speed limits accept 0 point 1x to 8x`() {
+    fun `speed limits accept 0 point 1x to 100x`() {
         assertNull(SpeedLimits.problem(1, 10))
         assertNull(SpeedLimits.problem(8, 1))
+        assertNull(SpeedLimits.problem(100, 1))
         assertNull(SpeedLimits.problem(1, 1))
         assertTrue(SpeedLimits.problem(1, 11) != null)
-        assertTrue(SpeedLimits.problem(81, 10) != null)
+        assertTrue(SpeedLimits.problem(1001, 10) != null)
         assertTrue(SpeedLimits.problem(0, 1) != null)
     }
 

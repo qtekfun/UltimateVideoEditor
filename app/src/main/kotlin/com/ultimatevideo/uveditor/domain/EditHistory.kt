@@ -288,6 +288,10 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setReverse(timeline, clipId, reverse)
     }
 
+    data class SetSmoothSlowMo(val clipId: String, val on: Boolean) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setSmoothSlowMo(timeline, clipId, on)
+    }
+
     data class SetSpeedRamp(val clipId: String, val ramp: List<SpeedKey>) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setSpeedRamp(timeline, clipId, ramp)
     }

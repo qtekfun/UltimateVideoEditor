@@ -132,7 +132,7 @@ class SpeedViewModelTest {
         val h = harness()
         h.select("c1")
 
-        h.vm.onIntent(EditorIntent.SetSpeed(1000, 100))
+        h.vm.onIntent(EditorIntent.SetSpeed(10100, 100))
 
         assertEquals(100L, h.clip("c1")!!.durationFrames)
         assertTrue(h.messages().single().startsWith("That speed is not possible"))

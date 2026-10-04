@@ -301,6 +301,13 @@ object TimelineOps {
         return success(updateTimeline(timeline, clipId) { it.copy(reverse = reverse) }.pruned())
     }
 
+    /** Turns smooth slow motion (optical-flow interpolation of the frames of a slowed clip) on or off. */
+    fun setSmoothSlowMo(timeline: Timeline, clipId: String, on: Boolean): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (!clip.hasMedia) return failure(EditError.InvalidSpeed("a title, photo or sticker has no frames to interpolate"))
+        return success(updateTimeline(timeline, clipId) { it.copy(smoothSlowMo = on) }.pruned())
+    }
+
     /**
      * Shapes the speed over the clip with [ramp] (empty removes it). The clip keeps its range and
      * length: only how the speed is spread over them changes.
