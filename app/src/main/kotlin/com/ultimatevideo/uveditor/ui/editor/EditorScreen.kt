@@ -588,7 +588,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     // timeline, so a clip being dragged does not make the zoom jump. Declared after the snapshot
     // effect so the engine already has the new timeline when it fits.
     StateEffect(holder, { listOf(it.timeline.tracks.maxOfOrNull { track -> track.end.value } ?: 0L, it.isLoading) }) { s ->
-        if (!s.isLoading && engine.isAutoFit()) engine.fitToContent()
+        if (!s.isLoading) engine.followContent()
     }
     StateEffect(holder, { it.playhead }) { s ->
         engine.setPlayhead(s.playhead.value)
@@ -994,7 +994,7 @@ private fun EditorMain(
                         ) { viewModel.onIntent(EditorIntent.TogglePlay) }
                         ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
                     }
-                    ToolButton(EditorIcons.Fit, "Fit the whole project", modifier = Modifier.align(Alignment.CenterEnd)) {
+                    ToolButton(EditorIcons.Fit, "Fit the whole project and all lanes", modifier = Modifier.align(Alignment.CenterEnd)) {
                         engine.fitToContent()
                     }
                 }

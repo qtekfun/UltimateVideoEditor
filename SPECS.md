@@ -219,7 +219,22 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 ### 5.3 Rendering
 - Two `SurfaceView`s hosted via `AndroidView`: **preview** (GLES compositor) and **timeline canvas**
   (C++/GLES draws clip blocks, waveforms, playhead, thumbnails, handles).
-- Touch gestures (scroll, pinch-zoom, drag, trim) on the timeline surface are handled by a Kotlin
+- Pinch is two-axis: `PinchAxisLock` (Kotlin, pure) picks time or lanes from the axis the finger span changed along most
+  once past a 12 dp slop (a tie is the time axis, the factor seen before the choice is held back and applied after it, so
+  a horizontal pinch zooms exactly as before). The choice is kept until the fingers lift. Vertical pinch calls
+  `TimelineRenderer::zoomLanesBy(factor, focusY)`.
+- Lane zoom (`timeline_view/lane_zoom.h`): one scalar `LaneScale`, Q12 fixed point, 0.5x to 3x of the 64 dp default lane
+  (32 to 192 dp), fed to `Layout::forDensity` once per frame snapshot; ruler, gaps and touch slop do not scale. The scroll
+  is re-anchored with `anchoredScrollY` (the fractional lane position under the focus stays under it, bottom-anchoring inset
+  included) and then clamped. `fitLaneScale(density, lanes, viewHeight)` gives the largest scale at which the ruler and all
+  lanes fit; if even 0.5x does not fit it returns 0.5x with `fitsAll = false` and the renderer scrolls to the base lane. An
+  empty timeline or a panel without room keeps 1x. All lanes have the same height (there is no per-lane collapsed state).
+  The Fit button (`fitToContent`) fits both axes and turns on "follow": a resize/rotation or a lane added or removed refits.
+  A pinch on an axis, or choosing a height preset, ends the follow for that axis. View state lives in the native renderer
+  like the horizontal zoom, survives rotation (the activity handles configuration changes) and is not persisted (the
+  horizontal zoom is not either). The snapshot format is unchanged. Below a 9 dp header strip clip names are not drawn and
+  below a 12 dp body the filmstrip is skipped (neither triggers at the 0.5x minimum; they guard the layout limits).
+- Touch gestures (scroll, drag, trim) on the timeline surface are handled by a Kotlin
   `View` and forwarded as intents/commands; hit-testing against the snapshot is native.
 - Dedicated render thread per surface with its own EGL context (shared context for textures).
 - **Multilayer compositor.** The preview shows a *scene*: the project canvas (project resolution) plus layers
@@ -1715,7 +1730,7 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
 - **Dividers:** draggable splitters between preview and timeline (vertical), and between the preview and the
   side panel (horizontal) on wide windows; minimum and maximum sizes; double-tap a divider to reset; haptic tick
   at the default position.
-- **Track height:** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
+- **Track height (done; see the pinch and lane zoom notes in the timeline UI section above):** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
   choice of Small / Medium / Large lane heights; waveforms, thumbnails and keyframe diamonds scale.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
