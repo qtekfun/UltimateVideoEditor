@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -67,6 +68,13 @@ struct MarkerSnapshot {
     bool beat() const { return (flags & 1) != 0; }
 };
 
+// A short text drawn on the clip block with key `clipKey` (the text of a title, the name of a sticker): ASCII
+// letters, digits and a few signs, at most kSnapshotMaxLabelBytes long (version 7).
+struct LabelSnapshot {
+    int64_t clipKey;
+    std::string text;
+};
+
 // Source frame offset (from sourceIn) of timeline frame `local` of a clip `duration` frames long; the
 // boundary of frame `local`, so `retimeBoundary(c, 0) .. retimeBoundary(c, duration)` is the whole span.
 // A null `retime` is 1x forward. A reversed clip's offsets fall from the end of its range.
@@ -90,15 +98,19 @@ struct TimelineSnapshot {
     std::vector<RetimeSnapshot> retimes;
     // Sorted by frame (version 5; empty before).
     std::vector<MarkerSnapshot> markers;
+    // Sorted by clipKey (version 7; empty before).
+    std::vector<LabelSnapshot> labels;
 
     int64_t endFrame() const;
+    // The label of one clip, or null when it has none.
+    const std::string* labelOf(int64_t clipKey) const;
     // The retime of one clip, or null when it plays at 1x forward.
     const RetimeSnapshot* retimeOf(int64_t clipKey) const;
     // The markers of one clip, as a [first, last) range into `keyframes`.
     std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> keyframesOf(int64_t clipKey) const;
 };
 
-// Wire layout (little endian), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
+// Wire layout (little endian), version 7 (version 6 plus a label trailer after the markers), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
 // primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
@@ -111,8 +123,11 @@ struct TimelineSnapshot {
 //   retimes (v4): i32 retimeCount, then per retimed clip:
 //           i64 clipKey, i64 sourceSpanFrames, i32 flags(bit0=reverse, bit1=freeze), i32 reserved   (24 bytes each)
 //   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 reserved   (16 bytes each)
+//   labels (v7): i32 labelCount, then per label: i64 clipKey, i32 length (0..24), then the ASCII bytes padded with
+//           zeros to a multiple of 4
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
-constexpr uint32_t kSnapshotVersion = 6;
+constexpr uint32_t kSnapshotVersion = 7;
+constexpr int32_t kSnapshotMaxLabelBytes = 24;
 constexpr uint32_t kSnapshotMinVersion = 2;
 constexpr size_t kSnapshotHeaderBytes = 24;
 constexpr size_t kSnapshotClipBytes = 56;
