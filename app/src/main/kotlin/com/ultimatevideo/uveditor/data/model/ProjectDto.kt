@@ -332,9 +332,11 @@ data class TransformDto(
 @Serializable
 data class TransitionDto(
     val id: String,
-    /** Only `crossfade` exists so far. */
+    /** `crossfade`, `slide`, `push`, `zoom`, `spin`, `glitch`, `wipe`, `whip-pan` or `light-leak`. */
     val type: String,
     val fromClipId: String,
     val toClipId: String,
     val durationFrames: Long,
+    /** `left`, `right`, `up` or `down` for the directional looks; absent otherwise and in older projects (left). */
+    val direction: String? = null,
 )

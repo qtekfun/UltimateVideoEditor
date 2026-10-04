@@ -167,7 +167,7 @@ waves of SPECS 9.20.
 
 ### Wave 7
 - [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
-- [ ] WP-V5 Project templates, transition and filter packs
+- [ ] WP-V5 Project templates, transition and filter packs. _Transition pack:_ slide, push, zoom, spin, glitch, wipe, whip pan and light leak with directions, a look picker with a three-frame preview, preview/export parity by one shared evaluator (SPECS 5.25), JVM tests for the looks, the render plan, export keys and per-frame effects, JSON and undo; not yet seen on a device.
 
 ### Wave 8
 - [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
