@@ -83,6 +83,8 @@ private:
     AMediaExtractor* extractor_ = nullptr;
     AMediaCodec* codec_ = nullptr;
     AImageReader* reader_ = nullptr;
+    bool softwareDecoder_ = false;  // the codec that started is the platform's software decoder (a fallback)
+    const char* rungLabel_ = "";  // which open-ladder rung started the codec (a string literal)
     int fd_ = -1;
     AssetInfo info_;
     Callbacks callbacks_;
