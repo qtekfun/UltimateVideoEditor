@@ -494,7 +494,231 @@ static void testSpeed() {
     CHECK(seconds < 10.0);  // far above what is expected, only guards against an accidental quadratic cost
 }
 
+// ------------------------------------------------------------------------------ keyframed settings
+
+static VoiceLane laneOfSamples(int field, std::initializer_list<std::pair<int64_t, float>> points) {
+    VoiceLane lane;
+    lane.field = field;
+    for (const auto& [sample, value] : points) {
+        lane.samples.push_back(sample);
+        lane.values.push_back(value);
+    }
+    return lane;
+}
+
+static std::vector<float> runScheduled(const VoiceParams& p, const std::shared_ptr<const VoiceSchedule>& schedule, const std::vector<float>& in,
+                                       size_t chunk, int64_t tail = 0, int64_t position = 0) {
+    VoiceProcessor proc(p, kRate, false, schedule);
+    proc.reset(position);
+    std::vector<float> out;
+    const size_t frames = in.size() / 2;
+    for (size_t at = 0; at < frames; at += chunk) {
+        const size_t n = std::min(chunk, frames - at);
+        proc.process(in.data() + at * 2, n, &out);
+    }
+    proc.flush(&out, tail);
+    return out;
+}
+
+static void testScheduleBasics() {
+    VoiceLane lane = laneOfSamples(0, {{100, -2.0f}, {300, 6.0f}});
+    CHECK_NEAR(lane.at(0), -2.0f, 0);      // held before the first key
+    CHECK_NEAR(lane.at(100), -2.0f, 0);
+    CHECK_NEAR(lane.at(200), 2.0f, 1e-6);  // linear in between
+    CHECK_NEAR(lane.at(300), 6.0f, 0);
+    CHECK_NEAR(lane.at(100000), 6.0f, 0);  // and after the last
+
+    auto schedule = std::make_shared<VoiceSchedule>();
+    schedule->lanes = {lane, laneOfSamples(10, {{0, 0.0f}, {50, 0.8f}})};
+    VoiceParams base;
+    base.echoMs = 100.0f;
+    base.echoMix = 0.3f;
+    CHECK(schedule->animates(0) && schedule->animates(10) && !schedule->animates(8));
+    const VoiceParams mid = schedule->at(base, 200);
+    CHECK_NEAR(mid.pitchSemitones, 2.0f, 1e-6);
+    CHECK_NEAR(mid.echoMix, 0.8f, 0);
+    CHECK(mid.echoMs == 100.0f);  // fields without a lane keep the static value
+    // The envelope is the widest value of each field: the deepest shift and the strongest mix, the static delay.
+    const VoiceParams env = schedule->envelope(base);
+    CHECK(env.pitchSemitones == 6.0f && env.echoMix == 0.8f && env.echoMs == 100.0f);
+    CHECK(env.hasEcho() && env.needsSpectral());
+    VoiceSchedule down;
+    down.lanes = {laneOfSamples(0, {{0, -9.0f}, {10, 3.0f}})};
+    CHECK(down.envelope(VoiceParams{}).pitchSemitones == -9.0f);
+
+    // Identity: no keys means the plain hash, keys give a non-zero identity even over a neutral base, and any change shows.
+    VoiceSchedule none;
+    CHECK(none.identity(base) == base.hash());
+    CHECK(VoiceParams{}.hash() == 0 && schedule->identity(VoiceParams{}) != 0);
+    const uint64_t id = schedule->identity(base);
+    VoiceSchedule moved = *schedule;
+    moved.lanes[0].values[1] = 5.0f;
+    CHECK(moved.identity(base) != id);
+    moved = *schedule;
+    moved.lanes[0].samples[1] = 301;
+    CHECK(moved.identity(base) != id);
+    CHECK(schedule->identity(base) == id);
+
+    CHECK(voiceFieldRange(0).lo == -kVoiceMaxShiftSemitones && voiceFieldRange(3).zeroOk && !voiceFieldRange(4).zeroOk);
+}
+
+static VoiceParams animatedChain() {
+    VoiceParams p;
+    p.pitchSemitones = 1.0f;
+    p.whisperMix = 0.1f;
+    p.ringHz = 60.0f;
+    p.ringMix = 0.2f;
+    p.bandLowHz = 200.0f;
+    p.bandHighHz = 7000.0f;
+    p.driveDb = 3.0f;
+    p.echoMs = 150.0f;
+    p.echoFeedback = 0.3f;
+    p.echoMix = 0.3f;
+    p.reverbSize = 0.4f;
+    p.reverbMix = 0.2f;
+    return p;
+}
+
+static std::shared_ptr<const VoiceSchedule> animatedSchedule() {
+    auto s = std::make_shared<VoiceSchedule>();
+    s->lanes = {
+        laneOfSamples(0, {{0, -4.0f}, {40000, 6.0f}, {90000, 0.0f}}),
+        laneOfSamples(1, {{0, 2.0f}, {70000, -3.0f}}),
+        laneOfSamples(2, {{20000, 0.0f}, {60000, 0.7f}}),
+        laneOfSamples(3, {{0, 40.0f}, {60000, 400.0f}}),
+        laneOfSamples(5, {{0, 0.0f}, {30000, 500.0f}}),
+        laneOfSamples(7, {{0, 0.0f}, {50000, 12.0f}}),
+        laneOfSamples(8, {{0, 100.0f}, {40000, 300.0f}, {80000, 0.0f}}),
+        laneOfSamples(10, {{0, 0.1f}, {90000, 0.6f}}),
+        laneOfSamples(11, {{0, 0.2f}, {90000, 0.9f}}),
+        laneOfSamples(13, {{0, 0.0f}, {40000, 0.5f}}),
+    };
+    return s;
+}
+
+static void testScheduledChunkInvarianceAndPosition() {
+    const VoiceParams p = animatedChain();
+    const auto schedule = animatedSchedule();
+    const std::vector<float> in = vowel(130.0, 2 * kRate);
+    const int64_t tail = 20000;
+    const std::vector<float> reference = runScheduled(p, schedule, in, in.size() / 2, tail);
+    for (size_t chunk : {size_t{1}, size_t{77}, size_t{512}, size_t{1000}, size_t{4096}}) {
+        const std::vector<float> got = runScheduled(p, schedule, in, chunk, tail);
+        CHECK(got.size() == reference.size());
+        CHECK(std::memcmp(got.data(), reference.data(), std::min(got.size(), reference.size()) * sizeof(float)) == 0);
+    }
+    // The animation really acts: the same input without the keys sounds different.
+    const std::vector<float> fixed = run(p, in, 512, tail);
+    double delta = 0;
+    for (size_t i = 0; i < std::min(fixed.size(), reference.size()); ++i) delta = std::max(delta, static_cast<double>(std::fabs(fixed[i] - reference[i])));
+    CHECK(delta > 0.05);
+    CHECK(peakOf(reference) > 0.05 && peakOf(reference) < 1.5);
+    for (float v : reference) {
+        if (!std::isfinite(v)) {
+            CHECK(false);
+            break;
+        }
+    }
+    // Starting at another position reads the keys there: from the clip-local second 2 on the keys hold 5 semitones,
+    // from position 0 the same stream is still gliding towards it.
+    VoiceSchedule shift;
+    shift.lanes = {laneOfSamples(0, {{0, 0.0f}, {48000, 5.0f}})};  // 0 at the start of the clip, 5 st from 1 s on
+    auto shiftPtr = std::make_shared<VoiceSchedule>(shift);
+    VoiceParams neutralBase;
+    neutralBase.formantSemitones = 5.0f;
+    const std::vector<float> tone = stereoSine(440.0, 0.5, kRate);
+    const std::vector<float> early = runScheduled(neutralBase, shiftPtr, tone, 480, 0, 0);
+    const std::vector<float> late = runScheduled(neutralBase, shiftPtr, tone, 480, 0, 2 * kRate);  // clip-local 2 s on: held at 5 st
+    auto hz = [&](const std::vector<float>& v, size_t from, size_t to) {
+        double first = -1, last = -1;
+        int count = 0;
+        for (size_t i = from + 1; i < to; ++i) {
+            const double a = v[2 * (i - 1)], b = v[2 * i];
+            if (a < 0 && b >= 0) {
+                const double t = static_cast<double>(i - 1) + (-a) / (b - a);
+                if (first < 0) first = t;
+                last = t;
+                ++count;
+            }
+        }
+        return count < 2 ? 0.0 : (count - 1) * static_cast<double>(kRate) / (last - first);
+    };
+    const double expected = 440.0 * std::pow(2.0, 5.0 / 12.0);
+    CHECK(std::fabs(1200.0 * std::log2(hz(late, 12000, 40000) / expected)) < 5.0);  // keys read at position 2 s on
+    CHECK(hz(early, 12000, 40000) < 440.0 * std::pow(2.0, 3.0 / 12.0));              // keys read from 0: still gliding up
+}
+
+static void testScheduledPitchGlideIsSmooth() {
+    // A sine glides from the original pitch to one octave up over 3 s; the local frequency follows the keys and the
+    // waveform never jumps (a step would show as a large sample-to-sample difference).
+    VoiceParams base;
+    base.formantSemitones = 0.0f;
+    auto schedule = std::make_shared<VoiceSchedule>();
+    schedule->lanes = {laneOfSamples(0, {{0, 0.0f}, {3 * kRate, 12.0f}}), laneOfSamples(1, {{0, 0.0f}, {3 * kRate, 12.0f}})};
+    const std::vector<float> in = stereoSine(300.0, 0.5, 3 * kRate);
+    const std::vector<float> out = runScheduled(base, schedule, in, 480);
+    CHECK(out.size() == in.size());
+    double maxStep = 0;
+    for (size_t i = 4 * 4096; i + 1 < out.size() / 2; ++i) maxStep = std::max(maxStep, static_cast<double>(std::fabs(out[2 * (i + 1)] - out[2 * i])));
+    CHECK(maxStep < 0.5 * 2.0 * kPi * 620.0 / kRate * 1.3);  // bounded by the fastest sine in the glide
+    auto localHz = [&](size_t centre) {
+        double first = -1, last = -1;
+        int count = 0;
+        for (size_t i = centre - 4800; i < centre + 4800; ++i) {
+            const double a = out[2 * (i - 1)], b = out[2 * i];
+            if (a < 0 && b >= 0) {
+                const double t = static_cast<double>(i - 1) + (-a) / (b - a);
+                if (first < 0) first = t;
+                last = t;
+                ++count;
+            }
+        }
+        return (count - 1) * static_cast<double>(kRate) / (last - first);
+    };
+    for (double fraction : {0.25, 0.5, 0.75}) {
+        const double expected = 300.0 * std::pow(2.0, 12.0 * fraction / 12.0);
+        CHECK(std::fabs(1200.0 * std::log2(localHz(static_cast<size_t>(fraction * 3 * kRate)) / expected)) < 40.0);
+    }
+}
+
+static void testScheduledEchoDelayGlides() {
+    // A delay gliding from 100 ms to 200 ms over 2 s: an impulse at 0.5 s comes back where t - d(t) = 0.5 s.
+    VoiceParams base;
+    base.echoMs = 100.0f;
+    base.echoMix = 1.0f;
+    auto schedule = std::make_shared<VoiceSchedule>();
+    schedule->lanes = {laneOfSamples(8, {{0, 100.0f}, {2 * kRate, 200.0f}})};
+    std::vector<float> in(static_cast<size_t>(kRate) * 2 * 2, 0.0f);
+    const size_t impulse = kRate / 2;
+    in[2 * impulse] = 1.0f;
+    in[2 * impulse + 1] = 1.0f;
+    const std::vector<float> out = runScheduled(base, schedule, in, 480);
+    size_t best = 0;
+    float peak = 0;
+    for (size_t i = impulse + 100; i < out.size() / 2; ++i) {
+        if (std::fabs(out[2 * i]) > peak) {
+            peak = std::fabs(out[2 * i]);
+            best = i;
+        }
+    }
+    // d(t) = 4800 + 4800 t / 96000 samples: t - d(t) = 24000.
+    const double expected = (24000.0 + 4800.0) / (1.0 - 4800.0 / 96000.0);
+    CHECK(std::fabs(static_cast<double>(best) - expected) < 20.0);
+    CHECK(peak > 0.5);  // a fractional read of a single impulse keeps most of it
+
+    // A constant lane at the static value is the static delay, sample for sample.
+    auto same = std::make_shared<VoiceSchedule>();
+    same->lanes = {laneOfSamples(8, {{0, 100.0f}, {1000, 100.0f}})};
+    const std::vector<float> a = runScheduled(base, same, in, 480);
+    const std::vector<float> b = run(base, in, 480);
+    CHECK(a.size() == b.size() && std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0);
+}
+
 int main() {
+    testScheduleBasics();
+    testScheduledChunkInvarianceAndPosition();
+    testScheduledPitchGlideIsSmooth();
+    testScheduledEchoDelayGlides();
     testParams();
     testNeutralIsPassthrough();
     testAlignmentAndGainOfThePhaseVocoder();

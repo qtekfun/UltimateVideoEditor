@@ -524,8 +524,11 @@ device. Every setting is non-destructive and one undo step (a slider drag is one
   **Robot** (ring modulation plus a very short echo), **Whisper** (noise instead of pitch), **Radio** (telephone band
   and drive), **Echo** (delay, repeats, mix), **Reverb** (size, damping, mix) and **Megaphone**. A slider takes effect
   when you release it (the clip is read again), as one undo step. Echo and reverb keep sounding after the clip's own
-  sound ends, up to the end of the clip. It is the same signal processing for preview and export, and nothing leaves
-  the phone.
+  sound ends, up to the end of the clip. Every slider has a keyframe diamond like pan and the EQ gains: tap it to key the
+  slider at the playhead and the effect changes over time (a pitch glide, an echo that fades in, a reverb that opens up);
+  the sliders then show the value at the playhead and moving one adds a key there. Choosing another preset starts with no
+  keys. Reverb size animates the decay, not the size of the room, and an echo delay that moves glides in pitch like a
+  tape delay. It is the same signal processing for preview and export, and nothing leaves the phone.
 - **Reset sound** restores all of the above.
 
 **Mixer** (toolbar faders icon): for every track a **Mute**, **Solo**, **Volume** (dB), **Role** (Normal, Voice,

@@ -1014,7 +1014,7 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Why:** it reuses the proven pattern of the denoiser (alignment by priming, flush, source identity by hash), keeps the audio thread free of FFTs, makes realtime, offline and export identical by construction, and needs no look-ahead reads in the mixer to hide the 32 ms latency of the vocoder.
 **Alternative:** processing in the mixer would allow live slider changes without re-decoding, but needs the clip buffer to be read ahead by the latency, per-block FFT work on the audio thread and chunk-exact hop scheduling there.
 
-**Decision:** the sliders are not keyframable and a change restarts the clip's decode (the slider applies on release).
+**Decision:** the sliders are not keyframable and a change restarts the clip's decode (the slider applies on release). (Superseded for keyframing, see "Voice effect keyframes" below; a changed key still restarts the decode.)
 **Why:** a changed effect is a new source (like a changed noise profile); live keyframing would need parameter interpolation inside the vocoder.
 **Alternative:** apply the effect in the mixer (see above) and reuse `Clip.params` lanes.
 
@@ -1307,6 +1307,17 @@ The stats line also reports `uploads` and `upload_ms` (label bitmaps placed in t
 **Chosen:** `android:resizeableActivity="false"` on the application. Phones and the Huawei tablet (Android 12) then refuse split screen and free-form windows and show the system's "app does not support split screen" message.
 **Alternatives:** keep multi-window and test it (needs resize handling in the native surfaces and the layout controller); restrict only the editor activity (the app has one activity, so no difference).
 **Open:** from Android 16, apps targeting API 36 on screens of 600 dp or wider may ignore this flag (the platform ignores manifest resizability limits there until the opt-out ends at API 37). The Pixel 8 is below that width; the tablet runs Android 12, so both honour it. If a newer large-screen device splits the window anyway, the layout must cope with it: that is not handled today.
+
+## Voice effect keyframes
+
+**Decision:** the sliders of a voice preset are parameters `audio.voice.<sliderIndex>` of `Clip.params`, so keys, interpolation, split/trim/speed re-basing, copy/paste and undo are the existing parameter machinery. Another preset or none drops the voice tracks (`TimelineOps.setClipAudio`); `setClipAudioAt` turns a change of a keyed slider at the playhead into a key and leaves the fixed value.
+**Decision:** the animation is resolved in Kotlin to one lane per engine setting (`voiceLanesOf`), not per slider, and the native side knows no presets. Presets map sliders to settings with affine maps, so evaluating the settings at the union of the animated sliders' key frames (plus one point per frame in an eased or Bezier segment) and interpolating linearly in the engine is exact. Settings that never leave their fixed value get no lane.
+**Decision:** the processor stays in the decode worker and reads a `VoiceSchedule` in clip-local output samples, with the position passed to `reset(position)`; the schedule and its identity are part of the source key, so a key edit restarts decoding like a slider release does and realtime, offline and export remain one code path (tested equal within 1e-6 and independent of block size). Snapshot version 7 appends the lanes behind the voice blocks with a trailing byte size (variable-length data after a region whose size is "the rest of the buffer" needs it); 4 to 6 still parse.
+**Decision:** which stages exist comes from the widest value of each setting over the keys (`envelope`), so a lane can switch a stage on from a neutral static value; per-stage values are read every 16 samples (post chain) or at the centre of each analysis frame (spectral stage), never per call.
+**Decision:** echo delay is read fractionally and ramped across a block, so a moving delay glides in pitch (tape-like) and a fixed one stays a whole number of samples as before; reverb size animation moves the comb feedback (decay) and not the delay lengths, which are fixed at the middle of the keyed range, because changing comb lengths live clicks. Ring modulation uses a phase accumulator so a moving carrier has no phase jump.
+**Why:** one lane format, no preset knowledge in C++, and the decoding pipeline (alignment by priming, tails, seek resets) stays untouched apart from the schedule.
+**Alternative:** run the effect in the realtime mixer with `PreparedLane`s (rejected earlier for FFTs on the audio thread); per-slider lanes with the maps in C++ (couples the engine to presets).
+**Not heard on a device:** the DSP and its parity are host-tested (including a gliding pitch with bounded steps, a gliding delay peak at the expected sample, held-lane = static output); the inspector diamonds were compiled, not seen on a screen. A key edit re-reads the clip, so scrubbing the keys is not live.
 
 ## Animated loop count
 

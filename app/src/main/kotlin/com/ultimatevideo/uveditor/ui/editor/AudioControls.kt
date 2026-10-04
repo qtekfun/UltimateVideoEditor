@@ -239,17 +239,25 @@ private fun VoiceControls(clip: Clip, onIntent: (EditorIntent) -> Unit) {
         return
     }
     voice.preset.sliders.forEachIndexed { index, slider ->
-        VoiceSliderRow(clip.id, voice, index, slider) { commit(audio.copy(voice = it)) }
+        VoiceSliderRow(clip.id, voice, index, slider, ParamIds.voice(index), onIntent) { commit(audio.copy(voice = it)) }
     }
     Text(
-        "The clip is read again when you release a slider; a long echo or reverb keeps sounding after the clip's own sound ends.",
+        "The clip is read again when you release a slider or change a key; a long echo or reverb keeps sounding after the clip's own sound ends.",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
 @Composable
-private fun VoiceSliderRow(clipId: String, voice: VoiceFx, index: Int, slider: VoiceSlider, onCommit: (VoiceFx) -> Unit) {
+private fun VoiceSliderRow(
+    clipId: String,
+    voice: VoiceFx,
+    index: Int,
+    slider: VoiceSlider,
+    paramId: String,
+    onIntent: (EditorIntent) -> Unit,
+    onCommit: (VoiceFx) -> Unit,
+) {
     var local by remember(clipId, voice.preset, voice.values[index]) { mutableFloatStateOf(voice.values[index].toFloat()) }
     val readout = voiceReadout(slider, local.toDouble())
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -262,6 +270,9 @@ private fun VoiceSliderRow(clipId: String, voice: VoiceFx, index: Int, slider: V
             modifier = Modifier.weight(1f).semantics { contentDescription = "${slider.name} $readout" },
         )
         Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+        // The diamond keys the slider at the playhead; once it has keys the slider shows the value at the playhead.
+        val keyUi = LocalParamKeys.current(paramId)
+        if (keyUi != null) KeyDiamond(keyUi, onIntent)
     }
 }
 
