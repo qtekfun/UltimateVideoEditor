@@ -20,10 +20,12 @@ struct Layout {
     // Half the width of the touch target of a ruler marker (a marker is easier to hit than its 1.5dp line is wide).
     float markerHitHalf = 0.0f;
 
-    // [laneScale] stretches only the lanes (small / medium / large lane heights); the ruler, gaps and touch
-    // slop keep their size. It is clamped to a sane range so a bad value cannot hide the lanes.
+    // [laneScale] stretches only the lanes (the lane height preset times the pinch zoom, see lane_zoom.h); the ruler, gaps and
+    // touch slop keep their size. It is clamped to [kMinLaneScale, kMaxLaneScale] so a bad value cannot hide the lanes.
+    static constexpr float kMinLaneScale = 0.5f;
+    static constexpr float kMaxLaneScale = 3.0f;
     static Layout forDensity(float density, float laneScale = 1.0f) {
-        const float scale = std::min(2.0f, std::max(0.5f, laneScale));
+        const float scale = std::min(kMaxLaneScale, std::max(kMinLaneScale, laneScale));
         Layout l{28.0f * density, 64.0f * density * scale, 4.0f * density, 14.0f * density};
         l.markerHitHalf = 20.0f * density;
         return l;

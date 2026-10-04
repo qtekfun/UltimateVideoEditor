@@ -116,7 +116,17 @@ class TimelineEngine(
     fun zoomBy(factor: Float, focusX: Float) = NativeTimeline.nativeZoomBy(live(), factor, focusX)
     fun fling(velocityX: Float) = NativeTimeline.nativeFling(live(), velocityX)
 
-    /** Zooms to show the whole timeline and follows it on resize until the user zooms by hand. */
+    /** Vertical pinch: multiplies the lane height by [factor] (clamped to 0.5x..3x the default) around [focusY]. */
+    fun zoomLanesBy(factor: Float, focusY: Float) = NativeTimeline.nativeZoomLanesBy(live(), factor, focusY)
+
+    /** Refits the time axis to the project length while it is still following it; lanes follow on their own. */
+    fun followContent() = NativeTimeline.nativeFollowContent(live())
+
+    /**
+     * The "Fit" button: zooms the time axis so the whole project fits and the lanes to the largest height at which all of them
+     * fit the panel (as many as the minimum height allows, then they scroll). Both follow the panel and the project until the
+     * user zooms that axis by hand.
+     */
     fun fitToContent() = NativeTimeline.nativeFitToContent(live())
 
     /** False once the user has zoomed by hand, until the next [fitToContent]. */
@@ -127,7 +137,7 @@ class TimelineEngine(
     fun ensureVisible(frame: Long) = NativeTimeline.nativeEnsureVisible(live(), frame)
 
     /** Draws the drop indicator on lane [trackIndex] of the current snapshot over [startFrame, endFrame). */
-    /** Lane height as a multiple of the default (0.5 to 2); the lanes, their waveforms, thumbnails and diamonds scale with it. */
+    /** Lane height as a multiple of the default (0.5 to 3); the lanes, their waveforms, thumbnails and diamonds scale with it. */
     fun setLaneScale(scale: Float) = NativeTimeline.nativeSetLaneScale(live(), scale)
 
     fun setDropHint(indicator: DropIndicator, trackIndex: Int = -1, startFrame: Long = 0, endFrame: Long = 0) =
