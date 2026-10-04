@@ -95,6 +95,9 @@ class TimelineEngine(
     fun ensureVisible(frame: Long) = NativeTimeline.nativeEnsureVisible(live(), frame)
 
     /** Draws the drop indicator on lane [trackIndex] of the current snapshot over [startFrame, endFrame). */
+    /** Lane height as a multiple of the default (0.5 to 2); the lanes, their waveforms, thumbnails and diamonds scale with it. */
+    fun setLaneScale(scale: Float) = NativeTimeline.nativeSetLaneScale(live(), scale)
+
     fun setDropHint(indicator: DropIndicator, trackIndex: Int = -1, startFrame: Long = 0, endFrame: Long = 0) =
         NativeTimeline.nativeSetDropHint(live(), indicator.code, trackIndex, startFrame, endFrame)
 

@@ -37,6 +37,15 @@ internal object EditorIcons {
 
     val Minus = icon("Minus", "M19,13H5v-2h14v2z")
 
+    val ChevronLeft = icon("ChevronLeft", "M15.41,7.41L14,6l-6,6 6,6 1.41,-1.41L10.83,12z")
+
+    val ChevronUp = icon("ChevronUp", "M7.41,15.41L12,10.83l4.59,4.58L18,14l-6,-6 -6,6z")
+
+    val ChevronRight = icon("ChevronRight", "M10,6L8.59,7.41 13.17,12l-4.58,4.59L10,18l6,-6z")
+
+    /** A window split into panes: the layout controls. */
+    val LayoutPanes = icon("LayoutPanes", "M3,3h18v18H3V3zM5,5v4h14V5H5zM5,11v8h5v-8H5zM12,11v8h7v-8h-7z")
+
     val Pause = icon("Pause", "M6,19h4V5H6v14zM14,5v14h4V5h-4z")
 
     val SkipPrevious = icon("SkipPrevious", "M6,6h2v12H6zM9.5,12l8.5,6V6z")

@@ -135,7 +135,11 @@ waves of SPECS 9.20.
       _Status:_ implemented and unit-tested (domain `DropPlan.decideNew`, tray model, ViewModel drag/drop/import/reorder, drag payload helpers); **not seen on the OPPO** (not reachable by adb when this was built): the tray layout, the platform drag from tray to the native canvas, edge auto-scroll while dragging, drops from other apps and the drag shadow still need a manual check.
 
 ### Wave 1
-- [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
+- [x] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
+  - _Status:_ pure `LayoutState` reducer, presets, per-window persistence and the controller are covered by 34 JVM tests; the native lane scale by a host test.
+    Seen on the Pixel 8 (not the reference phone): divider drag, the layout sheet, Large lanes, the Timeline focus preset, and the Two panels preset in a
+    widened (762 dp) window with the tray in a left column. Not seen: the inspector docked to a side, customise mode buttons, collapsing a side column,
+    persistence across a restart, split-screen/fold changes, and the OPPO. Pinch-to-resize lanes is not built (the -/+ control is).
 - [x] WP-C Colour tools and scopes: waveform, RGB parade, vectorscope, histogram; colour grade effect (lift/gamma/gain wheels, offset, contrast + pivot, saturation, vibrance, temperature, tint, four tone curves); looks, copy and paste. _Status:_ implemented with CPU-reference, wire, JSON, undo and ViewModel tests (host and JVM pass) and checked on the Pixel 8 (not the reference OPPO): the grade shader compiles and renders (gain wheel towards red tints the preview and shifts the waveform), the four scopes draw on their own surface with graticule and scale labels, a curve point can be added and dragged and the mid tones follow, and no GL or fatal errors appear in logcat. Not seen: saving and applying a look and copy/paste on the device, an HLG project (scale labels), the export of a graded clip, scope cost at 4K60, and the OPPO. The HSL qualifiers of the spec are deferred (see DECISIONS.md).
 
 ### Wave 2
