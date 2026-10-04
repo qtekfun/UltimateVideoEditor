@@ -126,6 +126,11 @@ import com.ultimatevideo.uveditor.domain.TrackMath
 import com.ultimatevideo.uveditor.domain.TrackSeed
 import com.ultimatevideo.uveditor.engine.stabilise.NoStabiliser
 import com.ultimatevideo.uveditor.engine.track.MotionTracker
+import com.ultimatevideo.uveditor.engine.multicam.MulticamServices
+import com.ultimatevideo.uveditor.domain.multicam.AngleFeed
+import com.ultimatevideo.uveditor.domain.multicam.MulticamClip
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamController
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState
 import com.ultimatevideo.uveditor.engine.track.NoMotionTracker
 import com.ultimatevideo.uveditor.engine.track.TrackOutcome
 import com.ultimatevideo.uveditor.engine.track.TrackStatus
@@ -171,6 +176,8 @@ class EditorViewModel(
     private val trackDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** Writes bundles, EDLs and FCPXML files; the default cannot write anything. */
     private val interchange: InterchangeExporter = InterchangeExporter.None,
+    /** What the multicam editor needs from the engine: waveform envelopes to sync angles, proxy readiness, the decoder limit. */
+    private val multicamServices: MulticamServices = MulticamServices.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
@@ -210,6 +217,23 @@ class EditorViewModel(
     private val assetKeys = KeyRegistry()
 
     private var history = EditHistory(Timeline())
+
+    /** Picking, syncing and cutting multicam angles; it borrows this model's state, undo history and messages. */
+    private val multicamController = MulticamController(
+        object : MulticamController.Host {
+            override val editor: EditorState get() = state.value
+            override fun update(change: (MulticamUiState) -> MulticamUiState) = reduce { copy(multicam = change(multicam)) }
+            override fun execute(command: EditCommand): Boolean = this@EditorViewModel.execute(command)
+            override fun message(text: String) = emit(EditorEffect.ShowMessage(text))
+            override fun newId(): String = idGenerator()
+            override fun assetLengthFrames(assetId: String): Long? = this@EditorViewModel.assetLengthFrames(assetId)
+        },
+        multicamServices,
+        viewModelScope,
+    )
+
+    /** Where each angle of [group] is shown from while [active] is on screen (the viewer's decoder budget). */
+    fun multicamFeeds(group: MulticamClip, active: Int): List<AngleFeed> = multicamController.feeds(group, active)
     private var baseProject: ProjectDto? = null
     private var drag: DragSession? = null
     private var trayDrag: TrayDragSession? = null
@@ -268,6 +292,7 @@ class EditorViewModel(
             EditorIntent.RemoveNoiseSuppression -> removeNoiseSuppression()
             EditorIntent.CancelAudioAnalysis -> audioAnalyzer?.cancel()
             EditorIntent.ToggleMixer -> reduce { copy(mixerOpen = !mixerOpen) }
+            is EditorIntent.Multicam -> multicamController.handle(intent.intent)
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             is EditorIntent.DragStart -> dragStart(intent.hit)
