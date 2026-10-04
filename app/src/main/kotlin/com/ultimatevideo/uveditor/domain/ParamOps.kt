@@ -165,7 +165,7 @@ object ParamOps {
         return EditResult.Success(current)
     }
 
-    /** Like [setFxAt] for the clip's audio block: pan and EQ band gains that are keyframed and changed become keys. */
+    /** Like [setFxAt] for the clip's audio block: pan, EQ band gains and voice sliders that are keyframed and changed become keys. */
     fun setClipAudioAt(timeline: Timeline, clipId: String, edited: ClipAudio, frame: Long?): EditResult<Timeline> {
         val clip = clipOf(timeline, clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val shown = if (frame == null) clip.audio else clip.displayedAt(frame).audio
@@ -183,6 +183,20 @@ object ParamOps {
             band.copy(gainDb = clip.audio.eq.bands.getOrNull(i)?.gainDb ?: band.gainDb)
         }
         audio = audio.copy(eq = audio.eq.copy(bands = bands))
+        // A voice slider that is keyframed keeps its fixed value; a change at the playhead becomes a key. Another preset
+        // (or none) is a new effect, so nothing of the old one's animation applies to it.
+        val editedVoice = edited.voice
+        val currentVoice = clip.audio.voice
+        if (editedVoice != null && currentVoice != null && editedVoice.preset == currentVoice.preset && editedVoice.values.size == currentVoice.values.size) {
+            val shownVoice = shown.voice?.takeIf { it.preset == currentVoice.preset } ?: currentVoice
+            val values = editedVoice.values.mapIndexed { i, v ->
+                val id = ParamIds.voice(i)
+                if (ParamTracks.track(clip.params, id) == null) return@mapIndexed v
+                if (frame != null && kotlin.math.abs(v - shownVoice.values[i]) > EPSILON) keys += id to v
+                currentVoice.values[i]
+            }
+            audio = audio.copy(voice = editedVoice.copy(values = values))
+        }
         var current = when (val result = TimelineOps.setClipAudio(timeline, clipId, audio)) {
             is EditResult.Success -> result.value
             is EditResult.Failure -> return result
@@ -215,7 +229,7 @@ fun Clip.displayedAt(frame: Long?): Clip {
     return copy(
         fx = fxAt(frame),
         gainDb = paramValueAt(ParamIds.GAIN_DB, frame) ?: gainDb,
-        audio = audio.copy(pan = paramValueAt(ParamIds.PAN, frame) ?: audio.pan, eq = audio.eq.copy(bands = bands)),
+        audio = audio.copy(pan = paramValueAt(ParamIds.PAN, frame) ?: audio.pan, eq = audio.eq.copy(bands = bands), voice = voiceAt(frame)),
     )
 }
 
@@ -231,6 +245,10 @@ internal fun Clip.withStaticParam(paramId: String, value: Double): Clip {
             ),
         )
     }
+    ParamIds.parseVoice(paramId)?.let { index ->
+        val voice = audio.voice ?: return this
+        return if (index in voice.values.indices) copy(audio = audio.copy(voice = voice.with(index, value))) else this
+    }
     return when (paramId) {
         ParamIds.GAIN_DB -> copy(gainDb = value)
         ParamIds.PAN -> copy(audio = audio.copy(pan = value))
@@ -240,6 +258,17 @@ internal fun Clip.withStaticParam(paramId: String, value: Double): Clip {
             )
         } ?: this
     }
+}
+
+/** The clip's voice effect with every keyframed slider at its value [relativeFrame] frames after the clip's start. */
+fun Clip.voiceAt(relativeFrame: Long): VoiceFx? {
+    val voice = audio.voice ?: return null
+    if (params.isEmpty()) return voice
+    return voice.copy(
+        values = voice.values.mapIndexed { i, base ->
+            ParamTracks.evaluate(ParamTracks.track(params, ParamIds.voice(i))?.keys.orEmpty(), relativeFrame, base)
+        },
+    )
 }
 
 /**

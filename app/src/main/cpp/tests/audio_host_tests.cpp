@@ -259,6 +259,28 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
         voiceParamsToFloats(c.voice, f);
         for (float v : f) w.put<float>(v);
     }
+    // Voice lanes (version 7): per clip a count and the lanes, then the byte size of all of it.
+    if (version >= 7) {
+        uint32_t bytes = 0;
+        for (const auto& c : clips) {
+            w.put<uint32_t>(static_cast<uint32_t>(c.voiceLanes.size()));
+            bytes += 4;
+            for (const VoiceAutoLane& lane : c.voiceLanes) {
+                w.put<int32_t>(lane.field);
+                w.put<uint32_t>(static_cast<uint32_t>(lane.points.size()));
+                w.put<uint32_t>(0);
+                w.put<uint32_t>(0);
+                bytes += 16;
+                for (const AutoPoint& p : lane.points) {
+                    w.put<int64_t>(p.frame);
+                    w.put<float>(p.value);
+                    w.put<uint32_t>(0);
+                    bytes += 16;
+                }
+            }
+        }
+        w.put<uint32_t>(bytes);
+    }
     return w;
 }
 
@@ -1619,14 +1641,14 @@ static void testAutomationSnapshotParsing() {
     CHECK(out.clips[0].lanes[2].param == AutoParam::EqGain2);
     CHECK(out.clips[1].lanes.empty());
 
-    // Version 4 and 5 buffers (no voice blocks, and no lanes before 5) still parse; a newer version does not.
+    // Version 4 to 6 buffers (no voice lanes before 7, no voice blocks before 6, no lanes before 5) still parse; a newer version does not.
     AudioClipDesc plain = clipDesc(3, 0, 20);
-    for (uint32_t old : {4u, 5u}) {
+    for (uint32_t old : {4u, 5u, 6u}) {
         Buf older = makeAudioSnapshot(30, 1, {plain}, {}, old);
         CHECK(parseAudioSnapshot(older.b.data(), older.b.size(), &out) == Status::Ok);
         CHECK(out.clips.size() == 1 && out.clips[0].voice.isNeutral());
     }
-    Buf future = makeAudioSnapshot(30, 1, {plain}, {}, 7);
+    Buf future = makeAudioSnapshot(30, 1, {plain}, {}, 8);
     CHECK(parseAudioSnapshot(future.b.data(), future.b.size(), &out) == Status::BadSnapshot);
 
     auto bad = [&](AudioClipDesc clip) {
@@ -1832,7 +1854,7 @@ static void testVoiceSnapshotParsing() {
         c.voice.bandHighHz = 1000.0f;
     }));
     // The reserved floats must be zero, and a truncated or padded buffer is refused.
-    Buf reserved = makeAudioSnapshot(30, 1, {withVoice});
+    Buf reserved = makeAudioSnapshot(30, 1, {withVoice}, {}, 6);
     const float one = 1.0f;
     std::memcpy(reserved.b.data() + reserved.b.size() - sizeof(float), &one, sizeof(one));
     CHECK(parseAudioSnapshot(reserved.b.data(), reserved.b.size(), &out) == Status::BadSnapshot);
@@ -1965,6 +1987,200 @@ static void testVoiceEffectsAreBlockSizeIndependent() {
     g_spec = FakeSpec{};
 }
 
+// ------------------------------------------------------------------ keyframed voice effects
+
+static VoiceAutoLane voiceLaneOf(int field, std::initializer_list<std::pair<int64_t, float>> points) {
+    VoiceAutoLane lane;
+    lane.field = field;
+    for (const auto& [frame, value] : points) lane.points.push_back(AutoPoint{frame, value});
+    return lane;
+}
+
+static void testVoiceLaneSnapshotParsing() {
+    AudioSnapshotData out;
+    AudioClipDesc c = clipDesc(1, 0, 60);
+    c.voice.echoMs = 200.0f;
+    c.voiceLanes = {voiceLaneOf(0, {{0, 0.0f}, {30, 5.0f}}), voiceLaneOf(8, {{10, 0.0f}, {20, 400.0f}, {59, 1.0f}}),
+                    voiceLaneOf(10, {{0, 0.5f}})};
+    AudioClipDesc plain = clipDesc(2, 70, 10);
+    plain.lanes = {laneOf(AutoParam::Pan, {{0, 0.0f}, {5, 1.0f}})};  // all three lane kinds coexist
+    Buf ok = makeAudioSnapshot(30, 1, {c, plain});
+    CHECK(parseAudioSnapshot(ok.b.data(), ok.b.size(), &out) == Status::Ok);
+    CHECK(out.clips.size() == 2 && out.clips[0].voiceLanes.size() == 3 && out.clips[1].voiceLanes.empty());
+    CHECK(out.clips[0].voiceLanes[0].field == 0 && out.clips[0].voiceLanes[0].points.size() == 2);
+    CHECK(out.clips[0].voiceLanes[1].field == 8 && out.clips[0].voiceLanes[1].points[1].value == 400.0f);
+    CHECK(out.clips[0].voiceLanes[2].points[0].value == 0.5f && out.clips[1].lanes.size() == 1);
+
+    auto bad = [&](auto edit) {
+        AudioClipDesc clip = clipDesc(1, 0, 60);
+        edit(clip);
+        Buf b = makeAudioSnapshot(30, 1, {clip});
+        return parseAudioSnapshot(b.b.data(), b.b.size(), &out) == Status::BadSnapshot;
+    };
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(14, {{0, 0.0f}})}; }));                         // no such field
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(0, {{0, 0.0f}}), voiceLaneOf(0, {{1, 1.0f}})}; }));  // two lanes, one field
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(0, {{0, 13.0f}})}; }));                          // pitch out of range
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(9, {{0, 0.99f}})}; }));                          // feedback out of range
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(8, {{0, 0.5f}})}; }));                           // echo delay: 0 or 1..2000
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(2, {{0, std::nanf("")}})}; }));
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(2, {{5, 0.0f}, {5, 1.0f}})}; }));               // frames must increase
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(2, {{0, 0.0f}, {61, 1.0f}})}; }));              // past the clip
+    CHECK(bad([](AudioClipDesc& x) { x.voiceLanes = {voiceLaneOf(2, {})}; }));                                    // a lane needs a point
+    // Truncated, padded, and a trailer that lies about the size are refused.
+    CHECK(parseAudioSnapshot(ok.b.data(), ok.b.size() - 4, &out) == Status::BadSnapshot);
+    Buf padded = ok;
+    padded.put<uint32_t>(0);
+    CHECK(parseAudioSnapshot(padded.b.data(), padded.b.size(), &out) == Status::BadSnapshot);
+    Buf lying = ok;
+    const uint32_t huge = 1u << 30;
+    std::memcpy(lying.b.data() + lying.b.size() - sizeof(uint32_t), &huge, sizeof(huge));
+    CHECK(parseAudioSnapshot(lying.b.data(), lying.b.size(), &out) == Status::BadSnapshot);
+    // A version 6 buffer has no trailer and still parses (voice settings, no voice lanes).
+    AudioClipDesc v6 = clipDesc(1, 0, 60);
+    v6.voice.pitchSemitones = 2.0f;
+    Buf old = makeAudioSnapshot(30, 1, {v6}, {}, 6);
+    CHECK(parseAudioSnapshot(old.b.data(), old.b.size(), &out) == Status::Ok && out.clips[0].voiceLanes.empty());
+    CHECK(out.clips[0].voice.pitchSemitones == 2.0f);
+}
+
+static void testVoiceLanesThroughTheCore() {
+    g_spec = FakeSpec{};
+    g_spec.sineHz = 440.0;
+    g_spec.sineAmp = 0.4f;
+    auto cents = [](double hz, double expected) { return std::fabs(1200.0 * std::log2(hz / expected)); };
+
+    // Nothing is set statically; only a lane asks for a pitch shift, which the engine must still honour. The shift
+    // ramps up over the first second and then holds at 5 semitones.
+    AudioClipDesc glide = toolClip(1, 0, 120);
+    glide.voiceLanes = {voiceLaneOf(0, {{0, 0.0f}, {30, 5.0f}})};
+    glide.voiceLanes.push_back(voiceLaneOf(1, {{0, 0.0f}, {30, 5.0f}}));
+    std::vector<float> out = playFor(snap30({glide}), 4.0);
+    CHECK(cents(zeroCrossingHz(out, 2 * 48000, 3 * 48000), 440.0 * std::pow(2.0, 5.0 / 12.0)) < 5.0);
+    const double level = rmsRange(out, 2 * 48000, 3 * 48000);
+    CHECK(level > 0.25 && level < 0.32);
+
+    // Halfway up the ramp (frame 15, 0.5 s) the pitch is 2.5 semitones, read over a short window.
+    CHECK(cents(zeroCrossingHz(out, 22800, 25200), 440.0 * std::pow(2.0, 2.5 / 12.0)) < 40.0);
+
+    // A seek lands on the clip-local position: after jumping to 2 s the lane's held value is heard, not the start of the ramp.
+    AudioCore* core = nullptr;
+    (void)playFor(snap30({glide}), 0.5, &core);
+    core->seekSamples(2 * 48000);
+    std::vector<float> after;
+    CHECK(renderUntilPlaying(*core, &after));
+    while (static_cast<double>(after.size() / 2) < 2.0 * 48000) step(*core, &after);
+    // The first frames after the jump are the play-out of the buffer that was positioned there: skip a few blocks.
+    CHECK(cents(zeroCrossingHz(after, 24000, 72000), 440.0 * std::pow(2.0, 5.0 / 12.0)) < 8.0);
+
+    // A fixed echo whose mix is keyframed from 0 to 0.8 at 1 s: dry sample for sample until then, repeats after.
+    AudioClipDesc echo = toolClip(1, 0, 120);
+    echo.voice.echoMs = 200.0f;
+    echo.voice.echoFeedback = 0.5f;
+    echo.voice.echoMix = 0.8f;
+    echo.voiceLanes = {voiceLaneOf(10, {{0, 0.0f}, {30, 0.0f}, {32, 0.8f}})};
+    std::vector<float> plain = playFor(snap30({toolClip(1, 0, 120)}), 4.0);
+    std::vector<float> echoed = playFor(snap30({echo}), 4.0);
+    double dry = 0;
+    for (size_t i = 0; i < 46000; ++i) dry = std::max(dry, static_cast<double>(std::fabs(echoed[2 * i] - plain[2 * i])));
+    CHECK(dry < 1e-6);
+    CHECK(rmsRange(echoed, 3 * 48000, 4 * 48000 - 1) > rmsRange(plain, 3 * 48000, 4 * 48000 - 1) * 1.3);
+
+    // A lane that holds the very value the effect has statically changes nothing, for every stage at once.
+    AudioClipDesc full = toolClip(1, 0, 90);
+    full.voice.pitchSemitones = 3.0f;
+    full.voice.formantSemitones = -2.0f;
+    full.voice.whisperMix = 0.3f;
+    full.voice.ringHz = 70.0f;
+    full.voice.ringMix = 0.3f;
+    full.voice.bandLowHz = 200.0f;
+    full.voice.bandHighHz = 7000.0f;
+    full.voice.driveDb = 6.0f;
+    full.voice.echoMs = 180.0f;
+    full.voice.echoFeedback = 0.4f;
+    full.voice.echoMix = 0.3f;
+    full.voice.reverbSize = 0.6f;
+    full.voice.reverbMix = 0.3f;
+    AudioClipDesc held = full;
+    float f[kVoiceParamFloats];
+    voiceParamsToFloats(full.voice, f);
+    for (int field = 0; field < kVoiceFieldCount; ++field) held.voiceLanes.push_back(voiceLaneOf(field, {{0, f[field]}, {40, f[field]}}));
+    g_spec.noiseAmp = 0.05f;
+    g_spec.noiseSeed = 9;
+    g_spec.totalFrames = 2 * 48000;
+    const std::vector<float> a = renderOffline(snap30({full}), 4 * 48000, 480);
+    const std::vector<float> b = renderOffline(snap30({held}), 4 * 48000, 480);
+    double diff = 0;
+    for (size_t i = 0; i < a.size(); ++i) diff = std::max(diff, static_cast<double>(std::fabs(a[i] - b[i])));
+    CHECK(diff < 1e-5);
+    g_spec = FakeSpec{};
+}
+
+static void testVoiceLanesAreBlockSizeIndependentAndMatchRealtime() {
+    g_spec = FakeSpec{};
+    g_spec.sineHz = 330.0;
+    g_spec.sineAmp = 0.3f;
+    g_spec.noiseAmp = 0.05f;
+    g_spec.noiseSeed = 5;
+    g_spec.totalFrames = 2 * 48000;  // the media ends before the clip: the animated tail is part of the comparison
+    AudioClipDesc c = toolClip(1, 0, 120);
+    c.voice.pitchSemitones = 1.0f;
+    c.voice.whisperMix = 0.1f;
+    c.voice.ringHz = 60.0f;
+    c.voice.ringMix = 0.2f;
+    c.voice.bandLowHz = 200.0f;
+    c.voice.bandHighHz = 7000.0f;
+    c.voice.driveDb = 3.0f;
+    c.voice.echoMs = 150.0f;
+    c.voice.echoFeedback = 0.3f;
+    c.voice.echoMix = 0.3f;
+    c.voice.reverbSize = 0.4f;
+    c.voice.reverbMix = 0.2f;
+    c.voiceLanes = {
+        voiceLaneOf(0, {{0, -4.0f}, {50, 6.0f}, {100, 0.0f}}),
+        voiceLaneOf(1, {{0, 2.0f}, {80, -3.0f}}),
+        voiceLaneOf(2, {{20, 0.0f}, {60, 0.7f}}),
+        voiceLaneOf(3, {{0, 40.0f}, {70, 400.0f}}),
+        voiceLaneOf(5, {{0, 0.0f}, {40, 500.0f}}),  // the high-pass switches on (0 means off)
+        voiceLaneOf(7, {{0, 0.0f}, {60, 12.0f}}),
+        voiceLaneOf(8, {{0, 100.0f}, {50, 300.0f}, {90, 0.0f}}),  // a gliding delay that is then switched off
+        voiceLaneOf(10, {{0, 0.1f}, {100, 0.6f}}),
+        voiceLaneOf(11, {{0, 0.2f}, {100, 0.9f}}),
+        voiceLaneOf(13, {{0, 0.0f}, {50, 0.5f}}),
+    };
+    c.pan = 0.2f;
+    AudioSnapshotData d = snap30({c});
+    const int64_t frames = 5 * 48000;
+    const std::vector<float> ref = renderOffline(d, frames, 480);
+    for (int block : {17, 64, 1000, 4096}) {
+        const std::vector<float> other = renderOffline(d, frames, block);
+        double diff = 0;
+        for (size_t i = 0; i < ref.size(); ++i) diff = std::max(diff, static_cast<double>(std::fabs(ref[i] - other[i])));
+        CHECK(diff < 1e-6);
+    }
+    const std::vector<float> live = playFor(d, 5.0);
+    double diff = 0;
+    for (int64_t i = 0; i < frames * 2 && i < static_cast<int64_t>(live.size()); ++i) {
+        diff = std::max(diff, static_cast<double>(std::fabs(ref[static_cast<size_t>(i)] - live[static_cast<size_t>(i)])));
+    }
+    CHECK(diff < 1e-6);
+    double peak = 0;
+    bool finite = true;
+    for (float v : ref) {
+        peak = std::max(peak, static_cast<double>(std::fabs(v)));
+        finite = finite && std::isfinite(v);
+    }
+    CHECK(finite && peak > 0.1 && peak <= 1.0);
+
+    // Changing a key makes a new source (the old buffer is not reused): the sound differs from the first version.
+    AudioClipDesc other = c;
+    other.voiceLanes[0] = voiceLaneOf(0, {{0, 4.0f}, {50, -6.0f}, {100, 0.0f}});
+    const std::vector<float> changed = renderOffline(snap30({other}), frames, 480);
+    double delta = 0;
+    for (size_t i = 0; i < ref.size(); ++i) delta = std::max(delta, static_cast<double>(std::fabs(ref[i] - changed[i])));
+    CHECK(delta > 0.05);
+    g_spec = FakeSpec{};
+}
+
 static void testMeterReportsPeaks() {
     g_spec = FakeSpec{};
     g_spec.constant = 0.5f;
@@ -2080,6 +2296,9 @@ int main() {
     testVoiceSnapshotParsing();
     testVoiceEffectsThroughTheCore();
     testVoiceEffectsAreBlockSizeIndependent();
+    testVoiceLaneSnapshotParsing();
+    testVoiceLanesThroughTheCore();
+    testVoiceLanesAreBlockSizeIndependentAndMatchRealtime();
     testMeterReportsPeaks();
     testAnalysis();
     if (g_failures == 0) std::puts("audio host tests: all passed");

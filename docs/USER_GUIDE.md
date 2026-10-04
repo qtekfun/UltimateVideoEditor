@@ -7,7 +7,7 @@ automated tests so far; see [Known limits](#known-limits).
 ## Contents
 
 1. [Project hub](#project-hub)
-2. [Editor layout](#editor-layout) and [Layout](#layout)
+2. [Editor layout](#editor-layout), [Fullscreen preview](#fullscreen-preview) and [Layout](#layout)
 3. [Toolbar icons](#toolbar-icons)
 4. [Media tray](#media-tray) and [Media library](#media-library)
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
@@ -98,6 +98,16 @@ From top to bottom:
 6. **Media tray** at the bottom (see [Media tray](#media-tray)): collapsed to a thin tab strip until you open it.
 
 On wide windows (tablet, foldable open, or a phone sideways) the tray and the inspector can sit in side columns.
+
+## Fullscreen preview
+
+**Double tap** the picture on the preview to make it fill the whole screen. The timeline, toolbars and the system bars are
+hidden; playback carries on exactly where it was, and the picture keeps its shape (black bars if the project's shape differs
+from the screen's). **Tap once** to show a small strip with **play/pause** and **leave fullscreen**; it fades after about 2.5
+seconds. To leave, **double tap** again, use the strip's exit icon or press **Back**. Swiping from a screen edge shows the
+system bars for a moment. Fullscreen survives rotating the device. Dragging, pinching and twisting on the picture still edit
+the selected clip, in fullscreen too (a tap or a double tap never moves anything). The
+four-arrows button in the transport row is something else: it fits the whole project into the timeline.
 
 ## Layout
 
@@ -315,7 +325,9 @@ reverse do not apply to them.
 you stretch it, with each frame shown for the delay the file states (delays of 10 ms or less count as 100 ms, as in
 browsers). The animation starts at the clip's first frame, so trimming the start does not skip into it. The export draws
 the same frame at every frame of the movie. **Animated WebP** files work the same way (lossy, lossless and transparent
-frames, with their own durations and blend/dispose settings). The file's own loop count is ignored: an animation always loops.
+frames, with their own durations and blend/dispose settings). The file's own loop count is honoured: a GIF or WebP that
+asks to play N times plays N times and the clip then holds the last frame (a GIF without a loop setting plays once, one that
+asks for "forever" loops). Projects saved before this keep looping.
 Pictures are kept at their own size and scaled by the GPU, and an export loads each frame only when the movie reaches it, so
 even an animation of hundreds of frames on a 4K canvas stays within a fixed memory budget (128 MB). The only cost of a very
 long animation is time: frames that fall out of the budget are decoded again when it loops.
@@ -523,8 +535,11 @@ device. Every setting is non-destructive and one undo step (a slider drag is one
   **Robot** (ring modulation plus a very short echo), **Whisper** (noise instead of pitch), **Radio** (telephone band
   and drive), **Echo** (delay, repeats, mix), **Reverb** (size, damping, mix) and **Megaphone**. A slider takes effect
   when you release it (the clip is read again), as one undo step. Echo and reverb keep sounding after the clip's own
-  sound ends, up to the end of the clip. It is the same signal processing for preview and export, and nothing leaves
-  the phone.
+  sound ends, up to the end of the clip. Every slider has a keyframe diamond like pan and the EQ gains: tap it to key the
+  slider at the playhead and the effect changes over time (a pitch glide, an echo that fades in, a reverb that opens up);
+  the sliders then show the value at the playhead and moving one adds a key there. Choosing another preset starts with no
+  keys. Reverb size animates the decay, not the size of the room, and an echo delay that moves glides in pitch like a
+  tape delay. It is the same signal processing for preview and export, and nothing leaves the phone.
 - **Reset sound** restores all of the above.
 
 **Mixer** (toolbar faders icon): for every track a **Mute**, **Solo**, **Volume** (dB), **Role** (Normal, Voice,
@@ -701,7 +716,7 @@ the colours are the app's own, so the screens look the same on every phone.
 - Sound tools and the mixer are covered by automated tests; they have had only a short check on a real device
   (the mixer sheet and meter opened and playback ran). Listen to a noise-suppressed clip before exporting.
 - Slow motion repeats frames (no blending). Audio speed change is varispeed.
-- Animated GIFs and animated WebP files play and loop; their own loop count is ignored. A very long animation on a loop
+- Animated GIFs and animated WebP files play and loop for the number of times the file asks for (then hold the last frame). A very long animation on a loop
   re-decodes frames that no longer fit the 128 MB picture budget.
 - Reverse playback of long-GOP 4K footage is slow.
 - Beat detection only reads loudness, not pitch.

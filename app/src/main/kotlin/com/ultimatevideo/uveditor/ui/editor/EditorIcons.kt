@@ -47,6 +47,12 @@ internal object EditorIcons {
             "2.89,2.87L15,21h6z",
     )
 
+    /** Four corners pointing inward: leave the fullscreen preview. */
+    val FullscreenExit = icon(
+        "FullscreenExit",
+        "M5,16h3v3h2v-5H5v2zM8,8H5v2h5V5H8v3zM14,19h2v-3h3v-2h-5v5zM16,8V5h-2v5h5V8h-3z",
+    )
+
     val Minus = icon("Minus", "M19,13H5v-2h14v2z")
 
     val ChevronLeft = icon("ChevronLeft", "M15.41,7.41L14,6l-6,6 6,6 1.41,-1.41L10.83,12z")

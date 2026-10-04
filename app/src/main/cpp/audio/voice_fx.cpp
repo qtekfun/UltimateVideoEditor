@@ -79,20 +79,32 @@ double reverbSizeScale(float size) { return 0.6 + 1.1 * static_cast<double>(size
 double reverbFeedback(float size) { return 0.72 + 0.21 * static_cast<double>(size); }
 
 // Everything after the spectral stage: ring modulation, band limit + drive, echo, reverb. Plain
-// per-sample code, so the result never depends on how the stream is cut.
+// per-sample code, so the result never depends on how the stream is cut. With a schedule the settings are read
+// every kBlock samples at the sample's clip-local position (origin + n), so animation does not depend on the
+// cut either; without one they are read once.
 struct PostChain {
-    VoiceParams p;
+    static constexpr int kBlock = 16;
+
+    VoiceParams base, p;  // p: the settings in force for the current block
+    const VoiceSchedule* sched = nullptr;
     double sr = 48000.0;
-    bool ring = false, band = false, drive = false, echo = false, reverb = false;
-    int64_t n = 0;  // frames since reset, the carrier's clock
+    bool ring = false, band = false, drive = false, echo = false, reverb = false;  // stages that can ever sound
+    bool echoMsAnimated = false;
+    int64_t n = 0;       // frames since reset
+    int64_t origin = 0;  // clip-local position of frame 0
 
     dsp::BiquadCoeffs hp, lp;
     dsp::BiquadState hpState[2][2];
     dsp::BiquadState lpState[2][2];
+    float lastLow = -1.0f, lastHigh = -1.0f, lastDrive = -1.0f;
     double driveGain = 1.0, driveNorm = 1.0;
+    double ringPhase = 0.0;
 
+    // The delay line holds the longest delay the settings ask for; the read position trails the write position by
+    // `echoNow` samples (fractional, ramped over a block towards `echoTarget` so a moving delay glides).
     std::vector<float> delay[2];
-    int delayLen = 0, delayPos = 0;
+    int delayCap = 0, delayPos = 0;
+    double echoNow = 1.0, echoTarget = 1.0, echoStep = 0.0;
 
     struct Comb {
         std::vector<float> buf;
@@ -107,41 +119,49 @@ struct PostChain {
     Allpass allpass[2][2];
     float combFeedback = 0.0f, combDamp = 0.0f;
 
-    void configure(const VoiceParams& params, double rate) {
+    // `env` is `params` widened by the schedule (see VoiceSchedule::envelope).
+    void configure(const VoiceParams& params, const VoiceParams& env, const VoiceSchedule* schedule, double rate) {
+        base = params;
         p = params;
+        sched = schedule;
         sr = rate;
-        ring = p.hasRing();
-        band = p.hasBand();
-        drive = p.driveDb > 0.0f;
-        echo = p.hasEcho();
-        reverb = p.hasReverb();
-        if (band) {
-            if (p.bandLowHz > 0.0f) hp = dsp::designBiquad(dsp::FilterType::HighPass, sr, p.bandLowHz, 0.0, 0.7071);
-            if (p.bandHighHz > 0.0f) lp = dsp::designBiquad(dsp::FilterType::LowPass, sr, std::min<double>(p.bandHighHz, sr * 0.45), 0.0, 0.7071);
-        }
-        if (drive) {
-            driveGain = dsp::dbToLin(p.driveDb);
-            driveNorm = 1.0 / std::tanh(driveGain);
-        }
+        ring = env.hasRing();
+        band = env.hasBand();
+        drive = env.driveDb > 0.0f;
+        echo = env.hasEcho();
+        reverb = env.hasReverb();
+        echoMsAnimated = sched != nullptr && sched->animates(8);
         if (echo) {
-            delayLen = std::max(1, static_cast<int>(std::lround(p.echoMs * 0.001 * sr)));
-            for (auto& d : delay) d.assign(static_cast<size_t>(delayLen), 0.0f);
+            delayCap = std::max(4, static_cast<int>(std::ceil(env.echoMs * 0.001 * sr)) + 2);
+            for (auto& d : delay) d.assign(static_cast<size_t>(delayCap), 0.0f);
         }
         if (reverb) {
-            const double scale = reverbSizeScale(p.reverbSize) * sr / 44100.0;
+            // The comb lengths are fixed for the whole clip; an animated size moves the decay (the feedback), not the
+            // room, and the room is the middle of the range the keys cover.
+            double size = base.reverbSize;
+            if (const VoiceLane* lane = sched != nullptr ? sched->find(11) : nullptr) {
+                float lo = base.reverbSize, hi = lo;
+                for (float v : lane->values) {
+                    lo = std::min(lo, v);
+                    hi = std::max(hi, v);
+                }
+                size = 0.5 * (static_cast<double>(lo) + hi);
+            }
+            const double scale = reverbSizeScale(static_cast<float>(size)) * sr / 44100.0;
             for (int c = 0; c < 2; ++c) {
                 const int spread = c == 0 ? 0 : kStereoSpread;
                 for (int i = 0; i < 4; ++i) comb[c][i].buf.assign(static_cast<size_t>(std::max(1, static_cast<int>(std::lround((kCombTuning[i] + spread) * scale)))), 0.0f);
                 for (int i = 0; i < 2; ++i) allpass[c][i].buf.assign(static_cast<size_t>(std::max(1, static_cast<int>(std::lround((kAllpassTuning[i] + spread) * sr / 44100.0)))), 0.0f);
             }
-            combFeedback = static_cast<float>(reverbFeedback(p.reverbSize));
-            combDamp = std::clamp(p.reverbDamping, 0.0f, 1.0f) * 0.4f;
         }
-        reset();
+        reset(0);
     }
 
-    void reset() {
+    void reset(int64_t position) {
+        origin = position;
         n = 0;
+        ringPhase = 0.0;
+        lastLow = lastHigh = lastDrive = -1.0f;
         for (auto& row : hpState) for (auto& s : row) s = dsp::BiquadState{};
         for (auto& row : lpState) for (auto& s : row) s = dsp::BiquadState{};
         for (auto& d : delay) std::fill(d.begin(), d.end(), 0.0f);
@@ -157,10 +177,57 @@ struct PostChain {
         }
     }
 
+    // Takes the settings at clip-local sample `pos` for the block that starts there.
+    void updateBlock(int64_t pos, bool first) {
+        if (sched != nullptr) p = sched->at(base, pos);
+        if (band) {
+            if (p.bandLowHz != lastLow) {
+                if (p.bandLowHz > 0.0f) {
+                    hp = dsp::designBiquad(dsp::FilterType::HighPass, sr, p.bandLowHz, 0.0, 0.7071);
+                    if (lastLow <= 0.0f) for (auto& s : hpState) for (auto& st : s) st = dsp::BiquadState{};
+                }
+                lastLow = p.bandLowHz;
+            }
+            if (p.bandHighHz != lastHigh) {
+                if (p.bandHighHz > 0.0f) {
+                    lp = dsp::designBiquad(dsp::FilterType::LowPass, sr, std::min<double>(p.bandHighHz, sr * 0.45), 0.0, 0.7071);
+                    if (lastHigh <= 0.0f) for (auto& s : lpState) for (auto& st : s) st = dsp::BiquadState{};
+                }
+                lastHigh = p.bandHighHz;
+            }
+        }
+        if (drive && p.driveDb != lastDrive) {
+            driveGain = dsp::dbToLin(p.driveDb);
+            driveNorm = 1.0 / std::tanh(driveGain);
+            lastDrive = p.driveDb;
+        }
+        if (echo) {
+            double target = p.echoMs * 0.001 * sr;
+            // A fixed delay is a whole number of samples, as it always was; only a moving one is fractional.
+            if (!echoMsAnimated) target = std::round(target);
+            target = std::clamp(target, 1.0, static_cast<double>(delayCap - 2));
+            if (first) {
+                echoNow = echoTarget = target;
+                echoStep = 0.0;
+            } else {
+                echoNow = echoTarget;
+                echoTarget = target;
+                echoStep = (echoTarget - echoNow) / kBlock;
+            }
+        }
+        if (reverb) {
+            combFeedback = static_cast<float>(reverbFeedback(p.reverbSize));
+            combDamp = std::clamp(p.reverbDamping, 0.0f, 1.0f) * 0.4f;
+        }
+    }
+
     void tick(float* lr) {
+        if (n == 0 || (sched != nullptr && n % kBlock == 0)) updateBlock(origin + n, n == 0);
         float x[2] = {lr[0], lr[1]};
-        if (ring) {
-            const double carrier = std::sin(2.0 * kPi * static_cast<double>(p.ringHz) * static_cast<double>(n) / sr);
+        if (ring && p.ringHz > 0.0f && p.ringMix > 0.0f) {
+            const double carrier = std::sin(ringPhase);
+            ringPhase += 2.0 * kPi * static_cast<double>(p.ringHz) / sr;
+            if (ringPhase > 2.0 * kPi) ringPhase -= 2.0 * kPi;
             const float m = p.ringMix;
             for (float& v : x) v = static_cast<float>(v * (1.0 - m) + m * v * carrier);
         }
@@ -179,17 +246,27 @@ struct PostChain {
                 x[c] = static_cast<float>(v);
             }
         }
-        if (drive) {
+        if (drive && p.driveDb > 0.0f) {
             for (float& v : x) v = static_cast<float>(std::tanh(driveGain * v) * driveNorm);
         }
         if (echo) {
+            const bool on = p.echoMs > 0.0f;
+            const float feedback = on ? p.echoFeedback : 0.0f;
+            const float mix = on ? p.echoMix : 0.0f;
+            double read = static_cast<double>(delayPos) - echoNow;
+            if (read < 0.0) read += delayCap;
+            int i0 = static_cast<int>(read);
+            const float frac = static_cast<float>(read - i0);
+            if (i0 >= delayCap) i0 -= delayCap;
+            const int i1 = i0 + 1 >= delayCap ? 0 : i0 + 1;
+            echoNow += echoStep;
             for (int c = 0; c < 2; ++c) {
-                float& slot = delay[c][static_cast<size_t>(delayPos)];
-                const float d = slot;
-                slot = flushDenormal(x[c] + p.echoFeedback * d);
-                x[c] += p.echoMix * d;
+                std::vector<float>& line = delay[c];
+                const float d = frac == 0.0f ? line[static_cast<size_t>(i0)] : line[static_cast<size_t>(i0)] * (1.0f - frac) + line[static_cast<size_t>(i1)] * frac;
+                line[static_cast<size_t>(delayPos)] = flushDenormal(x[c] + feedback * d);
+                x[c] += mix * d;
             }
-            if (++delayPos >= delayLen) delayPos = 0;
+            if (++delayPos >= delayCap) delayPos = 0;
         }
         if (reverb) {
             for (int c = 0; c < 2; ++c) {
@@ -249,14 +326,103 @@ uint64_t VoiceParams::hash() const {
     return h | 1ull;
 }
 
+VoiceFieldRange voiceFieldRange(int field) {
+    static constexpr VoiceFieldRange kRanges[kVoiceFieldCount] = {
+        {-kVoiceMaxShiftSemitones, kVoiceMaxShiftSemitones, false},  // pitchSemitones
+        {-kVoiceMaxShiftSemitones, kVoiceMaxShiftSemitones, false},  // formantSemitones
+        {0.0f, 1.0f, false},                                         // whisperMix
+        {10.0f, 2000.0f, true},                                      // ringHz
+        {0.0f, 1.0f, false},                                         // ringMix
+        {20.0f, 8000.0f, true},                                      // bandLowHz
+        {200.0f, 20000.0f, true},                                    // bandHighHz
+        {0.0f, 36.0f, false},                                        // driveDb
+        {1.0f, 2000.0f, true},                                       // echoMs
+        {0.0f, 0.95f, false},                                        // echoFeedback
+        {0.0f, 1.0f, false},                                         // echoMix
+        {0.0f, 1.0f, false},                                         // reverbSize
+        {0.0f, 1.0f, false},                                         // reverbDamping
+        {0.0f, 1.0f, false},                                         // reverbMix
+    };
+    return kRanges[field];
+}
+
 bool voiceParamsValid(const VoiceParams& p) {
-    return finiteIn(p.pitchSemitones, -kVoiceMaxShiftSemitones, kVoiceMaxShiftSemitones) &&
-           finiteIn(p.formantSemitones, -kVoiceMaxShiftSemitones, kVoiceMaxShiftSemitones) && finiteIn(p.whisperMix, 0.0f, 1.0f) &&
-           zeroOrIn(p.ringHz, 10.0f, 2000.0f) && finiteIn(p.ringMix, 0.0f, 1.0f) && zeroOrIn(p.bandLowHz, 20.0f, 8000.0f) &&
-           zeroOrIn(p.bandHighHz, 200.0f, 20000.0f) && finiteIn(p.driveDb, 0.0f, 36.0f) && zeroOrIn(p.echoMs, 1.0f, 2000.0f) &&
-           finiteIn(p.echoFeedback, 0.0f, 0.95f) && finiteIn(p.echoMix, 0.0f, 1.0f) && finiteIn(p.reverbSize, 0.0f, 1.0f) &&
-           finiteIn(p.reverbDamping, 0.0f, 1.0f) && finiteIn(p.reverbMix, 0.0f, 1.0f) &&
-           !(p.bandLowHz > 0.0f && p.bandHighHz > 0.0f && p.bandLowHz >= p.bandHighHz);
+    float f[kVoiceParamFloats];
+    voiceParamsToFloats(p, f);
+    for (int i = 0; i < kVoiceFieldCount; ++i) {
+        const VoiceFieldRange r = voiceFieldRange(i);
+        if (!(r.zeroOk ? zeroOrIn(f[i], r.lo, r.hi) : finiteIn(f[i], r.lo, r.hi))) return false;
+    }
+    return !(p.bandLowHz > 0.0f && p.bandHighHz > 0.0f && p.bandLowHz >= p.bandHighHz);
+}
+
+// ------------------------------------------------------------------------------ VoiceSchedule
+
+float VoiceLane::at(int64_t sample) const {
+    if (sample <= samples.front()) return values.front();
+    if (sample >= samples.back()) return values.back();
+    const auto it = std::upper_bound(samples.begin(), samples.end(), sample);
+    const size_t hi = static_cast<size_t>(it - samples.begin());
+    const size_t lo = hi - 1;
+    const double t = static_cast<double>(sample - samples[lo]) / static_cast<double>(samples[hi] - samples[lo]);
+    return static_cast<float>(values[lo] + (values[hi] - values[lo]) * t);
+}
+
+const VoiceLane* VoiceSchedule::find(int field) const {
+    for (const VoiceLane& lane : lanes) {
+        if (lane.field == field) return &lane;
+    }
+    return nullptr;
+}
+
+bool VoiceSchedule::animates(int field) const { return find(field) != nullptr; }
+
+VoiceParams VoiceSchedule::at(const VoiceParams& base, int64_t sample) const {
+    float f[kVoiceParamFloats];
+    voiceParamsToFloats(base, f);
+    for (const VoiceLane& lane : lanes) f[lane.field] = lane.at(sample);
+    VoiceParams out;
+    voiceParamsFromFloats(f, &out);
+    return out;
+}
+
+VoiceParams VoiceSchedule::envelope(const VoiceParams& base) const {
+    float f[kVoiceParamFloats];
+    voiceParamsToFloats(base, f);
+    for (const VoiceLane& lane : lanes) {
+        for (float v : lane.values) {
+            if (std::fabs(v) > std::fabs(f[lane.field])) f[lane.field] = v;
+        }
+    }
+    VoiceParams out;
+    voiceParamsFromFloats(f, &out);
+    return out;
+}
+
+uint64_t VoiceSchedule::identity(const VoiceParams& base) const {
+    if (lanes.empty()) return base.hash();
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    float f[kVoiceParamFloats];
+    voiceParamsToFloats(base, f);
+    for (float v : f) {
+        uint32_t bits = 0;
+        std::memcpy(&bits, &v, sizeof(bits));
+        mix(bits);
+    }
+    for (const VoiceLane& lane : lanes) {
+        mix(static_cast<uint64_t>(lane.field) + 0x100u);
+        for (size_t i = 0; i < lane.samples.size(); ++i) {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &lane.values[i], sizeof(bits));
+            mix(static_cast<uint64_t>(lane.samples[i]));
+            mix(bits);
+        }
+    }
+    return h | 1ull;
 }
 
 void voiceParamsFromFloats(const float* f, VoiceParams* p) {
@@ -336,11 +502,16 @@ struct VoiceProcessor::Impl {
     std::vector<int> peaks;
     std::vector<float> emit[2];
 
-    void init(const VoiceParams& p, int32_t rate) {
+    // The spectral settings of the next frame.
+    void setSpectral(const VoiceParams& p) {
         pitchRatio = std::pow(2.0, static_cast<double>(p.pitchSemitones) / 12.0);
         formantRatio = std::pow(2.0, static_cast<double>(p.formantSemitones) / 12.0);
         envelopeMode = std::fabs(formantRatio - pitchRatio) > 1e-6;
         whisper = p.whisperMix;
+    }
+
+    void init(const VoiceParams& p, const VoiceParams& widest, const VoiceSchedule* schedule, int32_t rate) {
+        setSpectral(p);
         lifter = std::max(8, static_cast<int>(std::lround(0.0016 * rate)));
         buf.assign(N, Cx());
         cep.assign(N, Cx());
@@ -352,13 +523,13 @@ struct VoiceProcessor::Impl {
         flat.assign(K, 0.0);
         nextPhase.assign(K, 0.0);
         peaks.reserve(K);
-        post.configure(p, rate);
+        post.configure(p, widest, schedule, rate);
     }
 
-    void resetState(bool spectralOn) {
+    void resetState(bool spectralOn, int64_t position) {
         ch[0].reset(0x1234567u);
         ch[1].reset(0x7654321u);
-        post.reset();
+        post.reset(position);
         skip = spectralOn ? kVoiceLatency : 0;
     }
 
@@ -496,18 +667,25 @@ struct VoiceProcessor::Impl {
     }
 };
 
-VoiceProcessor::VoiceProcessor(const VoiceParams& params, int32_t sampleRate, bool forceSpectral)
-    : impl_(new Impl()), params_(params), rate_(sampleRate), spectral_(forceSpectral || params.needsSpectral()) {
-    impl_->init(params_, rate_);
+VoiceProcessor::VoiceProcessor(const VoiceParams& params, int32_t sampleRate, bool forceSpectral,
+                               std::shared_ptr<const VoiceSchedule> schedule)
+    : impl_(new Impl()),
+      params_(params),
+      envelope_(schedule && !schedule->empty() ? schedule->envelope(params) : params),
+      schedule_(schedule && !schedule->empty() ? std::move(schedule) : nullptr),
+      rate_(sampleRate),
+      spectral_(forceSpectral || envelope_.needsSpectral()) {
+    impl_->init(params_, envelope_, schedule_.get(), rate_);
     reset();
 }
 
 VoiceProcessor::~VoiceProcessor() { delete impl_; }
 
-void VoiceProcessor::reset() {
+void VoiceProcessor::reset(int64_t position) {
+    origin_ = position;
     in_ = 0;
     out_ = 0;
-    impl_->resetState(spectral_);
+    impl_->resetState(spectral_, position);
 }
 
 void VoiceProcessor::process(const float* stereo, size_t frames, std::vector<float>* out) {
@@ -532,6 +710,11 @@ void VoiceProcessor::process(const float* stereo, size_t frames, std::vector<flo
             ch.pos = (ch.pos + 1) % N;
             if (++ch.count == H) {
                 ch.count = 0;
+                if (schedule_) {
+                    // The frame spans the last N input samples; its settings are those at the middle of that span.
+                    const int64_t consumed = in_ + static_cast<int64_t>(i) + 1;
+                    s.setSpectral(schedule_->at(params_, origin_ + std::max<int64_t>(0, consumed - N / 2)));
+                }
                 s.emit[c].clear();
                 s.runFrame(ch, s.emit[c]);
                 hop = true;
@@ -559,7 +742,7 @@ void VoiceProcessor::flush(std::vector<float>* out, int64_t maxTailFrames) {
         return;
     }
     const int64_t missing = in_ - out_;
-    const int64_t tail = std::max<int64_t>(0, std::min(maxTailFrames, params_.tailFrames(rate_)));
+    const int64_t tail = std::max<int64_t>(0, std::min(maxTailFrames, envelope_.tailFrames(rate_)));
     const int64_t want = missing + tail;
     std::vector<float> produced;
     std::vector<float> zeros(static_cast<size_t>(H) * 2, 0.0f);
