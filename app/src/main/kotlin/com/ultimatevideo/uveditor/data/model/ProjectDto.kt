@@ -19,6 +19,71 @@ data class ProjectDto(
     val transitions: List<TransitionDto> = emptyList(),
     /** Ruler markers; absent in projects written before markers existed. */
     val markers: List<MarkerDto> = emptyList(),
+    /** Sidechain ducking of music tracks by voice tracks; absent means off. */
+    val ducking: DuckingDto? = null,
+)
+
+/** See `domain/Ducking`. */
+@Serializable
+data class DuckingDto(
+    val amountDb: Double = 10.0,
+    val thresholdDb: Double = -35.0,
+    val attackMs: Double = 20.0,
+    val releaseMs: Double = 400.0,
+)
+
+/** Audio tools of a clip (`domain/ClipAudio`); the whole block is absent for a clip that uses none. */
+@Serializable
+data class ClipAudioDto(
+    val pan: Double = 0.0,
+    val fadeInFrames: Long = 0,
+    val fadeOutFrames: Long = 0,
+    val eq: ClipEqDto? = null,
+    val denoise: DenoiseDto? = null,
+    val normalizeDb: Double = 0.0,
+    val targetLufs: Double? = null,
+)
+
+@Serializable
+data class ClipEqDto(
+    val highPassHz: Double = 0.0,
+    val lowPassHz: Double = 0.0,
+    /** Low shelf, three peaking bands, high shelf. */
+    val bands: List<EqBandDto> = emptyList(),
+)
+
+@Serializable
+data class EqBandDto(
+    val freqHz: Double,
+    val gainDb: Double = 0.0,
+    val q: Double = 1.0,
+)
+
+/** Noise suppression: [strength] and the 513-bin noise profile taken from a quiet region. */
+@Serializable
+data class DenoiseDto(
+    val strength: Double,
+    val profile: List<Float>,
+)
+
+/** Mixer settings of a track (`domain/TrackAudio`); absent for a neutral track. */
+@Serializable
+data class TrackAudioDto(
+    val volumeDb: Double = 0.0,
+    val mute: Boolean = false,
+    val solo: Boolean = false,
+    /** `normal`, `voice` or `music`. */
+    val role: String = "normal",
+    val compressor: BusCompressorDto? = null,
+)
+
+@Serializable
+data class BusCompressorDto(
+    val thresholdDb: Double = -18.0,
+    val ratio: Double = 3.0,
+    val attackMs: Double = 10.0,
+    val releaseMs: Double = 120.0,
+    val makeupDb: Double = 0.0,
 )
 
 /** A ruler marker at [frame] project frames; [kind] is `manual` or `beat` (see `domain/Marker`). */
@@ -69,6 +134,7 @@ data class TrackDto(
     val type: String,
     val order: Int,
     val clips: List<ClipDto> = emptyList(),
+    val audio: TrackAudioDto? = null,
 )
 
 @Serializable
@@ -103,6 +169,8 @@ data class ClipDto(
     val mask: MaskDto? = null,
     /** `photo` or `sticker` for a still clip (then [assetId] is the picture or the built-in sticker id); absent otherwise. */
     val still: String? = null,
+    /** Pan, fade handles, EQ, noise suppression and loudness normalisation; absent when unused. */
+    val audio: ClipAudioDto? = null,
 )
 
 /** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */

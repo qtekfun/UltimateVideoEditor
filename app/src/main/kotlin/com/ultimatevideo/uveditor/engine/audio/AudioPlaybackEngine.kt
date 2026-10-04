@@ -83,6 +83,40 @@ class AudioPlaybackEngine : AutoCloseable {
         }
     }
 
+    /** Output peaks since the previous call (for the level meters); silent when nothing played. */
+    fun takePeaks(): PeakLevels {
+        val v = NativeAudio.nativeTakePeaks(live()) ?: return PeakLevels.SILENT
+        return if (v.size >= 2) PeakLevels(v[0], v[1]) else PeakLevels.SILENT
+    }
+
+    /**
+     * Integrated loudness (LUFS, ITU-R BS.1770) of [startMicros, endMicros) of a registered asset;
+     * [endMicros] < 0 measures to the end. Decodes on the calling thread: call it off the main thread.
+     * @throws AudioException when the media cannot be read or the measurement was cancelled.
+     */
+    fun measureLoudness(assetKey: Long, startMicros: Long, endMicros: Long): LoudnessResult {
+        val v = NativeAudio.nativeMeasureLoudness(live(), assetKey, startMicros, endMicros)
+            ?: throw EngineException("Native loudness measurement unavailable")
+        throwIfFailed(v[0].toInt(), "measureLoudness")
+        return LoudnessResult(lufs = v[1].takeIf { it > SILENCE_LUFS_FLOOR }, samplePeak = v[2])
+    }
+
+    /**
+     * The noise profile (magnitude per STFT bin, [NOISE_PROFILE_BINS] values) of a quiet region of a
+     * registered asset, for noise suppression. Off the main thread, like [measureLoudness].
+     * @throws AudioException when the region is too short (about 90 ms minimum) or cannot be read.
+     */
+    fun measureNoiseProfile(assetKey: Long, startMicros: Long, endMicros: Long): FloatArray {
+        val v = NativeAudio.nativeMeasureNoiseProfile(live(), assetKey, startMicros, endMicros)
+            ?: throw EngineException("Native noise profile measurement unavailable")
+        check(v.size == NOISE_PROFILE_BINS + 1) { "unexpected noise profile size ${v.size}" }
+        throwIfFailed(v[0].toInt(), "measureNoiseProfile")
+        return v.copyOfRange(1, v.size)
+    }
+
+    /** Stops a [measureLoudness] or [measureNoiseProfile] that is running on another thread. */
+    fun cancelAnalysis() = NativeAudio.nativeCancelAnalysis(live())
+
     /** Offline mode only. Returns the playhead in samples after rendering [frames] stereo frames into [out]. */
     internal fun renderOffline(out: FloatArray, frames: Int): Long = NativeAudio.nativeRenderOffline(live(), out, frames)
 
@@ -105,10 +139,13 @@ class AudioPlaybackEngine : AutoCloseable {
         if (code != 0) throw AudioException(code, "$what failed: ${AudioErrorCode.fromValue(code)} ($code)")
     }
 
-    private companion object {
-        const val STATS_FIELDS = 10
-        const val FAULT_STRIDE = 4
-        const val FAULT_UNDERRUN = 1
-        const val FAULT_DECODE = 2
+    companion object {
+        /** STFT bins of a noise profile (1024-point frames): see `kDenoiseBins` in spectral_denoise.h. */
+        const val NOISE_PROFILE_BINS = 513
+        private const val SILENCE_LUFS_FLOOR = -990.0
+        private const val STATS_FIELDS = 10
+        private const val FAULT_STRIDE = 4
+        private const val FAULT_UNDERRUN = 1
+        private const val FAULT_DECODE = 2
     }
 }

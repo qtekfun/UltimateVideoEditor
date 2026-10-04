@@ -16,6 +16,7 @@ import com.ultimatevideo.uveditor.domain.timeline
 import com.ultimatevideo.uveditor.domain.track
 import com.ultimatevideo.uveditor.engine.audio.RetimeKnot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -171,4 +172,127 @@ class AudioSnapshotMappingTest {
 
         assertEquals(keys.keyFor("c1"), spec.clips.single().clipKey)
     }
+
+
+    // region audio tools
+
+    private fun withAudio(tl: Timeline, clipId: String, audio: com.ultimatevideo.uveditor.domain.ClipAudio) =
+        TimelineOps.setClipAudio(tl, clipId, audio).getOrFail()
+
+    @Test
+    fun `tracks reach the mixer in timeline order and clips point at their own track`() {
+        val tl = timeline(
+            track("t1", clip("title", 0, 30, asset = null).copy(title = TitleContent("x")), type = TrackType.TITLE),
+            track("v1", clip("c1", 0, 100, asset = "a")),
+            track("a1", clip("c2", 0, 100, asset = "b"), type = TrackType.AUDIO),
+        )
+
+        val spec = snapshot(tl, asset("a", true), asset("b", true))
+
+        assertEquals(2, spec.tracks.size) // the title track carries no sound
+        assertEquals(0, spec.clips.first { it.clipKey == keys.keyFor("c1") }.trackIndex)
+        assertEquals(1, spec.clips.first { it.clipKey == keys.keyFor("c2") }.trackIndex)
+        assertEquals(stableTrackKey("v1"), spec.tracks[0].trackKey)
+        assertEquals(stableTrackKey("a1"), spec.tracks[1].trackKey)
+        assertEquals(stableTrackKey("v1"), stableTrackKey("v1"))
+    }
+
+    @Test
+    fun `track volume, mute, solo, role and compressor are folded into the track specs`() {
+        val base = timeline(
+            track("v1", clip("c1", 0, 100, asset = "a")),
+            track("a1", clip("c2", 0, 100, asset = "b"), type = TrackType.AUDIO),
+            track("a2", clip("c3", 0, 100, asset = "b"), type = TrackType.AUDIO),
+        )
+        val tl = TimelineOps.setTrackAudio(base, "a1", com.ultimatevideo.uveditor.domain.TrackAudio(volumeDb = -9.0, role = com.ultimatevideo.uveditor.domain.AudioRole.VOICE, compressor = com.ultimatevideo.uveditor.domain.BusCompressor(-20.0, 4.0, 5.0, 80.0, 2.0))).getOrFail()
+        val spec = snapshot(tl, asset("a", true), asset("b", true))
+
+        assertEquals(-9f, spec.tracks[1].gainDb, 0f)
+        assertEquals(com.ultimatevideo.uveditor.engine.audio.TrackRole.VOICE, spec.tracks[1].role)
+        assertEquals(com.ultimatevideo.uveditor.engine.audio.CompressorSpec(-20f, 4f, 5f, 80f, 2f), spec.tracks[1].compressor)
+        assertTrue(spec.tracks.none { it.muted })
+
+        // Soloing one track mutes the others (the mixer ramps the change).
+        val soloed = TimelineOps.setTrackAudio(tl, "a2", com.ultimatevideo.uveditor.domain.TrackAudio(solo = true)).getOrFail()
+        val s = snapshot(soloed, asset("a", true), asset("b", true))
+        assertEquals(listOf(true, true, false), s.tracks.map { it.muted })
+        // An explicit mute works on its own.
+        val muted = TimelineOps.setTrackAudio(base, "a2", com.ultimatevideo.uveditor.domain.TrackAudio(mute = true)).getOrFail()
+        assertEquals(listOf(false, false, true), snapshot(muted, asset("a", true), asset("b", true)).tracks.map { it.muted })
+    }
+
+    @Test
+    fun `ducking is forwarded only when it has an amount`() {
+        val base = timeline(track("a1", clip("c", 0, 100, asset = "a"), type = TrackType.AUDIO))
+        assertNull(snapshot(base, asset("a", true)).ducking)
+        val on = TimelineOps.setDucking(base, com.ultimatevideo.uveditor.domain.Ducking(12.0, -30.0, 25.0, 500.0)).getOrFail()
+        assertEquals(com.ultimatevideo.uveditor.engine.audio.DuckingSpec(12f, -30f, 25f, 500f), snapshot(on, asset("a", true)).ducking)
+        val zero = TimelineOps.setDucking(base, com.ultimatevideo.uveditor.domain.Ducking(0.0)).getOrFail()
+        assertNull(snapshot(zero, asset("a", true)).ducking)
+    }
+
+    @Test
+    fun `pan, EQ, noise suppression and the normalise gain reach the clip spec`() {
+        val audio = com.ultimatevideo.uveditor.domain.ClipAudio(
+            pan = -0.5,
+            eq = com.ultimatevideo.uveditor.domain.ClipEq(highPassHz = 80.0).withBand(3, com.ultimatevideo.uveditor.domain.EqBand(6000.0, -4.0, 2.0)),
+            denoise = com.ultimatevideo.uveditor.domain.Denoise(0.7, List(com.ultimatevideo.uveditor.domain.Denoise.BINS) { 0.02f }),
+            normalizeDb = 3.0,
+            targetLufs = -16.0,
+        )
+        val tl = withAudio(timeline(track("v1", clip("c", 0, 100, asset = "a").copy(gainDb = -5.0))), "c", audio)
+
+        val c = snapshot(tl, asset("a", true)).clips.single()
+
+        assertEquals(-0.5f, c.pan, 0f)
+        assertEquals(80f, c.eq.highPassHz, 0f)
+        assertEquals(com.ultimatevideo.uveditor.engine.audio.EqBandSpec(6000f, -4f, 2f), c.eq.bands[3])
+        assertEquals(0.7f, c.denoiseStrength, 1e-6f)
+        assertEquals(com.ultimatevideo.uveditor.domain.Denoise.BINS, c.noiseProfile.size)
+        assertEquals(-2f, c.gainDb, 1e-6f) // volume -5 dB plus 3 dB of normalisation
+    }
+
+    @Test
+    fun `a flat EQ and no noise suppression send nothing extra`() {
+        val tl = timeline(track("v1", clip("c", 0, 100, asset = "a")))
+        val c = snapshot(tl, asset("a", true)).clips.single()
+        assertEquals(com.ultimatevideo.uveditor.engine.audio.EqSpec.FLAT, c.eq)
+        assertEquals(0f, c.denoiseStrength, 0f)
+        assertTrue(c.noiseProfile.isEmpty())
+        assertEquals(0f, c.pan, 0f)
+        assertEquals(0L to 0L, c.userFadeInFrames to c.userFadeOutFrames)
+    }
+
+    @Test
+    fun `fade handles become the clips own fades and the gain is clamped`() {
+        val tl = withAudio(
+            timeline(track("v1", clip("c", 0, 100, asset = "a").copy(gainDb = 20.0))),
+            "c",
+            com.ultimatevideo.uveditor.domain.ClipAudio(fadeInFrames = 12, fadeOutFrames = 30, normalizeDb = 20.0),
+        )
+        val c = snapshot(tl, asset("a", true)).clips.single()
+
+        assertEquals(12L, c.userFadeInFrames)
+        assertEquals(30L, c.userFadeOutFrames)
+        assertEquals(24f, c.gainDb, 0f) // 20 + 20 dB would be 40: clamped to what the mixer accepts
+    }
+
+    @Test
+    fun `where a transition already ramps an edge the clip fade handle is dropped`() {
+        val base = timeline(track("v1", clip("c1", 0, 100, asset = "a"), clip("c2", 100, 100, srcIn = 50, asset = "a")))
+        val faded = withAudio(withAudio(base, "c1", com.ultimatevideo.uveditor.domain.ClipAudio(fadeInFrames = 10, fadeOutFrames = 10)), "c2", com.ultimatevideo.uveditor.domain.ClipAudio(fadeInFrames = 10, fadeOutFrames = 10))
+        val tl = TimelineOps.addTransition(faded, Transition("t", "c1", "c2", 10)).getOrFail()
+
+        val spec = snapshot(tl, asset("a", true))
+        val out = spec.clips.first { it.clipKey == keys.keyFor("c1") }
+        val incoming = spec.clips.first { it.clipKey == keys.keyFor("c2") }
+
+        assertEquals(10L, out.userFadeInFrames)   // the start of c1 is not part of the transition
+        assertEquals(0L, out.userFadeOutFrames)   // its end is: the crossfade is the fade
+        assertEquals(0L, incoming.userFadeInFrames)
+        assertEquals(10L, incoming.userFadeOutFrames)
+        assertTrue(out.fadeOutFrames > 0 && incoming.fadeInFrames > 0)
+    }
+
+    // endregion
 }
