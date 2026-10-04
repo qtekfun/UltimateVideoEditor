@@ -749,8 +749,8 @@ void effectWireAcceptsTheStabiliseEffect() {
     std::vector<double> tooMany = {0, 0, 0, 0, 1, 1, 0, 0, static_cast<double>(kMaxWireEffectsPerLayer + 1)};
     for (int i = 0; i < kMaxWireEffectsPerLayer + 1; ++i) tooMany.insert(tooMany.end(), {1, 1, 0.1});
     CHECK(!parseLayerFx(tooMany.data(), tooMany.size(), &offset, &fx));
-    // Unknown type 16 is rejected.
-    std::vector<double> unknown = {0, 0, 0, 0, 1, 1, 0, 0, 1, 16, 1, 0};
+    // Unknown type 18 is rejected (16 and 17 are the repair effects).
+    std::vector<double> unknown = {0, 0, 0, 0, 1, 1, 0, 0, 1, 18, 1, 0};
     offset = 0;
     CHECK(!parseLayerFx(unknown.data(), unknown.size(), &offset, &fx));
 }

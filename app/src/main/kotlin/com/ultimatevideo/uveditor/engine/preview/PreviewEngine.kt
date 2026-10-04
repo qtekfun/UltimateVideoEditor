@@ -168,6 +168,7 @@ class PreviewEngine private constructor(
             params[base + 5] = p.opacity
             params[base + 6] = if (layer.reverse) -1f else 1f
             params[base + 7] = layer.sourceOverride.toFloat()
+            params[base + 8] = if (layer.mixTowardsPrevious) -layer.mix else layer.mix
         }
     }
 
@@ -242,7 +243,7 @@ class PreviewEngine private constructor(
         const val DEFAULT_CACHE_BUDGET_BYTES: Long = 1L shl 30
 
         /** posX, posY, scaleX, scaleY, rotationDeg, opacity, direction (+1 forward, -1 reverse), source override (-1 auto, 0 SDR, 1 HLG, 2 PQ): the layout `nativeSetScene` reads. */
-        private const val PARAMS_PER_LAYER = 8
+        private const val PARAMS_PER_LAYER = 9
 
         /** @throws PreviewException if EGL/GLES initialisation fails. */
         fun create(

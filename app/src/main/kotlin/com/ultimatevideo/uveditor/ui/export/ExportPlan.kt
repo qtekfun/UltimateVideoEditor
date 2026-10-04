@@ -6,6 +6,7 @@ import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.RenderClip
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
+import com.ultimatevideo.uveditor.domain.SourceMix
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -72,7 +73,7 @@ private fun RenderClip.toSpec(
         )
     },
     keyframeOriginFrame = keyframeOriginFrame,
-    sourceFrames = retime?.let { LongArray(durationFrames.toInt()) { i -> sourceFrameAt(startFrame + i) } },
+    sourceFrames = retime?.let { LongArray(durationFrames.toInt()) { i -> packSource(sourceMixAt(startFrame + i)) } },
     reverse = isReverse,
     fx = fx,
     // Keyframed effect values go over as the effects of every project frame of the spec.
@@ -80,6 +81,16 @@ private fun RenderClip.toSpec(
 )
 
 private val SDR = SourceColorSpace.SDR.nativeModeValue
+
+/** Bit where the smooth-slow-motion mix (permille) sits in a packed source-table entry; see `sourceFrameFor` in encode/export_math.h. */
+internal const val SOURCE_MIX_SHIFT = 44
+
+/**
+ * One entry of a clip's source table: the source frame, with the mix towards the neighbouring frame (permille) in the
+ * bits above [SOURCE_MIX_SHIFT] when the frame is interpolated. Frames of interpolated entries are never negative.
+ */
+internal fun packSource(shown: SourceMix): Long =
+    if (shown.blended && shown.frame >= 0) shown.frame or (shown.mixPermille.toLong() shl SOURCE_MIX_SHIFT) else shown.frame
 
 /** One stretch of a title clip that is drawn from a single picture, in project frames. */
 internal data class TitlePart(val start: Long, val duration: Long, val crossfadeIn: Long, val content: TitleContent)

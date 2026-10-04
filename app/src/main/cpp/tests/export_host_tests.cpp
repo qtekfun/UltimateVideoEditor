@@ -197,6 +197,29 @@ void retimedClipsReadTheirSourceTable() {
     CHECK_EQ(sourceFrameFor(freeze, 2, 1000), 42);
 }
 
+void smoothSlowMotionEntriesCarryTheirMix() {
+    // Entries as ui/export/ExportPlan.kt packSource writes them: frame | (permille << 44) when interpolated.
+    const int64_t shift = static_cast<int64_t>(1) << kSourceMixShift;
+    VideoClip clip = makeClip(0, 4, 0, 1, 0);
+    clip.sourceTable = {5, 5 + 250 * shift, 5 + 500 * shift, 5 + 750 * shift};
+    CHECK_EQ(sourceFrameFor(clip, 0, 1000), 5);
+    CHECK_EQ(sourceFrameFor(clip, 2, 1000), 5);  // the mix bits never leak into the frame
+    CHECK_EQ(sourceMixFor(clip, 0), 0);
+    CHECK_EQ(sourceMixFor(clip, 1), 250);
+    CHECK_EQ(sourceMixFor(clip, 3), 750);
+    CHECK_EQ(sourceMixFor(clip, 99), 750);  // past the table: the last entry holds
+    CHECK_EQ(blendFrameFor(clip, 5, 1000), 6);  // forward: the next frame
+    CHECK_EQ(blendFrameFor(clip, 999, 1000), -1);  // nothing after the last frame of the media
+    clip.reverse = true;
+    CHECK_EQ(blendFrameFor(clip, 5, 1000), 4);  // reversed: the frame before
+    CHECK_EQ(blendFrameFor(clip, 0, 1000), -1);
+    // Negative frames (a transition's pre-roll before the media) are stored plain and have no mix.
+    VideoClip early = makeClip(0, 2, 0, 1, 0);
+    early.sourceTable = {-4, -3};
+    CHECK_EQ(sourceFrameFor(early, 0, 1000), 0);  // clamped to the media
+    CHECK_EQ(sourceMixFor(early, 0), 0);
+}
+
 void reverseWindowIsBoundedByMemory() {
     constexpr int64_t k4k = 3840LL * 2160 * 4;
     constexpr int64_t k1080 = 1920LL * 1080 * 4;
@@ -366,6 +389,7 @@ int main() {
     outputFramesMapToProjectFrames();
     sourceFrameMapsAndClamps();
     retimedClipsReadTheirSourceTable();
+    smoothSlowMotionEntriesCarryTheirMix();
     reverseWindowIsBoundedByMemory();
     transitionOverlapMatchesTheKotlinPlan();
     sameLayerClipsStackByStartFrame();

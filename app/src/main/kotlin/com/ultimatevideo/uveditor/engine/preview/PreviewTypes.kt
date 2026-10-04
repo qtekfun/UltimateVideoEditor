@@ -118,6 +118,13 @@ data class PreviewLayer(
     val fx: ClipFx = ClipFx.NONE,
     /** Reads this layer's source as SDR (0), HLG (1) or PQ (2) whatever the file says; -1 uses the file's own. */
     val sourceOverride: Int = -1,
+    /**
+     * Smooth slow motion: how far the moment shown is from [frame] towards its neighbour in the direction of
+     * play, 0..1 (permille / 1000); the engine blends [frame] with the frame after it, or before it when
+     * [mixTowardsPrevious] (a reversed clip). 0 shows [frame] alone.
+     */
+    val mix: Float = 0f,
+    val mixTowardsPrevious: Boolean = false,
 )
 
 data class AssetInfo(

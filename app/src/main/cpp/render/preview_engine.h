@@ -82,6 +82,9 @@ struct SceneLayer {
     core::LayerFx fx = {};  // effects, blend mode and mask; neutral by default
     // The clip's colour override: a SourceTransfer value, or -1 to use the asset's own (detected) transfer.
     int32_t source = -1;
+    // Smooth slow motion: how far the shown moment is from `frame` towards its neighbour, in 0..1. Positive
+    // blends with the frame after `frame`, negative with the one before it (a reversed clip); 0 shows `frame`.
+    float mix = 0.0f;
 };
 
 // Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
@@ -174,8 +177,11 @@ private:
         uint32_t title = 0;
         core::LayerFx fx = {};
         int32_t source = -1;
+        float mix = 0.0f;           // the mix that was asked for
+        uint8_t neighbours = 0;     // bit 0: blend frame drawn, bit 1: previous frame, bit 2: next frame (as decoded then)
         bool operator==(const DrawnLayer& o) const {
             return asset == o.asset && frame == o.frame && title == o.title && fx == o.fx && source == o.source &&
+                   mix == o.mix && neighbours == o.neighbours &&
                    transform.posX == o.transform.posX &&
                    transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
                    transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&
@@ -225,6 +231,9 @@ private:
     int canvasH_ = 0;
     bool drawnValid_ = false;
     uint64_t drawnStabRevision_ = 0;
+    // Smooth slow motion falls back to plain blending when its draws run over the frame budget.
+    int slowInterpDraws_ = 0;
+    int fastInterpDraws_ = 0;
     std::vector<DrawnLayer> drawn_;
     int drawnCanvasW_ = 0;
     int drawnCanvasH_ = 0;
