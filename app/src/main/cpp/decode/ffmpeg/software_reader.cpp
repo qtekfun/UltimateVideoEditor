@@ -107,13 +107,14 @@ Result<std::unique_ptr<SoftwareVideoReader>> SoftwareVideoReader::open(int fd, R
         info.durationFrames = durationToFrames(stream->duration, m.timeBase, m.fps);
         info.durationKnown = info.durationFrames > 0;
     } else if (fmt->duration > 0 && fmt->duration != AV_NOPTS_VALUE) {
-        // The container-level duration of formats without an index (MPEG-PS/TS) is an estimate from the first and
-        // last timestamps, which misses the last picture and the reordering delay by a few frames: round it up by
-        // 100 ms rather than hide real pictures. Frames past the true end are reported unavailable at end of stream.
-        const int64_t slack = (m.fps.num + 10 * m.fps.den - 1) / (10 * m.fps.den);
         info.durationFrames = durationToFrames(fmt->duration, TimeBase{1, AV_TIME_BASE}, m.fps);
         info.durationKnown = info.durationFrames > 0;
-        if (info.durationKnown) info.durationFrames += slack;
+    }
+    if (info.durationKnown && fmt->duration_estimation_method != AVFMT_DURATION_FROM_STREAM) {
+        // The duration of a format without an index (MPEG-PS/TS) is estimated from the first and last timestamps,
+        // which misses the last picture and the reordering delay by a few frames: round it up by 100 ms rather
+        // than hide real pictures. Frames past the true end are reported unavailable at end of stream.
+        info.durationFrames += (m.fps.num + 10 * m.fps.den - 1) / (10 * m.fps.den);
     }
     if (!info.durationKnown) info.durationFrames = kUnknownDurationFrames;
 
@@ -156,6 +157,16 @@ bool SoftwareVideoReader::seekDemuxer(int64_t frame, std::string* error) {
     return true;
 }
 
+int SoftwareVideoReader::retryEarlier(std::string* error) {
+    Impl& m = *impl_;
+    if (m.goal <= 0 || m.attempts >= 8) return 0;
+    ++m.attempts;
+    m.backoff = m.backoff == 0 ? 4 : m.backoff * 4;
+    if (!seekDemuxer(std::max<int64_t>(m.goal - m.backoff, 0), error)) return -1;
+    m.checkLanding = true;
+    return 1;
+}
+
 ReadStatus SoftwareVideoReader::decode(int64_t* frameOut, std::string* error) {
     Impl& m = *impl_;
     m.haveFrame = false;
@@ -180,18 +191,14 @@ ReadStatus SoftwareVideoReader::decode(int64_t* frameOut, std::string* error) {
                 m.checkLanding = false;
                 // Landed after the frame the caller wanted: the demuxer chose a key frame whose leading pictures
                 // belong to the previous GOP and are never output. Seek further back, geometrically, until the
-                // stream starts at or before the goal (or at its beginning).
-                if (index > m.goal && m.goal > 0 && m.attempts < 8) {
-                    ++m.attempts;
-                    m.backoff = m.backoff == 0 ? 4 : m.backoff * 4;
-                    av_frame_unref(m.frame);
-                    std::string seekError;
-                    if (!seekDemuxer(std::max<int64_t>(m.goal - m.backoff, 0), &seekError)) {
-                        *error = seekError;
-                        return ReadStatus::Failed;
+                // stream starts at or before the goal. With nothing earlier to try, deliver this picture.
+                if (index > m.goal) {
+                    const int retried = retryEarlier(error);
+                    if (retried < 0) return ReadStatus::Failed;
+                    if (retried > 0) {
+                        av_frame_unref(m.frame);
+                        continue;
                     }
-                    m.checkLanding = true;
-                    continue;
                 }
             }
             m.lastIndex = index;
@@ -200,14 +207,22 @@ ReadStatus SoftwareVideoReader::decode(int64_t* frameOut, std::string* error) {
             *frameOut = index;
             return ReadStatus::Frame;
         }
-        if (ret == AVERROR_EOF) return ReadStatus::EndOfStream;
-        if (ret != AVERROR(EAGAIN)) {
+        if (ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
             if (ret == AVERROR_INVALIDDATA) continue;  // a damaged picture: move on to the next one
             *error = "avcodec_receive_frame: " + avErrorString(ret);
             return ReadStatus::Failed;
         }
+        if (ret == AVERROR_EOF || (ret == AVERROR(EAGAIN) && m.draining)) {
+            // The end of the stream. Before any picture since a seek it means the demuxer landed past the last
+            // key frame (some formats with a single key frame do): try again from further back.
+            if (m.checkLanding) {
+                const int retried = retryEarlier(error);
+                if (retried < 0) return ReadStatus::Failed;
+                if (retried > 0) continue;
+            }
+            return ReadStatus::EndOfStream;
+        }
         // The decoder wants more input.
-        if (m.draining) return ReadStatus::EndOfStream;
         ret = av_read_frame(m.format.ctx, m.packet);
         if (ret == AVERROR_EOF) {
             m.draining = true;

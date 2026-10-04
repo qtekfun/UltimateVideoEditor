@@ -55,6 +55,9 @@ public:
 private:
     SoftwareVideoReader();
     bool seekDemuxer(int64_t frame, std::string* error);
+    // After a late landing or an end of stream with no picture since a seek: seeks further back. 1 retried, 0 nothing
+    // earlier left to try, -1 failed.
+    int retryEarlier(std::string* error);
     struct Impl;
     std::unique_ptr<Impl> impl_;
     VideoStreamInfo info_;
