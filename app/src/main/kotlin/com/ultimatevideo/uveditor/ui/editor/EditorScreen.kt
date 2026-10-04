@@ -401,11 +401,13 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading, proxyHolder.value.resolveVersion) },
     ) { s ->
         if (s.isLoading) return@StateEffect
-        val layers = previewRequestsWithSources(
+        val layers = previewRequestsOnCanvas(
             s.visibleTimeline,
             s.playableAssets,
             s.fps,
             s.playhead,
+            s.canvasWidth,
+            s.canvasHeight,
             sourceOf = { proxyVm.resolve(it, MediaPurpose.PREVIEW) },
         ) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)

@@ -46,10 +46,30 @@ internal fun previewRequestsWithSources(
     playhead: FrameIndex,
     sourceOf: (MediaAssetDto) -> ResolvedSource,
     assetKeyOf: (String) -> Int,
+): List<PreviewRequest> =
+    previewRequestsOnCanvas(timeline, assets, fps, playhead, DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, sourceOf, assetKeyOf)
+
+/** Canvas the transition looks assume when the caller does not say (only tests and previews of a bare timeline). */
+internal const val DEFAULT_CANVAS_WIDTH = 1920
+internal const val DEFAULT_CANVAS_HEIGHT = 1080
+
+/**
+ * [previewRequestsWithSources] on a canvas of [canvasWidth] x [canvasHeight] project pixels, which the looks of
+ * the moving transitions (slide, push, whip pan...) need to know how far to move a picture.
+ */
+internal fun previewRequestsOnCanvas(
+    timeline: Timeline,
+    assets: List<MediaAssetDto>,
+    fps: FrameRate,
+    playhead: FrameIndex,
+    canvasWidth: Int,
+    canvasHeight: Int,
+    sourceOf: (MediaAssetDto) -> ResolvedSource,
+    assetKeyOf: (String) -> Int,
 ): List<PreviewRequest> {
     val assetsById = assets.associateBy { it.id }
     return visualClipsAt(timeline.renderClips(), playhead.value).mapNotNull { clip ->
-        val transform = clip.appearanceAt(playhead.value)
+        val transform = clip.appearanceAt(playhead.value, canvasWidth, canvasHeight)
         when (clip.kind) {
             RenderKind.TITLE -> clip.title?.let { content ->
                 PreviewRequest(
@@ -62,7 +82,7 @@ internal fun previewRequestsWithSources(
                     // An animated caption shows the look of this frame; the preview keys its picture by it.
                     // Photo layers of a multilayer title are pointed at their files, which also keys the cached picture.
                     title = TitleLayers.resolved(CaptionAnimator.contentAt(content, playhead.value - clip.keyframeOriginFrame)) { assetsById[it]?.uri },
-                    fx = clip.fxAt(playhead.value),
+                    fx = clip.fxAt(playhead.value, canvasWidth, canvasHeight),
                 )
             }
             RenderKind.VIDEO -> if (clip.still != null) {
@@ -76,7 +96,7 @@ internal fun previewRequestsWithSources(
                         fpsNum = fps.num,
                         fpsDen = fps.den,
                         transform = transform,
-                        fx = clip.fxAt(playhead.value),
+                        fx = clip.fxAt(playhead.value, canvasWidth, canvasHeight),
                         still = ref,
                     )
                 }
@@ -98,7 +118,7 @@ internal fun previewRequestsWithSources(
                         // retimed clip is re-anchored every tick at the frame its mapping gives, so it has no end.
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
-                        fx = clip.fxAt(playhead.value),
+                        fx = clip.fxAt(playhead.value, canvasWidth, canvasHeight),
                         // A proxy is an SDR Rec.709 stand-in whatever the original was: read it as that.
                         sourceOverride = if (source.isProxy) SourceColorSpace.SDR.transferIndex else clip.colorOverride?.transferIndex ?: -1,
                     )

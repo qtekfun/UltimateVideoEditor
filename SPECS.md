@@ -901,6 +901,32 @@ errors, never guessed.
 (`EditorIntent.LayerGesture`, part of the title edit session and committed by `EndAppearanceEdit`), and `LayerHandleOverlay` draws a ring
 and cross at its centre (plus its outline for a shape).
 
+### 5.25 Transition pack
+
+`Transition` gains a look (`TransitionType`: crossfade, slide, push, zoom, spin, glitch, wipe, whip pan, light
+leak) and a direction (left, right, up, down; used by slide, push, spin, wipe and whip pan). Its length, place and
+the clip overlap (5.7) are unchanged, and the audio is the same equal-power crossfade for every look.
+
+The picture is a pure function. `TransitionLooks.modAt(look, incoming, k, canvasW, canvasH, projectFrame)` returns a
+`TransitionMod` (offset in canvas pixels, scale, rotation, an opacity factor, optional effects and an optional mask)
+for the clip on one side of the transition at frame `k` of it, with eased progress `(k + 0.5) / d`. `RenderClip`
+carries the `TransitionLook` of its incoming and outgoing transition; `appearanceAt(frame, canvasW, canvasH)` and
+`fxAt(frame, canvasW, canvasH)` apply the mod to the pose and the effect chain, and only a look that
+`fadesVideo` (crossfade, light leak) multiplies in the opacity ramp. Looks: slide moves the incoming picture in;
+push also moves the old one out; zoom scales both and fades the new one in; spin turns and scales; glitch adds a
+fixed-hash jitter, flicker and a contrast/saturation bump; wipe reveals the incoming picture with a soft-edged
+rectangle mask; whip pan is a smootherstep push with a blur bell; light leak adds exposure and warmth bells to both
+pictures on top of the crossfade. A clip's own mask wins over a wipe's, and extra effects past the limit of 8 are dropped.
+
+Preview: `previewRequestsOnCanvas` evaluates the mods at the playhead frame, so playback re-anchors every tick during
+a transition exactly as it does for a crossfade. Export: no native change. For a look that moves the pose,
+`buildExportPlan` replaces the clip's native pose keys inside the transition with the composite pose of every frame
+(linear keys), adds keys just outside both ends holding the plain pose so the picture settles exactly, and hands the
+native fade a length of 0 for a look that does not fade; looks that add effects or a mask send the per-frame effect
+list (`fxFrames`). The same functions feed both paths, and a test compares the preview pose with the exported key
+frame by frame for every moving look. Limit: where a clip has its own Bezier or eased pose keys inside a transition,
+that animation is flattened to linear keys over the transition's frames.
+
 ### 5.26 Multicam (WP-M)
 
 A multicam clip lines up two to six recordings of one event and cuts between them. Code: `domain/multicam/`

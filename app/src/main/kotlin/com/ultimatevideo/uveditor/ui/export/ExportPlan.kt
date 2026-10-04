@@ -1,7 +1,9 @@
 package com.ultimatevideo.uveditor.ui.export
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.RenderClip
 import com.ultimatevideo.uveditor.domain.RenderKind
@@ -37,6 +39,8 @@ internal data class ExportPlan(
 )
 
 private fun RenderClip.toSpec(
+    canvasWidth: Int,
+    canvasHeight: Int,
     assetKey: Long,
     colorMode: Int,
     titleKey: Int = 0,
@@ -56,29 +60,52 @@ private fun RenderClip.toSpec(
     scaleY = transform.scaleY,
     rotationDegrees = transform.rotationDegrees,
     opacity = transform.opacity,
-    crossfadeInFrames = crossfadeIn,
+    // Only a crossfade or light leak fades the incoming picture by opacity; the moving looks put their opacity in the keys.
+    crossfadeInFrames = if (transitionIn?.type?.fadesVideo != false) crossfadeIn else 0L,
     lane = lane,
     titleKey = titleKey,
-    // The native evaluator only knows linear, ease and hold: a Bezier segment goes over as one linear key per frame.
-    keyframes = Keyframes.bakedForNative(keyframes, transform).map {
-        ExportKeyframe(
-            frame = it.frame,
-            positionX = it.transform.positionX,
-            positionY = it.transform.positionY,
-            scaleX = it.transform.scaleX,
-            scaleY = it.transform.scaleY,
-            rotationDegrees = it.transform.rotationDegrees,
-            opacity = it.transform.opacity,
-            interpolation = it.interpolation.code,
-        )
-    },
+    keyframes = exportKeyframes(canvasWidth, canvasHeight),
     keyframeOriginFrame = keyframeOriginFrame,
     sourceFrames = retime?.let { LongArray(durationFrames.toInt()) { i -> sourceFrameAt(startFrame + i) } },
     reverse = isReverse,
     fx = fx,
-    // Keyframed effect values go over as the effects of every project frame of the spec.
-    fxFrames = if (hasAnimatedFx) List(duration.toInt()) { i -> fxAt(start + i) } else null,
+    // Keyframed effect values and the effects or mask a transition adds go over as the effects of every project frame of the spec.
+    fxFrames = if (hasAnimatedFx || shapesTransitionFx) List(duration.toInt()) { i -> fxAt(start + i, canvasWidth, canvasHeight) } else null,
 )
+
+private fun poseKey(frame: Long, t: ClipTransform, interpolation: Int) = ExportKeyframe(
+    frame = frame,
+    positionX = t.positionX,
+    positionY = t.positionY,
+    scaleX = t.scaleX,
+    scaleY = t.scaleY,
+    rotationDegrees = t.rotationDegrees,
+    opacity = t.opacity,
+    interpolation = interpolation,
+)
+
+/**
+ * The pose keys the native evaluator reads. It only knows linear, ease and hold, so a Bezier segment goes over as
+ * one linear key per frame. Where a moving transition (slide, push, zoom, spin, glitch, whip pan) shapes the pose,
+ * the composite pose of every frame of the transition replaces the clip's own keys, with a key just outside each
+ * end holding the clip's plain pose so the picture settles exactly back afterwards. The values come from
+ * [RenderClip.appearanceAt], the function the preview calls, so both draw the same picture.
+ */
+private fun RenderClip.exportKeyframes(canvasWidth: Int, canvasHeight: Int): List<ExportKeyframe> {
+    val original = Keyframes.bakedForNative(keyframes, transform).map { poseKey(it.frame, it.transform, it.interpolation.code) }
+    val ranges = transitionPoseRanges().filter { !it.isEmpty() }
+    if (ranges.isEmpty()) return original
+    fun inRegion(frame: Long) = ranges.any { frame in it }
+    val kept = original.filter { !inRegion(it.frame + keyframeOriginFrame) }
+    val edges = ranges.flatMap { listOf(it.first - 1, it.last + 1) }
+        .filter { it >= startFrame && it < endFrame && !inRegion(it) }
+        .distinct()
+        .filter { f -> kept.none { it.frame + keyframeOriginFrame == f } }
+        .map { poseKey(it - keyframeOriginFrame, transformAt(it), Interpolation.LINEAR.code) }
+    val dense = ranges.flatMap { range -> range.filter { it >= startFrame && it < endFrame } }
+        .map { poseKey(it - keyframeOriginFrame, appearanceAt(it, canvasWidth, canvasHeight), Interpolation.LINEAR.code) }
+    return (kept + edges + dense).sortedBy { it.frame }
+}
 
 private val SDR = SourceColorSpace.SDR.nativeModeValue
 
@@ -114,7 +141,13 @@ internal fun RenderClip.titleParts(content: TitleContent): List<TitlePart> {
  * and transitions are folded in by [renderClips] (extended clips with a fade), the same list the
  * preview and the audio mixer use. Source ranges are in project frames, as everywhere in the editor.
  */
-internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fps: FrameRate): ExportPlan? {
+internal fun buildExportPlan(
+    timeline: Timeline,
+    assets: List<MediaAssetDto>,
+    fps: FrameRate,
+    canvasWidth: Int = 1920,
+    canvasHeight: Int = 1080,
+): ExportPlan? {
     val assetsById = assets.associateBy { it.id }
     val assetKeys = KeyRegistry()
     val clipKeys = KeyRegistry()
@@ -132,12 +165,14 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
                 val id = clip.assetId ?: continue
                 val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: continue else id)
                 val pictureKey = stills.getOrPut(ref) { nextPictureKey++ }
-                videoClips += clip.toSpec(assetKey = 0L, colorMode = SDR, titleKey = pictureKey)
+                videoClips += clip.toSpec(canvasWidth, canvasHeight, assetKey = 0L, colorMode = SDR, titleKey = pictureKey)
             } else {
                 val asset = clip.assetId?.let(assetsById::get) ?: continue
                 if (!asset.hasVideo) continue
                 val key = used.getOrPut(asset.id) { assetKeys.keyFor(asset.id) }
                 videoClips += clip.toSpec(
+                    canvasWidth,
+                    canvasHeight,
                     assetKey = key,
                     // What the source is; the engine converts it to the colour space the export renders in
                     // (HLG sources are tone-mapped for an SDR export, kept for an HLG one).
@@ -151,6 +186,8 @@ internal fun buildExportPlan(timeline: Timeline, assets: List<MediaAssetDto>, fp
                 for (part in clip.titleParts(content)) {
                     val titleKey = titles.getOrPut(part.content.withoutTiming()) { nextPictureKey++ }
                     videoClips += clip.toSpec(
+                        canvasWidth,
+                        canvasHeight,
                         assetKey = 0L,
                         colorMode = SDR,
                         titleKey = titleKey,
