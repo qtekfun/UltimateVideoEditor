@@ -74,6 +74,7 @@ The decoder ladder above gets `OMX.hisi.video.decoder.avc` started, but the prev
 ordinary MP4s (SPS/PPS only in `avcC`, which MediaExtractor hands over as `csd-0`/`csd-1`). The log shows `decode/s: rendered 0`
 and, from the codec process, a stream of `PPS or SPS of this slice not valid` / `pps is null ppsid = 0 havn't decode`. The
 hisi decoder forgets its parameter sets on `AMediaCodec_flush`, and we always flush on the first seek. `VideoDecoder` now keeps
-`csd-0..2` and queues them again with `BUFFER_FLAG_CODEC_CONFIG` right after every flush (`resubmitCodecConfig`), which the
-MediaCodec documentation asks for and other decoders ignore. Verified on the MatePad with a 1080p30 and a 4K60 H.264 file: preview,
-filmstrip thumbnails and playback with audio work. The thumbnail extractor goes through the same decoder, so it is fixed too.
+`csd-0..2` and queues them again with `BUFFER_FLAG_CODEC_CONFIG` right after every flush (`core/codec_config.h`), which the
+MediaCodec documentation asks for and other decoders ignore. The thumbnail decoder (`thumbnail/thumb_decoder.cpp`) is a second
+MediaCodec user that flushes on every seek and uses the same helper. Verified on the MatePad with a 1080p30 and a 4K60 H.264 file:
+preview, filmstrip thumbnails (also after rotating the tablet) and playback with audio work.
