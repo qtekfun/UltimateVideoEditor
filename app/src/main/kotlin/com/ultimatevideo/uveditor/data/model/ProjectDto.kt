@@ -189,6 +189,11 @@ data class MediaAssetDto(
      * [isImage] asset with at least two frames.
      */
     val animationDelaysMs: List<Int>? = null,
+    /**
+     * Animated GIF or WebP: how many times the file plays the animation in total (a WebP's ANIM loop count; a GIF's
+     * NETSCAPE2.0 repeat count plus one, or 1 when it has none). Absent or 0 loops for as long as the clip lasts.
+     */
+    val animationPlays: Int? = null,
 )
 
 @Serializable

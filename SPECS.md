@@ -557,7 +557,8 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
   one frame per step; `CanvasSnapshots` keeps the canvas every N frames, N grown with the canvas size so snapshots stay within 32 MB, so a
   seek back replays less than N frames). WebP is read from its RIFF container (`WebpContainerParser`: VP8X, ANIM, ANMF with
   offset, duration, blend and dispose bits, with size and frame-count limits); every frame is wrapped as a standalone still WebP
-  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The file's loop count is ignored.
+  and decoded by the platform (`ImageDecoder`, straight alpha), so no VP8 decoder is written. The loop count is read from the container (WebP ANIM; GIF NETSCAPE2.0, repeat count + 1, none = once) into
+  `MediaAssetDto.animationPlays` and `AnimationTiming.plays` (0 = forever); after the last pass `frameIndexAt` holds the last frame.
   Frame timing is `AnimationTiming` for both (0 ms and 10 ms or less count as 100 ms).
 - **Timeline canvas:** a still's snapshot clip has no asset key, so no waveform or thumbnails are requested for it.
 
