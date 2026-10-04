@@ -316,7 +316,7 @@ class ExportViewModel(
         finished?.close()
         val uri = outputUri
         if (error == null && uri != null) {
-            reduce { copy(phase = ExportPhase.Done(uri, suggestedFileName(projectName))) }
+            reduce { copy(phase = ExportPhase.Done(uri, io.displayName(uri) ?: suggestedFileName(projectName))) }
             return
         }
         if (uri != null) io.deleteOutput(uri)
