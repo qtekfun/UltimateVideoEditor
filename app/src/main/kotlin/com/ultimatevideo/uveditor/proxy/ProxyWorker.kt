@@ -1,5 +1,6 @@
 package com.ultimatevideo.uveditor.proxy
 
+import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -103,13 +104,30 @@ class ProxyWorker(
             Thread.currentThread().interrupt()
         } catch (e: RuntimeException) {
             // An unexpected failure must not leave the job stuck as running.
-            index.put(entry.copy(state = ProxyState.FAILED, fileName = null, bytes = 0, error = e.message ?: e.javaClass.simpleName))
+            markFailed(entry, e)
+        } catch (e: IOException) {
+            // The disk refused a write (full, or the folder is gone): the job fails, the queue goes on.
+            markFailed(entry, e)
         } finally {
             currentKey = null
             progressByKey.update { it - key }
-            index.evictToBudget(budgetBytes(), protectedKeys())
-            index.flush()
+            try {
+                index.evictToBudget(budgetBytes(), protectedKeys())
+                index.flush()
+            } catch (e: IOException) {
+                // Housekeeping must never end the loop that serves the queue: the index stays dirty and the
+                // next change writes it, so at worst this save is lost (it is only a cache).
+            }
             bump()
+        }
+    }
+
+    /** Records [cause] as the outcome of [entry]; if even that cannot be written the entry is left as it is. */
+    private fun markFailed(entry: ProxyEntry, cause: Exception) {
+        try {
+            index.put(entry.copy(state = ProxyState.FAILED, fileName = null, bytes = 0, error = cause.message ?: cause.javaClass.simpleName))
+        } catch (e: IOException) {
+            // The next start finds the entry still marked as running and queues it again.
         }
     }
 
