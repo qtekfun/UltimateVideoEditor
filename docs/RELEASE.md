@@ -86,7 +86,7 @@ Size log (R8-minified, arm64-v8a only):
 | Build | APK | AAB |
 |---|---|---|
 | Before minification (0.1.0, unminified release) | 30,142,527 bytes | n/a |
-| 0.1.0 with R8 and resource shrinking | about 6.5 MB | about 7.8 MB |
+| 0.1.0 with R8 and resource shrinking (on master at #62 plus multicam) | 6,616,210 bytes | 7,843,562 bytes |
 
 ## Store listing (Google Play, English)
 
