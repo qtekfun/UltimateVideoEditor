@@ -15,8 +15,11 @@ struct Layout {
     // room is above them. Zero once the stack fills the panel, where it scrolls instead.
     float inset = 0.0f;
 
-    static Layout forDensity(float density) {
-        return {28.0f * density, 64.0f * density, 4.0f * density, 14.0f * density};
+    // [laneScale] stretches only the lanes (small / medium / large lane heights); the ruler, gaps and touch
+    // slop keep their size. It is clamped to a sane range so a bad value cannot hide the lanes.
+    static Layout forDensity(float density, float laneScale = 1.0f) {
+        const float scale = std::min(2.0f, std::max(0.5f, laneScale));
+        return {28.0f * density, 64.0f * density * scale, 4.0f * density, 14.0f * density};
     }
     float trackTop(int index) const { return rulerHeight + inset + index * (trackHeight + trackGap); }
     // Height of the lane stack plus ruler, without the anchoring inset: what scrolling is clamped to.

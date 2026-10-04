@@ -643,3 +643,15 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).
 
 **Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.
+
+## Resizable layout (WP-U3)
+
+**Decisions:**
+- `LayoutState` is pure data with a reducer and is saved as one `key=value` line per window class and orientation in a private preferences file; reading is forgiving and the result is clamped to the window. Why: unit-testable, no new dependency (no DataStore). Alternative: DataStore.
+- Dividers read the layout while measuring (custom `Layout` containers), so a drag re-measures instead of recomposing the editor; drags are coalesced to one update per 40 ms and flushed at the end, and preferences are written once per gesture. Alternative: `weight` modifiers (recompose per step).
+- The lane height is a scale (0.75, 1, 1.4) applied by the native timeline (`setLaneScale`), so waveforms, thumbnails and diamonds follow without Kotlin knowing about them. Alternative: scale in Compose (not possible, the lanes are drawn natively).
+- Side docks need a window of at least 600 dp; below that docks fall back to bottom / over the timeline. The editor keeps at least 30 % of the width.
+- The bottom tray's collapsed state is a thin bar of the layout (the tray's own snap heights stay inside it).
+- Lane height has +/- and chips but no vertical pinch: a two-finger vertical gesture would conflict with the timeline's pinch-zoom, and it can be added later in the native gesture code.
+- Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
+**Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).

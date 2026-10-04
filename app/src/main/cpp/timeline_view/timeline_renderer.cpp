@@ -557,6 +557,16 @@ void TimelineRenderer::setDropHint(const DropHint& hint) {
     wake();
 }
 
+void TimelineRenderer::setLaneScale(float scale) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->layout = Layout::forDensity(state_->density, scale);
+        state_->clampViewport();
+        state_->dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::setPlayhead(int64_t frame) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
