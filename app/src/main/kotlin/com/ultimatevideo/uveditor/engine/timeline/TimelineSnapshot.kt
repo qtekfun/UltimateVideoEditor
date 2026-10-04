@@ -55,8 +55,29 @@ data class SnapshotLabel(val clipKey: Long, val text: String) {
     }
 }
 
-/** A ruler marker at timeline [frame]; [beat] marks one found by beat detection rather than placed by hand. */
-data class SnapshotMarker(val frame: Long, val beat: Boolean = false)
+/**
+ * A ruler marker at timeline [frame]; [beat] marks one found by beat detection rather than placed by hand.
+ * [colorCode] is 0 for none or 1..6 for red, orange, yellow, green, blue, purple (the `MarkerColor` order plus one);
+ * [hasNote] draws a small note indicator. Both travel in the marker's last wire word (see `marker_style.h`).
+ */
+data class SnapshotMarker(
+    val frame: Long,
+    val beat: Boolean = false,
+    val colorCode: Int = 0,
+    val hasNote: Boolean = false,
+) {
+    init {
+        require(colorCode in 0..MAX_COLOR_CODE) { "marker colour code $colorCode is out of range" }
+    }
+
+    /** The marker's style word on the wire. */
+    val extra: Int get() = colorCode or (if (hasNote) NOTE_BIT else 0)
+
+    companion object {
+        const val MAX_COLOR_CODE = 6
+        const val NOTE_BIT = 8
+    }
+}
 
 /**
  * Immutable view of the timeline sent to the native canvas. Deliberately independent of the
@@ -161,7 +182,7 @@ data class TimelineSnapshot(
         for (marker in markers) {
             buffer.putLong(marker.frame)
             buffer.putInt(if (marker.beat) 1 else 0)
-            buffer.putInt(0)
+            buffer.putInt(marker.extra)
         }
         buffer.putInt(labels.size)
         for (label in labels) {

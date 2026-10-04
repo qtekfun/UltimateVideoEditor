@@ -19,6 +19,7 @@
 #include "thumbnail/tile_math.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/lane_header.h"
+#include "timeline_view/marker_style.h"
 
 #define LOG_TAG "uv_timeline"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -1172,7 +1173,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         const float x = static_cast<float>(vp.frameToX(m.frame));
         if (x < -2.0f) continue;
         if (x > W + 2.0f) break;
-        g.rect(x, layout.rulerHeight, x + std::max(1.0f, density), H, kMarkerLine);
+        const MarkerRgb rgb = markerRgb(markerColorCode(m.extra));
+        g.rect(x, layout.rulerHeight, x + std::max(1.0f, density), H, Color{rgb.r, rgb.g, rgb.b, kMarkerLine.a});
     }
 
     // Ruler on top so clips scroll underneath it.
@@ -1229,8 +1231,16 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 lastBeatX = x;
                 g.rect(x, layout.rulerHeight * 0.62f, x + w * 0.67f, layout.rulerHeight, kBeat);
             } else {
-                g.rect(x, layout.rulerHeight * 0.30f, x + w, layout.rulerHeight, kMarker);
-                g.rect(x, layout.rulerHeight * 0.30f, x + 6.0f * density, layout.rulerHeight * 0.30f + 5.0f * density, kMarker);
+                const MarkerRgb rgb = markerRgb(markerColorCode(m.extra));
+                const Color flag{rgb.r, rgb.g, rgb.b, kMarker.a};
+                g.rect(x, layout.rulerHeight * 0.30f, x + w, layout.rulerHeight, flag);
+                g.rect(x, layout.rulerHeight * 0.30f, x + 6.0f * density, layout.rulerHeight * 0.30f + 5.0f * density, flag);
+                if (markerHasNote(m.extra)) {
+                    // Note indicator: a small light square under the flag, on the line.
+                    const float s = std::max(2.0f, 3.0f * density);
+                    const float y = layout.rulerHeight * 0.30f + 7.0f * density;
+                    g.rect(x + w, y, x + w + s, y + s, Color{1.0f, 1.0f, 1.0f, 0.9f});
+                }
             }
         }
     }

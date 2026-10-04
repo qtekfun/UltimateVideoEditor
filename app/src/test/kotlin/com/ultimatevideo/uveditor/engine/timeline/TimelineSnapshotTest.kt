@@ -241,6 +241,33 @@ class TimelineSnapshotTest {
     }
 
     @Test
+    fun `marker colour and note travel in the last wire word`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(clip(1)),
+            markers = listOf(
+                SnapshotMarker(30),
+                SnapshotMarker(60, colorCode = 3),
+                SnapshotMarker(90, beat = true, colorCode = 6, hasNote = true),
+                SnapshotMarker(120, hasNote = true),
+            ),
+        )
+        val b = snapshot.encode()
+        val first = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - 4 * TimelineSnapshot.MARKER_BYTES
+        assertEquals(0, b.getInt(first + 12))
+        assertEquals(3, b.getInt(first + 16 + 12))
+        assertEquals(6 or 8, b.getInt(first + 32 + 12))
+        assertEquals(8, b.getInt(first + 48 + 12))
+    }
+
+    @Test
+    fun `a marker colour code outside 0 to 6 is refused`() {
+        assertThrows(IllegalArgumentException::class.java) { SnapshotMarker(10, colorCode = 7) }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotMarker(10, colorCode = -1) }
+    }
+
+    @Test
     fun `markers come before the label trailer with frame and beat flag`() {
         val snapshot = TimelineSnapshot(
             30, 1,
