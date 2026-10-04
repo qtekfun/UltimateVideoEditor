@@ -114,8 +114,8 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - Keep CLAUDE.md and SPECS.md updated when decisions change.
 
 ## Deferred
-- Frame blending option for slow motion, pitch-preserving time stretch, animated GIF/WebP (first frame only), dragging lane headers,
-  dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
+- Frame blending option for slow motion, pitch-preserving time stretch, animated WebP pictures frame by frame (GIF is done:
+  `engine/still/Gif.kt`; WebP delays are read but its frames show the first picture), dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
 
 ## Verification debt
 

@@ -1,6 +1,9 @@
 package com.ultimatevideo.uveditor.ui.export
 
+import com.ultimatevideo.uveditor.data.animationTiming
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.AnimationSegment
+import com.ultimatevideo.uveditor.domain.AnimationTiming
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
@@ -146,6 +149,32 @@ internal fun RenderClip.titleParts(content: TitleContent): List<TitlePart> {
     }
 }
 
+/** One stretch of an animated picture clip that shows a single animation frame, in project frames. */
+internal data class AnimationPart(val start: Long, val duration: Long, val crossfadeIn: Long, val index: Int)
+
+/**
+ * The stretches of animated picture clip [this] that show one animation frame, from the clip's first drawn frame
+ * (a transition can start it earlier than its own start) to its end. Only the first part fades in with the clip's
+ * transition and it is stretched over the whole fade, as for animated captions, so the fade is not restarted.
+ */
+internal fun RenderClip.animationParts(timing: AnimationTiming, fps: FrameRate): List<AnimationPart> {
+    val origin = keyframeOriginFrame
+    var segments = timing.segments(startFrame - origin, endFrame - origin, fps)
+    if (crossfadeInFrames > 0 && segments.size > 1) {
+        val rampEnd = startFrame - origin + crossfadeInFrames
+        val inRamp = segments.takeWhile { it.startFrame < rampEnd }
+        segments = listOf(AnimationSegment(inRamp.first().startFrame, inRamp.last().endFrame, inRamp.first().index)) + segments.drop(inRamp.size)
+    }
+    return segments.mapIndexed { i, segment ->
+        AnimationPart(
+            start = origin + segment.startFrame,
+            duration = segment.endFrame - segment.startFrame,
+            crossfadeIn = if (i == 0) crossfadeInFrames else 0L,
+            index = segment.index,
+        )
+    }
+}
+
 /**
  * Plans an export of [timeline]. Returns null when it is empty. The first visual track (video or
  * title) is the topmost layer, matching the preview; clip transforms and opacity are carried over,
@@ -175,8 +204,27 @@ internal fun buildExportPlan(
             RenderKind.VIDEO -> if (clip.still != null) {
                 val id = clip.assetId ?: continue
                 val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: continue else id)
-                val pictureKey = stills.getOrPut(ref) { nextPictureKey++ }
-                videoClips += clip.toSpec(canvasWidth, canvasHeight, assetKey = 0L, colorMode = SDR, titleKey = pictureKey)
+                val timing = if (clip.still == StillKind.PHOTO) assetsById[id]?.animationTiming() else null
+                if (timing == null) {
+                    val pictureKey = stills.getOrPut(ref) { nextPictureKey++ }
+                    videoClips += clip.toSpec(canvasWidth, canvasHeight, assetKey = 0L, colorMode = SDR, titleKey = pictureKey)
+                } else {
+                    // An animated GIF or WebP is one spec per stretch over which its picture is the same, like an
+                    // animated caption; the preview picks the same animation frame at every project frame.
+                    for (part in clip.animationParts(timing, fps)) {
+                        val pictureKey = stills.getOrPut(ref.copy(frame = part.index)) { nextPictureKey++ }
+                        videoClips += clip.toSpec(
+                            canvasWidth,
+                            canvasHeight,
+                            assetKey = 0L,
+                            colorMode = SDR,
+                            titleKey = pictureKey,
+                            start = part.start,
+                            duration = part.duration,
+                            crossfadeIn = part.crossfadeIn,
+                        )
+                    }
+                }
             } else {
                 val asset = clip.assetId?.let(assetsById::get) ?: continue
                 if (!asset.hasVideo) continue
