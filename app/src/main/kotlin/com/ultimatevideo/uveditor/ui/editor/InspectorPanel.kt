@@ -51,6 +51,9 @@ import com.ultimatevideo.uveditor.domain.SpeedLimits
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.TitleAlignment
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLayerEdit
+import com.ultimatevideo.uveditor.ui.editor.title.TitleLayerEditor
+import com.ultimatevideo.uveditor.ui.editor.title.TitleTools
 import com.ultimatevideo.uveditor.domain.Transition
 import com.ultimatevideo.uveditor.domain.isFreeze
 import com.ultimatevideo.uveditor.domain.speed
@@ -70,6 +73,7 @@ fun InspectorPanel(
     onIntent: (EditorIntent) -> Unit,
     modifier: Modifier = Modifier,
     transitionLimit: (Transition) -> Long = { 0L },
+    titleTools: TitleTools = TitleTools.NONE,
 ) {
     // The controls show keyframed values as they are at the playhead (volume, pan, EQ and effect values).
     val clip = state.displayedClip
@@ -93,7 +97,14 @@ fun InspectorPanel(
         // An animated clip shows its pose at the playhead; a fixed one its transform.
         val transform = state.selectedPose ?: clip.transform
         val title = clip.title
-        if (title != null) TitleControls(title, clip.id, onIntent)
+        if (title != null) {
+            if (title.isLayered) {
+                val clipSeconds = clip.durationFrames * state.fps.den.toDouble() / state.fps.num
+                TitleLayerEditor(title, clip.id, state.selectedTitleLayer, state.assets, clipSeconds, titleTools, onIntent)
+            } else {
+                TitleControls(title, clip.id, onIntent)
+            }
+        }
         if (isVisual) {
             KeyframeControls(state, clip.keyframes.size, onIntent)
             InspectorSlider(
@@ -409,6 +420,13 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
         }
         Text(text = "Bold", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 8.dp, end = 8.dp))
         Switch(checked = title.bold, onCheckedChange = { change(title.copy(bold = it)) })
+    }
+    // A plain title can grow into layers (shapes, pictures, fonts, borders); captions with word timing cannot.
+    if (TitleLayerEdit.canConvert(title)) {
+        TextButton(onClick = {
+            change(TitleLayerEdit.toLayered(title))
+            onIntent(EditorIntent.SelectTitleLayer(0))
+        }) { Text("Edit as layers (shapes, pictures, fonts)") }
     }
 }
 

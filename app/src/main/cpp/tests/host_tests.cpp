@@ -8,6 +8,7 @@
 
 #include "audio/waveform_peaks.h"
 #include "timeline_view/drop_hint.h"
+#include "timeline_view/glyphs.h"
 #include "timeline_view/hit_test.h"
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
@@ -37,7 +38,8 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
                         const std::vector<timeline::TransitionSnapshot>& transitions = {},
                         const std::vector<timeline::KeyframeSnapshot>& keyframes = {}, uint32_t version = timeline::kSnapshotVersion,
                         const std::vector<timeline::RetimeSnapshot>& retimes = {},
-                        const std::vector<timeline::MarkerSnapshot>& markers = {}) {
+                        const std::vector<timeline::MarkerSnapshot>& markers = {},
+                        const std::vector<timeline::LabelSnapshot>& labels = {}) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
     w.put<uint32_t>(version);
@@ -89,6 +91,15 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
             w.put<int32_t>(0);
         }
     }
+    if (version >= 7) {
+        w.put<int32_t>(static_cast<int32_t>(labels.size()));
+        for (const auto& l : labels) {
+            w.put<int64_t>(l.clipKey);
+            w.put<int32_t>(static_cast<int32_t>(l.text.size()));
+            for (char ch : l.text) w.put<char>(ch);
+            for (size_t i = l.text.size(); i % 4 != 0; ++i) w.put<char>(0);
+        }
+    }
     return w;
 }
 
@@ -98,8 +109,8 @@ static timeline::ClipSnapshot clip(int64_t key, int track, int64_t start, int64_
 
 static void testSnapshotRoundTrip() {
     auto buf = makeSnapshot(2, {clip(7, 0, 0, 100), clip(8, 1, 50, 25)});
-    // Four trailing counts: transitions, keyframes, retimes and markers.
-    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4 + 4);
+    // Five trailing counts: transitions, keyframes, retimes, markers and labels.
+    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4 + 4 + 4);
     timeline::TimelineSnapshot s;
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
     CHECK(s.tracks.size() == 2 && s.clips.size() == 2);
@@ -264,6 +275,70 @@ static void testSnapshotMarkers() {
     CHECK(timeline::parseSnapshot(extra.data(), extra.size(), &s) == core::Status::BadSnapshot);
     auto negative = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {{-5, 0}});
     CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+// The tiny font used for ruler numbers, speed labels and the text on title and sticker blocks.
+static std::string glyphArt(char ch) {
+    std::string art;
+    const uint16_t bits = timeline::glyphBits(ch);
+    for (int row = 0; row < 5; ++row) {
+        for (int col = 0; col < 3; ++col) art += ((bits >> (14 - (row * 3 + col))) & 1) ? '#' : '.';
+        art += '/';
+    }
+    return art;
+}
+
+static void testGlyphFont() {
+    CHECK(glyphArt('T') == "###/.#./.#./.#./.#./");
+    CHECK(glyphArt('H') == "#.#/#.#/###/#.#/#.#/");
+    CHECK(glyphArt('-') == ".../.../###/.../.../");
+    CHECK(glyphArt('0') == "###/#.#/#.#/#.#/###/");
+    // Lower case letters draw as capitals; the multiplication sign of the speed labels ('x') is the same picture as 'X'.
+    CHECK(glyphArt('h') == glyphArt('H'));
+    CHECK(glyphArt('x') == glyphArt('X'));
+    // A space and characters the font does not have draw nothing.
+    CHECK(timeline::glyphBits(' ') == 0 && timeline::glyphBits('#') == 0 && timeline::glyphBits('~') == 0);
+    // Every capital letter and digit is drawn and no two are the same picture, so a label can always be read.
+    for (char a = 'A'; a <= 'Z'; ++a) {
+        CHECK(timeline::glyphBits(a) != 0);
+        for (char b = static_cast<char>(a + 1); b <= 'Z'; ++b) CHECK(timeline::glyphBits(a) != timeline::glyphBits(b));
+        for (char d = '0'; d <= '9'; ++d) CHECK(timeline::glyphBits(a) != timeline::glyphBits(d));
+    }
+    for (char a = '0'; a <= '9'; ++a) {
+        CHECK(timeline::glyphBits(a) != 0);
+        for (char b = static_cast<char>(a + 1); b <= '9'; ++b) CHECK(timeline::glyphBits(a) != timeline::glyphBits(b));
+    }
+}
+
+static void testSnapshotLabels() {
+    timeline::TimelineSnapshot s;
+    // Labels come out sorted by clip key with their text; lengths that are not a multiple of 4 are padded on the wire.
+    auto buf = makeSnapshot(1, {clip(1, 0, 0, 100), clip(2, 0, 100, 50), clip(3, 0, 150, 50)}, {}, {}, timeline::kSnapshotVersion, {}, {},
+                            {{3, "LOWER THIRD"}, {1, "HI"}, {2, ""}});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.labels.size() == 3);
+    CHECK(s.labelOf(1) != nullptr && *s.labelOf(1) == "HI");
+    CHECK(s.labelOf(2) != nullptr && s.labelOf(2)->empty());
+    CHECK(s.labelOf(3) != nullptr && *s.labelOf(3) == "LOWER THIRD");
+    CHECK(s.labelOf(99) == nullptr);
+
+    // The longest allowed label (24 bytes) parses; one more byte and a cut or extended buffer are rejected.
+    const std::string longest(24, 'A');
+    auto full = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, longest}});
+    CHECK(timeline::parseSnapshot(full.b.data(), full.b.size(), &s) == core::Status::Ok && s.labelOf(1)->size() == 24);
+    auto tooLong = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, std::string(25, 'A')}});
+    CHECK(timeline::parseSnapshot(tooLong.b.data(), tooLong.b.size(), &s) == core::Status::BadSnapshot);
+    auto cut = buf.b;
+    cut.resize(cut.size() - 2);
+    CHECK(timeline::parseSnapshot(cut.data(), cut.size(), &s) == core::Status::BadSnapshot);
+    auto extra = buf.b;
+    extra.push_back(0);
+    CHECK(timeline::parseSnapshot(extra.data(), extra.size(), &s) == core::Status::BadSnapshot);
+
+    // Version 6 has no label trailer and still parses, with no labels.
+    auto v6 = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, 6);
+    CHECK(timeline::parseSnapshot(v6.b.data(), v6.b.size(), &s) == core::Status::Ok);
+    CHECK(s.labels.empty() && s.labelOf(1) == nullptr);
 }
 
 static void testSnapshotPrimarySelection() {
@@ -646,6 +721,8 @@ int main() {
     testSnapshotKeyframes();
     testSnapshotRetimes();
     testSnapshotMarkers();
+    testSnapshotLabels();
+    testGlyphFont();
     testRetimeBoundaries();
     testSnapshotRejectsBadInput();
     testSnapshotPrimarySelection();

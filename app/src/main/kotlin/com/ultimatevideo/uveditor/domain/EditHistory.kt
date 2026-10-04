@@ -1,5 +1,9 @@
 package com.ultimatevideo.uveditor.domain
 
+import com.ultimatevideo.uveditor.domain.multicam.AngleCut
+import com.ultimatevideo.uveditor.domain.multicam.MulticamClip
+import com.ultimatevideo.uveditor.domain.multicam.MulticamOps
+
 /** A reversible timeline edit. Applying is pure; inversion is done by [EditHistory] via snapshots. */
 sealed interface EditCommand {
     fun apply(timeline: Timeline): EditResult<Timeline>
@@ -169,6 +173,44 @@ sealed interface EditCommand {
 
     data class SetDucking(val ducking: Ducking?) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setDucking(timeline, ducking)
+    }
+
+    /** Creates a multicam clip from synchronised angles and realises it (SPECS.md 9.9); one undo step. */
+    data class CreateMulticam(val group: MulticamClip) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.create(timeline, group)
+    }
+
+    /** Cuts a multicam clip to an angle at one frame (counted from its start). */
+    data class CutMulticam(val groupId: String, val frame: Long, val angle: Int) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.cutAt(timeline, groupId, frame, angle)
+    }
+
+    /** A whole live recording of angle switches, applied as one undo step. */
+    data class RecordMulticam(val groupId: String, val cuts: List<AngleCut>) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.record(timeline, groupId, cuts)
+    }
+
+    data class RemoveMulticamCut(val groupId: String, val frame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.removeCut(timeline, groupId, frame)
+    }
+
+    /** Moves one angle in shared time, the manual nudge after a sync. */
+    data class NudgeMulticamAngle(val groupId: String, val angleIndex: Int, val deltaFrames: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.nudge(timeline, groupId, angleIndex, deltaFrames)
+    }
+
+    /** Applies the offsets found by a sync to every angle, one undo step. */
+    data class SetMulticamOffsets(val groupId: String, val offsets: List<Long>) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.setOffsets(timeline, groupId, offsets)
+    }
+
+    data class SetMulticamAudioAngle(val groupId: String, val angle: Int) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.setAudioAngle(timeline, groupId, angle)
+    }
+
+    /** Forgets the multicam group and keeps its clips as ordinary clips. */
+    data class FlattenMulticam(val groupId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = MulticamOps.flatten(timeline, groupId)
     }
 
     /** Remembers a tracking target on a video clip (SPECS.md 9.15); the analysis itself is not an edit. */

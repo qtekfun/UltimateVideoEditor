@@ -102,5 +102,8 @@ builds. It also checks a plain 1x clip frame for frame (`plain_*` outputs) and p
 - Project files are JSON under app-private storage; media are referenced by `content://` URIs, never copied.
   Next to `project.json` live `project.json.tmp` (interrupted write), `.bak` (last good save) and `.corrupt` (a damaged file kept by Recover); see SPECS 4.1.
 - Match surrounding code style; keep comments sparse and explain *why*.
+- Releases: version only in `gradle/version.properties`; the release variant is R8-minified, so a new JNI class,
+  callback name or `@Serializable` model outside `engine/`/`data/model` needs a keep rule in `app/proguard-rules.pro`.
+  Signing material (`keystore.properties`, `*.jks`) is never committed. See `docs/RELEASE.md`.
 - Follow `PLAN.md` phase gates. Update `PLAN.md` checkboxes and these docs when decisions change.
 - For library/API syntax (Compose, AGP, Oboe, Media3, NDK APIs) check current docs rather than memory.

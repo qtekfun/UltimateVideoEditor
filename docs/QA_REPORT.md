@@ -135,3 +135,43 @@ preview, markers and beats, templates, captions, photos and stickers, tray drag 
 clip labels on title and sticker blocks, unattended perf/drift scripts and the 5-minute A/V drift number: they need an
 unlocked screen. Run them again when the Pixel is unlocked.
 
+### Unattended device scripts (added after the second pass)
+
+`scripts/perf-editor.sh` and `scripts/av-drift-test.sh` no longer need anyone to open the project or press play: the new
+`scripts/device-ui.sh` helpers find nodes with `uiautomator` (under `/tmp/uiautomator.lock`, because two parallel dumps crash
+the service), dismiss the "app closed while ... was open" offer, open a project by name and press Play/Pause. Both take
+`PKG=` for a side-by-side build (`-PappIdSuffix`). The node lookup is tested against a sample dump; **the scripts themselves
+were not run on a device** (the Pixel was locked), so the 5-minute A/V drift number is still missing.
+
+### Export on long-GOP material: model of the decoder worker (third pass, host only)
+
+The long-GOP slowdown (about 10 fps in the first pass) was already fixed by the "one frame in flight" change of the
+second pass (table above: 11.6 fps -> 54-71 fps on the Pixel). This pass adds a **deterministic simulation** of the
+decoder worker with a sequential export consumer (`app/src/test/cpp/decode_sim_tests.cpp`, run by
+`scripts/run-native-tests.sh` and as `uv_decode_sim_host_tests`). It mirrors `video_decoder.cpp` (window search, seek
+decision, one frame released at a time, the image reader keeping only the newest undrained frame) in virtual time and
+uses the production `needsSeek` and `pendingExpiredAfterDrain` unchanged; the codec is a fake (key frame every GOP,
+4 ms per frame, 20 ms per flush; consumer 8 ms per frame). Numbers for 600 frames:
+
+| Case | Seeks | Frames decoded | Dropped | Lost in the reader | Effective fps | Ideal max(decode, draw) |
+|---|---|---|---|---|---|---|
+| One key frame, **4 in flight (before)** | 138 | 15796 | 15293 | 275 | **1.9** (timed out) | 125 |
+| One key frame, 1 in flight (now) | 1 | 600 | 0 | 0 | **124.3** | 125 |
+| GOP 30, 1 in flight | 1 | 600 | 0 | 0 | 124.3 | 125 |
+| Decode-bound (12 ms decode, 6 ms draw) | 1 | 600 | 0 | 0 | 71.2 | 83.3 |
+| Draw-bound (3 ms decode, 15 ms draw) | 1 | 600 | 0 | 0 | 66.5 | 66.7 |
+| Scrub back from 300 to 100 | 2 | 701 | 102 | 0 | 114.3 | 125 |
+| Cut forward from 100 to 500 (GOP 60) | 2 | 221 | 20 | 0 | 115.5 | 125 |
+
+Reading: with several frames in flight the reader drops all but the newest, every loss is retried after the pending
+timeout, and every retry is a backward seek and a re-decode from the key frame (the simulation shows the same
+mechanism as the device, with a larger factor: the real codec re-decodes faster than the model). With one frame in
+flight sequential access performs exactly one seek, loses nothing, and runs within 15% of the pipelined ideal
+(`max(decode, draw)`); the decode-bound case is the closest to the limit (85%) because only one frame can be ahead of
+the consumer. Interactive behaviour is unchanged: a scrub back or a long jump seeks once. The tests assert all of
+this, and that `kMaxInFlightFrames` (now in `decode/pending_policy.h`, shared by the decoder and the model) stays 1.
+
+Not verified in this pass: anything on a device. The Pixel 8 was locked with a credential, so
+`scripts/run-export-throughput.sh` (the real measurement, including the 2-layer case at 1.3x real time) was not rerun.
+The two-layer export is probably bound by drawing two layers and the encoder rather than by decoding; that needs a
+device profile.

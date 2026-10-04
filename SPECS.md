@@ -529,12 +529,12 @@ as the aim, choose the nearest marker after its start (a tie goes to the earlier
 only grow as far as its media; titles and stills freely), and trim its end there with `MagneticBase.trim`, so later base clips ripple and
 overlays follow. A clip with no reachable marker is left alone. The first clip keeps its start; every cut between the clips lands on a marker.
 
-**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). A template is data: layers of kind `TEXT` (a title clip) or `BAR`
-(a solid sticker clip, `shape:bar-dark` / `shape:bar-accent`, stretched to a canvas fraction using the sticker side of `StillFit`), each with
-a resting pose in canvas fractions and `TemplateKey`s (seconds from the start or the end, offsets as canvas fractions, scale, opacity,
-interpolation) that become ordinary keyframes in clip frames, so preview and export are identical for free. Text goes on a title lane and bars
-on an overlay lane (never the base); a lane is reused only when it is free over the template's range, otherwise a new one is added, so
-nothing is overwritten. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar.
+**Text templates** (`TextTemplates`, `AddTextTemplate`, one undo step). Since WP-T a template is a multilayer title preset (section 5.25):
+one title clip on a title lane (a lane is reused only when it is free over the template's range, otherwise a new one is added above;
+never the base, so nothing is overwritten), whose layers are a bar shape and the text, with an in and out `MotionPreset` turned into
+ordinary clip keyframes (`TitleMotion`), so preview and export are identical for free. The text typed in the tray goes into the first text
+layer. Built in: Lower third, Pop title, Slide-in headline, Subtitle bar. (Before WP-T a template was two clips: a text clip and a solid
+bar sticker on an overlay lane, each with its own keyframes; the bar stickers `shape:bar-dark` / `shape:bar-accent` are no longer used.)
 
 ### 5.19 Multi-selection and group edits
 
@@ -851,6 +851,98 @@ or on the clipboard, so an undo can never meet a file that is no longer in the l
 green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
 a snapshot version bump); the colour shows in the dialog and in exports.
 
+### 5.25 Multilayer titles, fonts and presets
+
+A title is either a **plain** title (the single-text fields of `TitleContent`, used by captions and old projects) or a **multilayer** one:
+`TitleContent.layers` holds `TitleLayer`s drawn in list order, so the first is at the bottom and the last on top (the editor lists them
+top first). `TitleContent.text` mirrors the first text layer so lists and labels have something to show; `TitleLayerEdit.synced` keeps it
+so. Layer kinds: `TextLayer` (text, optional imported `fontId`, size, colour, alignment, bold, italic, letter spacing in em, line height,
+border `LayerStroke`, `LayerShadow`, background `LayerBox`), `ShapeLayer` (rect, rounded rect, ellipse, line; fill, outline, shadow,
+corner radius) and `ImageLayer` (a library photo or a built-in sticker, size, shadow). Every layer has a `LayerPlacement` (offset as
+canvas fractions from the centre, scale, rotation, opacity) inside the title, which the clip's own transform then moves. All sizes are
+fractions of the canvas, so a title is resolution independent. At most `TitleLayers.MAX_LAYERS` (16) layers; the last layer cannot be
+removed. `TitleLayerEdit` holds the pure edits (convert, add, remove, replace, move, duplicate); the editor commits each through
+`EditCommand.SetTitle`, so every change is one undo step. A plain title converts losslessly except a caption with word timing or an
+animation (`canConvert`).
+
+**Rendering.** `AndroidTitleRasterizer` sends a layered title to `LayeredTitleDrawer`, which rasterises the whole group into **one**
+premultiplied RGBA bitmap, so the compositor, the cache keys (`TitleKeyCache` by content equality) and the exporter are unchanged and
+preview and export draw the same picture. The bitmap is symmetric around the canvas centre (the compositor centres title bitmaps) and as
+small as the layers allow (`LayerBounds.halfExtents`, capped at 0.6 of the canvas beyond each side); a lower third is a thin strip. Text
+uses `StaticLayout` (wrapping at 90 % of the canvas width), shadows use `Paint.setShadowLayer` (a box carries the shadow when there is
+one), pictures come from `LayerImages` (`AndroidLayerImages`: `ImageDecoder` scaled to the drawn size, EXIF applied, a small LRU) and a
+photo that cannot be loaded is skipped. A photo layer stores the asset id; `TitleLayers.resolved` points it at the library file when the
+preview scene or the export plan is built (`ImageLayer.resolvedUri`, never stored), so relinking a photo changes the cache key and redraws it.
+
+**Fonts.** `FontRegistry` (app-private `filesDir/fonts`) stores fonts the user imports with the system picker: `FontMetaParser` validates
+the sfnt table directory (TrueType, OpenType/CFF; no collections; at most 25 MB) and reads the family name from the `name` table. A font's
+id is the first 16 hex digits of its SHA-256, so the same file has the same id on every device; there is no index to corrupt (the list is
+read from the files). `RegistryFontResolver` makes a `Typeface` (bold and italic are synthesised when the font lacks them); a missing or
+unloadable font falls back to the system font. Titles that name fonts this device lacks raise a banner with an "Import font" button
+(`EditorState.missingFonts`), and the title editor shows the same warning on the layer. Nothing is downloaded; the import dialog reminds
+the user to check the font's licence.
+
+**Motion.** `MotionPreset` (None, Fade, Slide from left/right/bottom/top, Pop) is turned by `TitleMotion.keyframes` into ease keyframes of
+the clip: the intro runs over the first `edgeFrames`, the outro over the last (shortened so they never meet), and `SetTitleMotion` replaces
+the clip's keyframes in one undo step.
+
+**Presets (`.uvtitle`).** A preset is a `TextTemplate`: layers, `intro`/`outro`, `edgeSeconds`, default text and length, fonts used (id and
+family). `TitlePresetCodec` reads and writes the file (JSON, `format: "uvtitle"`, `version: 1`, at most 256 KB; newer versions and other
+formats are refused with a message). Photos cannot travel (they are files of one project), stickers can; fonts are listed but not embedded.
+`TitlePresetStore` keeps the user's presets as `<id>.uvtitle` under `filesDir/title-presets` (the id is a hash of name and layers, so saving
+the same title twice replaces it); a damaged file is skipped. Import and export use the system picker (`OpenDocument` /
+`CreateDocument`). The tray's Titles tab lists the built-in templates and "My presets"; the title editor saves, exports and deletes them.
+
+**JSON.** `TitleDto.layers` (`TitleLayerDto`: `type` `text`, `shape` or `image`, plus the fields of that type, all optional), absent for plain
+titles, so older projects load unchanged and a plain title writes no layers. Unknown types, shapes, alignments and colours are corrupt-data
+errors, never guessed.
+
+**Editing on the preview.** With a layer selected, the preview's drag, pinch and twist gestures move, scale and turn that layer
+(`EditorIntent.LayerGesture`, part of the title edit session and committed by `EndAppearanceEdit`), and `LayerHandleOverlay` draws a ring
+and cross at its centre (plus its outline for a shape).
+
+### 5.26 Multicam (WP-M)
+
+A multicam clip lines up two to six recordings of one event and cuts between them. Code: `domain/multicam/`
+(`Multicam.kt`, `AudioSync.kt`), `engine/multicam/MulticamServices.kt`, `ui/editor/multicam/`.
+
+- **Shared time.** Every angle (`MulticamAngle`) has an `offsetFrames` in project frames: shared frame `t` is the
+  angle's own frame `t - offsetFrames` (0 for the reference, negative if it started earlier) and a `durationFrames`.
+  The group (`MulticamClip`) covers shared time `[inFrame, inFrame + lengthFrames)`, sits on the timeline from
+  `startFrame`, and holds sorted `cuts` (`AngleCut(frame, angle)`, the first at 0, neighbours never the same angle).
+  Only the angle on screen has to cover its stretch.
+- **Realised as ordinary clips.** The programme is written to `Timeline.tracks` as one clip per stretch of one angle
+  (`mc-<id>-v<n>`, source = `inFrame + cutFrame - offset`) on `videoTrackId`, plus one clip from `audioAngle` for the
+  whole length (`mc-<id>-a`) on `audioTrackId`; the picture clips then carry -96 dB so the sound never follows the
+  cuts. Preview, export and every other edit therefore work on a flattened timeline, and "Flatten" only forgets the
+  group (`FlattenMulticam`). Without an audio lane each angle keeps its own sound.
+- **Edits** (`MulticamOps`, all one undo step, all rewriting the realised clips in place over the same stretch so the
+  base stays gap free): `create` (on the base: a ripple insert at the nearest cut, the group follows where it landed;
+  on another lane the stretch must be free), `cutAt`, `record` (a whole live recording at once), `removeCut`,
+  `nudge`, `setOffsets` (a sync result), `setAudioAngle`, `flatten`. A cut that would show an angle where it has no
+  media is refused and nothing changes.
+- **Staying consistent.** `Timeline.pruned()` calls `MulticamOps.settle`: a group whose realised clips moved together
+  (a ripple, a block drag, a group move) follows them (`startFrame` is re-read from the first clip); one that was
+  edited clip by clip (split, trim, retime, a deleted piece) is forgotten and its clips carry on as ordinary clips.
+  Styling a clip (gain, transform, effects) keeps the group.
+- **Sync** (`AudioSync.offsetOf`, no learning): the loudness envelopes the waveform cache already holds are brought to
+  100 Hz, log-compressed and centred; a coarse pass (1/8 rate) correlates every offset through one FFT scored by
+  normalised correlation with a minimum overlap, a fine pass searches +-2 coarse steps at full rate, and the offset is
+  converted to project frames with exact integer rounding (`stepsToFrames`). `SyncResult.ncc` is the correlation at
+  the winner and `confidence` is that minus the best rival peak more than a second away; below
+  `AudioSync.MIN_CONFIDENCE` (0.15) the offset is not applied and the user nudges by ear. Resolution is 10 ms, so the
+  result is within one frame at 60 fps and below.
+- **Viewer budget** (`MulticamPlanner`): the active angle is `FULL` (the one the preview decodes), other angles are
+  `PROXY` while a proxy is ready and a decoder is spare (`maxDecoders - 1`), else `STILL`.
+- **JSON.** `ProjectDto.multicams` (optional; old projects load with none): angles, audio angle, lane ids, start, in,
+  length and cuts. A stored group whose clips are missing is a corrupt project.
+- **UI.** A toolbar button opens the Multicam sheet: pick 2 to 6 library files, "Sync by sound", nudge, "Create at
+  playhead"; then angle buttons that cut at the playhead (with live / proxy / still badges), "Record cuts" (taps are
+  collected with their playhead frame and applied as one undo step), "Remove cut here", the audio angle, fine sync,
+  "Sync again" and "Flatten".
+- **Not in this version:** the grid does not show moving pictures of the other angles (the badges show how each would
+  be fed), and a multicam clip is always created on the base.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
@@ -869,6 +961,42 @@ cover collisions, gaps, and boundaries:
 | Freeze frame | Splits the video clip at the playhead and inserts a one-frame still; later clips move by its length |
 
 Invariants: sorted by `timelineStartFrame`, no overlaps on a track, durations > 0, all values integers.
+
+
+### 5.22 Proxy media (WP-P)
+
+Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in files; export never uses them.
+
+- **Proxy file.** A one-clip movie made by the offline export engine (`ProxyGenerator` -> `NativeExportRunner`): the
+  source's own frame rate and length (so every timeline frame maps to the same frame of the proxy), scaled so the
+  short side is 720 or 1080 (never larger than the source, even sides, same aspect and display rotation), H.264,
+  about 0.15 bits per pixel (2-40 Mbps), a keyframe every second (the engine's setting), **no audio** (sound is
+  always read from the original). HDR sources are tone-mapped to SDR; the preview reads a proxy as SDR Rec.709
+  (`PreviewRequest.sourceOverride = 0`), so HDR looks flatter while editing with proxies.
+- **Side index** (`proxy/ProxyIndex`): `cacheDir/proxies/index.json` plus `<key>.mp4`; never in `project.json`, so
+  bundles and interchange files are unaffected. The key is a hash of source uri, length, frame rate and proxy size
+  (a relinked or re-proxied asset gets a new key). Entries carry their own job (uri, length, rate, colour space), so a
+  restarted process resumes the queue without any project open. States: QUEUED, RUNNING, READY, STALE, FAILED.
+  Atomic writes; a damaged index reads as empty; `recoverAfterKill` puts RUNNING back in the queue (part file
+  deleted, the job restarts from the beginning), drops READY entries whose file is missing or the wrong size, and
+  removes files nothing refers to.
+- **Queue** (`ProxyWorker`): one job at a time on one background-priority thread, outcomes kept in the index,
+  cache held to the budget after each job (least recently used first; proxies of the open project and anything
+  queued or running are kept), cancel for the running or a queued job.
+- **Choosing the file** (`ProxyPlanner`, pure): `MediaPurpose.PREVIEW` and `THUMBNAIL` may use a proxy, only when the
+  project switch is on, the asset is decoded video and the proxy is READY with its file present; `ANALYSIS`
+  (waveforms, beats, loudness) and `EXPORT` always get the original. Export code never references the proxy
+  package (a test scans for it). A proxy that fails to open in the preview is marked STALE and the original is shown.
+- **Preview.** `previewRequestsWithSources` builds the same requests as `previewRequestsAt` with a per-asset source;
+  `EditorPreview` reopens an asset when the file it was opened from changes (switch flipped, proxy finished).
+- **Per-project switch and settings** live in local preferences (`ProxyPrefs`): switch and dismissed suggestion per
+  project id, proxy size, storage budget (1-16 GB, default 4 GB).
+- **Suggestion** (`ProxySuggester`): while proxies are off and the offer has not been dismissed, heavy video (short
+  side >= 1440 or >= 50 Mbps) without a proxy, or three preview stalls, raises a dismissible banner. Nothing is made
+  without the user's consent.
+- **UI**: a toolbar button opens the proxy sheet (switch, size, make/cancel/remove per video, storage and budget,
+  clear cache with confirmation); proxy badges on the media tray tiles and in the library rows.
+- **Validation** (`ProxyManager.validate`): a proxy whose source changed size, or whose file is gone, becomes STALE.
 
 ### 6.1 Base track and overlays (LumaFusion model)
 

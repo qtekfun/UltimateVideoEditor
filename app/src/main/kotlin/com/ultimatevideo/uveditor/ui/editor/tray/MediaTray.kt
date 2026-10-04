@@ -45,6 +45,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.ultimatevideo.uveditor.ui.editor.proxy.badgeLabel
+import com.ultimatevideo.uveditor.ui.editor.proxy.proxyStatusOf
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
@@ -70,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.TextTemplate
 import com.ultimatevideo.uveditor.ui.editor.EditorIcons
 import com.ultimatevideo.uveditor.ui.editor.StickerChooser
 import com.ultimatevideo.uveditor.ui.editor.TextTemplateChooser
@@ -103,6 +106,8 @@ internal fun MediaTray(
     onPickSticker: (String) -> Unit,
     onApplyTemplate: (templateId: String, text: String) -> Unit,
     modifier: Modifier = Modifier,
+    userPresets: List<TextTemplate> = emptyList(),
+    onApplyPreset: (TextTemplate, text: String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val externalTarget = remember(onExternalFiles) { externalFilesTarget(context, onExternalFiles) }
@@ -130,7 +135,7 @@ internal fun MediaTray(
                             state, onState, assets, items, isImporting, onImport, onAdd, onAssetDragStart, onReorder,
                         )
                         TrayTab.STICKERS -> Column(Modifier.verticalScroll(rememberScrollState())) { StickerChooser(onPickSticker) }
-                        TrayTab.TEMPLATES -> Column(Modifier.verticalScroll(rememberScrollState())) { TextTemplateChooser(onApplyTemplate) }
+                        TrayTab.TEMPLATES -> Column(Modifier.verticalScroll(rememberScrollState())) { TextTemplateChooser(onApplyTemplate, userPresets = userPresets, onApplyPreset = onApplyPreset) }
                     }
                 }
             }
@@ -364,6 +369,7 @@ private fun TileContent(item: TrayItem, thumbnail: ImageBitmap?, showName: Boole
         Badge(durationLabel(item.asset), Alignment.BottomEnd)
         colourBadge(item.asset)?.let { Badge(it, Alignment.TopStart, MaterialTheme.colorScheme.tertiary) }
         if (item.usage > 0) Badge("×${item.usage}", Alignment.TopEnd, MaterialTheme.colorScheme.primary)
+        proxyStatusOf(item.asset.id).badgeLabel()?.let { Badge(it, Alignment.CenterEnd, MaterialTheme.colorScheme.secondary) }
         if (showName) {
             Text(
                 item.name,

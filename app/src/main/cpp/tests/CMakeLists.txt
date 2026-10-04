@@ -113,7 +113,13 @@ target_include_directories(uv_track_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_track_host_tests PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(uv_track_host_tests PRIVATE Threads::Threads)
 
+# Decoder worker + sequential export consumer simulation (seeks, lost frames, effective fps).
+add_executable(uv_decode_sim_host_tests ${CMAKE_CURRENT_SOURCE_DIR}/../../../test/cpp/decode_sim_tests.cpp)
+target_include_directories(uv_decode_sim_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_decode_sim_host_tests PRIVATE -Wall -Wextra -Werror)
+
 enable_testing()
+add_test(NAME uv_decode_sim_host_tests COMMAND uv_decode_sim_host_tests)
 add_test(NAME uv_track_host_tests COMMAND uv_track_host_tests)
 add_test(NAME uv_stabilise_host_tests COMMAND uv_stabilise_host_tests)
 add_test(NAME uv_hdr_host_tests COMMAND uv_hdr_host_tests)
