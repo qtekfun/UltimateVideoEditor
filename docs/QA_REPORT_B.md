@@ -236,4 +236,4 @@ Remaining: Bold and Impact caption styles, exported frames of transitions, track
 and emoji, smooth slow motion, denoise and deflicker export check, speed export frame by frame, restore from `.bak`, marker note tick,
 voice effects UI, title presets, cut to beat, tags/notes/library.
 
-Defects: D1 (PR #84) and D2 (PR #87) merged; D3 (PR #88, import keeps the file name) open.
+Defects: D1 (PR #84) and D2 (PR #87) merged; D3 (PR #88, import keeps the file name) merged.
