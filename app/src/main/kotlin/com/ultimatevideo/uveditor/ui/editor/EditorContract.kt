@@ -123,6 +123,8 @@ data class EditorState(
     val paramClipboard: ParamClipboard? = null,
     /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
     val selectedParamKey: Pair<String, Long>? = null,
+    /** The multicam sheet: angles being picked and synced, and live cutting between the angles of a multicam clip. */
+    val multicam: com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState = com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState(),
 ) : UiState {
     /** The timeline the mixer plays: the committed one, or the live audio edit while a slider is dragged. */
     val audioSource: Timeline get() = if (audioSessionActive) visibleTimeline else timeline
@@ -420,6 +422,9 @@ sealed interface EditorIntent : UiIntent {
     data object RemoveNoiseSuppression : EditorIntent
     data object CancelAudioAnalysis : EditorIntent
     data object ToggleMixer : EditorIntent
+
+    /** Anything on the multicam sheet (SPECS.md 9.9); handled by `MulticamController`. */
+    data class Multicam(val intent: com.ultimatevideo.uveditor.ui.editor.multicam.MulticamIntent) : EditorIntent
 
     /**
      * Keyframes of the selected clip, placed at the playhead: add one holding the pose shown there
