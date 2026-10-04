@@ -257,3 +257,17 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | O2 (PR #91) | Colour grade: swipe up starting on the Gamma wheel away from the puck | PASS | the panel scrolled, the three pucks stayed centred, the Reset buttons stayed disabled |
 | O2 (PR #91) | Drag the Gamma puck | PASS | the puck followed the finger, Gamma's Reset became enabled |
 | A1 (PR #89) | Name shown after an export renamed in the picker | not yet re-run on device | covered by a unit test; the on-device check follows with the export runs below |
+
+## Verification pass A2 (Pixel 8, same build)
+
+| Area | Step | Result | Evidence |
+|---|---|---|---|
+| Hub | Search with 8 projects: "project 5" leaves only that card; a miss shows `No project matches "zzz".` | PASS | |
+| Hub | Sort by Name orders New project, (2), 2, 3, 4, 5 ...; back to Recent restores recency order | PASS | |
+| Hub | About: version 0.1.0 (100), licence text, privacy summary, third-party notices, storage figures and Clear caches | PASS | `dumpsys package` lists no `android.permission.INTERNET` (count 0), matching the screen's claim |
+| Hub | "Read the privacy statement" and "Notices" expand in place (no browser) | PASS | |
+| Hub | Hub list shows a first-frame thumbnail after the first edit and the project's last-modified time | PASS | |
+
+### Observations (pass A2)
+
+- **O3, cosmetic, open:** the notices and the privacy statement in About show Markdown source and hard line breaks (for example `[Oboe](https://github.com/google/oboe)` and sentences broken mid-line), because the text files are displayed raw.
