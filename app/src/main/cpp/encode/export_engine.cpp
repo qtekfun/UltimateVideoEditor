@@ -21,6 +21,7 @@
 #include "decode/video_decoder.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
+#include "stabilise/stab_registry.h"
 
 namespace uv::encode {
 
@@ -413,6 +414,7 @@ public:
             layer.mode = render::colorModeFor(render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)), space_);
             layer.turns = asset.turns;
             layer.fx = clip->fx;
+            stab::resolveStabilisation(&layer.fx, source);  // the stabiliser's correction for this source frame
             layer.transform = render::LayerTransform{
                 static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
                 static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};

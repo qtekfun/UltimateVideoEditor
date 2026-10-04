@@ -142,6 +142,8 @@ inline Rgba applyColorEffect(const core::EffectOp& op, Rgba c, float u, float v)
             break;  // neighbourhood effects, see sharpenPremultiplied
         case EffectType::Lut:
             break;  // needs the LUT table, see applyLut
+        case EffectType::Stabilise:
+            break;  // moves pixels instead of changing them, see stabilise/stab_warp.h
         case EffectType::ColorGrade: {
             if (op.grade.size() == static_cast<size_t>(core::kGradeWireValues)) {
                 float rgb[3] = {c.r, c.g, c.b};

@@ -224,6 +224,7 @@ private:
     int canvasW_ = 0;                // 0 = single-asset mode: the canvas is the first layer's displayed size
     int canvasH_ = 0;
     bool drawnValid_ = false;
+    uint64_t drawnStabRevision_ = 0;
     std::vector<DrawnLayer> drawn_;
     int drawnCanvasW_ = 0;
     int drawnCanvasH_ = 0;
