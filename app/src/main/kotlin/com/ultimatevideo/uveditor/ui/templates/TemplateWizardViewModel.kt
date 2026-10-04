@@ -189,7 +189,7 @@ class TemplateWizardViewModel(
                 if (template == null) {
                     _state.update { it.copy(message = "That project has no clips to turn into slots") }
                 } else {
-                    _state.update { it.copy(message = "Saved \"${template.name}\" with ${template.placeholders.size} slots") }
+                    _state.update { it.copy(message = "Saved \"${template.name}\" with ${slotCountLabel(template.placeholders.size)}") }
                     refresh()
                 }
             } catch (e: ProjectError) {
