@@ -124,6 +124,9 @@ internal object EditorIcons {
     /** A flag: markers and beats on the ruler. */
     val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
 
+    /** Three level bars: the track mixer. */
+    val Mixer = icon("Mixer", "M10,20h4L14,4h-4v16zM4,20h4v-8L4,12v8zM16,9v11h4L20,9h-4z")
+
     /** Large and small letters: the text templates. */
     val TextTemplate = icon("TextTemplate", "M2.5,4v3h5v12h3V7h5V4h-13zM21.5,9h-9v3h3v7h3v-7h3V9z")
 
