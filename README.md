@@ -29,6 +29,28 @@ Licensed under [GPL-3.0](LICENSE). Third-party components are listed in [THIRD_P
 - **Export:** H.264/HEVC (HEVC Main10 for HLG) with AAC, upload presets, progress with time left, cancel and share.
 - **Safety:** missing-media relink, `.bak` recovery, autosave errors surfaced, local-only crash report.
 
+| Area | State |
+|---|---|
+| Project hub: create, clone, rename, delete, import/export (JSON, atomic writes) | Implemented; JVM-tested. Seen on the device |
+| Multitrack timeline: split, move, trim, overwrite, ripple delete, undo/redo | Implemented; heavily unit-tested (collisions, gaps, randomized invariants) |
+| Magnetic base track with overlays that follow it (delete, insert, reorder, trim) | Implemented; unit-tested. Not yet verified by touch on the device |
+| Native timeline canvas (`SurfaceView`, GLES) with waveforms and thumbnail filmstrip | Seen on the device; frame rate not measured, pinch-zoom only host-tested |
+| Preview: H.264/HEVC hardware decode to `AHardwareBuffer`, GLES 3.2 compositor, multilayer | Seen on the device with synthetic clips |
+| Audio playback (Oboe) with the audio clock as master, per-clip gain | Clock drift measured over ~55 s; long-run A/V drift not yet measured; sound not listened to |
+| Per-clip transform (position, scale, rotation, opacity), keyframes | One-finger edits seen on the device; pinch/twist and keyframes unit-tested only |
+| Titles and crossfade transitions | Implemented; not seen on the device |
+| Speed changes, ramps, reverse, freeze frame | Implemented; export checked frame by frame on the device, preview/UI not seen |
+| Effects, chroma key, masks, blend modes | Implemented; shaders not yet seen on the device |
+| Photos and built-in stickers as still clips (import images, sticker picker) | Implemented and unit-tested; not yet seen on the device (EXIF orientation, HEIC, sticker art unverified) |
+| Social format presets, safe zones, upload presets | Implemented; not seen on the device |
+| Ruler markers, beat detection (from the waveform cache), snap to markers, "Cut to beat" | Implemented and unit-tested (detector on synthetic click tracks); not tried on real music or on the device |
+| Multilayer titles (text, shapes, pictures), imported fonts, in/out animation, shareable `.uvtitle` presets; the text templates are built on it | Layers, preview gestures, font import and animation seen on a Pixel 8; photo layers, export and the OPPO not yet |
+| Captions: typed or imported from `.srt` / `.vtt`, 8 animated styles, restyle all (no speech recognition, fully offline) | Implemented and unit-tested; not yet seen on the device |
+| HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |
+| Export to MP4 (H.264 / HEVC + AAC), 4K60 HEVC at ~90 fps on the test phone | Verified with `ffprobe` on synthetic clips; cancel/share untested on device |
+
+Optional and off by default: a software-decoding fallback built on FFmpeg ([docs/ffmpeg-fallback.md](docs/ffmpeg-fallback.md); verified in CI only). Not done yet: Vulkan renderer, pitch-preserving time stretch. The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
+
 What has actually been seen working on a phone (the OPPO CPH2841 reference phone, plus a Pixel 8 used for debugging), and what has not,
 is spelled out per area in [PLAN.md](PLAN.md#verification-debt). Highlights: exports were checked with `ffprobe` (exact frame counts,
 4K60 HEVC at ~90 fps on the reference phone); the audio clock drifts under 0.4 ms in 55 s; scrolling and dragging in the editor were

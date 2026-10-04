@@ -1034,6 +1034,20 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Why:** the placeholder vector was a play triangle; the release checklist required a designed icon, original and not resembling other editors.
 **Alternative:** a play triangle on the timeline (closer to generic video apps), or a raster icon set (larger APK, needs a design tool). Not seen rendered on a device; only the geometry is verified.
 
+## FFmpeg software-decoding fallback (optional, off by default)
+
+- **Route:** MediaCodec first; FFmpeg only if MediaCodec fails to open the stream for a fixable reason *and* this build contains it. A pure function (`decode/decoder_selection.h`) decides, so it is host-tested. Alternative: always prefer software for formats MediaCodec "might" mishandle (slower and worse battery for the common case).
+- **Off by default, enabled with `-Puveditor.ffmpeg=<dir>`:** default builds and CI never need FFmpeg (a stub is linked); the engine grows by 7.6 MB when it is on. Alternative: always on (+7.6 MB for everyone for a rare need).
+- **Built in CI, never locally and never committed:** a pinned version and SHA-256, an LGPL-only configuration that the script verifies, the libraries published as an artifact. Alternative: a prebuilt Maven artifact (about 20 MB, full codec set, no headers).
+- **Reading with `pread()` on a duplicated descriptor** through a custom AVIO context, no FFmpeg protocols: the app has no network and the demuxer never moves a shared file offset. Alternative: the `fd:` protocol (shares the offset between readers).
+- **Frame indices by integer maths:** pts to frame is round-half-up with 128-bit intermediates, the seek target is the floor; the frame rate is snapped to broadcast rationals. Alternative: floats (drift over long clips).
+- **A seek that lands late retries further back** (4, 16, 64... frames, at most 8 times), and a seek that ends before any picture does the same. Open-GOP MPEG-2 and some single-key-frame files need it. Alternative: trust the first key frame the demuxer finds (frames silently missing).
+- **Estimated durations (MPEG-PS/TS, no index) get 100 ms of slack**, and the decoder raises its last frame when a picture arrives beyond it. Alternative: trust the estimate (hides the last frames).
+- **RGBA8 frames** through the existing `AHardwareBuffer` path, so cache, colour shader, effects and exporter are untouched. Cost: 10-bit sources lose precision; alternative: a 10-bit RGB path (not done).
+- **Audio fallback** only when the platform fails to open the audio, with a proper downmix through libswresample (the MediaCodec path takes the first two channels).
+- **Software decode is flagged, not hidden:** the editor says the clip is decoded on the CPU and, above a 1080p30 pixel rate, advises a proxy and reduces the look-ahead.
+- **AV1 left out:** needs dav1d/libaom built separately and the platform decodes AV1 since Android 12.
+
 ## 2026-10-04 · Final cleanup
 
 **Flaky test root cause and fix.** `AudioToolsViewModelTest > a measurement that fails…` failed now and then with
