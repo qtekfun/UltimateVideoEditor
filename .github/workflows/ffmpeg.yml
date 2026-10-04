@@ -8,6 +8,8 @@ name: FFmpeg fallback
 
 on:
   workflow_dispatch:
+  push:  # TEMPORARY: lets the manual jobs run from this branch before the workflow exists on master
+    branches: [feat/ffmpeg-fallback]
   pull_request:
     paths:
       - 'app/src/main/cpp/decode/**'
@@ -42,7 +44,7 @@ jobs:
 
   android-build:
     name: Build static FFmpeg (arm64)
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
