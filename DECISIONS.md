@@ -1240,6 +1240,14 @@ one line; the note keeps 200 and several lines. **Exports:** the EDL has no mark
 then the note, then "Marker" / "Beat". **Measured:** the add-marker step in a JVM test is about 0.2 ms median (see the PR).
 
 
+## Tray tile: the click sits inside the drag source (found on the Huawei MatePad)
+A tap on a media tray tile added nothing; only a long-press drag did (adb `input tap`, a short swipe and a real touch all
+failed, so it was not adb timing). `dragAndDropSource` consumes the release of a short press, and the `clickable` was
+declared before it, so the drag source (the innermost modifier, which sees pointer events first) swallowed the click.
+`.clickable` now comes after `.dragAndDropSource` in `AssetTile`. `AssetTileTapTest` (instrumented, Compose UI test) taps a
+tile and checks `onAdd` fires; it fails with the old order (verified on the tablet) and passes with the new one. This adds
+`ui-test-junit4` and `ui-test-manifest` as test-only dependencies.
+
 ## Dark only with optional pure black; one palette for Compose and the native canvases
 **Chosen:** the light and dynamic-colour schemes are gone. `Palette.kt` holds every colour as plain ARGB ints (`Dark`, `Amoled`); the
 Material scheme is built from it and the same tokens go to the native timeline (`Palette.nativeColours()`, 22 values, JNI `nativeSetPalette`).
