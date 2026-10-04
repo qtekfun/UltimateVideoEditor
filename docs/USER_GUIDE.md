@@ -118,7 +118,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | CC | Captions | Opens the captions sheet: type captions, import a `.srt` / `.vtt` file, choose a style and restyle all captions. |
 | ☺ | Stickers | Opens the media tray on the **Stickers** tab (built-in shapes and emoji). |
 | Tt | Titles and templates | Opens the media tray on the **Titles** tab (lower third, pop title, slide-in headline, subtitle bar). |
-| ⇄ | Crossfade | Adds a crossfade between the selected clip and the next one. |
+| ⇄ | Transition | Adds a transition (a crossfade to start with) between the selected clip and the next one; choose its look in Adjust clip. |
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
 | ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
@@ -237,7 +237,13 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
   **mask** (rectangle or ellipse, feather, invert). The **colour grade** has its own editor, see
   [Colour grading and scopes](#colour-grading-and-scopes).
 - **Title text**: for title clips, the text, size, colour, alignment and bold.
-- **Crossfade**: duration of the transition at the cut.
+- **Transition**: its length at the cut and its **look**. Pick from Crossfade, Slide, Push, Zoom, Spin, Glitch, Wipe,
+  Whip pan and Light leak; Slide, Push, Spin, Wipe and Whip pan also ask for a direction (the way the new picture
+  travels). A strip of three frames shows what the chosen look does. Slide brings the new clip over the old one, Push
+  carries the old one out, Zoom and Spin scale or turn the pictures while the new one fades in, Glitch jitters and
+  flickers between them, Wipe reveals the new clip with a soft edge, Whip pan is a fast push with motion blur and
+  Light leak adds a warm glow while it crossfades. All looks cross-fade the sound. Looks need spare footage around the
+  cut, like the crossfade, and the preview and the exported movie draw them identically.
 - **Reset** restores the clip's appearance; **Done** closes the panel.
 
 Title and sticker blocks on the timeline show their text or name (capital letters and digits only; other scripts show "TEXT").

@@ -216,7 +216,7 @@ class ExportViewModel(
         rate: FrameRate,
         current: ExportState,
     ) {
-        val plan = buildExportPlan(source.timeline, source.assets, source.fps)
+        val plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight)
             ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.")
         val titleImages = plan.titles.map { (key, content) ->
             val bitmap = try {
