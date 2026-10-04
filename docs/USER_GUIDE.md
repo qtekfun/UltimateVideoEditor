@@ -373,7 +373,8 @@ The grade is one effect with:
   delete), **Copy grade** and **Paste grade** move a grade from one clip to another. Applying a look or
   pasting replaces the clip's colour grade (or adds one) in a single undo step. Looks live on the device
   and are shared by all projects.
-- **Lift, Gamma, Gain wheels**: drag the puck towards a colour to push that colour (lift = shadows, gamma =
+- **Lift, Gamma, Gain wheels**: drag the puck towards a colour to push that colour (a drag moves the puck only when it starts on the puck, a tap
+  places it, and a swipe that starts elsewhere over the wheel scrolls the panel; lift = shadows, gamma =
   midtones, gain = highlights); the slider under each wheel moves that range up or down; double tap a wheel
   or use **Reset** to centre it.
 - **Offset** (red, green, blue), **Contrast** and **Pivot** (the level contrast turns around), **Saturation**,
@@ -664,8 +665,6 @@ Open the **⋮ menu** in the project list and choose **About, privacy and help**
   re-decodes frames that no longer fit the 128 MB picture budget.
 - Reverse playback of long-GOP 4K footage is slow.
 - Beat detection only reads loudness, not pitch.
-- A vertical drag that starts on a colour wheel or a curve moves it instead of scrolling the panel: scroll
-  by starting the drag on a heading or in the gap between two wheels.
 - The scopes read the preview at 320 x 180 pixels, so fine detail in a 4K picture is sampled, not counted.
 - On overlay, audio and title lanes an insert happens only in a cut between two touching clips; anywhere else a drop overwrites.
 - Bundles, EDL and FCPXML exports have been checked with automated tests and golden files, not yet in a real

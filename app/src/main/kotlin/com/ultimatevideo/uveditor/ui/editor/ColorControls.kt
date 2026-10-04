@@ -1,7 +1,6 @@
 package com.ultimatevideo.uveditor.ui.editor
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -231,23 +230,18 @@ private fun ColorWheel(title: String, effect: Effect, first: Int, onIntent: (Edi
                     )
                 }
                 .pointerInput(first) {
-                    detectDragGestures(
-                        onDragStart = { o ->
-                            val p = WheelMath.fromTouch(o.x, o.y, size.width.toFloat())
+                    // Only a drag that starts on the puck moves it; a swipe elsewhere over the wheel scrolls the panel.
+                    detectGrabbedDrag(
+                        grabs = { o ->
+                            val (px, py) = WheelMath.toPuck(current.values[first], current.values[first + 1], current.values[first + 2])
+                            WheelMath.grabs(o.x, o.y, size.width.toFloat(), px, py)
+                        },
+                        onDrag = { at ->
+                            val p = WheelMath.fromTouch(at.x, at.y, size.width.toFloat())
                             dragging = p
                             push(p.first, p.second)
                         },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val p = WheelMath.fromTouch(change.position.x, change.position.y, size.width.toFloat())
-                            dragging = p
-                            push(p.first, p.second)
-                        },
-                        onDragEnd = {
-                            dragging = null
-                            onIntent(finish)
-                        },
-                        onDragCancel = {
+                        onEnd = {
                             dragging = null
                             onIntent(finish)
                         },
@@ -355,36 +349,25 @@ private fun CurvesEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
             .padding(horizontal = 24.dp)
             .semantics { contentDescription = "${CURVE_NAMES[channel]} curve, ${curve.points.size} points. Tap to add a point, long press a point to remove it." }
             .pointerInput(channel) {
+                // Only a drag that starts on a point moves it; a swipe elsewhere over the plot scrolls the panel.
                 var index: Int? = null
-                detectDragGestures(
-                    onDragStart = { o ->
-                        val x = o.x / size.width.toDouble()
-                        val y = 1.0 - o.y / size.height.toDouble()
+                detectGrabbedDrag(
+                    grabs = { o ->
                         val base = current.curves?.channel(channel) ?: GradeCurve()
-                        index = CurveEdit.nearest(base, x, y, GRAB_RADIUS)
-                        working = base
+                        index = CurveEdit.nearest(base, o.x / size.width.toDouble(), 1.0 - o.y / size.height.toDouble(), GRAB_RADIUS)
+                        if (index != null) working = base
+                        index != null
                     },
-                    onDrag = { change, _ ->
-                        change.consume()
+                    onDrag = { at ->
                         val i = index
                         val base = working
                         if (i != null && base != null) {
-                            val moved = CurveEdit.move(
-                                base,
-                                i,
-                                change.position.x / size.width.toDouble(),
-                                1.0 - change.position.y / size.height.toDouble(),
-                            )
+                            val moved = CurveEdit.move(base, i, at.x / size.width.toDouble(), 1.0 - at.y / size.height.toDouble())
                             working = moved
                             push(moved)
                         }
                     },
-                    onDragEnd = {
-                        working = null
-                        index = null
-                        onIntent(finish)
-                    },
-                    onDragCancel = {
+                    onEnd = {
                         working = null
                         index = null
                         onIntent(finish)
