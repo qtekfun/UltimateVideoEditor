@@ -47,6 +47,8 @@ import com.ultimatevideo.uveditor.ui.theme.UVEditorTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.ultimatevideo.uveditor.engine.stabilise.ContentResolverFdOpener
+import com.ultimatevideo.uveditor.engine.stabilise.FileStabiliser
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -118,6 +120,7 @@ class MainActivity : ComponentActivity() {
                                     mediaImporter,
                                     mediaCaches = ProjectDirMediaCaches(File(filesDir, "projects/$projectId")),
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
+                                    stabiliser = FileStabiliser(File(filesDir, "projects/$projectId/stab"), ContentResolverFdOpener(contentResolver)),
                                     interchange = interchange,
                                     loudnessCache = loudnessCacheIn(filesDir),
                                 )

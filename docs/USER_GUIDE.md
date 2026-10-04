@@ -15,11 +15,12 @@ automated tests so far; see [Known limits](#known-limits).
 7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
 8. [Markers and beats](#markers-and-beats)
 9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
-10. [Colour grading and scopes](#colour-grading-and-scopes)
-11. [Colour spaces and HDR](#colour-spaces-and-hdr)
-12. [Exporting](#exporting) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
-13. [Missing media and recovery](#missing-media-and-recovery)
-14. [Known limits](#known-limits)
+10. [Stabilising shaky footage](#stabilising-shaky-footage)
+11. [Colour grading and scopes](#colour-grading-and-scopes)
+12. [Colour spaces and HDR](#colour-spaces-and-hdr)
+13. [Exporting](#exporting) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
+14. [Missing media and recovery](#missing-media-and-recovery)
+15. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -218,6 +219,8 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 - **Sound tools** (clips with audio): pan, fades, equaliser, noise suppression and loudness, see [Sound](#sound).
 - **Speed**: presets and a slider (0.1x to 8x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
   the playhead**. Audio follows the speed between 0.25x and 4x and is muted outside that range.
+- **Stabilise** (video clips): a switch, **Strength**, **Crop** (tight, medium, full) and an **Analyse** button. See
+  [Stabilising shaky footage](#stabilising-shaky-footage).
 - **Keyframes**: diamond button to add or remove a keyframe at the playhead, previous / next keyframe, and the
   interpolation (linear, ease, hold, Bezier with two handle sliders). Editing an animated clip at the playhead
   writes a keyframe. Effect sliders, colour-grade sliders, Volume, Pan and the EQ band gains each have their own
@@ -234,6 +237,27 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 
 Photos and stickers behave like clips with no source length: stretch them freely from either edge. Speed and
 reverse do not apply to them.
+
+## Stabilising shaky footage
+
+Select a video clip, open the inspector and turn on **Stabilise**.
+
+1. Tap **Analyse**. The app measures how the camera moved, once per video file, in the background (a progress bar
+   and a Cancel button show up; you can keep editing). Nothing leaves the device: it only follows the picture's own
+   features frame to frame.
+2. **Strength** sets how steady the result is. Low values only calm small jitter; high values also smooth out slow
+   wobbles and follow the overall movement loosely. Moving the slider is instant, no new analysis is needed.
+3. **Crop** decides how the moving frame edges are hidden. *Tight* zooms in so no edge ever shows; *Medium* zooms
+   half as much and may show a little repeated border on the shakiest frames; *Full* does not zoom and repeats the
+   border pixels where the picture moves away.
+
+The status under the controls says **Ready** when the clip is covered. If you extend the clip beyond the part that
+was analysed it becomes **Stale**: tap **Analyse again** (the earlier part is kept). Turning the stabiliser off or
+changing its settings is one undo step. Preview and export use the same correction.
+
+It works best on handheld footage with plenty of detail. A mostly flat picture (a blank wall, the sky) or a scene
+where something big fills the frame and moves cannot be measured reliably; a clip with nothing to follow reports
+that it has too little picture or movement to analyse. Rolling-shutter wobble is not corrected.
 
 ## Colour grading and scopes
 

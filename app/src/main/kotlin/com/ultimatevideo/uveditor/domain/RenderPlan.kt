@@ -137,7 +137,9 @@ fun Timeline.renderClips(): List<RenderClip> {
                 keyframes = clip.keyframes,
                 keyframeOriginFrame = clip.timelineStart.value,
                 retime = if (clip.hasMedia && clip.isRetimed) clip.retime else null,
-                fx = clip.fx,
+                fx = clip.stabilise?.takeIf { clip.hasMedia && clip.assetId != null && track.type == TrackType.VIDEO }
+                    ?.let { clip.fx.copy(stabKey = StabKey.of(checkNotNull(clip.assetId), it)) }
+                    ?: clip.fx,
                 colorOverride = clip.colorOverride,
                 still = clip.still,
                 audio = clip.audio,

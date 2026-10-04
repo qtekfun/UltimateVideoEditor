@@ -25,6 +25,7 @@ import com.ultimatevideo.uveditor.data.model.MaskDto
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.SpeedKeyDto
+import com.ultimatevideo.uveditor.data.model.StabiliseDto
 import com.ultimatevideo.uveditor.data.model.TitleDto
 import com.ultimatevideo.uveditor.data.model.TitleWordDto
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
@@ -56,6 +57,8 @@ import com.ultimatevideo.uveditor.domain.Marker
 import com.ultimatevideo.uveditor.domain.MarkerColor
 import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.SpeedKey
+import com.ultimatevideo.uveditor.domain.StabCrop
+import com.ultimatevideo.uveditor.domain.Stabilise
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.domain.MaskShape
 import com.ultimatevideo.uveditor.domain.TitleAlignment
@@ -204,6 +207,7 @@ object TimelineMapper {
         still = dto.still?.let { toStill(dto.id, it) },
         colorOverride = SourceColorSpace.fromIdOrNull(dto.colorOverride),
         audio = dto.audio?.let { toClipAudio(dto.id, it) } ?: ClipAudio.NONE,
+        stabilise = dto.stabilise?.let { toStabilise(dto.id, it) },
         params = dto.params.map { toParamTrack(dto.id, it) },
     )
 
@@ -240,6 +244,13 @@ object TimelineMapper {
             )
         },
     )
+
+    private fun toStabilise(clipId: String, dto: StabiliseDto): Stabilise {
+        val crop = StabCrop.fromId(dto.crop) ?: throw ProjectError.Corrupt("clip $clipId has unknown stabilise crop '${dto.crop}'")
+        return Stabilise(strength = dto.strength, crop = crop).also { stabilise ->
+            stabilise.problem()?.let { throw ProjectError.Corrupt("clip $clipId: $it") }
+        }
+    }
 
     private fun toStill(clipId: String, name: String): StillKind =
         StillKind.entries.firstOrNull { it.name.lowercase() == name }
@@ -426,6 +437,7 @@ object TimelineMapper {
             still = clip.still?.name?.lowercase(),
             colorOverride = clip.colorOverride?.id,
             audio = clip.audio.takeUnless { it.isNeutral }?.let(::toClipAudioDto),
+            stabilise = clip.stabilise?.let { StabiliseDto(strength = it.strength, crop = it.crop.id) },
             params = clip.params.map(::toParamTrackDto),
         )
 

@@ -217,6 +217,8 @@ data class Clip(
     val colorOverride: SourceColorSpace? = null,
     /** Pan, fade handles, EQ, noise suppression and loudness normalisation; neutral by default. */
     val audio: ClipAudio = ClipAudio.NONE,
+    /** Camera-shake correction of a video clip; null is off. */
+    val stabilise: Stabilise? = null,
     /**
      * Keyframes of single parameters (effect values, volume, pan, EQ gains), by clip frame; see [ParamIds].
      * A parameter without a track keeps its static value. The pose is animated by [keyframes] instead.
