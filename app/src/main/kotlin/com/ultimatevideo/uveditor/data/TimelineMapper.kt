@@ -54,6 +54,7 @@ import com.ultimatevideo.uveditor.data.model.HandleDto
 import com.ultimatevideo.uveditor.data.model.ParamKeyDto
 import com.ultimatevideo.uveditor.data.model.ParamTrackDto
 import com.ultimatevideo.uveditor.domain.Marker
+import com.ultimatevideo.uveditor.domain.MarkerColor
 import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.SpeedKey
 import com.ultimatevideo.uveditor.domain.StabCrop
@@ -114,7 +115,7 @@ object TimelineMapper {
             )
         }
         val transitions = timeline.transitions.map { toTransitionDto(it) }
-        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind)) }
+        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind), it.note, it.color?.name?.lowercase()) }
         return base.copy(
             mediaLibrary = assets,
             tracks = tracks,
@@ -176,6 +177,8 @@ object TimelineMapper {
             "beat" -> MarkerKind.BEAT
             else -> throw ProjectError.Corrupt("marker ${dto.id} has unknown kind '${dto.kind}'")
         },
+        note = dto.note?.takeIf { it.isNotBlank() },
+        color = dto.color?.let { name -> MarkerColor.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } },
     )
 
     private fun markerKindName(kind: MarkerKind) = when (kind) {
