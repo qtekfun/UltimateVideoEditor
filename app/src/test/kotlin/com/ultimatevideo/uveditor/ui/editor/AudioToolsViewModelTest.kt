@@ -15,6 +15,8 @@ import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.Denoise
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.TrackAudio
+import com.ultimatevideo.uveditor.domain.VoiceFx
+import com.ultimatevideo.uveditor.domain.VoicePreset
 import com.ultimatevideo.uveditor.engine.audio.LoudnessResult
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
@@ -492,6 +494,49 @@ class AudioToolsViewModelTest {
         h.vm.onIntent(EditorIntent.ToggleMixer)
         assertFalse(h.state.mixerOpen)
     }
+
+    // region voice effects
+
+    @Test
+    fun `a voice effect is one undo step and reaches the mixer snapshot`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+
+        h.vm.onIntent(EditorIntent.UpdateClipAudio(ClipAudio(voice = VoicePreset.ECHO.defaults())))
+        h.vm.onIntent(EditorIntent.EndAudioEdit(commit = true))
+        advanceUntilIdle()
+
+        assertEquals(VoicePreset.ECHO, h.clip("c1").audio.voice?.preset)
+        assertTrue(h.state.canUndo)
+        val keys = KeyRegistry()
+        val spec = audioSnapshotOf(h.state.timeline, listOf(loud, silent), h.state.fps, keys::keyFor, keys::keyFor)
+            .clips.single { it.voice.echoMs > 0f }.voice
+        assertEquals(280f, spec.echoMs, 0f)
+
+        // Changing a slider replaces the effect in one more step; undo walks back through both.
+        h.vm.onIntent(EditorIntent.UpdateClipAudio(h.clip("c1").audio.copy(voice = h.clip("c1").audio.voice!!.with(0, 500.0))))
+        h.vm.onIntent(EditorIntent.EndAudioEdit(commit = true))
+        assertEquals(500.0, h.clip("c1").audio.voice!!.values[0], 0.0)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(280.0, h.clip("c1").audio.voice!!.values[0], 0.0)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertNull(h.clip("c1").audio.voice)
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `a voice effect with impossible values is refused with a message`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+
+        h.vm.onIntent(EditorIntent.UpdateClipAudio(ClipAudio(voice = VoiceFx(VoicePreset.ECHO, listOf(5000.0, 0.5, 0.5)))))
+
+        assertFalse(h.state.audioSessionActive)
+        assertTrue(h.messages().any { it.contains("not allowed") })
+        assertNull(h.clip("c1").audio.voice)
+    }
+
+    // endregion
 
     private fun EditorIntent_markStart() = EditorIntent.MarkNoiseRegion(atStart = true)
 }

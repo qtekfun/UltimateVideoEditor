@@ -1624,6 +1624,27 @@ strictness; see DECISIONS.md, "Privacy").
 - **Tests:** effect DSP vectors (pitch ratio, delay times), parity between realtime and offline mixing.
 - **Acceptance:** a voice clip with the "deep" preset sounds lower and exports identically.
 
+**Implemented (host-verified, not yet heard on a device).**
+- Native `audio/voice_fx.{h,cpp}`: a `VoiceProcessor` per clip in the decode worker, after the noise suppressor, input-aligned like
+  `SpectralDenoiser` (process/flush/reset; the 1536-sample latency of the spectral stage is hidden by priming). Chain order:
+  spectral stage (pitch shift of the excitation, independent formant shift, whisper) -> ring modulation -> band limit and
+  soft-clip drive -> echo / short comb -> Schroeder reverb. All state advances per input sample, so the output does not
+  depend on how the stream is cut into calls or blocks (realtime, offline and export are identical, tested).
+- Pitch and formant: STFT (2048, hop 512, Hann) phase vocoder with spectral peaks moved rigidly and phase-locked to
+  their analysis phases (identity phase locking), so a shifted sinusoid keeps its level (within 1 dB) and pitch (0.0
+  cents measured). The formant control splits the spectrum into a cepstrally smoothed envelope and a flattened
+  excitation; the excitation moves by the pitch ratio and the envelope by the formant ratio. When both shifts are
+  equal the envelope split is skipped (plain shifting).
+- Whisper uses the smooth envelope with a fresh random phase per frame (seeded, deterministic), scaled to the input
+  energy, so the harmonics disappear (autocorrelation at the pitch lag falls from 1.0 to 0.0).
+- Echo and reverb tails: when the media ends before the clip, the worker keeps feeding silence in chunks
+  (`ClipSource::drainLeft`) so the tail reaches the buffer progressively, never beyond the clip's end or 8 s.
+- Snapshot version 6 adds one 64-byte voice block per clip after the automation lanes (16 floats, see
+  `audio_snapshot.h`); versions 4 and 5 still parse. Kotlin: `domain/AudioTools.kt` (`VoicePreset`, `VoiceFx`,
+  `VoiceParams`), `ClipAudio.voice`, JSON `voice: {preset, values}` (optional), `engine/audio/VoiceSpec`,
+  inspector subsection in `AudioControls.kt`.
+- Not keyframable (changing a value restarts decoding of the clip); the effect belongs to the clip, so a split keeps it on both halves.
+
 ### 9.18 WP-V4 Optical-flow slow motion, video denoise and deflicker
 
 - **Smooth slow motion:** frame interpolation for speeds below 1x (GPU optical flow at reduced resolution,

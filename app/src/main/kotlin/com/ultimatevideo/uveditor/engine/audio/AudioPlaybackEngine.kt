@@ -2,6 +2,9 @@ package com.ultimatevideo.uveditor.engine.audio
 
 import android.os.ParcelFileDescriptor
 import com.ultimatevideo.uveditor.engine.EngineException
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
  * Audio playback: Oboe output, native mixer, per-clip gain, and the audio device as the master
@@ -94,11 +97,12 @@ class AudioPlaybackEngine : AutoCloseable {
      * [endMicros] < 0 measures to the end. Decodes on the calling thread: call it off the main thread.
      * @throws AudioException when the media cannot be read or the measurement was cancelled.
      */
-    fun measureLoudness(assetKey: Long, startMicros: Long, endMicros: Long): LoudnessResult {
+    fun measureLoudness(assetKey: Long, startMicros: Long, endMicros: Long): LoudnessResult = analysisLock.read {
+        if (closing) throw EngineException("AudioPlaybackEngine is closing")
         val v = NativeAudio.nativeMeasureLoudness(live(), assetKey, startMicros, endMicros)
             ?: throw EngineException("Native loudness measurement unavailable")
         throwIfFailed(v[0].toInt(), "measureLoudness")
-        return LoudnessResult(lufs = v[1].takeIf { it > SILENCE_LUFS_FLOOR }, samplePeak = v[2])
+        LoudnessResult(lufs = v[1].takeIf { it > SILENCE_LUFS_FLOOR }, samplePeak = v[2])
     }
 
     /**
@@ -106,16 +110,17 @@ class AudioPlaybackEngine : AutoCloseable {
      * registered asset, for noise suppression. Off the main thread, like [measureLoudness].
      * @throws AudioException when the region is too short (about 90 ms minimum) or cannot be read.
      */
-    fun measureNoiseProfile(assetKey: Long, startMicros: Long, endMicros: Long): FloatArray {
+    fun measureNoiseProfile(assetKey: Long, startMicros: Long, endMicros: Long): FloatArray = analysisLock.read {
+        if (closing) throw EngineException("AudioPlaybackEngine is closing")
         val v = NativeAudio.nativeMeasureNoiseProfile(live(), assetKey, startMicros, endMicros)
             ?: throw EngineException("Native noise profile measurement unavailable")
         check(v.size == NOISE_PROFILE_BINS + 1) { "unexpected noise profile size ${v.size}" }
         throwIfFailed(v[0].toInt(), "measureNoiseProfile")
-        return v.copyOfRange(1, v.size)
+        v.copyOfRange(1, v.size)
     }
 
     /** Stops a [measureLoudness] or [measureNoiseProfile] that is running on another thread. */
-    fun cancelAnalysis() = NativeAudio.nativeCancelAnalysis(live())
+    fun cancelAnalysis() = analysisLock.read { NativeAudio.nativeCancelAnalysis(live()) }
 
     /** Offline mode only. Returns the playhead in samples after rendering [frames] stereo frames into [out]. */
     internal fun renderOffline(out: FloatArray, frames: Int): Long = NativeAudio.nativeRenderOffline(live(), out, frames)
@@ -125,10 +130,22 @@ class AudioPlaybackEngine : AutoCloseable {
     override fun close() {
         val h = handle
         if (h == 0L) return
-        handle = 0L
-        NativeAudio.nativeStop(h)
-        NativeAudio.nativeDestroy(h)
+        // A loudness or noise measurement may be decoding on another thread (it runs off the main thread). Freeing
+        // the native engine under it would be a use-after-free, so stop it and wait for it to leave first.
+        closing = true
+        runCatching { NativeAudio.nativeCancelAnalysis(h) }
+        analysisLock.write {
+            if (handle == 0L) return
+            handle = 0L
+            NativeAudio.nativeStop(h)
+            NativeAudio.nativeDestroy(h)
+        }
     }
+
+    /** Measurements hold the read side while they run; [close] takes the write side before it frees the engine. */
+    private val analysisLock = ReentrantReadWriteLock()
+
+    @Volatile private var closing = false
 
     private fun live(): Long {
         check(handle != 0L) { "AudioPlaybackEngine is closed" }

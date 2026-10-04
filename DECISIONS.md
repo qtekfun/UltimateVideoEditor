@@ -1008,6 +1008,47 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Why:** every edit rule stays in one place and is already tested; sharing structure only keeps `.uvtemplate` files tiny and private. A separate wizard needs the media importer and creates the project in one step, which does not fit the sheet's format selectors.
 **Alternative:** a Template start mode inside the New project sheet (one flow, but entangled with the selectors and the match-first-clip probing), or placeholder clips with retained stand-in media references (they would break when the media is missing).
 
+## Voice effects (WP-V3)
+
+**Decision:** the effects run in the decode worker, per clip, after the noise suppressor, as an input-aligned streaming processor (`audio/voice_fx.h`), not in the realtime mixer.
+**Why:** it reuses the proven pattern of the denoiser (alignment by priming, flush, source identity by hash), keeps the audio thread free of FFTs, makes realtime, offline and export identical by construction, and needs no look-ahead reads in the mixer to hide the 32 ms latency of the vocoder.
+**Alternative:** processing in the mixer would allow live slider changes without re-decoding, but needs the clip buffer to be read ahead by the latency, per-block FFT work on the audio thread and chunk-exact hop scheduling there.
+
+**Decision:** the sliders are not keyframable and a change restarts the clip's decode (the slider applies on release).
+**Why:** a changed effect is a new source (like a changed noise profile); live keyframing would need parameter interpolation inside the vocoder.
+**Alternative:** apply the effect in the mixer (see above) and reuse `Clip.params` lanes.
+
+**Decision:** pitch shifting by moving spectral peaks rigidly with identity phase locking, formants by a cepstral envelope split (lifter 1.6 ms), instead of time-stretch plus resampling.
+**Why:** it is streaming with a fixed hop and no resampler, keeps latency and CPU bounded (about 16x real time for the whole chain on the dev machine), and keeps the level of sinusoids (the simple bin-scatter variant lost up to 8 dB).
+**Alternative:** WSOLA or phase-vocoder time stretch plus a resampler: better on extreme shifts, but variable output length per frame and more state.
+
+**Decision:** Whisper uses the cepstral envelope with random phases (a noise vocoder), not the harmonic spectrum with random phases.
+**Why:** the harmonic version kept a clearly periodic structure (autocorrelation 0.71 at the pitch lag); the envelope version has none.
+**Alternative:** a separate noise generator filtered by an LPC envelope.
+
+**Decision:** presets define 1 to 3 sliders and resolve to a flat set of native settings in Kotlin; the native side knows no presets. Echo and reverb tails are fed progressively after the media ends, up to the clip's end or 8 s.
+**Why:** presets can change without an engine release or snapshot change; the tail must not be appended at once because the clip buffer is a 1.5 s window.
+**Alternative:** presets in C++ (smaller JSON, more engine coupling); a hard cut at the end of the media.
+
+**Decision:** no text to speech, no vocal isolation and no speaker-aware captions (privacy rule); Android's system TextToSpeech can use network voices.
+
+## Audio callback crash (SIGSEGV in `adoptStateFrom`) and native-exit diagnostics
+
+**Evidence:** Pixel 8 crash buffer, `com.ultimatevideo.uveditor.mt2`, 2026-10-04 11:29:05, process uptime 6019 s: `SIGSEGV, SEGV_MAPERR, fault addr 0x440`, thread `AAudio_4`, symbolised frames `PreparedSnapshot::adoptStateFrom(PreparedSnapshot const&) const+448` <- `AudioCore::renderBlock(float*, int)+108` <- `AudioCore::render` <- `AudioEngine::onAudioReady` <- Oboe. The previous AAudio stream (`s#3`) had been closed 31 s earlier (the idle stop after a pause), the new stream (`s#4`) was opened and the crash came in its first callback, 1 ms after `requestStart`.
+**Root cause:** the audio thread's `AudioCore::current_` is a raw pointer to the snapshot it last rendered with; the first block of a new stream adopts DSP state from it (`np->adoptStateFrom(*current_)`). `setSnapshotLocked` (edits made while no stream runs) and `streamStopped` erased every snapshot but the newest from `alive_`, which freed the one `current_` still pointed at. The next stream's first callback then read freed memory (`o.source->...`).
+**Decision:** one pruning rule, `pruneAliveLocked()`, used by both: always keep the snapshot the audio thread acknowledged (`ackGeneration_`) and the newest; with no stream running drop the ones in between, with a running stream keep everything newer than the acknowledgement (it may be about to adopt it). `adoptStateFrom` also skips a null `source`. `AudioCore::audioThreadSnapshotIsAlive()` states the invariant for tests.
+**Why:** it keeps the zero-lock, zero-allocation audio thread and the existing hand-off protocol, and bounds memory (at most two snapshots survive an idle period).
+**Alternative:** `shared_ptr` owned by the audio thread (atomic refcounts and a free on the audio thread), or resetting `current_` in `streamStopped` and re-arming `pending_` (loses the filter continuity across a restart and needs the stream joined first).
+**Regression coverage:** host tests of the exact scenario, a churn test and a two-thread test that follows the real protocol (a callback thread only between open and close, an editor thread publishing snapshots), the invariant checked after every step. With the old pruning the new tests fail 500+ checks and the process dumps core under `MALLOC_PERTURB_`; with the fix they pass. `scripts/run-sanitizer-tests.sh` runs the audio core under ASan/UBSan and TSan; the laptop has no sanitizer runtimes, so CI runs it (`UV_REQUIRE_SANITIZERS=1`).
+
+**Decision:** two more use-after-free windows found by the audit are closed. (1) `AudioPlaybackEngine.close()` could free the native engine while a loudness or noise measurement was decoding on `Dispatchers.IO`: measurements now hold the read side of a lock, `close()` flags itself, cancels the analysis and takes the write side before `nativeDestroy`. (2) `FileStabiliser.cancel()` and `FileMotionTracker.cancel()` read `runningHandle` under the lock but called `native.cancel(handle)` after releasing it, so the analysis could destroy the service in between: the call now happens under the lock the analysis also takes before it clears the handle and destroys it. Regression test for (2) with a strict fake that counts calls on destroyed handles.
+**Why:** same failure class (native object freed while another thread still holds its handle), cheap to remove.
+**Alternative:** reference-counted native handles.
+
+**Decision:** native crashes and ANRs are now visible in "About > Last crash report". On start, `ProcessExitRecorder` reads `ActivityManager.getHistoricalProcessExitReasons` (API 30+) off the main thread; for a native crash, ANR, kill by signal or initialisation failure newer than the last one handled it writes a short summary (reason, time, importance, system note, and the symbols found in the tombstone's trace via a printable-string scan, scrubbed of paths, URIs and media names) above any earlier report. Local only, nothing is sent.
+**Why:** the Java uncaught-exception handler never sees a SIGSEGV, so the About screen was empty after exactly the crash that matters.
+**Alternative:** installing a native signal handler (async-signal-safe constraints and a second crash path), or parsing the tombstone protobuf properly (a scan is enough to name the frames).
+
 ## HSL qualifier as an effect with its own matte (leftovers)
 
 **Decision:** secondary colour correction is a new effect type `QUALIFIER` (wire code 18, 14 values) that builds its own matte from the pixel's HSL (hue centre and half width on the wheel with wrap-around, saturation range, Rec.709 luma range, each with a softness; optional invert and a "show matte" grey view) and corrects hue, saturation and lightness only where the matte is open (`mix(in, corrected, matte)`). It reuses the grade's `grade` wire vector and `uG` uniform array (more than the 6 values an ordinary effect carries), so only the type range, one uniform upload and a shader branch were added; CPU reference in `render/qualifier_math.h` mirrors the GLSL and is pinned by host tests (hue wrap, softness monotonic, neutral correction identity, hue shift red to green, range clamp, wire parsing). It sits in the effect chain, so the clip's mask and blend modes still apply after it.

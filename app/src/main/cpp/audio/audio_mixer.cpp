@@ -138,8 +138,9 @@ float dbToLinear(float db) { return std::pow(10.0f, db / 20.0f); }
 
 void PreparedSnapshot::adoptStateFrom(const PreparedSnapshot& old) const {
     for (const PreparedClip& c : clips) {
+        if (!c.source) continue;
         for (const PreparedClip& o : old.clips) {
-            if (o.source->clipKey == c.source->clipKey) {
+            if (o.source && o.source->clipKey == c.source->clipKey) {
                 c.dspState = o.dspState;
                 break;
             }

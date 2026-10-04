@@ -56,6 +56,69 @@ data class EqSpec(
     }
 }
 
+/**
+ * A clip's voice effects as the native chain takes them (units and ranges of `audio/voice_fx.h`; the defaults mean
+ * no effect). Encoded as 16 floats, the last two reserved.
+ */
+data class VoiceSpec(
+    val pitchSemitones: Float = 0f,
+    val formantSemitones: Float = 0f,
+    val whisperMix: Float = 0f,
+    val ringHz: Float = 0f,
+    val ringMix: Float = 0f,
+    val bandLowHz: Float = 0f,
+    val bandHighHz: Float = 0f,
+    val driveDb: Float = 0f,
+    val echoMs: Float = 0f,
+    val echoFeedback: Float = 0f,
+    val echoMix: Float = 0f,
+    val reverbSize: Float = 0f,
+    val reverbDamping: Float = 0.5f,
+    val reverbMix: Float = 0f,
+) {
+    init {
+        require(pitchSemitones.isFinite() && pitchSemitones in -MAX_SHIFT..MAX_SHIFT) { "voice pitch $pitchSemitones st is out of range" }
+        require(formantSemitones.isFinite() && formantSemitones in -MAX_SHIFT..MAX_SHIFT) { "voice formant $formantSemitones st is out of range" }
+        require(whisperMix.isFinite() && whisperMix in 0f..1f) { "voice whisper $whisperMix is out of range" }
+        require(ringHz == 0f || (ringHz.isFinite() && ringHz in 10f..2000f)) { "voice ring frequency $ringHz Hz is out of range" }
+        require(ringMix.isFinite() && ringMix in 0f..1f) { "voice ring mix $ringMix is out of range" }
+        require(bandLowHz == 0f || (bandLowHz.isFinite() && bandLowHz in 20f..8000f)) { "voice low cut $bandLowHz Hz is out of range" }
+        require(bandHighHz == 0f || (bandHighHz.isFinite() && bandHighHz in 200f..20000f)) { "voice high cut $bandHighHz Hz is out of range" }
+        require(bandLowHz == 0f || bandHighHz == 0f || bandLowHz < bandHighHz) { "voice low cut must be below its high cut" }
+        require(driveDb.isFinite() && driveDb in 0f..36f) { "voice drive $driveDb dB is out of range" }
+        require(echoMs == 0f || (echoMs.isFinite() && echoMs in 1f..2000f)) { "voice echo delay $echoMs ms is out of range" }
+        require(echoFeedback.isFinite() && echoFeedback in 0f..0.95f) { "voice echo feedback $echoFeedback is out of range" }
+        require(echoMix.isFinite() && echoMix in 0f..1f) { "voice echo mix $echoMix is out of range" }
+        require(reverbSize.isFinite() && reverbSize in 0f..1f) { "voice reverb size $reverbSize is out of range" }
+        require(reverbDamping.isFinite() && reverbDamping in 0f..1f) { "voice reverb damping $reverbDamping is out of range" }
+        require(reverbMix.isFinite() && reverbMix in 0f..1f) { "voice reverb mix $reverbMix is out of range" }
+    }
+
+    internal fun write(buffer: ByteBuffer) {
+        buffer.putFloat(pitchSemitones)
+        buffer.putFloat(formantSemitones)
+        buffer.putFloat(whisperMix)
+        buffer.putFloat(ringHz)
+        buffer.putFloat(ringMix)
+        buffer.putFloat(bandLowHz)
+        buffer.putFloat(bandHighHz)
+        buffer.putFloat(driveDb)
+        buffer.putFloat(echoMs)
+        buffer.putFloat(echoFeedback)
+        buffer.putFloat(echoMix)
+        buffer.putFloat(reverbSize)
+        buffer.putFloat(reverbDamping)
+        buffer.putFloat(reverbMix)
+        buffer.putFloat(0f)
+        buffer.putFloat(0f)
+    }
+
+    companion object {
+        val NONE = VoiceSpec()
+        const val MAX_SHIFT = 12f
+    }
+}
+
 /** Role of a track for ducking: the voice drives the gain reduction applied to the music. */
 enum class TrackRole(val value: Int) { NORMAL(0), VOICE(1), MUSIC(2) }
 
@@ -187,6 +250,8 @@ data class AudioClipSpec(
      * Frames count from [startFrame]. Empty when nothing is animated.
      */
     val automation: List<AutomationLane> = emptyList(),
+    /** Voice effects (pitch, whisper, ring modulation, band limit, echo, reverb); [VoiceSpec.NONE] leaves the clip alone. */
+    val voice: VoiceSpec = VoiceSpec.NONE,
 ) {
     init {
         require(automation.size <= AutomationLane.MAX_LANES && automation.map { it.param }.toSet().size == automation.size) {
@@ -259,7 +324,8 @@ data class AudioSnapshot(
         val laneCount = clips.sumOf { it.automation.size }
         val pointCount = clips.sumOf { clip -> clip.automation.sumOf { it.points.size } }
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + DUCKING_BYTES + clips.size * CLIP_BYTES +
-            knotCount * KNOT_BYTES + profileFloats * Float.SIZE_BYTES + laneCount * LANE_BYTES + pointCount * POINT_BYTES
+            knotCount * KNOT_BYTES + profileFloats * Float.SIZE_BYTES + laneCount * LANE_BYTES + pointCount * POINT_BYTES +
+            clips.size * VOICE_BYTES
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -336,19 +402,22 @@ data class AudioSnapshot(
                 }
             }
         }
+        // Version 6: one voice block per clip, in clip order, after the lanes.
+        for (clip in clips) clip.voice.write(buffer)
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53415655 // "UVAS"
-        const val VERSION = 5
+        const val VERSION = 6
         const val LANE_BYTES = 16
         const val POINT_BYTES = 16
         const val HEADER_BYTES = 28
         const val TRACK_BYTES = 40
         const val DUCKING_BYTES = 16
         const val CLIP_BYTES = 160
+        const val VOICE_BYTES = 64
         const val KNOT_BYTES = 16
         const val MAX_TRACKS = 256
     }

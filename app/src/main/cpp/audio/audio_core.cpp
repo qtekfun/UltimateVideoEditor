@@ -137,13 +137,14 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         if (end <= start) continue;  // shorter than one output sample
 
         const uint64_t denoiseHash = hashDenoise(d.denoiseStrength, d.noiseProfile);
-        const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den, hashKnots(d.knots), denoiseHash};
+        const uint64_t voiceHash = d.voice.hash();
+        const SourceKey key{d.clipKey, d.assetKey, d.sourceInFrame, d.sourceFps.num, d.sourceFps.den, hashKnots(d.knots), denoiseHash, voiceHash};
         std::shared_ptr<ClipSource> source;
         if (auto it = sources_.find(key); it != sources_.end()) {
             source = it->second;
         } else {
             source = std::make_shared<ClipSource>(d.clipKey, d.assetKey, sourceFramesToMicros(d.sourceInFrame, d.sourceFps),
-                                                  bufferFrames_, d.knots, d.sourceFps, d.denoiseStrength, d.noiseProfile, denoiseHash);
+                                                  bufferFrames_, d.knots, d.sourceFps, d.denoiseStrength, d.noiseProfile, denoiseHash, d.voice, voiceHash);
         }
         next[key] = source;
 
@@ -208,14 +209,7 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
     }
     pending_.store(prepared.get(), std::memory_order_release);
 
-    // Free snapshots the audio thread has moved on from. With no stream running nobody can be
-    // using an old one, and the next render picks up pending_ before touching anything.
-    if (!streamRunning_) {
-        alive_.erase(alive_.begin(), alive_.end() - 1);
-    } else {
-        const uint64_t ack = ackGeneration_.load(std::memory_order_acquire);
-        std::erase_if(alive_, [ack](const auto& s) { return s->generation < ack; });
-    }
+    pruneAliveLocked();
     wake();
     return Status::Ok;
 }
@@ -269,7 +263,34 @@ void AudioCore::streamStopped() {
     std::lock_guard<std::mutex> lock(controlMutex_);
     streamRunning_ = false;
     rendering_.store(false, std::memory_order_release);
-    if (alive_.size() > 1) alive_.erase(alive_.begin(), alive_.end() - 1);
+    pruneAliveLocked();
+}
+
+// The audio thread keeps a raw pointer (`current_`) to the snapshot it last rendered with, whose
+// generation is `ackGeneration_`, and the first block of a NEW stream adopts DSP state from it. That
+// snapshot must therefore outlive the stream: it used to be freed here when edits arrived (or the
+// stream stopped) while no stream ran, and the next stream's first callback then read freed memory
+// (SIGSEGV in PreparedSnapshot::adoptStateFrom). Keep the acknowledged snapshot and the newest one;
+// with no stream running the ones in between were never adopted and can go, while a running stream
+// may still be about to adopt anything newer than the acknowledged one.
+void AudioCore::pruneAliveLocked() {
+    if (alive_.empty()) return;
+    const uint64_t ack = ackGeneration_.load(std::memory_order_acquire);
+    const uint64_t newest = alive_.back()->generation;
+    std::erase_if(alive_, [&](const std::shared_ptr<const PreparedSnapshot>& s) {
+        if (s->generation == ack || s->generation == newest) return false;
+        return !streamRunning_ || s->generation < ack;
+    });
+}
+
+bool AudioCore::audioThreadSnapshotIsAlive() const {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    const uint64_t ack = ackGeneration_.load(std::memory_order_acquire);
+    if (ack == 0) return true;  // the audio thread has not rendered with a snapshot yet
+    for (const auto& s : alive_) {
+        if (s->generation == ack) return true;
+    }
+    return false;
 }
 
 void AudioCore::resetStreamClock() {
@@ -508,6 +529,8 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
         }
         src.resampler->reset();
         if (src.denoiser) src.denoiser->reset();
+        if (src.voiceFx) src.voiceFx->reset();
+        src.drainLeft = 0;
         src.buffer.reset(needStart);
         src.decodedEnd = needStart;
         src.hitEof = false;
@@ -518,6 +541,26 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
 
     const int64_t len = clip.endSample - clip.startSample;
     for (int guard = 0; guard < 64 && !src.hitEof && src.decodedEnd < needEnd; ++guard) {
+        if (src.drainLeft > 0) {
+            // The media ended but a voice effect (echo, reverb) is still sounding: feed it silence, a chunk per pass,
+            // so its tail reaches the buffer progressively like decoded audio does.
+            const int64_t chunk = std::min<int64_t>(kDecodeChunk, src.drainLeft);
+            src.srcScratch.assign(static_cast<size_t>(chunk) * 2, 0.0f);
+            src.voiceScratch.clear();
+            src.voiceFx->process(src.srcScratch.data(), static_cast<size_t>(chunk), &src.voiceScratch);
+            const int64_t produced = std::min<int64_t>(static_cast<int64_t>(src.voiceScratch.size() / 2), len - src.decodedEnd);
+            if (produced > 0) {
+                src.buffer.append(src.voiceScratch.data(), static_cast<int32_t>(produced));
+                src.decodedEnd += produced;
+            }
+            src.drainLeft -= chunk;
+            if (src.drainLeft <= 0 || src.decodedEnd >= len) {
+                src.drainLeft = 0;
+                src.hitEof = true;
+                src.eofAt.store(src.decodedEnd, std::memory_order_release);  // media (and its tail) ends before the clip does
+            }
+            continue;
+        }
         src.srcScratch.resize(static_cast<size_t>(kDecodeChunk) * 2);
         const PcmReadResult r = src.decoder->read(src.srcScratch.data(), kDecodeChunk);
         if (r.status != Status::Ok) {
@@ -533,6 +576,11 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
                 src.denoiser->process(src.outScratch.data(), src.outScratch.size() / 2, &src.denoisedScratch);
                 ready = &src.denoisedScratch;
             }
+            if (src.voiceFx) {
+                src.voiceScratch.clear();
+                src.voiceFx->process(ready->data(), ready->size() / 2, &src.voiceScratch);
+                ready = &src.voiceScratch;
+            }
             const int64_t produced = std::min<int64_t>(static_cast<int64_t>(ready->size() / 2), len - src.decodedEnd);
             if (produced > 0) {
                 src.buffer.append(ready->data(), static_cast<int32_t>(produced));
@@ -542,14 +590,28 @@ void AudioCore::serviceClip(ClipSource& src, const PreparedClip& clip, int64_t n
             if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to decode
         }
         if (r.eof) {
-            if (src.denoiser && src.decodedEnd < len) {
+            if ((src.denoiser || src.voiceFx) && src.decodedEnd < len) {
                 // The suppressor holds back a few hundred samples: let the tail out before the media ends.
                 src.denoisedScratch.clear();
-                src.denoiser->flush(&src.denoisedScratch);
-                const int64_t produced = std::min<int64_t>(static_cast<int64_t>(src.denoisedScratch.size() / 2), len - src.decodedEnd);
+                if (src.denoiser) src.denoiser->flush(&src.denoisedScratch);
+                std::vector<float>* tail = &src.denoisedScratch;
+                if (src.voiceFx) {
+                    src.voiceScratch.clear();
+                    if (!src.denoisedScratch.empty()) {
+                        src.voiceFx->process(src.denoisedScratch.data(), src.denoisedScratch.size() / 2, &src.voiceScratch);
+                    }
+                    tail = &src.voiceScratch;
+                }
+                const int64_t produced = std::min<int64_t>(static_cast<int64_t>(tail->size() / 2), len - src.decodedEnd);
                 if (produced > 0) {
-                    src.buffer.append(src.denoisedScratch.data(), static_cast<int32_t>(produced));
+                    src.buffer.append(tail->data(), static_cast<int32_t>(produced));
                     src.decodedEnd += produced;
+                }
+                if (src.voiceFx && src.decodedEnd < len) {
+                    // Frames still inside the vocoder plus the echo/reverb tail, bounded by the clip's length.
+                    const int64_t inside = src.voiceFx->framesIn() - src.voiceFx->framesOut();
+                    src.drainLeft = inside + src.voice.tailFrames(rate) + kVoiceHop;
+                    continue;  // the drain branch above lets it sound; the end of the media is declared when it is done
                 }
             }
             src.hitEof = true;
@@ -569,6 +631,8 @@ void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, in
         if (!src.decoder && !openDecoder(src, rate)) return;
         src.retimed->reset();
         if (src.denoiser) src.denoiser->reset();
+        if (src.voiceFx) src.voiceFx->reset();
+        src.drainLeft = 0;
         src.buffer.reset(needStart);
         src.decodedEnd = needStart;
         src.renderedEnd = needStart;
@@ -590,17 +654,24 @@ void AudioCore::serviceRetimedClip(ClipSource& src, const PreparedClip& clip, in
         }
         if (r == RetimedReader::Result::NotReady) break;  // nothing decoded yet; try again next pass
         src.renderedEnd += n;
+        const float* data = src.outScratch.data();
+        int32_t count = n;
         if (src.denoiser) {
             src.denoisedScratch.clear();
             src.denoiser->process(src.outScratch.data(), static_cast<size_t>(n), &src.denoisedScratch);
             if (src.renderedEnd >= len) src.denoiser->flush(&src.denoisedScratch);
-            const int32_t out = static_cast<int32_t>(src.denoisedScratch.size() / 2);
-            if (out > 0) src.buffer.append(src.denoisedScratch.data(), out);
-            src.decodedEnd += out;
-        } else {
-            src.buffer.append(src.outScratch.data(), n);
-            src.decodedEnd += n;
+            data = src.denoisedScratch.data();
+            count = static_cast<int32_t>(src.denoisedScratch.size() / 2);
         }
+        if (src.voiceFx) {
+            src.voiceScratch.clear();
+            if (count > 0) src.voiceFx->process(data, static_cast<size_t>(count), &src.voiceScratch);
+            if (src.renderedEnd >= len) src.voiceFx->flush(&src.voiceScratch, 0);
+            data = src.voiceScratch.data();
+            count = static_cast<int32_t>(src.voiceScratch.size() / 2);
+        }
+        if (count > 0) src.buffer.append(data, count);
+        src.decodedEnd += count;
         src.failures.store(0, std::memory_order_release);
     }
     if (src.decodedEnd >= len) src.hitEof = true;  // clip end reached; nothing more to render
@@ -622,6 +693,8 @@ bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
     if (src.denoiseStrength > 0.0f && src.noiseProfile.size() == static_cast<size_t>(kDenoiseBins)) {
         src.denoiser = std::make_unique<SpectralDenoiser>(src.noiseProfile.data(), src.denoiseStrength);
     }
+    if (!src.voice.isNeutral()) src.voiceFx = std::make_unique<VoiceProcessor>(src.voice, rate);
+    src.drainLeft = 0;
     if (!src.knots.empty()) {
         src.retimed = std::make_unique<RetimedReader>(src.decoder.get(), RetimeMap(src.knots, src.fps, rate, srcRate));
     } else {
@@ -633,6 +706,8 @@ bool AudioCore::openDecoder(ClipSource& src, int32_t rate) {
 void AudioCore::releaseClip(ClipSource& src) {
     src.retimed.reset();  // before the decoder it reads from
     src.denoiser.reset();
+    src.voiceFx.reset();
+    src.drainLeft = 0;
     src.decoder.reset();
     src.resampler.reset();
     src.hitEof = false;
@@ -651,6 +726,8 @@ void AudioCore::failClip(ClipSource& src, Status status) {
     src.retryAfter = Clock::now() + kRetryCooldown;
     src.retimed.reset();
     src.denoiser.reset();
+    src.voiceFx.reset();
+    src.drainLeft = 0;
     src.decoder.reset();
     src.resampler.reset();
     src.hitEof = false;
