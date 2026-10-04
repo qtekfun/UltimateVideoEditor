@@ -18,6 +18,8 @@ target_compile_options(uveditor_engine PRIVATE -Wall -Wextra -Werror)
 include(cmake/timeline.cmake)
 include(cmake/audio.cmake)
 include(cmake/thumbnail.cmake)
+include(cmake/stabilise.cmake)
+include(cmake/track.cmake)
 
 find_library(log-lib log)
 target_link_libraries(uveditor_engine PRIVATE ${log-lib})

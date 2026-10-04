@@ -33,6 +33,7 @@ app/                        Android app module (Compose UI, MVI, navigation)
     timeline_view/ SurfaceView renderer for the timeline canvas (blocks, waveforms, thumbnails, playhead)
     thumbnail/     Thumbnail tile generation, atlas, disk store
     audio/         Oboe playback, mixer, master clock, PCM decoder, waveform extractor
+    stabilise/     Classical tracker, motion analyser, path smoothing, analysis cache, table registry (SPECS 5.21)
     encode/        Export: offline render loop, MediaCodec encoder, AAC, muxer
     jni/           JNI bindings only
     tests/         Host-built tests (no GoogleTest; see section 8)
@@ -604,6 +605,120 @@ second (a late redraw keeps a paused scope current). Nothing is read back to the
 1000 nit marks in an HLG project) are Compose text over the surface (`ui/editor/ScopeScale.kt`).
 
 **Not included:** secondary HSL qualifiers (see `DECISIONS.md`).
+
+### 5.21 Stabiliser and the shared tracker
+
+Camera-shake correction of a video clip, computed on the device with classical computer vision only: no
+models, no third-party libraries, no network. Settings per clip (`Clip.stabilise`, JSON optional field
+`stabilise: { strength, crop }`): **strength** 0..1 (stored in percent) and **crop** `tight` / `medium` / `full`.
+
+**Pipeline.**
+1. *Analysis* (once per media file, background, cancellable). `stabilise/LumaDecoder` decodes the clip's source
+   range plus a 1 s margin on each side sequentially with its own `AMediaCodec` (no output surface, one hardware
+   decoder, released when the job ends; the same approach as the thumbnail decoder) and reads only the luma plane,
+   rotated upright and scaled to at most 480 px (`stabilise/luma.h`). `MotionAnalyser` detects Shi-Tomasi corners
+   (spread over an 8x6 grid) in the previous frame, tracks them with pyramidal Lucas-Kanade (3 levels, 15x15
+   window, forward-backward check) and fits a similarity transform with RANSAC (2-point hypotheses, deterministic
+   seed, 1 px threshold, least-squares refit), so a moving subject does not drag the estimate. A frame with too
+   little to track counts as no motion. Result: one `FrameMotion` per decoded frame (translation in height units,
+   rotation, log scale, quality).
+2. *Cache* `stab/<assetId>.<hash>` under the project folder (`stabilise/stab_cache.h` has the byte layout; checksum
+   CRC-32; written through a temporary file and renamed). The file holds the **raw** motion, so strength and crop
+   changes never need a new analysis. The hash covers the asset's URI, length, frame rate and the analysis version, so
+   relinking or a tracker change finds no cache. The header records the analysed range: a clip that now reaches
+   outside it (extended by a trim) is `Stale` and must be analysed again; the new analysis merges with the old range.
+3. *Table*. `registerFromCache` builds the correction table: compose the camera path `P_t`, resample it to the
+   project frame rate (the frame numbering of the preview decoder, which counts from the media's first frame),
+   low-pass its parameters with a Gaussian (sigma from 0.1 s to 2.5 s, mirrored odd extension at the ends so a
+   steady drift stays steady), take `C_t = Q_t o P_t^-1`, then scale by one constant zoom per clip: `tight` is the
+   largest zoom any frame needs so that no frame edge shows (at most 2x), `medium` half of it, `full` none. Strength 0
+   is an identity table.
+4. *Registry*. Tables live in `StabRegistry`, keyed by `StabKey.of(assetId, settings)` (24 bits, so it travels as a
+   float). The render plan puts the key into `ClipFx.stabKey`; `FxWire` writes it as an effect of type 15 that always
+   runs first. The preview (`PreviewEngine::maybeDraw`) and the exporter (`renderFrame`) call
+   `resolveStabilisation(fx, sourceFrame)`, which looks the table up by the **source frame** being drawn and fills the
+   effect's per-frame values (dx, dy, theta, scale). Retiming, reverse and transitions therefore need no special case,
+   and preview and export draw the same picture. An unregistered key drops the effect (the clip draws unstabilised).
+   The preview redraws when the registry changes (`drawnStabRevision_`).
+5. *Warp*. Effect type 15 in the effect fragment shader samples the layer through the inverse of
+   `Xo = scale * R(theta) * X + (dx, dy)` (positions in height units; `stabilise/stab_warp.h` is the CPU reference), with
+   edges repeating the border pixels. It runs before the user's effects, mask and blend, at the layer's own size.
+
+**Cost.** Analysis is bounded by decoding plus roughly 5 ms of tracking per frame at 480 px; it runs at background
+priority and never blocks the render, UI or preview decoder threads. Drawing a stabilised layer adds one effect pass.
+
+**UI.** Inspector section for video clips: switch, strength slider (one undo step on release), crop chips, an
+*Analyse* button with progress and cancel, and the status (`Not analysed`, `Ready`, `Stale`). Everything is one
+`SetStabilise` command; the analysis itself is not an edit.
+
+**Out of scope:** rolling-shutter correction, 3D camera reconstruction, using gyroscope metadata.
+
+**Reusable tracker (for WP-V1 motion tracking).** `stabilise/tracker.h` has `detectCorners`, `trackLk`,
+`trackPoint(prev, next, point, &out)` and `BoxTracker(firstFrame, box)` with `update(nextFrame)` returning a
+confidence (0 means lost and the box stays); `stabilise/similarity.h` has `Similarity`, `fitSimilarity` and
+`estimateSimilarityRansac`. All take `Gray` float images (`stabilise/gray.h`, pyramids with `buildPyramid`) and are
+covered by `tests/stabilise_host_tests.cpp`. Frames come from `LumaDecoder::run`, which hands each decoded frame to a
+callback with its time from the media's first frame.
+
+### 5.22 Motion tracking
+
+Follow a point or a region of a video clip's picture through the clip, and make another clip (a title, a sticker, an
+overlay) follow it. Classical computer vision only, on the device: the tracker is the stabiliser's `BoxTracker`
+(Shi-Tomasi corners, pyramidal Lucas-Kanade with a forward-backward check, a similarity fit per frame), no models, no
+third-party libraries, no network.
+
+**Model.** `Timeline.motionTracks: List<MotionTrack(id, clipId, name, seed)>` with `TrackSeed(sourceFrame, cx, cy, w, h)`:
+the point or box the user picked, in fractions of the upright source frame (0..1 across and down), at a source frame in
+project frames (like every source range, so retiming, trimming and moving the clip do not invalidate it). JSON optional
+field `motionTracks` (`MotionTrackDto`); an invalid one is a corrupt project. Only a video clip that plays a video file
+can be tracked. Deleting the clip removes its tracks (`Timeline.pruned`). `EditCommand.AddMotionTrack`,
+`RemoveMotionTrack` and `AttachToMotionTrack` are undoable; the analysis itself is not an edit.
+
+**Analysis** (`track/`, one decode pass, background priority, cancellable, progress polled like the stabiliser's):
+1. `TrackService` opens the media with `stab::LumaDecoder` (own `AMediaCodec`, luma only, rotated upright, scaled to
+   320 px on the long side) over the clip's source range plus 0.5 s each side, widened to hold the seed.
+2. Frames before the seed are kept as 8-bit copies (at most 900, about 50 MB; the ones closest to the seed). At the first
+   frame within half a frame of the seed time, a backward `TrackRunner` walks the kept frames in reverse from the seed
+   while a forward one starts; the decoder then goes on and the forward runner follows each new frame. The two runs are
+   merged into one chronological path with the seed once (`mergeRuns`).
+3. `TrackRunner` marks a frame **lost** when the box tracker's confidence (share of tracked points that agree with the
+   estimated motion) is below 0.15; the box then stays at its last believable position, so a blank or blurred stretch
+   never throws it away, and tracking resumes when the target is back. Boxes smaller than 12 px are grown.
+4. The path is written to `track/<assetId>.<hash>` (`track/track_path.h`: `UVTK`, header with aspect, seed time and range,
+   36-byte samples with fractions of the frame, rotation, confidence, lost flag, CRC-32; temp file then rename). The hash
+   covers the media (URI, length, frame rate), the analysis version and the seed, so another target, a relinked file or a
+   tracker change finds no cache. Kotlin parses the file (`engine/track/TrackCacheFile`), checks the CRC and numbers frames
+   with the project frame rate (`microsToFrames` after adding half a frame), which is how the preview decoder numbers them.
+5. `FileMotionTracker.statusOf`: `NotAnalysed` (no valid file or an older analysis version), `Stale` (the clip now
+   reaches outside the analysed range, with a two-frame tolerance), `Ready(lost, frames)`.
+
+**From the picture to the canvas** (`domain/MotionTracking.kt`, pure, the same fit as the compositor): the clip's frame is
+fitted ("contain") into the canvas, then scaled about its centre, rotated clockwise and moved by its position.
+`TrackMath.toCanvas(u, v, aspect, canvas, pose)` gives canvas pixels from the canvas centre; `fromCanvas` is its exact
+inverse (used to turn a tap on the preview into a point of the picture). `canvasPath` walks the project frames of the
+tracked clip, maps each to its source frame with the clip's retiming (`sourceFrameAtProjectFrame`: trim, speed, ramps,
+reverse, freeze) and its pose at that frame (its own keyframes), and returns canvas points flagged lost or not.
+The stabiliser's correction is not applied to the path: a stabilised clip shows a slightly warped picture, so the target
+can be a few pixels off on very shaky footage.
+
+**Following.** `TrackMath.attachKeyframes(path, tracked, attached, canvas, offset, tolerance)` computes the target's canvas
+position at every project frame the attached clip occupies (before and after the tracked clip the first or last position
+holds), reduces it with Douglas-Peucker on (frame, x, y) to keys within 1 px of every dropped frame under linear
+interpolation (a straight drift is two keys), and merges them with the attached clip's existing keyframe frames. Only the
+position follows the path: scale, rotation and opacity are the clip's own (evaluated from its existing keyframes), and
+existing keys keep their interpolation and handles. Preview and export need nothing new: they are plain position
+keyframes. The result replaces the clip's keyframes in one undo step and is editable afterwards. The attached clip is
+centred on the target (offset 0).
+
+**UI.** Inspector section "Track motion" (`TrackControls`): *Track an object* waits for a pick on the preview
+(`TrackTargetLayer`: a tap picks a point with a box of 7, 12 or 20 % of the frame height, a drag draws the box), adds the
+target at the playhead's frame (the playhead must be on the clip) and starts the analysis with progress and cancel; each
+target has *Show path* (a line on the preview, red where lost, a dot at the playhead), *Analyse (again)* and *Delete*.
+For any other visual clip the section lists the targets of other clips with *Follow*. The path overlay reads the
+playhead in its own scope so a tick redraws only the dot.
+
+**Limits.** Position only (no scale or rotation following); one target at a time is analysed; a photo or sticker cannot be
+tracked; frames more than 900 before the seed are not tracked backward (the path holds its first position there).
 
 ### 5.20 Parameter keyframes (WP-K)
 

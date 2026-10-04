@@ -19,6 +19,11 @@
             android:name=".debug.ExportDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.UVEditor" />
+        <!-- Debug-only harness that analyses a video and exports it with and without the stabiliser; see StabiliseDemoActivity. -->
+        <activity
+            android:name=".debug.StabiliseDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
     </application>
 
 </manifest>

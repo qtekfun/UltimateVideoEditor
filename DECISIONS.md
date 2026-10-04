@@ -722,6 +722,41 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
 **Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
 
+## Stabiliser (WP-X)
+
+- **Classical computer vision, written here, no OpenCV.** Shi-Tomasi corners, pyramidal Lucas-Kanade with a
+  forward-backward check and a RANSAC similarity fit are about 600 lines of C++ with no dependencies, no models and no
+  network (the project's privacy rule). OpenCV would add several MB per ABI and a dependency for three functions.
+  Alternative: OpenCV's `calcOpticalFlowPyrLK` + `estimateAffinePartial2D`.
+- **The cache holds the raw frame-to-frame motion, not the smoothed correction.** Strength and crop then change
+  instantly (the table is rebuilt in milliseconds) and the cache key does not depend on them. The spec said "output
+  per-frame correction stored in a cache file"; the correction is what the registry holds.
+- **One 24-bit key per (asset, strength percent, crop); the table is looked up by the source frame being drawn.** The
+  scene description and the JNI signatures did not change: the effect only carries the key and the native side
+  resolves the per-frame values in the draw loop (preview and exporter), so retime, reverse, transitions and export
+  parity come for free. Alternative: bake the correction into per-frame keyframes (thousands of keys, and it would fight
+  the user's own keyframes) or pass a table per layer through the scene.
+- **Stabilise is a clip property, not an entry of the effect list.** It does not use one of the 8 effect slots, cannot
+  be reordered or added twice, and always runs first (it moves pixels; the colour effects, mask and blend come after).
+  The wire allows 9 effects per layer for this (`kMaxWireEffectsPerLayer`).
+- **Frames are numbered at the project frame rate, from the media's first frame**, the same as the preview decoder
+  (it is opened with the project rate as override). The analysis stores presentation times and the table resamples the
+  path to project frames, so a 60 fps source in a 30 fps project works.
+- **Gaussian smoothing of the camera path's parameters with a mirrored *odd* extension at the ends.** Simple,
+  deterministic and tunable with one number (sigma from 0.1 s at strength 0 to 2.5 s at 1; the default strength 0.3 is
+  about 0.8 s). The odd extension keeps a steady drift steady up to the first and last frame. Alternative: L1-optimal
+  paths (better at separating pans from shake, much more code).
+- **A constant zoom per clip** (tight = what the worst frame needs, capped at 2x; medium = half; full = none) instead of
+  an adaptive per-frame zoom, which makes the picture "breathe". Edge fill always repeats the border pixels (edge mode
+  1); transparent edges (mode 0) are in the shader for a later "show the background" option.
+- **The analysis covers the clip plus 1 s on each side and merges with what exists.** A trim outwards within the
+  margin needs nothing; further out the clip is *Stale* and one tap re-analyses the union. The cache lives with the
+  project (`projects/<id>/stab`), not in the system cache folder, so it is not lost when the system trims caches.
+- **Progress by polling, not callbacks.** The native job exposes a packed state long that Kotlin polls every 150 ms;
+  no JNI callbacks, no thread attachment, nothing to leak.
+- **The preview redraws when the table registry changes** (a revision counter in the draw signature), so a finished
+  analysis or a new strength shows without scrubbing.
+
 
 ## Generalised keyframes (WP-K)
 
@@ -798,3 +833,43 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 
 **Not verified:** see the PR description (device checks were limited to what is listed there).
 
+## Export and preview reliability (device pass 2)
+
+**Decision:** the decoder keeps ONE frame in flight (released to the image reader but not yet acquired by the consumer). A frame is only given up as lost when the consumer drained the reader more than 400 ms after its release, or after a hard limit of 5 s.
+**Why:** the buffer queue between the codec and the AImageReader keeps only the newest frame queued since the consumer last acquired one, so releasing a second frame silently discards the first. With four in flight, frames were lost and recovered 400 ms later by a backward seek and a re-decode from the key frame. Measured on a Pixel 8 (not the reference device): export of a long-GOP 1080p30 clip 0.35x -> 1.8x real time, two layers 0.06x -> 1.3x, 4K60 H.264 preview 429-513 of 600 frames with 118-227 stalls -> 606 of 600 with none.
+**Alternative:** raise the image reader queue or use acquireLatestImage (the queue still drops), or decode ahead into our own ring (more memory, same copy cost). Do not raise the in-flight limit without re-measuring on a device.
+
+**Decision:** every reader of a media file gets its own descriptor through /proc/self/fd/N (new open file description), falling back to dup().
+**Why:** dup() shares the file offset; video, audio and thumbnail extractors on different threads disturbed each other (a clip lost its tail after 177 of 300 samples, then every later frame repeated the last good one). That was the likely root of the intermittent decoder stalls and undecodable-audio errors reported earlier. Frame-exact retime check on the Pixel: 133 mismatched frames and failing audio -> 0 mismatches, all segments correct.
+**Alternative:** pread-only extraction or a single reader thread (larger refactor). Files whose /proc reopen is refused (some provider descriptors) fall back to dup() and keep the old risk.
+
+**Decision:** a reversed audio clip remembers the sample its block must reach after a seek and keeps filling instead of seeking again; the export checks audio faults on every frame.
+**Why:** if the codec had nothing ready right after the seek, each following call seeked to the same place again (the gap exceeded the continue limit), flushing the codec every time, so the clip never became ready (export failed with the audio of clip N not ready after 30 s). Each stalled frame also blocked for 30 s while faults were only polled every 30 frames.
+**Alternative:** a larger continue gap (hides the problem for fast codecs only).
+
+
+## Motion tracking (WP-V1)
+
+**Decision:** the tracker is the stabiliser's `BoxTracker` (pyramidal Lucas-Kanade on Shi-Tomasi corners inside the box, similarity fit per frame, no models), analysed in one decode pass at 320 px: frames before the seed are buffered (8-bit, at most 900) and tracked backward when the seed frame arrives, then the decoder goes on forward.
+**Why:** a second tracker would duplicate tested code; one pass means one hardware decoder for a short time and no seeking backwards; 320 px is plenty for a box and keeps the buffer near 50 MB.
+**Alternative:** two decode passes (seek back for the backward run: slower and a second decoder session), or storing float frames (about four times the memory).
+
+**Decision:** a frame is *lost* when the box tracker's confidence is below 0.15; the box then holds its last believable position and the path keeps going, so the target can be found again.
+**Why:** a blank or blurred stretch must not end the track, and the user sees exactly which frames were guesses (red on the preview, counted in the status).
+**Alternative:** stop at the first lost frame (the rest of the clip would be untracked) or interpolate across the gap (invents motion).
+
+**Decision:** a target is stored in the project (`Timeline.motionTracks`: clip, name, seed) while the analysed path lives only in a cache file named from the media and the seed.
+**Why:** the project stays small and portable and a cleared cache costs one re-analysis; the seed alone reproduces the path.
+**Alternative:** saving every path sample in `project.json` (large files, stale after a relink).
+
+**Decision:** following writes ordinary position keyframes (reduced to within 1 px by Douglas-Peucker, merged with the clip's existing key frames) instead of a live link to the track.
+**Why:** preview and export need no new code path, the result stays editable with the keyframe tools, and one undo step undoes it; a straight drift is two keys.
+**Alternative:** a `TrackedPose` evaluated by `RenderPlan` (stays in sync if the track is re-analysed, but needs native and export changes and cannot be hand-tweaked).
+
+**Decision:** only the position follows the path (no scale or rotation), the attached clip is centred on the target, and the tracked clip's stabiliser correction is ignored.
+**Why:** scale and rotation from a small box are noisy; centring is what "put this label on that face" means and the offset can be moved afterwards with keyframes; the stabiliser warp is a few pixels at most.
+**Alternative:** following scale/rotation as options, keeping the attached clip's offset, or composing the stabiliser table into the path.
+
+**Decision:** picking is a tap (box of 7, 12 or 20 % of the frame height by chip) or a dragged box on the preview, at the playhead's frame, which must be on the clip.
+**Why:** a tap is the common case and the chips cover sizes without a second gesture; the playhead frame is what the user is looking at.
+**Alternative:** a draggable box with handles over the preview (more precise, more code to keep out of the gesture layer used for moving clips).

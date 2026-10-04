@@ -5,6 +5,7 @@
 
 #include "cache/lru_cache.h"
 #include "decode/frame_rate.h"
+#include "decode/pending_policy.h"
 #include "decode/seek_policy.h"
 #include "render/color_math.h"
 #include "render/layout_math.h"
@@ -372,6 +373,30 @@ static void seekPolicyDoesNotRestartWhileApproachingTheGoal() {
     CHECK(!needsSeek(false, true, true, 0, 500, 500));
 }
 
+static void pendingFramesAreOnlyLostAfterTheConsumerDrained() {
+    using uv::decode::pendingExpiredAfterDrain;
+    constexpr int64_t kTimeout = 400;
+    constexpr int64_t kHard = 5000;
+    auto lost = [&](int64_t released, int64_t lastDrain, int64_t now) {
+        return pendingExpiredAfterDrain(released, lastDrain, now, kTimeout, kHard);
+    };
+    // The consumer has not drained since the release (an export busy encoding): the frame is waiting, not lost,
+    // however old it is below the hard limit. This used to trigger a backward seek on long-GOP clips.
+    CHECK(!lost(1000, 900, 1700));
+    CHECK(!lost(1000, 1000, 2500));
+    // Drained, but not long enough after the release for the image to have arrived.
+    CHECK(!lost(1000, 1300, 1301));
+    CHECK(!lost(1000, 1400, 1401));
+    // Drained well after the release and the frame is still missing: lost, decode it again.
+    CHECK(lost(1000, 1401, 1402));
+    CHECK(lost(1000, 5000, 5001));
+    // A consumer that stopped draining altogether: the safety net frees the frame after the hard timeout.
+    CHECK(!lost(1000, 0, 5999));
+    CHECK(lost(1000, 0, 6001));
+    // Never drained yet (lastDrain 0 at start-up) is not a reason by itself.
+    CHECK(!lost(1000, 0, 1500));
+}
+
 int main() {
     layerIdentityFillsCanvasWhenAspectMatches();
     layerFitLetterboxesMismatchedAspect();
@@ -390,6 +415,7 @@ int main() {
     lruProtectedEvictionKeepsWindow();
     frameRateSnapAndConversions();
     seekPolicyDoesNotRestartWhileApproachingTheGoal();
+    pendingFramesAreOnlyLostAfterTheConsumerDrained();
     hlgTransferCurves();
     gamutMatrixPreservesWhite();
     toneMapProperties();
