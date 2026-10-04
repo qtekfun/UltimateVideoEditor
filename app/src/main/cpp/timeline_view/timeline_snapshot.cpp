@@ -181,8 +181,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         snap.markers.reserve(static_cast<size_t>(markerCount));
         for (int32_t i = 0; i < markerCount; ++i) {
             MarkerSnapshot m{};
-            int32_t reserved = 0;
-            if (!r.read(&m.frame) || !r.read(&m.flags) || !r.read(&reserved) || m.frame < 0) return Status::BadSnapshot;
+            if (!r.read(&m.frame) || !r.read(&m.flags) || !r.read(&m.extra) || m.frame < 0) return Status::BadSnapshot;
             snap.markers.push_back(m);
         }
         std::sort(snap.markers.begin(), snap.markers.end(),

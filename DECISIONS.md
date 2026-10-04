@@ -1015,6 +1015,12 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Alternative:** shifting the whole timeline right by the header width (cleaner, but changes every x coordinate and hit test), or a Compose overlay for the headers (breaks the rule that the canvas is drawn natively, and recomposes while scrolling vertically).
 **Trade-off:** the header covers the first 22dp of the lanes; the first frames of a clip scrolled to the very left can only be grabbed after scrolling the timeline a little. Mute/solo are shown, not toggled, in the header (the Mixer sheet toggles them). Not seen on a device: host and JVM tests and the NDK build only.
 
+## Marker colours and note indicator on the native ruler (leftovers)
+
+**Decision:** the colour code (0 none, 1..6 in `MarkerColor` order) and a has-note bit travel in the marker's last wire word, which snapshot version 5 reserved as zero, so there is no snapshot version bump and old snapshots read as unstyled. The renderer colours the ruler flag and the lane line (alpha kept) and draws a small light square under the flag for a note; beats are unchanged. Colour table and parsing live in `timeline_view/marker_style.h` (host-tested); `SnapshotMarker` validates the code range.
+**Why:** colours and notes existed in the model, the EDL/FCPXML export and the dialog but were invisible on the ruler.
+**Alternative:** a new snapshot version with a dedicated field (cleaner but forces a format bump for four bits), or drawing the note text on the ruler (needs a glyph atlas for arbitrary text).
+
 ## Launcher icon (leftovers)
 
 **Decision:** an original adaptive icon: three timeline clips (two in periwinkle, one in sky blue) and an amber playhead with a downward triangular head, on a deep blue-violet vertical gradient; layers `ic_launcher_background`, `ic_launcher_foreground`, `ic_launcher_monochrome` under `mipmap-anydpi` (also used as the round icon); manifest points to `@mipmap/ic_launcher` and `ic_launcher_round`. All foreground points are within about 30 units of the canvas centre, inside the 33-unit safe-zone radius, checked by `IconGeometryTest` from the path data (paths use only absolute M/L/Q/Z for that reason).

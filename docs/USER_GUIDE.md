@@ -414,7 +414,9 @@ The flag icon opens:
 - **Add or remove a marker** at the playhead.
 - **Marker note and colour…**: with the playhead on a marker, type a note (up to 200 characters) and pick one
   of six colours or none. The note and colour are saved with the project and are written to EDL and FCPXML
-  exports (the colour as a `[red]` prefix in the marker text). It is one undo step.
+  exports (the colour as a `[red]` prefix in the marker text). It is one undo step. On the ruler the marker's flag
+  and the faint line through the lanes take that colour (pink when there is none), and a small light square under the
+  flag shows that the marker has a note.
 - **Find beats in the selected clip**: detects the rhythm of its audio and drops beat markers on the ruler.
   Works on music with a clear pulse; speech or ambience may report "no clear beat".
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
