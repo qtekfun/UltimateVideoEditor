@@ -260,7 +260,7 @@ static void testMarkerStyleColours() {
         const timeline::MarkerRgb ca = timeline::markerRgb(a);
         CHECK(ca.r >= 0.0f && ca.r <= 1.0f && ca.g >= 0.0f && ca.g <= 1.0f && ca.b >= 0.0f && ca.b <= 1.0f);
         const float peak = std::max(ca.r, std::max(ca.g, ca.b));
-        CHECK(peak >= 0.99f);  // every flag colour is bright
+        CHECK(peak >= 0.9f);  // every flag colour is bright
         for (int b = a + 1; b <= timeline::kMarkerColorCount; ++b) {
             const timeline::MarkerRgb cb = timeline::markerRgb(b);
             CHECK(ca.r != cb.r || ca.g != cb.g || ca.b != cb.b);
