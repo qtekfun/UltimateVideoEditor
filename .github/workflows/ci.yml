@@ -25,6 +25,13 @@ jobs:
       - name: Run scripts/run-native-tests.sh
         run: scripts/run-native-tests.sh
 
+      # The audio core's lifetime rules under AddressSanitizer/UBSan and ThreadSanitizer (a use-after-free in the
+      # audio callback crashed the app on a device).
+      - name: Audio core under sanitizers
+        env:
+          UV_REQUIRE_SANITIZERS: "1"
+        run: scripts/run-sanitizer-tests.sh
+
       - name: Build and run the CMake host tests
         run: |
           sudo apt-get update -qq

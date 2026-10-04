@@ -747,6 +747,106 @@ static void testFarClipsHoldNoDecoder() {
     core.streamStopped();
 }
 
+// Crash seen on a device (SIGSEGV in the first audio callback of a freshly opened stream): the audio
+// thread's `current_` snapshot was freed while no stream was running (edits made while the stream was
+// closed), then the first block of the next stream adopted state from it.
+static void testSnapshotEditsWhileTheStreamIsClosed() {
+    g_spec = FakeSpec{};
+    {
+        AudioCore core(fakeFactory());
+        core.configure(48000);
+        core.streamStarting();
+        core.setSnapshot(snap30({clipDesc(1, 0, 600)}));
+        core.play();
+        std::vector<float> out(2 * 512);
+        for (int i = 0; i < 4; ++i) core.render(out.data(), 512);  // the audio thread now points at snapshot 1
+        core.streamStopped();                                       // the stream is closed (idle stop)
+
+        CHECK(core.audioThreadSnapshotIsAlive());
+
+        // The project is edited while nothing renders: several snapshots are published and dropped.
+        for (int i = 0; i < 5; ++i) {
+            core.setSnapshot(snap30({clipDesc(1, 0, 300 + i * 30, 0, -1.0f * static_cast<float>(i))}));
+            // The snapshot the audio thread still points at must survive every edit (the allocator may
+            // hand its address to the next snapshot, which hides a use-after-free from a plain run).
+            CHECK(core.audioThreadSnapshotIsAlive());
+        }
+
+        core.streamStarting();  // a new stream: its first block adopts state from the old current snapshot
+        core.resetStreamClock();
+        for (int i = 0; i < 4; ++i) core.render(out.data(), 512);
+        CHECK(core.audioThreadSnapshotIsAlive());
+        core.streamStopped();
+        CHECK(core.audioThreadSnapshotIsAlive());
+    }
+}
+
+// Many edits and stream restarts interleaved with callbacks must never touch a freed snapshot.
+static void testSnapshotChurnAcrossStreamRestarts() {
+    g_spec = FakeSpec{};
+    AudioCore core(fakeFactory());
+    core.configure(48000);
+    core.setSnapshot(snap30({clipDesc(1, 0, 600)}));
+    core.play();
+    std::vector<float> out(2 * 256);
+    for (int round = 0; round < 200; ++round) {
+        core.streamStarting();
+        core.resetStreamClock();
+        for (int i = 0; i < (round % 3) + 1; ++i) core.render(out.data(), 256);
+        if (round % 2 == 0) core.setSnapshot(snap30({clipDesc(1, 0, 300 + round, 0, -1.0f)}));  // edit while running
+        core.streamStopped();
+        CHECK(core.audioThreadSnapshotIsAlive());
+        for (int i = 0; i < round % 4; ++i) {
+            core.setSnapshot(snap30({clipDesc(1, 0, 200 + round + i)}));  // edits while closed
+            CHECK(core.audioThreadSnapshotIsAlive());
+        }
+    }
+}
+
+// The real protocol: a stream thread renders only while a stream is open (the engine closes the stream, which
+// joins the callback, before streamStopped), while a control thread keeps editing the project. Edits and
+// stream restarts interleave at random; the audio thread's snapshot must always stay owned by the core.
+static void testStreamRestartsWhileEditing() {
+    g_spec = FakeSpec{};
+    AudioCore core(fakeFactory());
+    core.configure(48000);
+    core.setSnapshot(snap30({clipDesc(1, 0, 600)}));
+    core.play();
+
+    std::atomic<bool> stop{false};
+    std::atomic<int> edits{0};
+    std::thread editor([&] {
+        int i = 0;
+        while (!stop.load(std::memory_order_acquire)) {
+            core.setSnapshot(snap30({clipDesc(1, 0, 300 + (i % 7) * 10, 0, -1.0f * static_cast<float>(i % 3))}));
+            edits.fetch_add(1, std::memory_order_relaxed);
+            ++i;
+            std::this_thread::yield();
+        }
+    });
+
+    std::vector<float> out(2 * 128);
+    for (int round = 0; round < 300; ++round) {
+        core.streamStarting();
+        core.resetStreamClock();
+        std::atomic<bool> streaming{true};
+        std::thread audio([&] {  // the stream's callback thread
+            while (streaming.load(std::memory_order_acquire)) core.render(out.data(), 128);
+        });
+        for (int k = 0; k < 20 + round % 30; ++k) std::this_thread::yield();
+        streaming.store(false, std::memory_order_release);
+        audio.join();  // oboe's close() returns only after the last callback
+        core.streamStopped();
+        CHECK(core.audioThreadSnapshotIsAlive());
+    }
+    stop.store(true, std::memory_order_release);
+    editor.join();
+    CHECK(edits.load() > 0);
+    core.streamStarting();
+    core.render(out.data(), 128);
+    core.streamStopped();
+}
+
 static void testThreadedWorker() {
     g_spec = FakeSpec{};
     AudioCore core(fakeFactory());
@@ -1950,6 +2050,9 @@ int main() {
     testFailuresAreReported();
     testSnapshotEditsReuseDecoders();
     testFarClipsHoldNoDecoder();
+    testSnapshotEditsWhileTheStreamIsClosed();
+    testSnapshotChurnAcrossStreamRestarts();
+    testStreamRestartsWhileEditing();
     testThreadedWorker();
     testOfflineRenderWaitsForData();
     testOfflineRenderSurvivesTransientDecodeFailures();

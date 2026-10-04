@@ -32,6 +32,15 @@ interface TimelineEditing {
     /** [hit] is the hit-test at the current finger position; only its frame and track are meaningful. */
     fun onDragMove(hit: TimelineHit)
     fun onDragEnd(commit: Boolean)
+
+    /** A lane header was long-pressed: the lane is picked up. [hit] is a `LANE_HEADER` hit-test. */
+    fun onLaneDragStart(hit: TimelineHit) {}
+
+    /** The finger moved with a lane picked up; [hit] is the hit-test at its position. */
+    fun onLaneDragMove(hit: TimelineHit) {}
+
+    /** The lane was released ([commit]) or the gesture was cancelled. */
+    fun onLaneDragEnd(commit: Boolean) {}
 }
 
 /**
@@ -153,6 +162,10 @@ class TimelineSurfaceView(
     // A rectangle dragged over empty space in select mode: the clips inside it join the selection on release.
     private var marquee = false
     private var dragging = false
+
+    // A lane picked up by its header (long press): the finger then moves the lane instead of scrolling. The platform
+    // gesture detector stops reporting scrolls after a long press, so the moves are read from the touch events.
+    private var laneDragging = false
     private var dragX = 0f
     private var dragY = 0f
 
@@ -191,9 +204,16 @@ class TimelineSurfaceView(
             }
 
             override fun onLongPress(e: MotionEvent) {
-                if (dragging || marquee) return
-                val target = selecting() ?: return
+                if (dragging || marquee || laneDragging) return
                 val hit = engine.hitTest(e.x, e.y)
+                if (hit.kind == HitKind.LANE_HEADER) {
+                    val lanes = editing() ?: return
+                    laneDragging = true
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    lanes.onLaneDragStart(hit)
+                    return
+                }
+                val target = selecting() ?: return
                 if (hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE) {
                     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     target.onLongPress(hit)
@@ -201,7 +221,7 @@ class TimelineSurfaceView(
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                if (scaleDetector.isInProgress) return true
+                if (scaleDetector.isInProgress || laneDragging) return true
                 if (!dragging && !marquee) {
                     tryStartDrag()
                     if (!dragging) tryStartMarquee()
@@ -275,6 +295,16 @@ class TimelineSurfaceView(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
+        if (laneDragging) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE -> editing()?.onLaneDragMove(engine.hitTest(event.x, event.y))
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    laneDragging = false
+                    editing()?.onLaneDragEnd(commit = event.actionMasked == MotionEvent.ACTION_UP)
+                }
+            }
+            return true
+        }
         if (marquee && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
             marquee = false
             if (event.actionMasked == MotionEvent.ACTION_UP) {

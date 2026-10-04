@@ -60,6 +60,8 @@ public:
     void setDropHint(const DropHint& hint);
     // The selection rectangle dragged over empty space in select mode, in view pixels; `active` false hides it.
     void setMarquee(bool active, float x0, float y0, float x1, float y1);
+    // The lane header drag: lane `from` is being moved and would land on lane `to`; -1 for both clears the indicator.
+    void setLaneDrag(int from, int to);
     // Keys of the clips intersecting a view-pixel rectangle (see clipsInRect).
     std::vector<int64_t> clipsInRect(float x0, float y0, float x1, float y1) const;
     // Lane height as a multiple of the default (see Layout::forDensity); redraws and keeps the scroll valid.

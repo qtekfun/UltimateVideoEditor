@@ -175,3 +175,26 @@ Not verified in this pass: anything on a device. The Pixel 8 was locked with a c
 `scripts/run-export-throughput.sh` (the real measurement, including the 2-layer case at 1.3x real time) was not rerun.
 The two-layer export is probably bound by drawing two layers and the encoder rather than by decoding; that needs a
 device profile.
+
+## Native crash audit (audio callback crash)
+
+A SIGSEGV in the first audio callback of a freshly opened stream was found in the Pixel 8 crash buffer and fixed
+(see DECISIONS.md, "Audio callback crash"): the audio thread adopted DSP state from a snapshot that had been freed
+while the stream was closed. The audit that followed looked at every native thread and callback; fixed with tests:
+`AudioPlaybackEngine.close()` against a running loudness/noise measurement, and `cancel()` of the stabiliser and
+motion-tracker analyses against their own completion.
+
+Reviewed and found sound (no change): the JNI bridges of preview, export, timeline and thumbnails stop every native
+thread before they delete the Java listener's global reference (`nativeDestroy` order); `VideoDecoder::shutdown`
+joins its thread before it deletes the codec, the image reader (which stops its callbacks) and the extractor;
+`TrackService` and `StabService` join their worker in the destructor.
+
+Remaining risks, not fixed (no evidence of a failure, listed so they can be checked with a sanitizer build on a device):
+- `AudioEngine::onAudioReady` reads `tuner_` without a lock; it is only reset after the stream is closed, which
+  Oboe guarantees ends the callbacks, but a future change that resets it while the stream runs would race.
+- `TimelineRenderer` posts `AChoreographer_postFrameCallback64(..., this)` callbacks that cannot be cancelled; they
+  run on the renderer's own looper thread, which is joined before the object is destroyed, so they cannot fire late.
+- The Kotlin wrappers check `handle != 0L` and then call native (`live()`): they rely on the documented rule that
+  each engine is used from one thread (the audio engine's measurements are now the only exception, guarded).
+- ThreadSanitizer has never run on the render, decode and export threads; `scripts/run-sanitizer-tests.sh` covers
+  only the audio core. Extending it needs fakes for MediaCodec and EGL.

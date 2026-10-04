@@ -228,11 +228,6 @@ data class Transition(
  */
 enum class StillKind { PHOTO, STICKER }
 
-/** Length a freshly added photo or sticker gets, in seconds. */
-object Stills {
-    const val DEFAULT_SECONDS = 5L
-}
-
 /**
  * A span of a source placed on a track. Source range is [sourceIn, sourceOut) in source frames;
  * the clip occupies [timelineStart, timelineEnd) on the timeline. Normally that is 1x speed and the
