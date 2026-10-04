@@ -51,6 +51,10 @@ data class RenderClip(
     val params: List<ParamTrack> = emptyList(),
     /** Smooth slow motion: frames of a slowed clip are interpolated between two source frames, see [sourceMixAt]. */
     val smooth: Boolean = false,
+    /** The look of the transition this clip comes in with, or null when it has none. [crossfadeInFrames] is its length for audio. */
+    val transitionIn: TransitionLook? = null,
+    /** The look of the transition this clip goes out with, or null when it has none. */
+    val transitionOut: TransitionLook? = null,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -65,11 +69,65 @@ data class RenderClip(
     /** The clip's pose at [frame], keyframes included, before any crossfade. */
     fun transformAt(frame: Long): ClipTransform = Keyframes.evaluate(keyframes, frame - keyframeOriginFrame, transform)
 
+    /** True when the incoming picture fades in by opacity (a crossfade or light leak, or no transition at all). */
+    private val fadesIn: Boolean get() = transitionIn?.type?.fadesVideo ?: true
+
+    private fun fadeAt(frame: Long): Double = if (fadesIn) CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames) else 1.0
+
     /** Layer opacity at [frame]: the clip's own (animated) opacity times the crossfade ramp. */
-    fun opacityAt(frame: Long): Double = transformAt(frame).opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)
+    fun opacityAt(frame: Long): Double = transformAt(frame).opacity * fadeAt(frame)
 
     /** What the compositor draws at [frame]: the pose with the crossfade folded into the opacity. */
-    fun appearanceAt(frame: Long): ClipTransform = transformAt(frame).let { it.copy(opacity = it.opacity * CrossfadeCurve.progress(frame - startFrame, crossfadeInFrames)) }
+    fun appearanceAt(frame: Long): ClipTransform = transformAt(frame).let { it.copy(opacity = it.opacity * fadeAt(frame)) }
+
+    /** True when a transition of this clip moves, scales or flickers its picture (so the pose is exported frame by frame). */
+    val bakesTransitionPose: Boolean
+        get() = transitionIn?.type?.shapesPose(true) == true || transitionOut?.type?.shapesPose(false) == true
+
+    /** True when a transition of this clip adds effects or a mask (so the look changes every frame). */
+    val shapesTransitionFx: Boolean
+        get() = transitionIn?.type?.shapesFx == true || transitionOut?.type?.shapesFx == true
+
+    /** The project frames over which a transition of this clip shapes its pose, in the order in and out. */
+    fun transitionPoseRanges(): List<LongRange> = buildList {
+        transitionIn?.takeIf { it.type.shapesPose(true) }?.let { add(startFrame until startFrame + it.frames) }
+        transitionOut?.takeIf { it.type.shapesPose(false) }?.let { add((endFrame - it.frames) until endFrame) }
+    }
+
+    /** What the transitions of this clip do to its picture at [frame] on a canvas of the given size. */
+    fun transitionModAt(frame: Long, canvasWidth: Int, canvasHeight: Int): TransitionMod {
+        var mod = TransitionMod.NONE
+        transitionIn?.let { look ->
+            if (frame >= startFrame && frame < startFrame + look.frames) {
+                mod = TransitionLooks.modAt(look, true, frame - startFrame, canvasWidth, canvasHeight, frame)
+            }
+        }
+        transitionOut?.let { look ->
+            val from = endFrame - look.frames
+            if (frame >= from && frame < endFrame) {
+                mod = mod.then(TransitionLooks.modAt(look, false, frame - from, canvasWidth, canvasHeight, frame))
+            }
+        }
+        return mod
+    }
+
+    /** What the compositor draws at [frame]: [appearanceAt] with the pose changes of the clip's transitions applied. */
+    fun appearanceAt(frame: Long, canvasWidth: Int, canvasHeight: Int): ClipTransform {
+        val base = appearanceAt(frame)
+        val mod = transitionModAt(frame, canvasWidth, canvasHeight)
+        if (mod.isNone) return base
+        return base.copy(
+            positionX = base.positionX + mod.offsetX,
+            positionY = base.positionY + mod.offsetY,
+            scaleX = base.scaleX * mod.scale,
+            scaleY = base.scaleY * mod.scale,
+            rotationDegrees = base.rotationDegrees + mod.rotationDegrees,
+            opacity = base.opacity * mod.opacity,
+        )
+    }
+
+    /** [fxAt] with the effects and mask the clip's transitions add at [frame]. */
+    fun fxAt(frame: Long, canvasWidth: Int, canvasHeight: Int): ClipFx = fxAt(frame).withTransition(transitionModAt(frame, canvasWidth, canvasHeight))
 
     /** Source frame shown at [frame] (unclamped; renderers clamp to the media). */
     fun sourceFrameAt(frame: Long): Long =
@@ -157,6 +215,8 @@ fun Timeline.renderClips(): List<RenderClip> {
                 audio = clip.audio,
                 params = clip.params,
                 smooth = clip.smoothSlowMo && clip.hasMedia,
+                transitionIn = incoming?.let { TransitionLook(it.type, it.direction, it.durationFrames) },
+                transitionOut = outgoing?.let { TransitionLook(it.type, it.direction, it.durationFrames) },
             )
         }
     }

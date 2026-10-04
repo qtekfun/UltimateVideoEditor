@@ -437,7 +437,7 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
     if (transition == null && state.clipAfterSelected == null) return
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "Crossfade to next clip",
+            text = if (transition == null) "Transition to next clip" else "${transition.type.label} to next clip",
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
@@ -473,6 +473,7 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
             style = MaterialTheme.typography.bodySmall,
         )
     }
+    TransitionStylePicker(transition, onIntent)
 }
 
 /**

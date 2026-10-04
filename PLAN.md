@@ -162,12 +162,12 @@ waves of SPECS 9.20.
 - [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker. _Status:_ implemented (SPECS 9.18) with JVM tests (curve model, mix mapping, source packing, view model, limits) and native host tests (flow, interpolation, denoise, deflicker, export table). Pixel 8 measurements: interpolated 0.25x export PSNR 43.9 dB against 35.9 dB for frame repetition (240 fps ground truth), judder 0.13 against 1.71; the preview picture matches too; denoise plus deflicker raise PSNR 24.8 to 29.7 dB and cut the luma flicker step 28.0 to 9.2. Not seen on a device: the inspector and curve editor, the reference phone, 4K and real footage; the box is not ticked until they are.
 
 ### Wave 6
-- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper
+- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper. _Status:_ implemented (SPECS 5.23) and covered by JVM tests (silence detection on synthetic envelopes, source-to-timeline mapping, atomic cut with base ripple and overlays following, undo, reframe maths and keyframes, view model flows); the sheets and the real waveform path have not been seen on a device yet, so the box stays open.
 - [ ] WP-V3 Voice effects (classical DSP)
 
 ### Wave 7
 - [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
-- [ ] WP-V5 Project templates, transition and filter packs
+- [ ] WP-V5 Project templates, transition and filter packs. _Transition pack:_ slide, push, zoom, spin, glitch, wipe, whip pan and light leak with directions, a look picker with a three-frame preview, preview/export parity by one shared evaluator (SPECS 5.25), JVM tests for the looks, the render plan, export keys and per-frame effects, JSON and undo; not yet seen on a device. _Filter pack:_ 20 original looks generated in code and installed into the LUT library on first use, with swatches in the LUT picker (SPECS 5.24), covered by JVM tests (identity, range, monotonic grey, cube round trip, idempotent install); not yet seen on a device.
 
 ### Wave 8
 - [x] WP-M Multicam (after WP-A, WP-S, WP-P). _Status:_ implemented (SPECS 5.26) and covered by JVM tests (sync recovers known offsets from synthetic shifted audio with noise, cut/record/undo, flatten equivalence, following moves, decoder budget planner, JSON round trips); nothing seen on a device (the Pixel was locked with a credential), so the sheet layout, a real sync of two phone recordings and live recording during playback are unverified
