@@ -1186,3 +1186,10 @@ is missing. Resources are installed before the project folder is moved into plac
 its two bundle entries, which open the same dialog with the media switch preset. Alternative: keep separate menu items per combination
 (too many combinations). **Not covered:** parameter keyframes of a LUT effect's key (`fx.<id>.0`) are not rewritten when a LUT is re-keyed;
 the LUT picker never keyframes it.
+
+## Colour wheels and curves drag only from the handle (QA defect O2)
+**Chosen:** a drag moves a wheel puck only when it starts within 0.3 of the wheel radius of the puck, and moves a curve point only when it starts
+within the existing grab radius of that point; a drag that starts anywhere else is not consumed, so the colour panel scrolls under the finger.
+Taps still place a puck, add a curve point or (long press) remove one, and a double tap still centres a wheel. **Why:** the old drags consumed every
+swipe that began on a wheel or plot, which are most of the panel's width, so scrolling needed a narrow margin. **Alternative:** a dead zone on the
+panel edge or a long-press-to-drag (two gestures to learn, and long press already removes a curve point). Implemented in `detectGrabbedDrag`.
