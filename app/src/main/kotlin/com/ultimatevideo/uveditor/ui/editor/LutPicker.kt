@@ -2,9 +2,12 @@ package com.ultimatevideo.uveditor.ui.editor
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -16,12 +19,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ultimatevideo.uveditor.data.LutInfo
 import com.ultimatevideo.uveditor.data.LutStore
+import com.ultimatevideo.uveditor.domain.FilterLook
+import com.ultimatevideo.uveditor.domain.FilterPack
 import com.ultimatevideo.uveditor.domain.LutParseException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -88,48 +97,89 @@ class LutLibraryViewModel(
         }
     }
 
+    /**
+     * Bakes the built-in filter [id] into the library (a no-op when it is already there) and hands over its entry,
+     * so it behaves like any imported LUT from then on. Nothing is downloaded: the cube is generated here.
+     */
+    fun installFilter(id: String, onInstalled: (LutInfo) -> Unit) {
+        val look = FilterPack.find(id) ?: return
+        _state.update { it.copy(importing = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val info = withContext(io) { store.import(look.name, FilterPack.cube(look)) }
+                _state.update { it.copy(importing = false, luts = withContextList(info, it.luts)) }
+                onInstalled(info)
+            } catch (e: IOException) {
+                _state.update { it.copy(importing = false, error = "The filter could not be saved: ${e.message}") }
+            }
+        }
+    }
+
     fun clearError() = _state.update { it.copy(error = null) }
 
     private fun withContextList(info: LutInfo, current: List<LutInfo>): List<LutInfo> =
         (current.filter { it.key != info.key } + info).sortedBy { it.name.lowercase() }
 }
 
-/** Lists the LUT library; picking one adds it to the selected clip, "Import" brings in a new `.cube` file. */
+/**
+ * The built-in filters first (each with a swatch showing what it does to a few reference colours), then the LUTs
+ * the user imported. Picking either adds it to the selected clip; "Import" brings in a new `.cube` file.
+ */
 @Composable
 internal fun LutPickerDialog(
     state: LutLibraryState,
     onPick: (Int) -> Unit,
     onImport: (String) -> Unit,
     onDismiss: () -> Unit,
+    filters: List<FilterLook> = FilterPack.looks,
+    onPickFilter: (String) -> Unit = {},
 ) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onImport(uri.toString())
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("LUT") },
+        title = { Text("Filters and LUTs") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state.luts.isEmpty()) {
-                    Text("No LUTs yet. Import a 3D .cube file (17, 33 or 65 points).", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
-                        items(state.luts, key = { it.key }) { lut ->
-                            Column(
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    if (filters.isNotEmpty()) {
+                        item(key = "filters-header") { Text("Filters", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp)) }
+                        items(filters, key = { "filter-${it.id}" }) { look ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onPick(lut.key) }
-                                    .padding(vertical = 8.dp),
+                                    .clickable(enabled = !state.importing) { onPickFilter(look.id) }
+                                    .padding(vertical = 6.dp),
                             ) {
-                                Text(lut.name, style = MaterialTheme.typography.bodyLarge)
-                                Text("${lut.size}-point cube", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FilterSwatch(look)
+                                Column(modifier = Modifier.padding(start = 12.dp)) {
+                                    Text(look.name, style = MaterialTheme.typography.bodyLarge)
+                                    Text(look.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
+                        }
+                    }
+                    item(key = "luts-header") { Text("Your LUTs", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
+                    if (state.luts.isEmpty()) {
+                        item(key = "luts-empty") { Text("No imported LUTs yet. Import a 3D .cube file (17, 33 or 65 points).", style = MaterialTheme.typography.bodyMedium) }
+                    }
+                    items(state.luts, key = { it.key }) { lut ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(lut.key) }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Text(lut.name, style = MaterialTheme.typography.bodyLarge)
+                            Text("${lut.size}-point cube", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Text(
-                    "A LUT is applied to the clip in the project's colour space (Rec.709 in an SDR project, the HLG signal in an HLG project).",
+                    "A LUT is applied to the clip in the project's colour space (Rec.709 in an SDR project, the HLG signal in an HLG project). The filters are made by ultimateVE and work offline.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -137,9 +187,31 @@ internal fun LutPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !state.importing) {
-                Text(if (state.importing) "Importing…" else "Import .cube…")
+                Text(if (state.importing) "Working…" else "Import .cube…")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
+}
+
+/** Reference colours the swatch shows: skin, sky, foliage, red, a mid grey and a light grey. */
+private val SWATCH_COLOURS = listOf(
+    Triple(0.85, 0.65, 0.55),
+    Triple(0.35, 0.55, 0.85),
+    Triple(0.3, 0.6, 0.3),
+    Triple(0.85, 0.2, 0.2),
+    Triple(0.5, 0.5, 0.5),
+    Triple(0.8, 0.8, 0.8),
+)
+
+/** A strip of [SWATCH_COLOURS] as the look renders them, a quick read of its colour and contrast. */
+@Composable
+private fun FilterSwatch(look: FilterLook) {
+    Canvas(modifier = Modifier.size(width = 84.dp, height = 28.dp)) {
+        val cell = size.width / SWATCH_COLOURS.size
+        SWATCH_COLOURS.forEachIndexed { i, (r, g, b) ->
+            val (lr, lg, lb) = look.params.apply(r, g, b)
+            drawRect(Color(lr.toFloat(), lg.toFloat(), lb.toFloat()), topLeft = Offset(i * cell, 0f), size = Size(cell + 1f, size.height))
+        }
+    }
 }
