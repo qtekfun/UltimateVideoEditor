@@ -1272,3 +1272,17 @@ p50/p95/p99/max, draw calls and vertices per frame); `scripts/perf-timeline.sh` 
 statistics) was built, but **the Pixel 8 stayed locked behind a secure lock screen for the whole session, so neither baseline nor "after"
 numbers exist**. The 5 % jank / p99 limit is unverified; the PR stays open for that. Structural expectation: the per-frame work grows by two text
 draws, 12 triangles per block and ruler labels from the atlas, and shrinks by the old per-pixel font rectangles (each ruler or label character was up to 15 quads).
+
+### Timeline performance: measured (Pixel 8, 240 frames, 110 clips, two interleaved passes each)
+Text was already one batch with a per-frame upload budget; profiling showed uploads are small (about 0.03 ms/frame) and the cost was in building
+vertices: `std::vector::insert` of initializer lists per vertex, `sin`/`cos` per rounded corner per block per frame, and three atlas lookups per ruler
+glyph. **Fix:** vertex batches are pre-sized and written through a pointer, corner arc cos/sin come from a table computed once, a glyph run does one lookup per glyph.
+
+| cpu_ms (mean of 2 passes) | p50 | p95 | p99 | max | draws | verts |
+|---|---|---|---|---|---|---|
+| master baseline | 5.8 | 10.6 | 11.9 | 14.6 | 1 | ~5700 |
+| PR #94 before fix | 6.0-6.4 | 11.7-12.3 | 13.2-17.2 | 15-22 | 4 | ~7400 |
+| PR #94 after fix | 5.3 | 9.3 | 10.8 | 17.0 | 4 | ~7450 |
+
+p95 and p99 are below baseline. Max is a single-frame outlier in both builds. The four draws are blocks, clip text, overlays plus ruler, ruler text (order matters).
+The stats line also reports `uploads` and `upload_ms` (label bitmaps placed in the atlas and the time that took).
