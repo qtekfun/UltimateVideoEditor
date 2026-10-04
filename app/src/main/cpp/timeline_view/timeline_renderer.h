@@ -60,6 +60,10 @@ public:
     void setDropHint(const DropHint& hint);
     // The selection rectangle dragged over empty space in select mode, in view pixels; `active` false hides it.
     void setMarquee(bool active, float x0, float y0, float x1, float y1);
+    // What is drawn while clips are dragged or trimmed: a line at `snapGuideFrame` (negative for none) where an edge snapped,
+    // and the blocks of the clips with these keys lifted (soft shadow, drawn over the others). An empty overlay (no guide,
+    // no keys) costs nothing; call again with an empty one when the drag ends.
+    void setDragOverlay(int64_t snapGuideFrame, const int64_t* clipKeys, size_t count);
     // The lane header drag: lane `from` is being moved and would land on lane `to`; -1 for both clears the indicator.
     void setLaneDrag(int from, int to);
     // Keys of the clips intersecting a view-pixel rectangle (see clipsInRect).
@@ -74,6 +78,9 @@ public:
     void putLabel(uint64_t hash, int w, int h, bool colour, const uint8_t* rgba);
     // Moves on whenever the text atlas is emptied: bitmaps sent before are gone and must be sent again.
     uint32_t labelGeneration() const { return labelGeneration_.load(); }
+    // Copies up to `capacity` hashes of the bitmaps the atlas dropped to make room (least recently used first) into `out` and
+    // forgets them; returns how many. Kotlin sends again the ones it still needs. Any thread.
+    size_t takeEvictedLabels(uint64_t* out, size_t capacity);
 
     class Gl;  // render-thread only (public so file-local helpers can name it)
 
