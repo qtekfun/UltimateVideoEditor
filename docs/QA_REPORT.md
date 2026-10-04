@@ -48,7 +48,7 @@ scenarios could not be completed (see "Not verified").
 
 ## Open defects and observations
 
-- **Export throughput is low on long-GOP material (about 10 frames/s, 0.3x real time, 1080p30 with two
+- **(Fixed in the second pass, see "Second pass" below.) Export throughput is low on long-GOP material (about 10 frames/s, 0.3x real time, 1080p30 with two
   layers) even after fix 2.** The log shows the decode thread rendering ~6 frames/s but dropping 140-200
   frames/s: each time the export asks for a frame the decoder has already run past it (frames beyond the cache
   window are decoded and dropped) it seeks backwards, and on a one-key-frame stream every seek re-decodes from
@@ -79,3 +79,59 @@ scenarios could not be completed (see "Not verified").
   scenarios were interrupted. Re-running them on a device used by one session at a time is recommended.
 - The build with the layout presets (U3) was seen installed on the device with the same tray defect, so the fix
   in #47 applies to current `master`.
+
+## Second pass (export reliability)
+
+Same Pixel 8 (not the reference device), build installed as a separate package (`-PappIdSuffix=.d2`) because the
+device is shared; every device session took `/tmp/pixel-device.lock`. The screen locked during the session (secure
+lock, nobody to unlock it), so UI scenarios could not be driven; only non-UI measurements were done.
+
+### Export throughput (1080p30 source, 300 frames, H.264 export at 1080p, `scripts/run-export-throughput.sh`)
+
+| Scenario | Before | After |
+|---|---|---|
+| 1 layer, GOP 30 | 21 fps (0.70x) | 54-63 fps (1.8-2.1x) |
+| 1 layer, one key frame (long GOP) | 11.6 fps (0.39x) | 54-71 fps (1.8-2.4x) |
+| 2 layers, long GOP | 1.8 fps (0.06x) | 39-40 fps (1.3x) |
+| 2 layers, GOP 30 | not measured | 38-42 fps (1.3-1.4x) |
+
+### Preview (4K60 H.264, 10 s, debug preview activity, `scripts/preview-4k-test.sh`)
+
+| | Before | After |
+|---|---|---|
+| Frames drawn of 600 | 429-513 | 605-606 |
+| Stalls | 118-227 | 0 |
+
+(HEVC 4K60 was not re-measured; the earlier 51 fps figure was with the old in-flight limit. The reference OPPO still
+decides the Phase 4 gate. After the final fixes the screen was locked, so a later repeat only confirmed decoding
+(600 decoded, 0 stalls), not drawing.)
+
+### Frame-exact retime export (`scripts/run-retime-export-test.sh`)
+
+| | Master before | After |
+|---|---|---|
+| Frame mismatches | 133 of 285 (clip B at 2x onward) or a failure | 0 of 285, 0 of 250 (plain clip) in 7 of 7 runs |
+| Audio segments | several wrong (silence or wrong pitch) | all correct |
+| Run time | 33-54 s, sometimes a hang | 7 s |
+
+### Defects found and fixed
+
+1. **Backward seeks on every few frames of a sequential export (long GOP: 0.35x real time).** The buffer queue between
+   the codec and the image reader drops all but the newest queued frame, so releasing four frames at once lost three of
+   them; a 400 ms timer then caused a backward seek and a re-decode from the key frame. Fix: one frame in flight.
+2. **Premature end of stream and wrong frames when audio and video read the same file.** Descriptors duplicated with
+   `dup()` share one file offset, so extractors on different threads disturbed each other (a clip ended after 177 of
+   300 samples). Fix: an independent descriptor per reader. This is the likely root of the intermittent "decoder
+   stalled" and "audio clip could not be decoded" errors.
+3. **A reversed audio clip never became ready.** After a seek, a busy codec made each following call seek again to the
+   same position (flushing the codec every time). Fix: keep filling the pending block. Regression test in the host suite.
+4. **A stalled audio clip blocked every frame for 30 s.** Audio faults were only polled every 30 frames. Now every frame,
+   so the export fails after 30 s with a clear message.
+
+### Not done in this pass
+
+UI scenarios (relink, hub actions, rotation, split screen, keyframes, effects, LUT, colour override, speed/reverse in the
+preview, markers and beats, templates, captions, photos and stickers, tray drag and drop, the new-project sheet),
+clip labels on title and sticker blocks, unattended perf/drift scripts and the 5-minute A/V drift number: they need an
+unlocked screen. Run them again when the Pixel is unlocked.
+
