@@ -1497,6 +1497,33 @@ strictness; see DECISIONS.md, "Privacy").
 - **Acceptance:** a 240 fps or 60 fps clip slowed to 0.25x looks smoother than frame repetition in a side by
   side export.
 
+**Implementation notes (as built).**
+- *Retiming:* `ClipRetime.mixAt` returns the source frame and a per-mille mix towards its neighbour (the next frame, or the
+  previous one for reversed clips). Speed keys may be `smooth` (eased with smoothstep, closed-form integral); presets
+  `montage`, `hero`, `bullet` and eased in/out. `SpeedLimits.MAX = 100`. A clip above 1x asks for frames far apart, and the
+  decoders' `needsSeek` policy (`decode/seek_policy.h`) seeks instead of decoding through any forward gap over 120 frames, so
+  at 100x only the needed frames are decoded.
+- *Interpolation:* block-matching flow (3x3 SAD, radius 6 in preview / 8 in export, flow grid 160 / 320 px wide, parabolic
+  sub-pixel refinement, small displacement penalty), confidence by smoothstep of the SAD gap, bidirectional warp with a second
+  flow lookup at the source of the content, and plain blending where confidence is low or at the border. CPU reference in
+  `render/repair_math.h` (host tests `repair_host_tests`), GPU in `render/gl_repair.cpp` and `shaders.h`. Preview uses a 4-entry
+  flow cache and falls back to blending when the frame budget is missed; export uses full quality.
+- *Repair effects:* `DENOISE` (code 16: strength, temporal amount) is a 5x5 bilateral filter plus a temporal mix of the
+  spatially smoothed previous frame, faded where there is motion (max 0.5). `DEFLICKER` (code 17: strength) divides out the
+  difference between the frame's mean luma and the mean over a 3-frame window (gain clamped 0.5-2). Both run first in the
+  effect chain and are keyframable through `Clip.params`.
+- *Export table:* an entry is `frame | (mixPermille << 44)`; plain frames keep the old encoding.
+- *Speed curve editor:* `SpeedCurveModel` (pure) and `SpeedCurveEditor` (Compose): integer-frame points, drag, add, remove,
+  smooth or hold per point, presets.
+- *Measured on a Pixel 8* (`scripts/check-slowmo-export.sh`, `check-repair-export.sh`; 60 fps synthetic texture scrolling
+  diagonally, 0.25x, ground truth rendered at 240 fps): frame repetition PSNR 35.9 dB, SSIM 0.982, judder 1.71; interpolation
+  PSNR 43.9 dB, SSIM 0.991, judder 0.13; export 1.55 s against 1.76 s for 60 frames at 720p. Noisy clip with +-6 % flicker: PSNR
+  to the clean clip 24.8 dB (luma) without repair and 29.7 dB with it; frame-to-frame mean-luma step 28.0 down to 9.2 (clean
+  0.01). Chroma PSNR falls from 39 to 32 dB with repair (the bilateral filter softens chroma noise less than luma noise and the
+  temporal term smears it slightly): a known cost.
+- *Not verified:* the inspector and curve editor on a device, the reference phone, 4K, real footage, preview GPU timing under
+  playback (only the preview picture is compared with ground truth by `check-slowmo-preview.sh`).
+
 ### 9.19 WP-V5 Project templates and content packs
 
 - **Project templates:** a template is a project with **placeholders** (named, typed, duration bounds); "Use
