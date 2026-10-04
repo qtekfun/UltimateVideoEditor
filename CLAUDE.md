@@ -100,6 +100,10 @@ builds. It also checks a plain 1x clip frame for frame (`plain_*` outputs) and p
 - `domain/` is pure Kotlin so tests run on the JVM without a device.
 - Run unit tests and a debug build before reporting a task done; say plainly if something was not run.
 
+## Huawei tablet installs
+`scripts/huawei-install.sh <apk> [serial]` installs on the MatePad and presses EMUI's install confirmations (clickable
+installer buttons only; it never bypasses security or a secure lock, exit 4 when locked). See docs/HUAWEI_TABLET.md.
+
 ## Conventions
 - Kotlin DSL for Gradle, version catalog in `gradle/libs.versions.toml`.
 - Package layout and module roles: see `SPECS.md` section 2.

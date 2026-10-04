@@ -48,3 +48,22 @@ adb logcat -s uveditor:V | grep -E "decoder rung|opened|decode/s"
 Files copied with `adb push` are not readable by the app. Push to `/data/local/tmp`, then
 `adb shell run-as <package> cp /data/local/tmp/clip.mp4 files/clip.mp4` and use the app-private path. The debug harnesses
 (`DebugPreviewActivity`, `ExportDemoActivity`) take that path as `--es path` / `--es video`.
+
+## Installing without pressing the confirmations yourself
+
+EMUI's package installer asks for confirmation on every `adb install` (a warning about an unknown source with
+CANCELAR / CONTINUAR, then AppGallery's risk-check screen with INSTALAR). `scripts/huawei-install.sh <apk> [serial]` runs
+`adb install -r -t` and presses those buttons through uiautomator, so a build lands on the tablet unattended:
+
+    ./gradlew :app:assembleDebug -Puveditor.appIdSuffix=tb
+    scripts/huawei-install.sh app/build/outputs/apk/debug/app-debug.apk 3XSYD24902200394
+
+It disables no security feature, changes no setting and does not pretend to be another installer: it taps the same buttons
+a person would, only while the focused window is the package installer, permission controller or AppGallery's install
+check, and only on nodes that are `clickable` (the AppGallery screen also lists advertised apps with non-clickable
+"INSTALAR" labels; an earlier draft tapped those, so never match on text alone). It wakes the screen, but a secure lock
+screen cannot be bypassed: the script exits 4 and you unlock the tablet. Putting the tablet to sleep re-locks it, so keep it
+awake while it is on USB (Developer options, "Stay awake") and do not send KEYCODE_SLEEP.
+
+Exit codes: 0 installed, 1 `adb install` failed (message printed), 2 usage or no device, 3 timed out (`HW_TIMEOUT`, default
+240 s), 4 screen locked. Spanish and English labels are handled.
