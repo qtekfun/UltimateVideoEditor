@@ -3,13 +3,23 @@
 #include <cstdint>
 #include <cstdio>
 #include <map>
+#include <unordered_set>
 #include <vector>
 
 #include "encode/export_math.h"
+#include "encode/picture_residency.h"
 
 namespace {
 
 int failures = 0;
+
+#define CHECK(cond)                                                                                         \
+    do {                                                                                                    \
+        if (!(cond)) {                                                                                      \
+            std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);                                      \
+            ++failures;                                                                                     \
+        }                                                                                                   \
+    } while (0)
 
 #define CHECK_EQ(actual, expected)                                                                          \
     do {                                                                                                    \
@@ -375,6 +385,90 @@ void lateFramesAreWaitedForAndMissingOnesSubstituted() {
     CHECK_EQ(static_cast<int>(pickSourceFrame(cached, 13, true).kind), static_cast<int>(FramePick::Kind::Exact));
 }
 
+// ---- picture residency: an export holds only the stills it needs, within a byte budget ----
+
+static void residencyKeepsWithinBudgetAndEvictsLeastRecentlyUsed() {
+    using uv::encode::PictureResidency;
+    PictureResidency r(1000);
+    const std::unordered_set<uint32_t> none;
+    CHECK(r.admit(1, 400, none).empty());
+    CHECK(r.admit(2, 400, none).empty());
+    r.touch(1);  // 2 is now the oldest
+    const auto gone = r.admit(3, 400, none);  // 1200 > 1000
+    CHECK_EQ(gone.size(), 1u);
+    CHECK_EQ(gone[0], 2u);
+    CHECK(r.contains(1) && r.contains(3) && !r.contains(2));
+    CHECK_EQ(r.usedBytes(), 800);
+    CHECK_EQ(r.size(), 2u);
+    // Touching a key that is not resident does nothing.
+    r.touch(99);
+    CHECK_EQ(r.size(), 2u);
+}
+
+static void residencyNeverEvictsTheFrameInUseNorTheNewPicture() {
+    using uv::encode::PictureResidency;
+    PictureResidency r(1000);
+    const std::unordered_set<uint32_t> none;
+    r.admit(1, 600, none);
+    // Picture 1 is drawn by the current frame: protected, so the budget is exceeded rather than losing it.
+    const auto gone = r.admit(2, 600, std::unordered_set<uint32_t>{1});
+    CHECK(gone.empty());
+    CHECK(r.contains(1) && r.contains(2));
+    CHECK_EQ(r.usedBytes(), 1200);
+    // The next frame no longer needs 1: it goes as soon as something is admitted.
+    const auto later = r.admit(3, 100, std::unordered_set<uint32_t>{2});
+    CHECK_EQ(later.size(), 1u);
+    CHECK_EQ(later[0], 1u);
+    // A single picture larger than the budget stays.
+    PictureResidency tiny(10);
+    CHECK(tiny.admit(7, 5000, none).empty());
+    CHECK(tiny.contains(7));
+    // Admitting a key again replaces its size.
+    PictureResidency again(1000);
+    again.admit(1, 300, none);
+    again.admit(1, 500, none);
+    CHECK_EQ(again.usedBytes(), 500);
+    CHECK_EQ(again.size(), 1u);
+}
+
+static void sequentialExportOfAHugeAnimationStaysWithinBudget() {
+    using uv::encode::PictureResidency;
+    // 600 distinct frames of a 480x270 picture (0.5 MB each) shown one per output frame, 128 MB budget.
+    const int64_t frameBytes = 480LL * 270 * 4;
+    const int64_t budget = 128LL * 1024 * 1024;
+    PictureResidency r(budget);
+    int loads = 0;
+    int64_t peak = 0;
+    for (uint32_t frame = 0; frame < 600; ++frame) {
+        const uint32_t key = 1000 + frame;
+        std::unordered_set<uint32_t> inUse{key};
+        if (!r.contains(key)) {
+            ++loads;
+            r.admit(key, frameBytes, inUse);
+        } else {
+            r.touch(key);
+        }
+        if (r.usedBytes() > peak) peak = r.usedBytes();
+    }
+    CHECK_EQ(loads, 600);  // every picture is loaded exactly once going forward
+    CHECK(peak <= budget);
+    CHECK(r.size() >= 250 && r.size() <= 260);
+    // Replaying the same animation from the start (a loop) reloads what was evicted but never exceeds the budget.
+    int reloads = 0;
+    for (uint32_t frame = 0; frame < 600; ++frame) {
+        const uint32_t key = 1000 + frame;
+        std::unordered_set<uint32_t> inUse{key};
+        if (!r.contains(key)) {
+            ++reloads;
+            r.admit(key, frameBytes, inUse);
+        } else {
+            r.touch(key);
+        }
+        CHECK(r.usedBytes() <= budget);
+    }
+    CHECK(reloads > 0);
+}
+
 int main() {
     lateFramesAreWaitedForAndMissingOnesSubstituted();
     keyframesMatchTheKotlinVectors();
@@ -394,6 +488,9 @@ int main() {
     transitionOverlapMatchesTheKotlinPlan();
     sameLayerClipsStackByStartFrame();
     titleClipsCarryTheirKey();
+    residencyKeepsWithinBudgetAndEvictsLeastRecentlyUsed();
+    residencyNeverEvictsTheFrameInUseNorTheNewPicture();
+    sequentialExportOfAHugeAnimationStaysWithinBudget();
     if (failures == 0) std::printf("export host tests: all passed\n");
     return failures == 0 ? 0 : 1;
 }
