@@ -1159,3 +1159,30 @@ frames when over budget; rejected, it would change how the picture looks.
 file fails with a clear message instead of halfway through.
 **JSON:** no new fields; the stored clip and asset formats are unchanged.
 
+
+## Bundles carry LUTs and fonts (self-contained project for another phone)
+
+**What travels:** only the two kinds of app-wide resource a project refers to: imported 3D LUTs (key in the LUT effect) and imported
+fonts (id in a text layer), under `resources/` with a manifest list (kind, key, name, size, SHA-256). Looks, title presets and templates
+are copied into the project by value when applied and stickers/emoji are built in, so nothing else is referenced globally.
+Alternative: also ship the whole libraries (privacy and size: it would hand over resources the project does not use).
+**Defaults:** LUTs on (small, the user's own grading), fonts **off** with a licence note next to the switch, media off. Alternative:
+fonts on by default (convenient, but font licences often forbid redistributing the file).
+**No format bump:** `formatVersion` stays 1 and `resources` is an optional manifest key, because the old reader decodes with
+`ignoreUnknownKeys` and `extract` skips entries it does not know, so older builds keep opening new bundles (they just do not install
+the resources). A bump to 2 would make every older build refuse them. Alternative: bump and keep a legacy bundle for old readers.
+**Names without bytes:** a resource the project uses that stays out is still listed (no `entry`), so the importer can say "font Private
+Font" instead of an opaque id. Alternative: list nothing (the report could only show a hash).
+**Re-keying by content:** LUT keys are a 24-bit CRC, so a clash with a different LUT is possible. `LutStore.install` compares the stored
+text, takes the next free key and the importer rewrites the project's references; importing again finds the LUT it placed (probing the
+same chain), so no duplicates. A re-keyed LUT no longer has `keyOf(content)` as its key, so the same file imported by hand later is still
+found by content, not by key. Alternative: refuse the LUT (the project would render without its look). Font ids are 64-bit hashes: a clash
+with different bytes is refused, never overwritten, and an id that does not match the bytes is refused before anything is stored.
+**One bad resource never stops the import:** each is checked (checksum, parser, size) and reported; the project still opens and shows what
+is missing. Resources are installed before the project folder is moved into place; if that move fails they stay in the libraries
+(harmless: they are content-addressed and deduplicated). Alternative: roll them back (more code for an unlikely failure).
+**Limits:** 32 MB per resource (the largest `.cube` is about 9 MB, the font parser refuses more than 25 MB), 256 resources, 512 MB in total.
+**Dialog:** one entry in the hub card menu ("Export bundle for another phone…") replaces the two old entries; the editor library menu keeps
+its two bundle entries, which open the same dialog with the media switch preset. Alternative: keep separate menu items per combination
+(too many combinations). **Not covered:** parameter keyframes of a LUT effect's key (`fx.<id>.0`) are not rewritten when a LUT is re-keyed;
+the LUT picker never keyframes it.
