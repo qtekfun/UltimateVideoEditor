@@ -162,7 +162,7 @@ class MarkerViewModelTest {
         assertEquals("Intro cut", h.state.visibleTimeline.markers.single().name)
         assertNull(h.state.timeline.markers.single().name)
         val labels = h.vm.snapshotOf(h.state).labels
-        assertTrue(labels.any { it.clipKey == SnapshotLabel.markerKey(0) && it.text == "INTRO CUT" })
+        assertTrue(labels.any { it.clipKey == SnapshotLabel.markerKey(0) && it.text == "Intro cut" })
 
         h.vm.onIntent(MarkerIntent.Close)
         assertNull(h.state.markerPopup)
@@ -330,7 +330,7 @@ class MarkerViewModelTest {
         h.vm.onIntent(MarkerIntent.Close)
         val keys = h.vm.snapshotOf(h.state).labels.filter { SnapshotLabel.markerIndexOf(it.clipKey) != null }
         assertEquals(listOf(SnapshotLabel.markerKey(1)), keys.map { it.clipKey })
-        assertEquals("DROP", keys.single().text)
+        assertEquals("Drop", keys.single().text)
     }
 
     @Test
