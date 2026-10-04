@@ -267,6 +267,12 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Hub | About: version 0.1.0 (100), licence text, privacy summary, third-party notices, storage figures and Clear caches | PASS | `dumpsys package` lists no `android.permission.INTERNET` (count 0), matching the screen's claim |
 | Hub | "Read the privacy statement" and "Notices" expand in place (no browser) | PASS | |
 | Hub | Hub list shows a first-frame thumbnail after the first edit and the project's last-modified time | PASS | |
+| Timeline | Overlay trim: drag the right edge out (the clip lengthens and shows more of the source), drag the left edge in (the right edge stays, the start moves) | PASS | Undo restores each step |
+| Timeline | Overlay move snaps its start to a base-track cut | PASS | after a drag the start sat on the cut of V1 |
+| Timeline | Edge auto-scroll: dragging an overlay clip into the right edge scrolls the view (ruler runs on to 1:00) | PASS | |
+| Timeline | Overlay overwrite: a tray clip dropped over the middle of an overlay clip replaces that stretch (the old clip is cut short, nothing is pushed) | PASS | |
+| Timeline | Overlay insert: a tray clip dropped on the cut between two touching overlay clips opens room (the right clip moved later by the new clip's length) | PASS | |
+| Timeline | Overlay delete leaves a gap and does not move the neighbours; Undo x3 returns to the original layout | PASS | |
 
 ### Observations (pass A2)
 
