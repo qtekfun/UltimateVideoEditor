@@ -239,6 +239,8 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Colour | Import a `.cube` through the system picker and apply it | PASS | a generated 17-point warm LUT: effects 2 -> 3 and the picture warms |
 | Colour | Per-clip source colour: forcing HLG shows "HLG is tone-mapped to SDR Rec.709 in this project." and the picture changes; Auto restores it | PASS | |
 | Colour | HSL qualifier section (hue/saturation/luma ranges, softness, hue shift, saturation, lightness, reset) | PARTIAL | the controls render; the eyedropper was not exercised |
+| Hub | Export project with media as `.uvbundle` | PASS | valid zip, 40,459,573 bytes: bundle.json, project.json, thumbnails/project.jpg, both media files |
+| Hub | Import the bundle from the ⋮ menu | PASS | "New project (2)" appears at the top with thumbnail, 1080p 30 fps SDR, 0:28; its `media/` folder holds both clips |
 
 ### Defects and observations (pass A)
 
