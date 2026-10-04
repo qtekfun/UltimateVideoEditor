@@ -7,46 +7,47 @@ timeline rendering, audio and export.
 
 Licensed under [GPL-3.0](LICENSE). Third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-> **Status: early development.** Most features are implemented and unit-tested, but a good part of the native pipeline
-> has only been exercised on one test phone, with synthetic clips. See [What works](#what-works) before relying on anything.
+> **Status: feature complete for the first release, little time on real phones.** Every work package of the plan is implemented and
+> covered by automated tests (about 2,000 JVM tests and 13 native host test programs, run in CI). Most of the newer features have
+> never been seen on a phone, and nothing has been exercised with real footage beyond a few clips. The checklist to walk through on
+> the reference phone is the [Verification debt](PLAN.md#verification-debt) table in `PLAN.md`.
 
-## What works
+## What it does
 
-Implemented (and what has actually been verified; the full per-item notes are in [PLAN.md](PLAN.md)):
+- **Editing:** multitrack timeline with a magnetic base track and free overlay lanes (LumaFusion-style), split, trim, move,
+  overwrite, insert, ripple delete, undo/redo, multiselect with group move/copy/paste, snapping, markers, beat detection and "cut to beat",
+  a media tray with drag and drop, a library with tags and search, and a layout you can resize and dock.
+- **Picture:** H.264/HEVC hardware decode, a GLES 3.2 compositor with multiple layers, transforms and keyframes on any parameter,
+  speed ramps, reverse, freeze, optical-flow slow motion, effects, masks, blend modes, chroma key, colour grading with scopes,
+  3D LUTs, 20 built-in looks, stabilisation, motion tracking, denoise and deflicker, HDR (HLG) end to end.
+- **Titles and graphics:** multilayer titles (text, shapes, pictures) with imported fonts and shareable presets, text templates, eight
+  animated caption styles with `.srt`/`.vtt` import, stickers and photos, nine transitions.
+- **Sound:** Oboe playback with the audio clock as master, pan, fades, EQ, noise suppression (classical DSP), loudness normalise,
+  track mixer, auto-ducking and meters.
+- **Productivity:** project templates with placeholders, silence-based auto cut, reframe helper for vertical video, multicam
+  (sync by sound, cut between up to six cameras), proxy media for heavy footage, project bundles, EDL and FCPXML export.
+- **Export:** H.264/HEVC (HEVC Main10 for HLG) with AAC, upload presets, progress with time left, cancel and share.
+- **Safety:** missing-media relink, `.bak` recovery, autosave errors surfaced, local-only crash report.
 
-| Area | State |
-|---|---|
-| Project hub: create, clone, rename, delete, import/export (JSON, atomic writes) | Implemented; JVM-tested. Seen on the device |
-| Multitrack timeline: split, move, trim, overwrite, ripple delete, undo/redo | Implemented; heavily unit-tested (collisions, gaps, randomized invariants) |
-| Magnetic base track with overlays that follow it (delete, insert, reorder, trim) | Implemented; unit-tested. Not yet verified by touch on the device |
-| Native timeline canvas (`SurfaceView`, GLES) with waveforms and thumbnail filmstrip | Seen on the device; frame rate not measured, pinch-zoom only host-tested |
-| Preview: H.264/HEVC hardware decode to `AHardwareBuffer`, GLES 3.2 compositor, multilayer | Seen on the device with synthetic clips |
-| Audio playback (Oboe) with the audio clock as master, per-clip gain | Clock drift measured over ~55 s; long-run A/V drift not yet measured; sound not listened to |
-| Per-clip transform (position, scale, rotation, opacity), keyframes | One-finger edits seen on the device; pinch/twist and keyframes unit-tested only |
-| Titles and crossfade transitions | Implemented; not seen on the device |
-| Speed changes, ramps, reverse, freeze frame | Implemented; export checked frame by frame on the device, preview/UI not seen |
-| Effects, chroma key, masks, blend modes | Implemented; shaders not yet seen on the device |
-| Photos and built-in stickers as still clips (import images, sticker picker) | Implemented and unit-tested; not yet seen on the device (EXIF orientation, HEIC, sticker art unverified) |
-| Social format presets, safe zones, upload presets | Implemented; not seen on the device |
-| Ruler markers, beat detection (from the waveform cache), snap to markers, "Cut to beat" | Implemented and unit-tested (detector on synthetic click tracks); not tried on real music or on the device |
-| Multilayer titles (text, shapes, pictures), imported fonts, in/out animation, shareable `.uvtitle` presets; the text templates are built on it | Layers, preview gestures, font import and animation seen on a Pixel 8; photo layers, export and the OPPO not yet |
-| Captions: typed or imported from `.srt` / `.vtt`, 8 animated styles, restyle all (no speech recognition, fully offline) | Implemented and unit-tested; not yet seen on the device |
-| HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |
-| Export to MP4 (H.264 / HEVC + AAC), 4K60 HEVC at ~90 fps on the test phone | Verified with `ffprobe` on synthetic clips; cancel/share untested on device |
-
-Not done yet: FFmpeg fallback, 3D LUTs, Vulkan renderer, pitch-preserving time stretch. The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
+What has actually been seen working on a phone (the OPPO CPH2841 reference phone, plus a Pixel 8 used for debugging), and what has not,
+is spelled out per area in [PLAN.md](PLAN.md#verification-debt). Highlights: exports were checked with `ffprobe` (exact frame counts,
+4K60 HEVC at ~90 fps on the reference phone); the audio clock drifts under 0.4 ms in 55 s; scrolling and dragging in the editor were
+exercised by hand. Not built: the FFmpeg fallback (designed in [docs/ffmpeg-fallback.md](docs/ffmpeg-fallback.md)) and voice effects.
+A Vulkan renderer was evaluated and judged not worth it now ([docs/vulkan-evaluation.md](docs/vulkan-evaluation.md)).
+The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISIONS.md](DECISIONS.md).
 
 ## Architecture
 
 ```
 app/src/main/kotlin/com/ultimatevideo/uveditor/
-  ui/         Compose screens (hub, editor, export dialogs); never draws timeline clips
+  ui/         Compose screens: hub, editor (tray, layout, inspector, sheets), export, library, templates, about; never draws timeline clips
   mvi/        State / Intent / Effect base classes (StateFlow)
   domain/     Pure Kotlin timeline model, edit operations, undo/redo, render plan (no Android imports)
-  data/       Project JSON, repository, media import, domain mapping
-  engine/     Kotlin facade over the native engine (the only caller of JNI)
+  data/       Project JSON, repository, media import, interchange (bundle, EDL, FCPXML), domain mapping
+  engine/     Kotlin facades over the native engine (the only callers of JNI)
+  proxy/ crash/   Proxy media manager, local crash report
 app/src/main/cpp/
-  core/ decode/ cache/ render/ encode/ audio/ thumbnail/ timeline_view/ jni/   (C++20, library `uveditor_engine`)
+  core/ decode/ cache/ render/ encode/ audio/ thumbnail/ timeline_view/ stabilise/ track/ jni/   (C++20, library `uveditor_engine`)
 ```
 
 - **MVI.** Each screen has an immutable `State`, a sealed `Intent` and one-shot `Effect`s. The editor keeps the timeline
@@ -58,7 +59,7 @@ app/src/main/cpp/
 - **Zero-copy frames.** Decoded frames live in `AHardwareBuffer`s shared with the GPU, in an LRU cache with a strict byte budget.
 - **One render plan.** Preview, export and audio all consume `domain/RenderPlan.kt`, so what you see is what is exported.
 
-Details: [SPECS.md](SPECS.md) (technical), [PRD.md](PRD.md) (product), [CLAUDE.md](CLAUDE.md) (engineering rules).
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (overview), [SPECS.md](SPECS.md) (technical), [PRD.md](PRD.md) (product), [CLAUDE.md](CLAUDE.md) (engineering rules).
 
 ## Requirements
 
@@ -131,9 +132,9 @@ See the [user guide](docs/USER_GUIDE.md) for the screens, every toolbar icon and
 
 ## Roadmap
 
-[PLAN.md](PLAN.md) lists the phases with their gates and what is still open: verifying the pipeline on real footage and
-the long-run A/V drift, then the work packages in `SPECS.md` section 9 (a simpler new-project flow, a media tray, a resizable
-layout, colour and audio tools, multiselect, and more). Everything stays offline and free of AI features.
+[PLAN.md](PLAN.md) lists the phases with their gates and what is still open: walking the verification checklist on the reference
+phone, the 5-minute A/V drift run, and the deferred items (frame blending for slow motion, pitch-preserving time stretch,
+animated GIF/WebP, voice effects, the FFmpeg fallback). Everything stays offline and free of AI features.
 
 ## Contributing
 
