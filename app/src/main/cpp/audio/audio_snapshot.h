@@ -1,7 +1,7 @@
 #pragma once
 
 // Immutable description of the audio side of the timeline, as sent from Kotlin.
-// Binary layout, version 6 (little endian, mirrored by engine/audio/AudioSnapshot.kt):
+// Binary layout, version 7 (little endian, mirrored by engine/audio/AudioSnapshot.kt):
 //   header (28 bytes): u32 magic "UVAS" | u32 version | i32 fpsNum | i32 fpsDen | u32 clipCount |
 //                      u32 trackCount | u32 flags (bit0: master limiter off)
 //   tracks (40 bytes each): i64 trackKey | f32 gainDb | u32 flags (bit0 muted, bit1 compressor on) |
@@ -21,6 +21,12 @@
 //   voice blocks (version 6, after the automation lanes, one 64-byte block per clip in clip order): 16 x f32 =
 //     pitchSemitones, formantSemitones, whisperMix, ringHz, ringMix, bandLowHz, bandHighHz, driveDb, echoMs,
 //     echoFeedback, echoMix, reverbSize, reverbDamping, reverbMix, 0, 0 (audio/voice_fx.h); all zero = no effect
+//   voice lanes (version 7, after the voice blocks, then a trailing u32 with the byte size of the voice lanes): per clip
+//     in order a u32 laneCount (0..14), then each lane: lane header (16 bytes: i32 field | u32 pointCount | u32 0 |
+//     u32 0) and points (16 bytes each: i64 frame | f32 value | u32 0). `field` is the position in the voice block (0
+//     pitch .. 13 reverbMix) and the lane replaces that setting while the clip plays, like the automation lanes below
+//     (frames from the clip's own start, increasing, linear in between, held outside). A clip whose voice settings
+//     are all zero but that has lanes still gets the effect: the engine reads the widest setting to see what exists.
 //   automation lanes (version 5, after the noise profiles, per clip in order, laneCount lanes each):
 //     lane header (16 bytes): i32 param | u32 pointCount | u32 0 | u32 0
 //     points (16 bytes each): i64 frame | f32 value | u32 0
@@ -52,8 +58,8 @@
 namespace uv::audio {
 
 constexpr uint32_t kAudioSnapshotMagic = 0x53415655;  // "UVAS"
-constexpr uint32_t kAudioSnapshotVersion = 6;
-constexpr uint32_t kAudioSnapshotMinVersion = 4;  // version 4 has no automation lanes and 4 and 5 have no voice blocks; all still parse
+constexpr uint32_t kAudioSnapshotVersion = 7;
+constexpr uint32_t kAudioSnapshotMinVersion = 4;  // version 4 has no automation lanes, 4 and 5 no voice blocks, 4 to 6 no voice lanes; all still parse
 constexpr size_t kAudioSnapshotVoiceBytes = kVoiceParamFloats * sizeof(float);
 constexpr size_t kAudioSnapshotLaneBytes = 16;
 constexpr size_t kAudioSnapshotPointBytes = 16;
@@ -82,6 +88,12 @@ struct AutoPoint {
 
 struct AutoLane {
     AutoParam param = AutoParam::GainDb;
+    std::vector<AutoPoint> points;  // never empty, frames strictly increasing
+};
+
+// A keyframed field of the clip's voice effect (see VoiceSchedule in audio/voice_fx.h).
+struct VoiceAutoLane {
+    int32_t field = 0;              // 0..kVoiceFieldCount, the position in the voice block
     std::vector<AutoPoint> points;  // never empty, frames strictly increasing
 };
 
@@ -114,6 +126,7 @@ struct AudioClipDesc {
     std::vector<float> noiseProfile;    // kDenoiseBins magnitudes when denoiseStrength > 0
     std::vector<AutoLane> lanes;        // keyframed gain, pan and EQ gains (version 5)
     VoiceParams voice;                  // voice effects (version 6); neutral = none
+    std::vector<VoiceAutoLane> voiceLanes;  // keyframed voice settings (version 7)
 };
 
 struct AudioSnapshotData {

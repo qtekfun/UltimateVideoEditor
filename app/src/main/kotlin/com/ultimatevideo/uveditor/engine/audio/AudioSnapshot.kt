@@ -94,6 +94,24 @@ data class VoiceSpec(
         require(reverbMix.isFinite() && reverbMix in 0f..1f) { "voice reverb mix $reverbMix is out of range" }
     }
 
+    /** The setting [field] stands for, as the engine reads it. */
+    internal fun valueOf(field: VoiceField): Float = when (field) {
+        VoiceField.PITCH -> pitchSemitones
+        VoiceField.FORMANT -> formantSemitones
+        VoiceField.WHISPER -> whisperMix
+        VoiceField.RING_HZ -> ringHz
+        VoiceField.RING_MIX -> ringMix
+        VoiceField.BAND_LOW -> bandLowHz
+        VoiceField.BAND_HIGH -> bandHighHz
+        VoiceField.DRIVE -> driveDb
+        VoiceField.ECHO_MS -> echoMs
+        VoiceField.ECHO_FEEDBACK -> echoFeedback
+        VoiceField.ECHO_MIX -> echoMix
+        VoiceField.REVERB_SIZE -> reverbSize
+        VoiceField.REVERB_DAMPING -> reverbDamping
+        VoiceField.REVERB_MIX -> reverbMix
+    }
+
     internal fun write(buffer: ByteBuffer) {
         buffer.putFloat(pitchSemitones)
         buffer.putFloat(formantSemitones)
@@ -116,6 +134,48 @@ data class VoiceSpec(
     companion object {
         val NONE = VoiceSpec()
         const val MAX_SHIFT = 12f
+    }
+}
+
+/**
+ * The settings of [VoiceSpec] that can be keyframed, in the order of the wire layout ([code] is the position in the
+ * voice block and the field number of a lane). Ranges are those of `voiceFieldRange` in audio/voice_fx.cpp; a field
+ * with [zeroIsOff] also accepts 0, which switches that part of the chain off.
+ */
+enum class VoiceField(val code: Int, val min: Float, val max: Float, val zeroIsOff: Boolean = false) {
+    PITCH(0, -VoiceSpec.MAX_SHIFT, VoiceSpec.MAX_SHIFT),
+    FORMANT(1, -VoiceSpec.MAX_SHIFT, VoiceSpec.MAX_SHIFT),
+    WHISPER(2, 0f, 1f),
+    RING_HZ(3, 10f, 2000f, zeroIsOff = true),
+    RING_MIX(4, 0f, 1f),
+    BAND_LOW(5, 20f, 8000f, zeroIsOff = true),
+    BAND_HIGH(6, 200f, 20000f, zeroIsOff = true),
+    DRIVE(7, 0f, 36f),
+    ECHO_MS(8, 1f, 2000f, zeroIsOff = true),
+    ECHO_FEEDBACK(9, 0f, 0.95f),
+    ECHO_MIX(10, 0f, 1f),
+    REVERB_SIZE(11, 0f, 1f),
+    REVERB_DAMPING(12, 0f, 1f),
+    REVERB_MIX(13, 0f, 1f),
+    ;
+
+    fun accepts(value: Float): Boolean = value.isFinite() && ((zeroIsOff && value == 0f) || value in min..max)
+
+    /** [value] brought into the field's range (0 stays 0 for a field that can be off). */
+    fun clamp(value: Float): Float = if (zeroIsOff && value == 0f) 0f else value.coerceIn(min, max)
+}
+
+/**
+ * A keyframed setting of a clip's voice effect: while the clip plays [field] takes the value interpolated linearly
+ * (per sample) between [points] instead of its static one in [VoiceSpec], holding before the first and after the
+ * last. Frames count from the clip's own start like [AutomationLane]s; the engine reads the widest value of the
+ * setting to decide what exists, so a lane may switch on a stage the static settings leave off.
+ */
+data class VoiceLane(val field: VoiceField, val points: List<AutoPoint>) {
+    init {
+        require(points.isNotEmpty() && points.size <= AutomationLane.MAX_POINTS) { "a voice lane needs 1..${AutomationLane.MAX_POINTS} points, got ${points.size}" }
+        require(points.zipWithNext().all { (a, b) -> b.frame > a.frame } && points.first().frame >= 0) { "voice lane points must increase from frame 0" }
+        require(points.all { field.accepts(it.value) }) { "a voice lane value for $field is out of range" }
     }
 }
 
@@ -252,8 +312,12 @@ data class AudioClipSpec(
     val automation: List<AutomationLane> = emptyList(),
     /** Voice effects (pitch, whisper, ring modulation, band limit, echo, reverb); [VoiceSpec.NONE] leaves the clip alone. */
     val voice: VoiceSpec = VoiceSpec.NONE,
+    /** Keyframed voice settings, each field at most once; frames count from [startFrame]. Empty when nothing is animated. */
+    val voiceAutomation: List<VoiceLane> = emptyList(),
 ) {
     init {
+        require(voiceAutomation.map { it.field }.toSet().size == voiceAutomation.size) { "clip $clipKey has two voice lanes for one setting" }
+        require(voiceAutomation.all { it.points.last().frame <= durationFrames }) { "clip $clipKey has a voice point past its end" }
         require(automation.size <= AutomationLane.MAX_LANES && automation.map { it.param }.toSet().size == automation.size) {
             "clip $clipKey has invalid automation lanes"
         }
@@ -317,6 +381,10 @@ data class AudioSnapshot(
         require(clips.all { it.trackIndex < tracks.size }) { "a clip refers to a track that does not exist" }
     }
 
+    // The bytes a clip's voice lanes take: its lane count, then a header and the points of each lane.
+    private fun voiceLaneBytes(clip: AudioClipSpec): Int =
+        Int.SIZE_BYTES + clip.voiceAutomation.sumOf { LANE_BYTES + it.points.size * POINT_BYTES }
+
     /** Encodes into a direct little-endian buffer (layout documented in audio_snapshot.h). */
     fun encode(): ByteBuffer {
         val knotCount = clips.sumOf { it.retimeKnots.size }
@@ -325,7 +393,7 @@ data class AudioSnapshot(
         val pointCount = clips.sumOf { clip -> clip.automation.sumOf { it.points.size } }
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + DUCKING_BYTES + clips.size * CLIP_BYTES +
             knotCount * KNOT_BYTES + profileFloats * Float.SIZE_BYTES + laneCount * LANE_BYTES + pointCount * POINT_BYTES +
-            clips.size * VOICE_BYTES
+            clips.size * VOICE_BYTES + clips.sumOf { voiceLaneBytes(it) } + Int.SIZE_BYTES
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -404,13 +472,29 @@ data class AudioSnapshot(
         }
         // Version 6: one voice block per clip, in clip order, after the lanes.
         for (clip in clips) clip.voice.write(buffer)
+        // Version 7: the voice lanes (a count per clip, then its lanes) and the byte size of all of them.
+        for (clip in clips) {
+            buffer.putInt(clip.voiceAutomation.size)
+            for (lane in clip.voiceAutomation) {
+                buffer.putInt(lane.field.code)
+                buffer.putInt(lane.points.size)
+                buffer.putInt(0)
+                buffer.putInt(0)
+                for (point in lane.points) {
+                    buffer.putLong(point.frame)
+                    buffer.putFloat(point.value)
+                    buffer.putInt(0)
+                }
+            }
+        }
+        buffer.putInt(clips.sumOf { voiceLaneBytes(it) })
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53415655 // "UVAS"
-        const val VERSION = 6
+        const val VERSION = 7
         const val LANE_BYTES = 16
         const val POINT_BYTES = 16
         const val HEADER_BYTES = 28

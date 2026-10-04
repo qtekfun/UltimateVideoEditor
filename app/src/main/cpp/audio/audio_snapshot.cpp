@@ -97,7 +97,16 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
             if (laneCounts[i] > kMaxClipLanes) return Status::BadSnapshot;
         }
     }
-    const size_t tail = size - clipsEnd;
+    // Version 7 ends with the voice lanes and a u32 that says how many bytes they take.
+    size_t voiceLaneBytes = 0;
+    size_t trailer = 0;
+    if (version >= 7) {
+        if (size - clipsEnd < sizeof(uint32_t)) return Status::BadSnapshot;
+        voiceLaneBytes = readLe<uint32_t>(data + size - sizeof(uint32_t));
+        trailer = sizeof(uint32_t);
+        if (voiceLaneBytes > size - clipsEnd - trailer) return Status::BadSnapshot;
+    }
+    const size_t tail = size - clipsEnd - voiceLaneBytes - trailer;
     if (knotsTotal > tail / kAudioSnapshotKnotBytes) return Status::BadSnapshot;
     const uint64_t fixedTail = knotsTotal * kAudioSnapshotKnotBytes + profilesTotal * sizeof(float);
     if (fixedTail > tail) return Status::BadSnapshot;
@@ -242,6 +251,47 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
             if (!voiceParamsValid(voice) || f[14] != 0.0f || f[15] != 0.0f) return Status::BadSnapshot;
             result.clips[i].voice = voice;
         }
+    }
+
+    if (version >= 7) {
+        size_t left = voiceLaneBytes;
+        for (uint32_t i = 0; i < count; ++i) {
+            AudioClipDesc& c = result.clips[i];
+            if (left < sizeof(uint32_t)) return Status::BadSnapshot;
+            const uint32_t laneTotal = readLe<uint32_t>(laneData);
+            laneData += sizeof(uint32_t);
+            left -= sizeof(uint32_t);
+            if (laneTotal > static_cast<uint32_t>(kVoiceFieldCount)) return Status::BadSnapshot;
+            uint32_t seenFields = 0;
+            for (uint32_t l = 0; l < laneTotal; ++l) {
+                if (left < kAudioSnapshotLaneBytes) return Status::BadSnapshot;
+                const int32_t field = readLe<int32_t>(laneData);
+                const uint32_t pointCount = readLe<uint32_t>(laneData + 4);
+                laneData += kAudioSnapshotLaneBytes;
+                left -= kAudioSnapshotLaneBytes;
+                if (field < 0 || field >= kVoiceFieldCount || (seenFields & (1u << field)) != 0) return Status::BadSnapshot;
+                seenFields |= 1u << field;
+                if (pointCount == 0 || pointCount > kMaxLanePoints || pointCount > left / kAudioSnapshotPointBytes) {
+                    return Status::BadSnapshot;
+                }
+                const VoiceFieldRange range = voiceFieldRange(field);
+                VoiceAutoLane lane;
+                lane.field = field;
+                lane.points.reserve(pointCount);
+                for (uint32_t k = 0; k < pointCount; ++k, laneData += kAudioSnapshotPointBytes) {
+                    AutoPoint pt;
+                    pt.frame = readLe<int64_t>(laneData);
+                    pt.value = readLe<float>(laneData + 8);
+                    const bool inOrder = lane.points.empty() ? pt.frame >= 0 : pt.frame > lane.points.back().frame;
+                    const bool valueOk = range.zeroOk ? (pt.value == 0.0f || finiteIn(pt.value, range.lo, range.hi)) : finiteIn(pt.value, range.lo, range.hi);
+                    if (!inOrder || pt.frame > c.durationFrames || !valueOk) return Status::BadSnapshot;
+                    lane.points.push_back(pt);
+                }
+                left -= static_cast<size_t>(pointCount) * kAudioSnapshotPointBytes;
+                c.voiceLanes.push_back(std::move(lane));
+            }
+        }
+        if (left != 0) return Status::BadSnapshot;  // lanes nobody asked for
     }
     *out = std::move(result);
     return Status::Ok;
