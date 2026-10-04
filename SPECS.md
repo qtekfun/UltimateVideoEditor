@@ -851,6 +851,25 @@ or on the clipboard, so an undo can never meet a file that is no longer in the l
 green, blue, purple); `AnnotateMarker` is one undo step. The native ruler does not draw colours (it would need
 a snapshot version bump); the colour shows in the dialog and in exports.
 
+### 5.23 Silence auto cut and manual reframe (WP-V2, no AI)
+
+Both work from data the app already has and send nothing anywhere.
+
+**Silence auto cut.** `SilenceDetector` (domain) reads the loudness envelope of the clip's source (the peak cache
+the timeline fills for waveforms, through `EnvelopeSource`) and returns the runs of bins under a level that last
+at least a minimum, shortened by a padding at both ends. `AutoCutPlanner` maps those spans to timeline frames
+through the clip's source range (only for a clip that maps frame for frame onto its source: no speed change, no
+reverse), shrinking each to whole frames inside the clip. `AutoCut(spans)` is one `EditCommand`: spans are removed
+from the end backwards; each is split out of its base clip and removed with `ClipDeletion.delete`, so the base
+closes and overlays follow exactly as for a manual delete (6.1). The sheet lets the user tune level, length and
+padding, lists the proposals with timecodes and lets each be switched off before applying.
+
+**Reframe helper.** `Reframe.poseFor` returns the pose that fills the canvas with a clip's frame (cover, times a
+zoom up to 4x) and puts the user's point of interest in the middle, with the offset limited so no canvas edge is
+uncovered (it uses the same contain-fit as the compositor, `TrackMath.fitSize`). `ReframeClip` writes one fixed pose
+for one point or an eased position/scale keyframe per marked moment (frames relative to the clip), replacing earlier
+keyframes, as one undo step. The picture's shape comes from the existing aspect probe. No subject detection.
+
 ### 5.25 Multilayer titles, fonts and presets
 
 A title is either a **plain** title (the single-text fields of `TitleContent`, used by captions and old projects) or a **multilayer** one:
@@ -915,6 +934,32 @@ the effect parameter tracks, preview and export through the existing LUT path. P
 Original look is the identity, every look stays in 0..1, grey is non-decreasing in every channel and in luma, the
 black-and-white looks have equal channels, a cube reproduces the look on its lattice, and installing twice stores it
 once. The pack contains no third-party data.
+
+### 5.25 Transition pack
+
+`Transition` gains a look (`TransitionType`: crossfade, slide, push, zoom, spin, glitch, wipe, whip pan, light
+leak) and a direction (left, right, up, down; used by slide, push, spin, wipe and whip pan). Its length, place and
+the clip overlap (5.7) are unchanged, and the audio is the same equal-power crossfade for every look.
+
+The picture is a pure function. `TransitionLooks.modAt(look, incoming, k, canvasW, canvasH, projectFrame)` returns a
+`TransitionMod` (offset in canvas pixels, scale, rotation, an opacity factor, optional effects and an optional mask)
+for the clip on one side of the transition at frame `k` of it, with eased progress `(k + 0.5) / d`. `RenderClip`
+carries the `TransitionLook` of its incoming and outgoing transition; `appearanceAt(frame, canvasW, canvasH)` and
+`fxAt(frame, canvasW, canvasH)` apply the mod to the pose and the effect chain, and only a look that
+`fadesVideo` (crossfade, light leak) multiplies in the opacity ramp. Looks: slide moves the incoming picture in;
+push also moves the old one out; zoom scales both and fades the new one in; spin turns and scales; glitch adds a
+fixed-hash jitter, flicker and a contrast/saturation bump; wipe reveals the incoming picture with a soft-edged
+rectangle mask; whip pan is a smootherstep push with a blur bell; light leak adds exposure and warmth bells to both
+pictures on top of the crossfade. A clip's own mask wins over a wipe's, and extra effects past the limit of 8 are dropped.
+
+Preview: `previewRequestsOnCanvas` evaluates the mods at the playhead frame, so playback re-anchors every tick during
+a transition exactly as it does for a crossfade. Export: no native change. For a look that moves the pose,
+`buildExportPlan` replaces the clip's native pose keys inside the transition with the composite pose of every frame
+(linear keys), adds keys just outside both ends holding the plain pose so the picture settles exactly, and hands the
+native fade a length of 0 for a look that does not fade; looks that add effects or a mask send the per-frame effect
+list (`fxFrames`). The same functions feed both paths, and a test compares the preview pose with the exported key
+frame by frame for every moving look. Limit: where a clip has its own Bezier or eased pose keys inside a transition,
+that animation is flattened to linear keys over the transition's frames.
 
 ### 5.26 Multicam (WP-M)
 

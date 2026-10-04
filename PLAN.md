@@ -162,12 +162,12 @@ waves of SPECS 9.20.
 - [ ] WP-V4 Optical-flow slow motion, speed-curve editor, video denoise, deflicker
 
 ### Wave 6
-- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper
+- [ ] WP-V2 Auto cut (silence removal) and manual reframe helper. _Status:_ implemented (SPECS 5.23) and covered by JVM tests (silence detection on synthetic envelopes, source-to-timeline mapping, atomic cut with base ripple and overlays following, undo, reframe maths and keyframes, view model flows); the sheets and the real waveform path have not been seen on a device yet, so the box stays open.
 - [ ] WP-V3 Voice effects (classical DSP)
 
 ### Wave 7
 - [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
-- [ ] WP-V5 Project templates, transition and filter packs. _Filter pack:_ 20 original looks generated in code and installed into the LUT library on first use, with swatches in the LUT picker (SPECS 5.24), covered by JVM tests (identity, range, monotonic grey, cube round trip, idempotent install); not yet seen on a device.
+- [ ] WP-V5 Project templates, transition and filter packs. _Transition pack:_ slide, push, zoom, spin, glitch, wipe, whip pan and light leak with directions, a look picker with a three-frame preview, preview/export parity by one shared evaluator (SPECS 5.25), JVM tests for the looks, the render plan, export keys and per-frame effects, JSON and undo; not yet seen on a device. _Filter pack:_ 20 original looks generated in code and installed into the LUT library on first use, with swatches in the LUT picker (SPECS 5.24), covered by JVM tests (identity, range, monotonic grey, cube round trip, idempotent install); not yet seen on a device.
 
 ### Wave 8
 - [x] WP-M Multicam (after WP-A, WP-S, WP-P). _Status:_ implemented (SPECS 5.26) and covered by JVM tests (sync recovers known offsets from synthetic shifted audio with noise, cut/record/undo, flatten equivalence, following moves, decoder budget planner, JSON round trips); nothing seen on a device (the Pixel was locked with a credential), so the sheet layout, a real sync of two phone recordings and live recording during playback are unverified

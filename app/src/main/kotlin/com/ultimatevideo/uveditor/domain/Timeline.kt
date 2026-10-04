@@ -155,7 +155,46 @@ data class TitleContent(
     }
 }
 
-enum class TransitionType { CROSSFADE }
+/**
+ * The look of a transition between two clips. The audio is an equal-power crossfade for all of them; what
+ * differs is what the picture does (see `TransitionLooks`). [CROSSFADE] and [LIGHT_LEAK] fade the incoming
+ * picture in; the others move, mask or distort the two pictures instead.
+ */
+enum class TransitionType(val label: String) {
+    CROSSFADE("Crossfade"),
+    SLIDE("Slide"),
+    PUSH("Push"),
+    ZOOM("Zoom"),
+    SPIN("Spin"),
+    GLITCH("Glitch"),
+    WIPE("Wipe"),
+    WHIP_PAN("Whip pan"),
+    LIGHT_LEAK("Light leak"),
+    ;
+
+    /** True when the incoming picture fades in by opacity over the transition. */
+    val fadesVideo: Boolean get() = this == CROSSFADE || this == LIGHT_LEAK
+
+    /** True when the transition moves, scales, rotates or flickers a picture (so it changes its pose every frame). */
+    val shapesPose: Boolean get() = this == SLIDE || this == PUSH || this == ZOOM || this == SPIN || this == GLITCH || this == WHIP_PAN
+
+    /** [shapesPose] for one side: a slide only moves the incoming picture, the old one stays where it is. */
+    fun shapesPose(incoming: Boolean): Boolean = if (this == SLIDE) incoming else shapesPose
+
+    /** True when the transition adds effects or a mask to the pictures (so their look changes every frame). */
+    val shapesFx: Boolean get() = this == GLITCH || this == WIPE || this == WHIP_PAN || this == LIGHT_LEAK
+
+    /** True when the direction matters. */
+    val hasDirection: Boolean get() = this == SLIDE || this == PUSH || this == SPIN || this == WIPE || this == WHIP_PAN
+}
+
+/** Which way a directional transition travels: the new picture arrives moving in this direction. */
+enum class TransitionDirection(val dx: Int, val dy: Int, val label: String) {
+    LEFT(-1, 0, "Left"),
+    RIGHT(1, 0, "Right"),
+    UP(0, -1, "Up"),
+    DOWN(0, 1, "Down"),
+}
 
 /**
  * A transition across the cut between two adjacent clips of one track, [fromClipId] ending exactly
@@ -171,6 +210,8 @@ data class Transition(
     val toClipId: String,
     val durationFrames: Long,
     val type: TransitionType = TransitionType.CROSSFADE,
+    /** Which way a directional [type] travels; ignored by the others. */
+    val direction: TransitionDirection = TransitionDirection.LEFT,
 ) {
     val preFrames: Long get() = durationFrames / 2
     val postFrames: Long get() = durationFrames - preFrames
