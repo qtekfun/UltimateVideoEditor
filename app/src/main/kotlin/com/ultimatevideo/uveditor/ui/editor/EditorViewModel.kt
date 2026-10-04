@@ -6,6 +6,14 @@ import com.ultimatevideo.uveditor.data.MediaCaches
 import com.ultimatevideo.uveditor.data.MediaImporter
 import com.ultimatevideo.uveditor.data.MediaProblem
 import com.ultimatevideo.uveditor.data.MissingMedia
+import com.ultimatevideo.uveditor.data.interchange.Edl
+import com.ultimatevideo.uveditor.data.interchange.Fcpxml
+import com.ultimatevideo.uveditor.data.interchange.InterchangeExporter
+import com.ultimatevideo.uveditor.domain.AnnotateMarker
+import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
+import com.ultimatevideo.uveditor.ui.library.Library
+import com.ultimatevideo.uveditor.ui.library.LibraryQuery
+import java.io.IOException
 import com.ultimatevideo.uveditor.data.ProbedMedia
 import com.ultimatevideo.uveditor.data.RelinkCheck
 import com.ultimatevideo.uveditor.data.RelinkVerdict
@@ -20,6 +28,9 @@ import com.ultimatevideo.uveditor.domain.captions.CAPTION_ID_PREFIX
 import com.ultimatevideo.uveditor.domain.AddMarker
 import com.ultimatevideo.uveditor.domain.AddTextTemplate
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipAudio
+import com.ultimatevideo.uveditor.domain.Denoise
+import com.ultimatevideo.uveditor.domain.retime
 import com.ultimatevideo.uveditor.domain.CutToBeat
 import com.ultimatevideo.uveditor.domain.Marker
 import com.ultimatevideo.uveditor.domain.MarkerKind
@@ -48,11 +59,36 @@ import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.EditError
 import com.ultimatevideo.uveditor.domain.EditHistory
 import com.ultimatevideo.uveditor.domain.EditResult
+import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.FrameIndex
+import com.ultimatevideo.uveditor.domain.GroupEditUnavailable
+import com.ultimatevideo.uveditor.domain.GroupTransitions
+import com.ultimatevideo.uveditor.domain.GroupSetSpeed
+import com.ultimatevideo.uveditor.domain.GroupSetOpacity
+import com.ultimatevideo.uveditor.domain.GroupSetGain
+import com.ultimatevideo.uveditor.domain.GroupPasteAttributes
+import com.ultimatevideo.uveditor.domain.GroupPaste
+import com.ultimatevideo.uveditor.domain.GroupOps
+import com.ultimatevideo.uveditor.domain.GroupMove
+import com.ultimatevideo.uveditor.domain.GroupDuplicate
+import com.ultimatevideo.uveditor.domain.GroupDelete
+import com.ultimatevideo.uveditor.domain.GroupAlign
+import com.ultimatevideo.uveditor.domain.ClipSelection
+import com.ultimatevideo.uveditor.domain.ClipAttributes
+import com.ultimatevideo.uveditor.domain.Clipboard
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.BezierHandle
+import com.ultimatevideo.uveditor.domain.ParamIds
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.ParamTracks
+import com.ultimatevideo.uveditor.domain.displayedAt
+import com.ultimatevideo.uveditor.domain.fxAt
+import com.ultimatevideo.uveditor.domain.paramKeys
+import com.ultimatevideo.uveditor.domain.paramSpec
+import com.ultimatevideo.uveditor.domain.paramValueAt
 import com.ultimatevideo.uveditor.domain.Snap
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
@@ -77,12 +113,19 @@ import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.TimelineSnapshot
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.engine.stabilise.NoStabiliser
+import com.ultimatevideo.uveditor.engine.stabilise.StabOutcome
+import com.ultimatevideo.uveditor.engine.stabilise.StabStatus
+import com.ultimatevideo.uveditor.engine.stabilise.Stabiliser
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.ui.editor.tray.moveAsset
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 
@@ -101,11 +144,19 @@ class EditorViewModel(
     /** Derived data kept per library file (waveforms, thumbnails), dropped when a file is relinked. */
     private val mediaCaches: MediaCaches = MediaCaches.None,
     private val beatSource: BeatSource = NoBeatSource,
+    /** Loudness measurements kept per file and range (normalising the same clip again does not decode it). */
+    private val loudnessCache: LoudnessCache = LoudnessCache.None,
+    /** Camera-shake analysis and the correction tables the preview and the exporter read. */
+    private val stabiliser: Stabiliser = NoStabiliser,
+    /** Where stabiliser bookkeeping (reading cache headers, building tables) runs. */
+    private val stabDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Writes bundles, EDLs and FCPXML files; the default cannot write anything. */
+    private val interchange: InterchangeExporter = InterchangeExporter.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
 
-    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long) {
+    private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long, val group: List<String>? = null) {
         /** Last lane the finger was over, kept while it crosses a gap between lanes. */
         var target: DropTarget? = null
     }
@@ -131,7 +182,7 @@ class EditorViewModel(
     )
 
     /** An effect or mask slider drag in progress: shown live, committed as one undo step. */
-    private class FxSession(val clipId: String, val base: ClipFx, var fx: ClipFx)
+    private class FxSession(val clipId: String, val base: ClipFx, var fx: ClipFx, val frame: Long? = null)
 
     /** A title text/style edit in progress: shown live, committed as one undo step. */
     private class TitleSession(val clipId: String, val base: TitleContent, var content: TitleContent)
@@ -147,6 +198,7 @@ class EditorViewModel(
     private var appearance: AppearanceSession? = null
     private var titleEdit: TitleSession? = null
     private var fxEdit: FxSession? = null
+    private var clipboard: Clipboard? = null
     private var saveJob: Job? = null
     private var saveRetryJob: Job? = null
     private var saveRetries = 0
@@ -154,6 +206,9 @@ class EditorViewModel(
 
     /** Set by the screen once the audio engine is up. Until then the transport uses the system clock. */
     var playbackOutput: PlaybackOutput? = null
+
+    /** Measures loudness and noise profiles for the audio tools; null where the engine is unavailable. */
+    var audioAnalyzer: AudioAnalyzer? = null
     private var dirty = false
 
     init {
@@ -163,18 +218,47 @@ class EditorViewModel(
     override fun onIntent(intent: EditorIntent) {
         // Typing in the title field is only provisional: any other action first makes it final.
         if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
+        // A key drag in the keyframe lane is provisional until released.
+        if (intent !is EditorIntent.UpdateParamKey && intent !is EditorIntent.EndParamKeyEdit) endParamKeyEdit(commit = true)
         // Same for an effect slider: it stays provisional until released or until something else happens.
-        if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateMask && intent !is EditorIntent.EndFxEdit) {
+        if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateGrade && intent !is EditorIntent.UpdateMask &&
+            intent !is EditorIntent.EndFxEdit
+        ) {
             endFxEdit(commit = true)
         }
+        // And for an audio slider (pan, EQ, track volume, ducking).
+        if (intent !is EditorIntent.UpdateClipAudio && intent !is EditorIntent.UpdateTrackAudio &&
+            intent !is EditorIntent.UpdateDucking && intent !is EditorIntent.EndAudioEdit
+        ) {
+            endAudioEdit(commit = true)
+        }
         when (intent) {
+            is EditorIntent.UpdateClipAudio -> withSelection { id ->
+                // The controls show pan and EQ gains as they are at the playhead; keyframed ones that changed become keys.
+                updateAudioEdit("clip:$id", EditCommand.SetClipAudioAt(id, intent.audio, state.value.selectedFrame))
+            }
+            is EditorIntent.UpdateTrackAudio -> updateAudioEdit("track:${intent.trackId}", EditCommand.SetTrackAudio(intent.trackId, intent.audio))
+            is EditorIntent.UpdateDucking -> updateAudioEdit("ducking", EditCommand.SetDucking(intent.ducking))
+            is EditorIntent.EndAudioEdit -> endAudioEdit(intent.commit)
+            EditorIntent.ResetClipAudio -> resetClipAudio()
+            is EditorIntent.NormalizeLoudness -> normalizeLoudness(intent.targetLufs)
+            EditorIntent.ClearNormalize -> clearNormalize()
+            is EditorIntent.MarkNoiseRegion -> markNoiseRegion(intent.atStart)
+            EditorIntent.ClearNoiseRegion -> reduce { copy(noiseRegion = null) }
+            is EditorIntent.AnalyzeNoise -> analyzeNoise(intent.strength)
+            EditorIntent.RemoveNoiseSuppression -> removeNoiseSuppression()
+            EditorIntent.CancelAudioAnalysis -> audioAnalyzer?.cancel()
+            EditorIntent.ToggleMixer -> reduce { copy(mixerOpen = !mixerOpen) }
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             is EditorIntent.DragStart -> dragStart(intent.hit)
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
-            EditorIntent.RippleDeleteSelected -> withSelection { execute(EditCommand.DeleteClip(it)) }
+            EditorIntent.RippleDeleteSelected -> {
+                val group = state.value.selection
+                if (group.size > 1) deleteSelection() else withSelection { execute(EditCommand.DeleteClip(it)) }
+            }
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
             EditorIntent.TogglePlay -> togglePlay()
             is EditorIntent.AddTrack -> addTrack(intent.type)
@@ -216,8 +300,14 @@ class EditorViewModel(
             is EditorIntent.RemoveEffect -> withSelection { execute(EditCommand.RemoveEffect(it, intent.effectId)) }
             is EditorIntent.MoveEffect -> withSelection { execute(EditCommand.MoveEffect(it, intent.effectId, intent.toIndex)) }
             is EditorIntent.UpdateEffect -> updateEffect(intent.effectId, intent.values)
+            is EditorIntent.UpdateGrade -> updateGrade(intent.effectId, intent.values, intent.curves)
+            is EditorIntent.ApplyGrade -> applyGrade(intent.values, intent.curves)
             is EditorIntent.SetBlendMode -> withSelection { execute(EditCommand.SetBlendMode(it, intent.mode)) }
             is EditorIntent.SetClipColor -> withSelection { execute(EditCommand.SetColorOverride(it, intent.space)) }
+            is EditorIntent.SetStabilise -> withSelection { execute(EditCommand.SetStabilise(it, intent.stabilise)) }
+            EditorIntent.AnalyseStabilise -> analyseStabilise()
+            EditorIntent.CancelStabilise -> stabiliser.cancel()
+            EditorIntent.RefreshStabilise -> refreshStabilise()
             is EditorIntent.UpdateMask -> updateMask(intent.mask)
             is EditorIntent.EndFxEdit -> endFxEdit(intent.commit)
             EditorIntent.ClearFx -> withSelection { execute(EditCommand.ClearFx(it)) }
@@ -225,6 +315,16 @@ class EditorViewModel(
             is EditorIntent.JumpToKeyframe -> jumpToKeyframe(intent.forward)
             is EditorIntent.SetKeyframeInterpolation -> setKeyframeInterpolation(intent.interpolation)
             EditorIntent.ClearKeyframes -> clearKeyframes()
+            is EditorIntent.ToggleParamKey -> toggleParamKey(intent.paramId)
+            is EditorIntent.JumpToParamKey -> jumpToParamKey(intent.paramId, intent.forward)
+            is EditorIntent.ClearParamTrack -> withSelection { execute(EditCommand.ClearParamTrack(it, intent.paramId)) }
+            is EditorIntent.CopyParamKeys -> copyParamKeys(intent.paramId)
+            is EditorIntent.PasteParamKeys -> pasteParamKeys(intent.paramId)
+            is EditorIntent.SetParamKeyShape ->
+                withSelection { execute(EditCommand.SetParamKeyShape(it, intent.paramId, intent.frame, intent.interpolation, intent.out, intent.inn)) }
+            is EditorIntent.UpdateParamKey -> updateParamKey(intent.paramId, intent.fromFrame, intent.toFrame, intent.value)
+            is EditorIntent.EndParamKeyEdit -> endParamKeyEdit(intent.commit)
+            is EditorIntent.SelectParamKey -> reduce { copy(selectedParamKey = intent.paramId?.let { it to (intent.frame ?: 0L) }) }
             is EditorIntent.SetSpeed -> setSpeed(intent.num, intent.den)
             EditorIntent.ToggleReverse -> toggleReverse()
             is EditorIntent.SetSpeedRamp -> setSpeedRamp(intent.shape)
@@ -252,6 +352,8 @@ class EditorViewModel(
             EditorIntent.LeaveWithoutSaving -> emit(EditorEffect.Close)
             EditorIntent.Flush -> flush(thenClose = false)
             EditorIntent.Back -> flush(thenClose = true)
+            is SelectionIntent -> selectionIntent(intent)
+            is LibraryIntent -> libraryIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
         }
     }
@@ -260,9 +362,9 @@ class EditorViewModel(
     fun canDrag(hit: TimelineHit): Boolean {
         // The playhead (or anywhere on the ruler) scrubs; clips only drag once selected.
         if (hit.kind == HitKind.PLAYHEAD || hit.kind == HitKind.RULER) return true
-        val selected = state.value.selectedClipId ?: return false
+        if (state.value.selectedClipId == null) return false
         val onClip = hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE
-        return onClip && clipKeys.idFor(hit.clipKey) == selected
+        return onClip && clipKeys.idFor(hit.clipKey) in state.value.selection
     }
 
     /** The longest transition that fits across [transition]'s cut now; the upper end of the duration control. */
@@ -280,6 +382,7 @@ class EditorViewModel(
     /** Encodes [state] for the native canvas. All keys are stable for the life of this ViewModel. */
     fun snapshotOf(state: EditorState): TimelineSnapshot {
         val timeline = state.visibleTimeline
+        val selection = state.selection
         val tracks = timeline.tracks.map {
             when (it.type) {
                 TrackType.VIDEO -> SnapshotTrackType.VIDEO
@@ -299,7 +402,8 @@ class EditorViewModel(
                     sourceInFrame = clip.sourceIn.value,
                     sourceFpsNum = state.fps.num,
                     sourceFpsDen = state.fps.den,
-                    selected = clip.id == state.selectedClipId,
+                    selected = clip.id in selection,
+                    primary = clip.id == state.selectedClipId,
                     hasFx = !clip.fx.isNeutral,
                     missing = clip.hasMedia && clip.assetId in state.missingMedia,
                 )
@@ -315,7 +419,11 @@ class EditorViewModel(
             }
         }
         val keyframes = timeline.tracks.flatMap { track ->
-            track.clips.flatMap { clip -> clip.keyframes.map { SnapshotKeyframe(clipKeys.keyFor(clip.id), it.frame) } }
+            // One diamond per frame that carries a key of any kind: the pose and every animated parameter.
+            track.clips.flatMap { clip ->
+                val frames = (clip.keyframes.map { it.frame } + clip.params.flatMap { t -> t.keys.map { it.frame } }).distinct().sorted()
+                frames.map { SnapshotKeyframe(clipKeys.keyFor(clip.id), it) }
+            }
         }
         val retimes = timeline.tracks.flatMap { track ->
             track.clips.filter { it.isRetimed || it.isFreeze }.map {
@@ -329,6 +437,7 @@ class EditorViewModel(
     // region loading and saving
 
     private fun load() {
+        stabiliser.releaseAll()  // tables of an earlier project must never be read by this one
         viewModelScope.launch {
             try {
                 val project = store.load(projectId)
@@ -348,6 +457,7 @@ class EditorViewModel(
                         assets = project.mediaLibrary,
                     )
                 }
+                refreshStabilise()  // a reopened project's stabilised clips need their tables again
                 verifyAssets(project.mediaLibrary)
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false, loadError = e.message) }
@@ -536,13 +646,34 @@ class EditorViewModel(
             HitKind.RULER, HitKind.PLAYHEAD -> seekTo(hit.frame)
             HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> {
                 val clipId = clipKeys.idFor(hit.clipKey)
-                reduce { copy(selectedClipId = clipId, selectedTrackId = clipId?.let { timeline.trackOfClip(it)?.id } ?: selectedTrackId) }
+                if (state.value.selectMode && clipId != null) {
+                    toggleInSelection(clipId)
+                } else {
+                    // A plain tap goes back to a single selection, even on a clip that was in the group.
+                    reduce {
+                        copy(
+                            selectedClipId = clipId,
+                            selectedClipIds = emptySet(),
+                            selectedTrackId = clipId?.let { timeline.trackOfClip(it)?.id } ?: selectedTrackId,
+                        )
+                    }
+                }
             }
-            HitKind.EMPTY_TRACK -> reduce {
-                copy(selectedClipId = null, selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId)
+            // In select mode a tap on empty space keeps the selection (the Clear button drops it).
+            HitKind.EMPTY_TRACK -> if (state.value.selectMode) {
+                reduce { copy(selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId) }
+            } else {
+                reduce {
+                    copy(
+                        selectedClipId = null,
+                        selectedClipIds = emptySet(),
+                        selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId,
+                    )
+                }
             }
             // Above the lanes (room left by the bottom-anchored stack) a tap is a tap on nothing; OUTSIDE only occurs mid-drag.
-            HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE -> reduce { copy(selectedClipId = null) }
+            HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE ->
+                if (!state.value.selectMode) reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
         }
     }
 
@@ -643,6 +774,8 @@ class EditorViewModel(
     private fun syncFromHistory() {
         appearance = null  // the timeline changed under any edit in progress
         titleEdit = null
+        audioEdit = null
+        audioEditKey = null
         val committed = history.timeline
         val canUndo = history.canUndo
         val canRedo = history.canRedo
@@ -650,16 +783,69 @@ class EditorViewModel(
             copy(
                 timeline = committed,
                 dragPreview = null,
+                audioSessionActive = false,
+                noiseRegion = noiseRegion?.takeIf { committed.trackOfClip(it.clipId) != null },
                 dropHint = null,
                 canUndo = canUndo,
                 canRedo = canRedo,
                 selectedClipId = selectedClipId?.takeIf { committed.trackOfClip(it) != null },
+                selectedClipIds = selectedClipIds.filterTo(LinkedHashSet()) { committed.trackOfClip(it) != null },
                 // If the selected track vanished (undo, removal), fall back to the first video track.
                 selectedTrackId = selectedTrackId?.takeIf { committed.track(it) != null }
                     ?: committed.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
             )
         }
+        refreshStabilise()
     }
+
+    // region stabiliser
+
+    private var stabJob: Job? = null
+
+    /**
+     * Makes the correction tables of every stabilised clip available to the preview and the exporter, and refreshes the
+     * selected clip's status for the inspector. Runs off the main thread (it reads cache files).
+     */
+    private fun refreshStabilise() {
+        val timeline = history.timeline
+        val assets = state.value.assets
+        val fps = state.value.fps
+        val selected = state.value.selectedClipId?.let { timeline.trackOfClip(it)?.clip(it) }
+        val stabilised = timeline.tracks.flatMap { it.clips }.filter { it.stabilise != null }
+        if (stabilised.isEmpty() && selected?.stabilise == null) {
+            if (state.value.stab.status != StabStatus.Off || state.value.stab.clipId != null) {
+                reduce { copy(stab = StabUiState(progress = stab.progress)) }
+            }
+            return
+        }
+        viewModelScope.launch(stabDispatcher) {
+            for (clip in stabilised) assets.firstOrNull { it.id == clip.assetId }?.let { stabiliser.register(it, clip, fps) }
+            val asset = selected?.let { clip -> assets.firstOrNull { it.id == clip.assetId } }
+            val status = if (selected != null && asset != null) stabiliser.statusOf(asset, selected, fps) else StabStatus.Off
+            reduce { copy(stab = StabUiState(clipId = selected?.id, status = status, progress = stab.progress)) }
+        }
+    }
+
+    private fun analyseStabilise() {
+        if (stabJob?.isActive == true) return
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
+        if (clip == null || clip.stabilise == null || asset == null) {
+            emit(EditorEffect.ShowMessage("Turn the stabiliser on for a video clip first"))
+            return
+        }
+        val fps = state.value.fps
+        reduce { copy(stab = StabUiState(clipId = clip.id, status = stab.status.takeIf { it != StabStatus.Off } ?: StabStatus.NotAnalysed, progress = 0f)) }
+        stabJob = viewModelScope.launch {
+            val outcome = stabiliser.analyse(asset, clip, fps) { progress -> reduce { copy(stab = stab.copy(progress = progress)) } }
+            if (outcome is StabOutcome.Failed) emit(EditorEffect.ShowMessage(outcome.message))
+            reduce { copy(stab = stab.copy(progress = null)) }
+            refreshStabilise()
+        }
+    }
+
+    // endregion
 
     // endregion
 
@@ -744,7 +930,8 @@ class EditorViewModel(
             HitKind.CLIP_RIGHT_EDGE -> DragMode.TRIM_END
             else -> DragMode.MOVE
         }
-        drag = DragSession(clipId, mode, hit.frame - clip.timelineStart.value)
+        val group = state.value.selection.takeIf { mode == DragMode.MOVE && it.size > 1 && clipId in it }?.toList()
+        drag = DragSession(clipId, mode, hit.frame - clip.timelineStart.value, group)
         pendingDragCommand = null
     }
 
@@ -779,6 +966,10 @@ class EditorViewModel(
         val playhead = state.value.playhead
         val command = when (session.mode) {
             DragMode.MOVE -> {
+                if (session.group != null) {
+                    groupDrag(session, base, frame, trackIndex, zone, playhead)
+                    return
+                }
                 val target = dropTarget(session, base, trackIndex, zone)
                 session.target = target
                 moveDrag(session, base, FrameIndex((frame - session.grabOffset).coerceAtLeast(0)), target ?: DropTarget.Lane(sourceTrack.id), playhead)
@@ -863,6 +1054,333 @@ class EditorViewModel(
     /** Snapping for a drag: clip edges and the playhead, plus the ruler markers while marker snapping is on. */
     private fun snapWith(timeline: Timeline, playhead: FrameIndex): Snap =
         Snap(playhead, SNAP_THRESHOLD_FRAMES, if (state.value.snapToMarkers) timeline.markers.map { it.frame } else emptyList())
+
+    // region multi-selection and group edits
+
+    /** Adds [clipId] to the selection, or removes it when it is already in; the clip toggled on becomes the primary one. */
+    private fun toggleInSelection(clipId: String) {
+        val chosen = LinkedHashSet(state.value.selection)
+        if (!chosen.remove(clipId)) chosen += clipId
+        setSelection(chosen, primary = clipId)
+    }
+
+    /** Makes [ids] the selection; [primary] (when among them, else the last one) is the clip the inspector edits. */
+    private fun setSelection(ids: Set<String>, primary: String? = null) {
+        val picked = primary?.takeIf { it in ids } ?: ids.lastOrNull()
+        reduce {
+            copy(
+                selectedClipIds = if (ids.size > 1) LinkedHashSet(ids) else emptySet(),
+                selectedClipId = picked,
+                selectedTrackId = picked?.let { history.timeline.trackOfClip(it)?.id } ?: selectedTrackId,
+            )
+        }
+    }
+
+    private fun selectionIntent(intent: SelectionIntent) {
+        val timeline = history.timeline
+        when (intent) {
+            SelectionIntent.ToggleSelectMode -> reduce { copy(selectMode = !selectMode) }
+            is SelectionIntent.LongPress -> {
+                val onClip = intent.hit.kind == HitKind.CLIP || intent.hit.kind == HitKind.CLIP_LEFT_EDGE || intent.hit.kind == HitKind.CLIP_RIGHT_EDGE
+                clipKeys.idFor(intent.hit.clipKey)?.takeIf { onClip }?.let(::toggleInSelection)
+            }
+            is SelectionIntent.Marquee -> {
+                val ids = intent.clipKeys.mapNotNull { clipKeys.idFor(it) }.filter { timeline.trackOfClip(it) != null }
+                if (ids.isNotEmpty()) setSelection(LinkedHashSet(state.value.selection + ids), primary = ids.last())
+            }
+            SelectionIntent.SelectLane -> {
+                val lane = state.value.selectedTrackId
+                val ids = lane?.let { ClipSelection.allInLane(timeline, it) }.orEmpty()
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("Tap a lane that has clips first")) else setSelection(ids, state.value.selectedClipId)
+            }
+            SelectionIntent.SelectFromPlayhead -> {
+                val ids = ClipSelection.fromPlayhead(timeline, state.value.playhead)
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("No clips after the playhead")) else setSelection(ids)
+            }
+            SelectionIntent.SelectAll -> {
+                val ids = timeline.tracks.flatMapTo(LinkedHashSet()) { track -> track.clips.map { it.id } }
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("There are no clips to select")) else setSelection(ids, state.value.selectedClipId)
+            }
+            SelectionIntent.ClearSelection -> reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
+            SelectionIntent.Copy -> copySelection(announce = true)
+            SelectionIntent.Cut -> if (copySelection(announce = false)) deleteSelection()
+            SelectionIntent.Paste -> pasteClipboard()
+            SelectionIntent.Duplicate -> withGroup { runGroupCommand(GroupDuplicate(it), selectNew = true) }
+            SelectionIntent.DeleteSelection -> deleteSelection()
+            SelectionIntent.PasteAttributes -> {
+                val source = clipboard?.primary
+                if (source == null) emit(EditorEffect.ShowMessage("Copy a clip first, then paste its attributes"))
+                else withGroup { execute(GroupPasteAttributes(ClipAttributes.of(source), it)) }
+            }
+            is SelectionIntent.SetGroupSpeed -> withGroup { execute(GroupSetSpeed(it, intent.num, intent.den)) }
+            is SelectionIntent.SetGroupGain -> withGroup { execute(GroupSetGain(it, intent.gainDb)) }
+            is SelectionIntent.SetGroupOpacity -> withGroup { execute(GroupSetOpacity(it, intent.opacity)) }
+            is SelectionIntent.Align -> withGroup { execute(GroupAlign(it, intent.edge)) }
+            is SelectionIntent.ApplyTransitions -> withGroup { ids ->
+                val frames = state.value.fps.microsToFrames(TRANSITION_DEFAULT_MICROS).coerceAtLeast(Transition.MIN_DURATION_FRAMES)
+                val lengths = ids.mapNotNull { id ->
+                    val clip = timeline.trackOfClip(id)?.clip(id) ?: return@mapNotNull null
+                    assetLengthFrames(clip.assetId)?.let { id to it }
+                }.toMap()
+                execute(GroupTransitions(ids, frames, intent.mode, lengths))
+            }
+        }
+    }
+
+    /** Runs [block] with the selected clip ids, or says that nothing is selected. */
+    private inline fun withGroup(block: (List<String>) -> Unit) {
+        val ids = state.value.selection.toList()
+        if (ids.isEmpty()) emit(EditorEffect.ShowMessage("Select a clip first")) else block(ids)
+    }
+
+    private fun copySelection(announce: Boolean): Boolean {
+        val board = Clipboard.capture(history.timeline, state.value.selection)
+        if (board == null) {
+            emit(EditorEffect.ShowMessage("Select clips to copy first"))
+            return false
+        }
+        clipboard = board
+        val count = board.entries.size
+        reduce { copy(clipboardCount = count) }
+        if (announce) emit(EditorEffect.ShowMessage(if (count == 1) "Copied 1 clip" else "Copied $count clips"))
+        return true
+    }
+
+    private fun pasteClipboard() {
+        val board = clipboard
+        if (board == null) {
+            emit(EditorEffect.ShowMessage("Nothing to paste: copy some clips first"))
+            return
+        }
+        runGroupCommand(GroupPaste(board, state.value.playhead), selectNew = true)
+    }
+
+    private fun deleteSelection() = withGroup { execute(GroupDelete(it)) }
+
+    /** Runs a group [command] as one undo step; with [selectNew] the clips it created become the selection. */
+    private fun runGroupCommand(command: EditCommand, selectNew: Boolean = false): Boolean {
+        val before = history.timeline.tracks.flatMapTo(HashSet()) { track -> track.clips.map { it.id } }
+        if (!execute(command)) return false
+        if (selectNew) {
+            val created = history.timeline.tracks.flatMap { track -> track.clips.map { it.id } }.filter { it !in before }
+            if (created.isNotEmpty()) setSelection(LinkedHashSet(created), primary = created.first())
+        }
+        return true
+    }
+
+    /**
+     * One step of dragging a selected clip with several selected: the whole group moves by the same
+     * frames (snapped as a block) and, when the finger is over another lane of the same kind, by the same
+     * number of lanes. A position that would put a clip on another one keeps the last valid preview.
+     */
+    private fun groupDrag(session: DragSession, base: Timeline, frame: Long, trackIndex: Int, zone: DragZone, playhead: FrameIndex) {
+        val ids = session.group ?: return
+        if (zone == DragZone.OUTSIDE) {
+            pendingDragCommand = null
+            reduce { copy(dragPreview = null, dropHint = DropHint(DropKind.CANCEL, null, 0, 0)) }
+            return
+        }
+        val anchorTrack = base.trackOfClip(session.clipId) ?: return
+        val anchor = anchorTrack.clip(session.clipId) ?: return
+        val earliest = ids.mapNotNull { id -> base.trackOfClip(id)?.clip(id)?.timelineStart?.value }.minOrNull() ?: return
+        val requested = ((frame - session.grabOffset) - anchor.timelineStart.value).coerceAtLeast(-earliest)
+        val delta = GroupOps.snappedDelta(base, ids, requested, snapWith(base, playhead)).coerceAtLeast(-earliest)
+        val command = GroupMove(ids, delta, laneDeltaFor(base, anchorTrack, trackIndex, zone))
+        val result = command.apply(base) as? EditResult.Success ?: return
+        pendingDragCommand = if (result.value == base) null else command
+        reduce { copy(dragPreview = result.value, dropHint = null) }
+    }
+
+    /** Lanes of the same kind between the lane of the grabbed clip and the one under the finger (0 on the base or another kind). */
+    private fun laneDeltaFor(base: Timeline, source: Track, trackIndex: Int, zone: DragZone): Int {
+        if (zone != DragZone.LANES) return 0
+        val baseTrack = ClipDeletion.baseTrack(base)
+        if (baseTrack != null && source.id == baseTrack.id) return 0
+        val under = base.tracks.getOrNull(trackIndex) ?: return 0
+        if (under.type != source.type || under.id == baseTrack?.id) return 0
+        val lanes = base.tracks.filter { it.type == source.type && it.id != baseTrack?.id }
+        return lanes.indexOfFirst { it.id == under.id } - lanes.indexOfFirst { it.id == source.id }
+    }
+
+    // endregion
+
+    // region audio tools
+
+    /** The audio edit in progress (a slider drag), shown and heard live and committed as one undo step. */
+    private var audioEdit: EditCommand? = null
+    private var audioEditKey: String? = null
+
+    private fun updateAudioEdit(key: String, command: EditCommand) {
+        if (drag != null) return
+        // A slider of another clip, track or the ducking: the previous one is final first.
+        if (audioEdit != null && audioEditKey != key) endAudioEdit(commit = true)
+        when (val result = command.apply(history.timeline)) {
+            is EditResult.Success -> {
+                audioEdit = command
+                audioEditKey = key
+                reduce { copy(dragPreview = result.value, audioSessionActive = true) }
+            }
+            is EditResult.Failure -> emit(EditorEffect.ShowMessage(describe(result.error)))
+        }
+    }
+
+    private fun endAudioEdit(commit: Boolean) {
+        val command = audioEdit ?: return
+        audioEdit = null
+        audioEditKey = null
+        val result = command.apply(history.timeline)
+        val changed = result is EditResult.Success && result.value != history.timeline
+        if (commit && changed && execute(command)) return
+        reduce { copy(dragPreview = null, audioSessionActive = false) }
+    }
+
+    private fun resetClipAudio() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.audio.isNeutral) {
+            emit(EditorEffect.ShowMessage("This clip has no audio changes to reset"))
+            return@withSelection
+        }
+        execute(EditCommand.SetClipAudio(clipId, ClipAudio.NONE))
+    }
+
+    /** The selected clip and its library file when both can be analysed for sound, else a message. */
+    private fun analysableSelection(what: String): Pair<Clip, MediaAssetDto>? {
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
+        if (clip == null || !clip.hasMedia || asset == null || !asset.hasAudio || clip.isFreeze) {
+            emit(EditorEffect.ShowMessage("Select a clip with audio to $what"))
+            return null
+        }
+        if (audioAnalyzer == null) {
+            emit(EditorEffect.ShowMessage("Audio measurements are not available right now"))
+            return null
+        }
+        if (state.value.audioBusy != null) return null
+        return clip to asset
+    }
+
+    private fun normalizeLoudness(targetLufs: Double) {
+        if (!targetLufs.isFinite() || targetLufs !in MIN_TARGET_LUFS..MAX_TARGET_LUFS) {
+            emit(EditorEffect.ShowMessage("The loudness target must be between $MIN_TARGET_LUFS and $MAX_TARGET_LUFS LUFS"))
+            return
+        }
+        val (clip, asset) = analysableSelection("normalise its loudness") ?: return
+        val analyzer = checkNotNull(audioAnalyzer)
+        val fps = state.value.fps
+        val key = LoudnessCache.keyOf(asset, clip.sourceIn.value, clip.sourceOut.value)
+        reduce { copy(audioBusy = "Measuring loudness…") }
+        viewModelScope.launch {
+            try {
+                val cached = loudnessCache.get(key)
+                val lufs = cached ?: analyzer.loudness(
+                    asset, assetKeys.keyFor(asset.id),
+                    fps.framesToMicros(clip.sourceIn.value), fps.framesToMicros(clip.sourceOut.value),
+                ).lufs?.also { loudnessCache.put(key, it) }
+                if (lufs == null) {
+                    emit(EditorEffect.ShowMessage("This clip is silent, so there is nothing to normalise"))
+                    return@launch
+                }
+                // The clip may have been edited while it was measured: act on what is there now.
+                val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id) ?: return@launch
+                if (now.sourceIn != clip.sourceIn || now.sourceOut != clip.sourceOut) {
+                    emit(EditorEffect.ShowMessage("The clip changed while it was measured; try again"))
+                    return@launch
+                }
+                val gain = (targetLufs - lufs).coerceIn(-ClipAudio.MAX_NORMALIZE_DB, ClipAudio.MAX_NORMALIZE_DB)
+                if (execute(EditCommand.SetClipAudio(now.id, now.audio.copy(normalizeDb = gain, targetLufs = targetLufs)))) {
+                    // The app's text is English, so numbers use a point whatever the phone's region is.
+                    val measured = "%.1f".format(Locale.US, lufs)
+                    emit(EditorEffect.ShowMessage("Measured $measured LUFS; ${"%+.1f".format(Locale.US, gain)} dB to reach ${"%.0f".format(Locale.US, targetLufs)}"))
+                }
+            } catch (e: AudioAnalysisException) {
+                emit(EditorEffect.ShowMessage(e.message ?: "The loudness could not be measured"))
+            } finally {
+                reduce { copy(audioBusy = null) }
+            }
+        }
+    }
+
+    private fun clearNormalize() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.audio.targetLufs == null && clip.audio.normalizeDb == 0.0) {
+            emit(EditorEffect.ShowMessage("This clip is not normalised"))
+            return@withSelection
+        }
+        execute(EditCommand.SetClipAudio(clipId, clip.audio.copy(normalizeDb = 0.0, targetLufs = null)))
+    }
+
+    private fun markNoiseRegion(atStart: Boolean) {
+        val clipId = state.value.selectedClipId
+        val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+        if (clip == null || !clip.hasMedia) {
+            emit(EditorEffect.ShowMessage("Select a clip with audio first"))
+            return
+        }
+        val offset = state.value.playhead - clip.timelineStart
+        if (offset < 0 || offset > clip.durationFrames) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to mark the quiet stretch"))
+            return
+        }
+        val current = state.value.noiseRegion?.takeIf { it.clipId == clip.id } ?: NoiseRegion(clip.id, null, null)
+        var next = if (atStart) current.copy(startFrame = offset) else current.copy(endFrame = offset)
+        // A start after the end (or the reverse) means the user is picking a new stretch.
+        val s = next.startFrame
+        val e = next.endFrame
+        if (s != null && e != null && s >= e) {
+            next = if (atStart) next.copy(endFrame = null) else next.copy(startFrame = null)
+        }
+        reduce { copy(noiseRegion = next) }
+    }
+
+    private fun analyzeNoise(strength: Double) {
+        if (!strength.isFinite() || strength <= 0.0 || strength > 1.0) {
+            emit(EditorEffect.ShowMessage("Noise suppression strength must be above 0 and at most 1"))
+            return
+        }
+        val (clip, asset) = analysableSelection("remove noise") ?: return
+        val region = state.value.noiseRegion?.takeIf { it.clipId == clip.id && it.isComplete }
+        if (region == null) {
+            emit(EditorEffect.ShowMessage("Mark a quiet stretch first: put the playhead at its start and tap Mark start, then at its end and tap Mark end"))
+            return
+        }
+        val fps = state.value.fps
+        val retime = clip.retime
+        val a = retime.sourceFrameAt(checkNotNull(region.startFrame))
+        val b = retime.sourceFrameAt(checkNotNull(region.endFrame))
+        val startMicros = fps.framesToMicros(minOf(a, b))
+        val endMicros = fps.framesToMicros(maxOf(a, b))
+        if (endMicros - startMicros < MIN_NOISE_SAMPLE_MICROS) {
+            emit(EditorEffect.ShowMessage("The quiet stretch must be at least 0.1 s long"))
+            return
+        }
+        val analyzer = checkNotNull(audioAnalyzer)
+        reduce { copy(audioBusy = "Listening to the noise…") }
+        viewModelScope.launch {
+            try {
+                val profile = analyzer.noiseProfile(asset, assetKeys.keyFor(asset.id), startMicros, endMicros)
+                val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id) ?: return@launch
+                if (execute(EditCommand.SetClipAudio(now.id, now.audio.copy(denoise = Denoise(strength, profile.toList()))))) {
+                    emit(EditorEffect.ShowMessage("Noise suppression is on"))
+                }
+            } catch (e: AudioAnalysisException) {
+                emit(EditorEffect.ShowMessage(e.message ?: "The noise could not be measured"))
+            } finally {
+                reduce { copy(audioBusy = null) }
+            }
+        }
+    }
+
+    private fun removeNoiseSuppression() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        if (clip.audio.denoise == null) {
+            emit(EditorEffect.ShowMessage("Noise suppression is not on for this clip"))
+            return@withSelection
+        }
+        execute(EditCommand.SetClipAudio(clipId, clip.audio.copy(denoise = null)))
+    }
+
+    // endregion
 
     // region markers, beats and text templates
 
@@ -995,9 +1513,19 @@ class EditorViewModel(
             return false
         }
         val pose = if (keyFrame != null) clip.transformAt(keyFrame) else clip.transform
-        appearance = AppearanceSession(clip.id, pose, clip.gainDb, pose, clip.gainDb, keyFrame)
+        // The volume slider shows the keyframed volume at the playhead when there is one.
+        val gain = clip.displayedAt(state.value.selectedFrame).gainDb
+        appearance = AppearanceSession(clip.id, pose, gain, pose, gain, keyFrame)
         return true
     }
+
+    /** The command that sets the volume: a key at the playhead when the volume is keyframed, else the fixed gain. */
+    private fun gainCommand(clip: Clip, gainDb: Double): EditCommand =
+        if (ParamTracks.track(clip.params, ParamIds.GAIN_DB) != null) {
+            EditCommand.SetGainAt(clip.id, gainDb, state.value.selectedFrame)
+        } else {
+            EditCommand.SetGain(clip.id, gainDb)
+        }
 
     /**
      * The edit an appearance session stands for. A fixed clip gets its transform and gain replaced;
@@ -1005,15 +1533,24 @@ class EditorViewModel(
      * edit never adds one) and the new gain.
      */
     private fun sessionCommand(session: AppearanceSession): EditCommand {
-        val frame = session.keyFrame ?: return EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
         val clip = history.timeline.trackOfClip(session.clipId)?.clip(session.clipId)
             ?: return EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
+        val frame = session.keyFrame
+            ?: return if (ParamTracks.track(clip.params, ParamIds.GAIN_DB) == null) {
+                EditCommand.SetAppearance(session.clipId, session.transform, session.gainDb)
+            } else {
+                // A keyframed volume: the transform is replaced, the volume change becomes a key at the playhead.
+                val parts = ArrayList<EditCommand>()
+                parts += EditCommand.SetTransform(clip.id, session.transform)
+                if (session.gainDb != session.baseGain) parts += gainCommand(clip, session.gainDb)
+                EditCommand.Batch(parts)
+            }
         val parts = ArrayList<EditCommand>()
         if (session.transform != session.baseTransform) {
             val interpolation = Keyframes.at(clip.keyframes, frame)?.interpolation ?: Interpolation.LINEAR
             parts += EditCommand.SetKeyframe(clip.id, Keyframe(frame, session.transform, interpolation))
         }
-        if (session.gainDb != session.baseGain) parts += EditCommand.SetGain(clip.id, session.gainDb)
+        if (session.gainDb != session.baseGain) parts += gainCommand(clip, session.gainDb)
         return EditCommand.Batch(parts)
     }
 
@@ -1079,7 +1616,10 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("Select a video clip or title first"))
             return null
         }
-        return FxSession(clip.id, clip.fx, clip.fx).also { fxEdit = it }
+        // The controls show the effects as they are at the playhead; keyframed values changed here become keys there.
+        val frame = state.value.selectedFrame
+        val shown = if (frame != null) clip.fxAt(frame) else clip.fx
+        return FxSession(clip.id, shown, shown, frame).also { fxEdit = it }
     }
 
     private fun updateEffect(effectId: String, values: List<Double>) {
@@ -1094,6 +1634,30 @@ class EditorViewModel(
         showFx(session)
     }
 
+    private fun updateGrade(effectId: String, values: List<Double>, curves: GradeCurves?) {
+        val session = beginFx() ?: return
+        val effect = session.fx.effect(effectId) ?: return
+        val changed = effect.copy(values = values, curves = curves?.takeUnless { it.isIdentity })
+        if (effect.type != EffectType.COLOR_GRADE) return
+        changed.problem()?.let {
+            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            return
+        }
+        session.fx = session.fx.copy(effects = session.fx.effects.map { if (it.id == effectId) changed else it })
+        showFx(session)
+    }
+
+    /** A look or a pasted grade: replaces the clip's first colour grade, or adds one, as one undo step. */
+    private fun applyGrade(values: List<Double>, curves: GradeCurves?) = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        val existing = clip.fx.effects.firstOrNull { it.type == EffectType.COLOR_GRADE }
+        if (existing == null && clip.fx.effects.size >= ClipFx.MAX_EFFECTS) {
+            emit(EditorEffect.ShowMessage("A clip can have at most ${ClipFx.MAX_EFFECTS} effects"))
+            return@withSelection
+        }
+        execute(EditCommand.SetGrade(clipId, existing?.id ?: idGenerator(), values, curves))
+    }
+
     private fun updateMask(mask: ClipMask?) {
         val session = beginFx() ?: return
         mask?.problem()?.let {
@@ -1105,14 +1669,14 @@ class EditorViewModel(
     }
 
     private fun showFx(session: FxSession) {
-        val result = EditCommand.SetFx(session.clipId, session.fx).apply(history.timeline)
+        val result = EditCommand.SetFxAt(session.clipId, session.fx, session.frame).apply(history.timeline)
         if (result is EditResult.Success) reduce { copy(dragPreview = result.value) }
     }
 
     private fun endFxEdit(commit: Boolean) {
         val session = fxEdit ?: return
         fxEdit = null
-        if (commit && session.fx != session.base && execute(EditCommand.SetFx(session.clipId, session.fx))) return
+        if (commit && session.fx != session.base && execute(EditCommand.SetFxAt(session.clipId, session.fx, session.frame))) return
         reduce { copy(dragPreview = null) }
     }
 
@@ -1169,6 +1733,111 @@ class EditorViewModel(
         val frame = state.value.selectedClipFrame
         val pose = if (frame != null) clip.transformAt(frame) else clip.keyframes.first().transform
         execute(EditCommand.Batch(listOf(EditCommand.ClearKeyframes(clipId), EditCommand.SetTransform(clipId, pose))))
+    }
+
+    // endregion
+
+    // region parameter keyframes
+
+    /** The key drag in progress in the keyframe lane, shown live and committed as one undo step on release. */
+    private var paramEdit: EditCommand? = null
+
+    private fun selectedParamClip(): Clip? = state.value.selectedClipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
+
+    /** Adds a key holding the value shown at the playhead, or removes the one that is there. */
+    private fun toggleParamKey(paramId: String) = withSelection { clipId ->
+        val clip = selectedParamClip() ?: return@withSelection
+        val frame = state.value.selectedFrame
+        if (frame == null) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to set a keyframe"))
+            return@withSelection
+        }
+        val spec = clip.paramSpec(paramId)
+        if (spec == null) {
+            emit(EditorEffect.ShowMessage("That value cannot be animated"))
+            return@withSelection
+        }
+        if (ParamTracks.at(clip.paramKeys(paramId), frame) != null) {
+            execute(EditCommand.RemoveParamKey(clipId, paramId, frame))
+        } else {
+            val value = (clip.paramValueAt(paramId, frame) ?: spec.min).coerceIn(spec.min, spec.max)
+            execute(EditCommand.SetParamKey(clipId, paramId, ParamKey(frame, value)))
+        }
+    }
+
+    private fun jumpToParamKey(paramId: String, forward: Boolean) = withSelection {
+        val clip = selectedParamClip() ?: return@withSelection
+        val relative = state.value.playhead - clip.timelineStart
+        val keys = clip.paramKeys(paramId)
+        val target = if (forward) ParamTracks.nextFrame(keys, relative) else ParamTracks.previousFrame(keys, relative)
+        if (target == null) {
+            emit(EditorEffect.ShowMessage(if (forward) "No later keyframe on this value" else "No earlier keyframe on this value"))
+            return@withSelection
+        }
+        seekTo(clip.timelineStart.value + target)
+    }
+
+    private fun copyParamKeys(paramId: String) {
+        val clip = selectedParamClip() ?: return
+        val keys = clip.paramKeys(paramId)
+        if (keys.isEmpty()) {
+            emit(EditorEffect.ShowMessage("This value has no keyframes to copy"))
+            return
+        }
+        val first = keys.first().frame
+        reduce { copy(paramClipboard = ParamClipboard(paramId, keys.map { it.copy(frame = it.frame - first) })) }
+        emit(EditorEffect.ShowMessage("Copied ${keys.size} keyframes"))
+    }
+
+    /** Pastes the copied keys so the first lands on the playhead; values are clamped to this value's range. */
+    private fun pasteParamKeys(paramId: String) = withSelection { clipId ->
+        val clip = selectedParamClip() ?: return@withSelection
+        val clipboard = state.value.paramClipboard
+        if (clipboard == null) {
+            emit(EditorEffect.ShowMessage("Copy keyframes first"))
+            return@withSelection
+        }
+        val frame = state.value.selectedFrame
+        if (frame == null) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to paste keyframes"))
+            return@withSelection
+        }
+        val keys = ParamTracks.shiftedTo(clipboard.keys, frame, clip.durationFrames)
+        if (keys.isEmpty() || clip.paramSpec(paramId) == null) {
+            emit(EditorEffect.ShowMessage("The copied keyframes do not fit here"))
+            return@withSelection
+        }
+        execute(EditCommand.PasteParamKeys(clipId, paramId, keys))
+    }
+
+    /** Drags the key at [from] to [to] with [value]: shown live, kept provisional until [endParamKeyEdit]. */
+    private fun updateParamKey(paramId: String, from: Long, to: Long, value: Double) {
+        if (drag != null) return
+        val clipId = state.value.selectedClipId ?: return
+        val clip = selectedParamClip() ?: return
+        val existing = ParamTracks.at(clip.paramKeys(paramId), from) ?: return
+        val spec = clip.paramSpec(paramId) ?: return
+        val moved = existing.copy(frame = to.coerceIn(0L, clip.durationFrames - 1), value = value.coerceIn(spec.min, spec.max))
+        val parts = ArrayList<EditCommand>(2)
+        if (moved.frame != from) parts += EditCommand.MoveParamKey(clipId, paramId, from, moved.frame)
+        parts += EditCommand.SetParamKey(clipId, paramId, moved)
+        val command = EditCommand.Batch(parts)
+        when (val result = command.apply(history.timeline)) {
+            is EditResult.Success -> {
+                paramEdit = command
+                reduce { copy(dragPreview = result.value, selectedParamKey = paramId to moved.frame) }
+            }
+            is EditResult.Failure -> Unit // a position that is not allowed keeps the last valid preview
+        }
+    }
+
+    private fun endParamKeyEdit(commit: Boolean) {
+        val command = paramEdit ?: return
+        paramEdit = null
+        val result = command.apply(history.timeline)
+        val changed = result is EditResult.Success && result.value != history.timeline
+        if (commit && changed && execute(command)) return
+        reduce { copy(dragPreview = null) }
     }
 
     // endregion
@@ -1640,6 +2309,7 @@ class EditorViewModel(
         EditError.SourceOutOfRange -> "That is beyond the end of the source media"
         is EditError.InvalidTrim -> "That trim is not possible: ${error.reason}"
         is EditError.InvalidAppearance -> "That value is not allowed: ${error.reason}"
+        is EditError.InvalidAudio -> "That audio setting is not allowed: ${error.reason}"
         is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
         is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
         is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
@@ -1658,11 +2328,204 @@ class EditorViewModel(
         is EditError.MarkerNotFound -> "The marker no longer exists"
         is EditError.InvalidTemplate -> "That text template cannot be placed: ${error.reason}"
         is EditError.CutToBeatUnavailable -> "Cut to beat is not possible: ${error.reason}"
+        is GroupEditUnavailable -> error.reason
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
         is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
     }
 
+    // region media library, marker notes and exports to other tools
+
+    private fun libraryIntent(intent: LibraryIntent) {
+        when (intent) {
+            is LibraryIntent.Open -> reduce { copy(library = library.copy(open = true, highlightAssetId = intent.assetId)) }
+            LibraryIntent.Close -> reduce { copy(library = library.copy(open = false, highlightAssetId = null)) }
+            LibraryIntent.RevealSelectedInLibrary -> {
+                val clipId = state.value.selectedClipId
+                val assetId = clipId?.let { Library.assetOfClip(history.timeline, it) }
+                if (clipId != null && assetId == null) emit(EditorEffect.ShowMessage("A title or sticker has no file in the library"))
+                reduce { copy(library = library.copy(open = true, highlightAssetId = assetId, query = if (assetId != null) LibraryQuery() else library.query)) }
+            }
+            is LibraryIntent.QueryChanged -> reduce { copy(library = library.copy(query = library.query.copy(text = intent.text))) }
+            is LibraryIntent.FilterSelected -> reduce { copy(library = library.copy(query = library.query.copy(filter = intent.filter))) }
+            is LibraryIntent.TagSelected -> reduce { copy(library = library.copy(query = library.query.copy(tag = intent.tag))) }
+            is LibraryIntent.EditAsset -> {
+                val asset = state.value.assets.firstOrNull { it.id == intent.assetId } ?: return
+                val draft = AssetEditDraft(asset.id, MissingMedia.nameOf(asset), asset.tags.joinToString(", "), asset.note.orEmpty())
+                reduce { copy(library = library.copy(editing = draft)) }
+            }
+            is LibraryIntent.TagsChanged -> reduce { copy(library = library.copy(editing = library.editing?.copy(tags = intent.text))) }
+            is LibraryIntent.NoteChanged -> reduce { copy(library = library.copy(editing = library.editing?.copy(note = intent.text.take(Library.MAX_NOTE_LENGTH)))) }
+            LibraryIntent.ConfirmAssetEdit -> confirmAssetEdit()
+            LibraryIntent.DismissAssetEdit -> reduce { copy(library = library.copy(editing = null)) }
+            LibraryIntent.AskDeleteUnused -> askDeleteUnused()
+            LibraryIntent.ConfirmDeleteUnused -> confirmDeleteUnused()
+            LibraryIntent.DismissDeleteUnused -> reduce { copy(library = library.copy(confirmDeleteUnused = null)) }
+            is LibraryIntent.FindInTimeline -> findInTimeline(intent.assetId)
+            is LibraryIntent.RequestExport -> requestExport(intent.kind)
+            is LibraryIntent.ExportTo -> exportTo(intent.kind, intent.uri)
+            LibraryIntent.OpenMarkerEdit -> openMarkerEdit()
+            is LibraryIntent.MarkerNoteChanged -> reduce { copy(markerEdit = markerEdit?.copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH))) }
+            is LibraryIntent.MarkerColorSelected -> reduce { copy(markerEdit = markerEdit?.copy(color = intent.color)) }
+            LibraryIntent.ConfirmMarkerEdit -> confirmMarkerEdit()
+            LibraryIntent.DismissMarkerEdit -> reduce { copy(markerEdit = null) }
+        }
+    }
+
+    /** Tags and notes belong to the library, like its order: saved with the project, not part of the undo history. */
+    private fun confirmAssetEdit() {
+        val draft = state.value.library.editing ?: return
+        var assets = Library.withTags(state.value.assets, draft.assetId, Library.parseTags(draft.tags))
+        assets = Library.withNote(assets, draft.assetId, draft.note)
+        reduce { copy(assets = assets, library = library.copy(editing = null)) }
+        scheduleSave()
+    }
+
+    /**
+     * How many uses each file has anywhere the user could still get back to: the timeline, every state in the
+     * undo and redo history, and the clipboard. Cleaning up must not remove a file that an undo would need.
+     */
+    private fun protectedUsage(): Map<String, Int> {
+        val counts = HashMap<String, Int>()
+        for (timeline in history.reachableTimelines()) {
+            for ((id, n) in usageCounts(timeline)) counts[id] = maxOf(counts[id] ?: 0, n)
+        }
+        clipboard?.entries?.forEach { entry -> entry.clip.assetId?.let { counts[it] = maxOf(counts[it] ?: 0, 1) } }
+        return counts
+    }
+
+    private fun askDeleteUnused() {
+        val removable = Library.unused(state.value.assets, protectedUsage())
+        if (removable.isEmpty()) {
+            emit(EditorEffect.ShowMessage(if (Library.unused(state.value.assets, usageCounts(history.timeline)).isEmpty()) "Every file in the library is used" else "Nothing can be removed while undo could still bring those clips back"))
+            return
+        }
+        reduce { copy(library = library.copy(confirmDeleteUnused = removable.size)) }
+    }
+
+    private fun confirmDeleteUnused() {
+        val usage = protectedUsage()
+        val removable = Library.unused(state.value.assets, usage).map { it.id }.toSet()
+        reduce { copy(assets = Library.withoutUnused(assets, usage), library = library.copy(confirmDeleteUnused = null)) }
+        if (removable.isEmpty()) return
+        removable.forEach { mediaCaches.invalidate(it) }
+        scheduleSave()
+        emit(EditorEffect.ShowMessage("Removed ${removable.size} unused file${if (removable.size == 1) "" else "s"} from the library (the files themselves are not touched)"))
+    }
+
+    private fun findInTimeline(assetId: String) {
+        val timeline = history.timeline
+        val uses = Library.uses(timeline, assetId, state.value.fps)
+        val use = Library.nextUse(uses, state.value.playhead.value)
+        if (use == null) {
+            emit(EditorEffect.ShowMessage("That file is not used on the timeline"))
+            return
+        }
+        val trackId = timeline.trackOfClip(use.clipId)?.id
+        seekTo(use.startFrame)
+        reduce {
+            copy(
+                selectedClipId = use.clipId,
+                selectedClipIds = emptySet(),
+                selectedTrackId = trackId ?: selectedTrackId,
+                library = library.copy(open = false),
+            )
+        }
+        val position = uses.indexOf(use) + 1
+        emit(EditorEffect.ShowMessage("Use $position of ${uses.size} (${use.trackLabel}). Choose Find in timeline again for the next one"))
+    }
+
+    private fun openMarkerEdit() {
+        val marker = MarkerOps.nearest(history.timeline.markers, state.value.playhead, MARKER_EDIT_RADIUS_FRAMES)
+        if (marker == null) {
+            emit(EditorEffect.ShowMessage("Put the playhead on a marker first"))
+            return
+        }
+        reduce { copy(markerEdit = MarkerEditDraft(marker.id, marker.frame.value, marker.note.orEmpty(), marker.color)) }
+    }
+
+    private fun confirmMarkerEdit() {
+        val draft = state.value.markerEdit ?: return
+        reduce { copy(markerEdit = null) }
+        execute(AnnotateMarker(draft.markerId, draft.note, draft.color))
+    }
+
+    private fun requestExport(kind: InterchangeKind) {
+        val project = currentProjectDto() ?: return
+        val base = project.name.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifEmpty { "project" }
+        val (extension, mime) = when (kind) {
+            InterchangeKind.EDL -> {
+                val files = Edl.export(project).files
+                if (files.isEmpty()) {
+                    emit(EditorEffect.ShowMessage("There are no video or audio clips to put in an EDL"))
+                    return
+                }
+                if (files.size == 1) "edl" to INTERCHANGE_MIME else "zip" to ZIP_MIME
+            }
+            else -> kind.extension to kind.mime
+        }
+        emit(EditorEffect.LaunchInterchangePicker(kind, "$base.$extension", mime))
+    }
+
+    private fun currentProjectDto(): ProjectDto? {
+        val base = baseProject ?: return null
+        return TimelineMapper.toDto(base, history.timeline, state.value.assets)
+    }
+
+    private fun exportTo(kind: InterchangeKind, uri: String) {
+        val project = currentProjectDto() ?: return
+        if (state.value.library.busy != null) return
+        reduce { copy(library = library.copy(busy = "Writing ${kind.label.substringBefore(" (")}…")) }
+        viewModelScope.launch {
+            try {
+                emit(EditorEffect.ShowMessage(writeExport(kind, uri, project)))
+            } catch (e: ProjectError) {
+                emit(EditorEffect.ShowMessage("Export failed: ${e.message}"))
+            } catch (e: IOException) {
+                emit(EditorEffect.ShowMessage("Export failed: ${e.message ?: "could not write the file"}"))
+            } finally {
+                reduce { copy(library = library.copy(busy = null)) }
+            }
+        }
+    }
+
+    /** Writes the export and returns the message to show: what was written and what the format left out. */
+    private suspend fun writeExport(kind: InterchangeKind, uri: String, project: ProjectDto): String {
+        when (kind) {
+            InterchangeKind.BUNDLE, InterchangeKind.BUNDLE_WITH_MEDIA -> {
+                // The bundle is made from the project file, so what is on screen has to be saved first.
+                saveJob?.cancelAndJoin()
+                if (dirty && !persist()) throw IOException("the project could not be saved first")
+                val result = interchange.exportBundle(projectId, uri, includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
+                return buildString {
+                    append("Bundle written")
+                    if (kind == InterchangeKind.BUNDLE_WITH_MEDIA) append(" with ${result.mediaCopied} media file${if (result.mediaCopied == 1) "" else "s"}")
+                    if (result.mediaSkipped.isNotEmpty()) append(". Not copied (cannot be read): ${result.mediaSkipped.take(3).joinToString()}${if (result.mediaSkipped.size > 3) "…" else ""}")
+                }
+            }
+            InterchangeKind.EDL -> {
+                val export = Edl.export(project)
+                if (export.files.isEmpty()) throw IOException("there are no video or audio clips to put in an EDL")
+                val bytes = if (export.files.size == 1) export.files.single().text.toByteArray(Charsets.UTF_8) else Edl.zip(export.files)
+                interchange.writeDocument(uri, bytes)
+                return "EDL written (${export.files.size} track${if (export.files.size == 1) "" else "s"})" + leftOut(export.notes)
+            }
+            InterchangeKind.FCPXML -> {
+                val export = Fcpxml.export(project)
+                interchange.writeDocument(uri, export.xml.toByteArray(Charsets.UTF_8))
+                return "FCPXML written" + leftOut(export.notes)
+            }
+        }
+    }
+
+    private fun leftOut(notes: List<String>): String = if (notes.isEmpty()) "" else ". Not carried over: ${notes.first().trimEnd('.')}${if (notes.size > 1) " (and ${notes.size - 1} more)" else ""}"
+
+    // endregion
+
     private companion object {
+        const val MARKER_EDIT_RADIUS_FRAMES = 6L
+        const val MIN_TARGET_LUFS = -40.0
+        const val MAX_TARGET_LUFS = -5.0
+        const val MIN_NOISE_SAMPLE_MICROS = 100_000L
         const val ID_LENGTH = 8
         const val DEFAULT_SAVE_DEBOUNCE_MILLIS = 500L
         const val SAVE_RETRY_MILLIS = 5_000L

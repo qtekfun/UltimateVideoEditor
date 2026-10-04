@@ -37,6 +37,10 @@ constexpr Color kRuler{0.14f, 0.15f, 0.18f, 1.0f};
 constexpr Color kTick{0.55f, 0.58f, 0.65f, 1.0f};
 constexpr Color kPlayhead{1.0f, 0.30f, 0.28f, 1.0f};
 constexpr Color kSelection{1.0f, 0.85f, 0.25f, 1.0f};
+// A selected clip that is not the primary one when several are selected: same family, softer.
+constexpr Color kSelectionSecondary{0.55f, 0.78f, 1.0f, 1.0f};
+constexpr Color kMarqueeFill{0.55f, 0.78f, 1.0f, 0.16f};
+constexpr Color kMarqueeEdge{0.55f, 0.78f, 1.0f, 0.95f};
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
 constexpr Color kKeyframe{1.0f, 0.78f, 0.1f, 1.0f};
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
@@ -147,6 +151,8 @@ struct TimelineRenderer::State {
     int width = 0, height = 0;
     int64_t playhead = 0;
     DropHint dropHint;
+    bool marqueeActive = false;
+    float marqueeX0 = 0.0f, marqueeY0 = 0.0f, marqueeX1 = 0.0f, marqueeY1 = 0.0f;
     float flingVelocity = 0.0f;  // px/s
     bool flingStarted = false;
     bool dirty = true;
@@ -557,6 +563,42 @@ void TimelineRenderer::setDropHint(const DropHint& hint) {
     wake();
 }
 
+void TimelineRenderer::setMarquee(bool active, float x0, float y0, float x1, float y1) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->marqueeActive = active;
+        state_->marqueeX0 = x0;
+        state_->marqueeY0 = y0;
+        state_->marqueeX1 = x1;
+        state_->marqueeY1 = y1;
+        state_->dirty = true;
+    }
+    wake();
+}
+
+std::vector<int64_t> TimelineRenderer::clipsInRect(float x0, float y0, float x1, float y1) const {
+    std::shared_ptr<const TimelineSnapshot> snap;
+    Viewport vp;
+    Layout layout;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snap = state_->snapshot;
+        vp = state_->vp;
+        layout = state_->layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(state_->height));
+    }
+    return uv::timeline::clipsInRect(*snap, vp, layout, x0, y0, x1, y1);
+}
+
+void TimelineRenderer::setLaneScale(float scale) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_->layout = Layout::forDensity(state_->density, scale);
+        state_->clampViewport();
+        state_->dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::setPlayhead(int64_t frame) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -734,6 +776,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     int width, height;
     int64_t playhead;
     DropHint dropHint;
+    bool marqueeActive = false;
+    float marquee[4] = {0, 0, 0, 0};
     bool keepAnimating = false;
     std::weak_ptr<thumb::ThumbnailService> thumbWeak;
     {
@@ -760,6 +804,11 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         vp = s.vp;
         layout = s.layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(s.height));
         dropHint = s.dropHint;
+        marqueeActive = s.marqueeActive;
+        marquee[0] = s.marqueeX0;
+        marquee[1] = s.marqueeY0;
+        marquee[2] = s.marqueeX1;
+        marquee[3] = s.marqueeY1;
         width = s.width;
         height = s.height;
         playhead = s.playhead;
@@ -963,11 +1012,13 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         }
 
         if (c.selected) {
-            const float b = std::max(1.0f, 2.0f * density);
-            g.rect(fx0, top, fx1, top + b, kSelection);
-            g.rect(fx0, bottom - b, fx1, bottom, kSelection);
-            g.rect(fx0, top, fx0 + b, bottom, kSelection);
-            g.rect(fx1 - b, top, fx1, bottom, kSelection);
+            // Several selected: the primary clip (the inspector's) is yellow and thicker, the others softer blue.
+            const Color& outline = c.primary ? kSelection : kSelectionSecondary;
+            const float b = std::max(1.0f, (c.primary ? 2.0f : 1.5f) * density);
+            g.rect(fx0, top, fx1, top + b, outline);
+            g.rect(fx0, bottom - b, fx1, bottom, outline);
+            g.rect(fx0, top, fx0 + b, bottom, outline);
+            g.rect(fx1 - b, top, fx1, bottom, outline);
         }
     }
 
@@ -1036,6 +1087,19 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                     break;
             }
         }
+    }
+
+    // Marquee: the rectangle being dragged to select clips.
+    if (marqueeActive) {
+        g.setClip(0, layout.rulerHeight, W, H);
+        const float mx0 = std::min(marquee[0], marquee[2]), mx1 = std::max(marquee[0], marquee[2]);
+        const float my0 = std::min(marquee[1], marquee[3]), my1 = std::max(marquee[1], marquee[3]);
+        const float e = std::max(1.0f, 1.5f * density);
+        g.rect(mx0, my0, mx1, my1, kMarqueeFill);
+        g.rect(mx0, my0, mx1, my0 + e, kMarqueeEdge);
+        g.rect(mx0, my1 - e, mx1, my1, kMarqueeEdge);
+        g.rect(mx0, my0, mx0 + e, my1, kMarqueeEdge);
+        g.rect(mx1 - e, my0, mx1, my1, kMarqueeEdge);
     }
 
     // A faint line through the lanes at each user marker, so cuts can be lined up against it.

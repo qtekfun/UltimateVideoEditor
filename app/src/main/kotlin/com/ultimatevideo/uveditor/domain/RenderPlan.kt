@@ -45,8 +45,18 @@ data class RenderClip(
     val still: StillKind? = null,
     /** The clip's colour space override, or null to use the asset's detected one. */
     val colorOverride: SourceColorSpace? = null,
+    /** Pan, fade handles, EQ, noise suppression and normalisation of the clip's sound. */
+    val audio: ClipAudio = ClipAudio.NONE,
+    /** Keyframed parameters (effect values, volume, pan, EQ gains); frames are relative to [keyframeOriginFrame]. */
+    val params: List<ParamTrack> = emptyList(),
 ) {
     val endFrame: Long get() = startFrame + durationFrames
+
+    /** The clip's effects at project [frame] with every animated value evaluated; [fx] itself when none is animated. */
+    fun fxAt(frame: Long): ClipFx = fx.animatedAt(params, frame - keyframeOriginFrame)
+
+    /** True when an effect value changes over the clip, so the picture needs a new look every frame. */
+    val hasAnimatedFx: Boolean get() = params.any { ParamIds.parseFx(it.paramId) != null }
 
     fun covers(frame: Long): Boolean = frame >= startFrame && frame < endFrame
 
@@ -127,9 +137,13 @@ fun Timeline.renderClips(): List<RenderClip> {
                 keyframes = clip.keyframes,
                 keyframeOriginFrame = clip.timelineStart.value,
                 retime = if (clip.hasMedia && clip.isRetimed) clip.retime else null,
-                fx = clip.fx,
+                fx = clip.stabilise?.takeIf { clip.hasMedia && clip.assetId != null && track.type == TrackType.VIDEO }
+                    ?.let { clip.fx.copy(stabKey = StabKey.of(checkNotNull(clip.assetId), it)) }
+                    ?: clip.fx,
                 colorOverride = clip.colorOverride,
                 still = clip.still,
+                audio = clip.audio,
+                params = clip.params,
             )
         }
     }

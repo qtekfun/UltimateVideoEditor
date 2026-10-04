@@ -8,6 +8,7 @@
 
 #include "decode/log.h"
 #include "render/layout_math.h"
+#include "stabilise/stab_registry.h"
 
 namespace uv::render {
 
@@ -118,6 +119,9 @@ PreviewEngine::~PreviewEngine() {
     thread_->postAndWait([this] {
         playing_ = false;
         cache_.clear();
+        scopeActive_ = false;
+        scope_.reset();
+        egl_->detachScopeWindow();
         pipeline_.reset();
         egl_.reset();
     });
@@ -148,6 +152,80 @@ Status PreviewEngine::attachSurface(ANativeWindow* window, Error* error) {
 
 void PreviewEngine::detachSurface() {
     thread_->postAndWait([this] { egl_->detachWindow(); });
+}
+
+Status PreviewEngine::attachScopeSurface(ANativeWindow* window, Error* error) {
+    Status result = Status::Ok;
+    thread_->postAndWait([&] {
+        Error e{Status::Ok, ""};
+        result = egl_->attachScopeWindow(window, &e);
+        if (result == Status::Ok) result = egl_->makeCurrentScope(&e);
+        if (result == Status::Ok && !scope_) {
+            auto renderer = std::make_unique<ScopeRenderer>();
+            result = renderer->init(&e);
+            if (result == Status::Ok) scope_ = std::move(renderer);
+        }
+        if (egl_->hasWindow()) egl_->makeCurrentWindow(nullptr);
+        if (result != Status::Ok) {
+            egl_->detachScopeWindow();
+            if (egl_->hasWindow()) egl_->makeCurrentWindow(nullptr);
+            if (error != nullptr) *error = e;
+            return;
+        }
+        scopeActive_ = true;
+        scopeLast_ = Clock::time_point{};
+        // The scope needs a captured frame: draw the preview again, which captures and then draws the scope.
+        if (egl_->hasWindow()) maybeDraw(true);
+    });
+    return result;
+}
+
+void PreviewEngine::detachScopeSurface() {
+    thread_->postAndWait([this] {
+        scopeActive_ = false;
+        egl_->detachScopeWindow();
+        if (egl_->hasWindow()) egl_->makeCurrentWindow(nullptr);
+    });
+}
+
+void PreviewEngine::scopeSurfaceChanged() {
+    const auto now = Clock::now();
+    thread_->postAt([this] { renderScope(true); }, now);
+    thread_->postAt([this] { renderScope(true); }, now + std::chrono::milliseconds(60));
+}
+
+void PreviewEngine::setScopeMode(int mode) {
+    if (mode < 0 || mode > static_cast<int>(scope::Mode::Histogram)) return;
+    thread_->post([this, mode] {
+        scopeMode_ = static_cast<scope::Mode>(mode);
+        renderScope(true);
+    });
+}
+
+void PreviewEngine::renderScope(bool force) {
+    if (!scopeActive_ || !scope_ || !egl_->hasScopeWindow() || !scope_->hasFrame()) return;
+    const auto now = Clock::now();
+    constexpr auto kMinInterval = std::chrono::milliseconds(33);
+    if (!force && scopeLast_.time_since_epoch().count() != 0 && now - scopeLast_ < kMinInterval) {
+        // Too soon after the last scope: draw once more when the interval is over so it never goes stale.
+        if (!scopeTaskPending_) {
+            scopeTaskPending_ = true;
+            thread_->postAt([this] {
+                scopeTaskPending_ = false;
+                renderScope(true);
+            }, scopeLast_ + kMinInterval);
+        }
+        return;
+    }
+    Error e{Status::Ok, ""};
+    if (egl_->makeCurrentScope(&e) != Status::Ok) {
+        UV_LOGE("scopes: %s", e.message.c_str());
+        return;
+    }
+    scope_->render(scopeMode_, egl_->scopeWidth(), egl_->scopeHeight());
+    if (egl_->swapScope(&e) != Status::Ok) UV_LOGE("scopes: %s", e.message.c_str());
+    if (egl_->hasWindow()) egl_->makeCurrentWindow(nullptr);
+    scopeLast_ = now;
 }
 
 void PreviewEngine::surfaceChanged() {
@@ -603,12 +681,17 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                                                      : asset->second.mode;
             LayerDraw draw{frame.get(), mode, asset->second.turns, layer.transform};
             draw.fx = layer.fx;
+            stab::resolveStabilisation(&draw.fx, layer.frame);  // the stabiliser's correction for this source frame
             layers.push_back(std::move(draw));
             signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source});
         }
     }
     if (layers.empty()) return;
-    if (!force && drawnValid_ && drawnCanvasW_ == canvasW_ && drawnCanvasH_ == canvasH_ && drawn_ == signature) return;
+    const uint64_t stabRevision = stab::StabRegistry::instance().revision();
+    if (!force && drawnValid_ && drawnCanvasW_ == canvasW_ && drawnCanvasH_ == canvasH_ && drawn_ == signature &&
+        drawnStabRevision_ == stabRevision) {
+        return;
+    }
 
     // Single-asset mode has no project canvas: use the first layer's displayed size.
     int canvasW = canvasW_;
@@ -623,6 +706,11 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
     const int drawH = egl_->windowHeight();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     const Status drawStatus = pipeline_->drawScene(layers, canvasW, canvasH, drawW, drawH, &error);
+    // The scopes read the picture back from the window's own framebuffer, so capture before the swap.
+    if (drawStatus == Status::Ok && scopeActive_ && scope_) {
+        const Viewport shown = letterbox(canvasW, canvasH, drawW, drawH);
+        scope_->capture(shown.x, shown.y, shown.w, shown.h);
+    }
     const auto swapStart = Clock::now();
     if (drawStatus == Status::Ok) egl_->setPresentationTime(presentNs);
     const Status swapStatus = drawStatus == Status::Ok ? egl_->swap(&error) : drawStatus;
@@ -635,6 +723,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
         return;
     }
     if (playing_) logStageTimes();
+    if (scopeActive_) renderScope(false);
     // Swapping dequeues the next buffer, which is where a resize shows up: draw again at that size.
     if (egl_->windowWidth() != drawW || egl_->windowHeight() != drawH) {
         thread_->post([this] {
@@ -642,6 +731,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
         });
     }
     drawn_ = std::move(signature);
+    drawnStabRevision_ = stabRevision;  // a re-analysed table under the same key must show up
     drawnCanvasW_ = canvasW_;
     drawnCanvasH_ = canvasH_;
     drawnValid_ = true;

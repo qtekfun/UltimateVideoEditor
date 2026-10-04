@@ -64,6 +64,28 @@ class TimelineSnapshotTest {
     }
 
     @Test
+    fun `selection flags carry selected and primary separately in version 6`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.VIDEO),
+            listOf(
+                clip(key = 1, selected = true).copy(primary = true),
+                clip(key = 2, start = 100, selected = true),
+                clip(key = 3, start = 200),
+                clip(key = 4, start = 300, selected = true).copy(hasFx = true, missing = true, primary = true),
+            ),
+        )
+        val b = snapshot.encode()
+        assertEquals(6, TimelineSnapshot.VERSION)
+        val first = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES
+        fun flags(index: Int) = b.getInt(first + index * TimelineSnapshot.CLIP_BYTES + 52)
+        assertEquals(0b1001, flags(0)) // selected + primary
+        assertEquals(0b0001, flags(1)) // selected only: an outline in the softer colour
+        assertEquals(0, flags(2))
+        assertEquals(0b1111, flags(3)) // every bit together
+    }
+
+    @Test
     fun `empty timeline encodes to a header only`() {
         val buffer = TimelineSnapshot(30, 1, emptyList(), emptyList()).encode()
         assertEquals(

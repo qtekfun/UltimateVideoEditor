@@ -35,6 +35,16 @@ sealed interface AudioFault {
     data class Device(val error: AudioErrorCode) : AudioFault
 }
 
+/** Output peak levels (linear, 0..1) since the previous reading. */
+data class PeakLevels(val left: Float, val right: Float) {
+    companion object {
+        val SILENT = PeakLevels(0f, 0f)
+    }
+}
+
+/** Integrated loudness of a media range. [lufs] is null when nothing audible was found. */
+data class LoudnessResult(val lufs: Double?, val samplePeak: Double)
+
 data class AudioStats(
     val sampleRate: Int,
     val framesPerBurst: Int,

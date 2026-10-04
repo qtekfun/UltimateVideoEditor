@@ -22,6 +22,7 @@
 #include "decode/video_decoder.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
+#include "stabilise/stab_registry.h"
 
 namespace uv::encode {
 
@@ -396,7 +397,7 @@ public:
             if (clip->titleKey != 0) {
                 render::LayerDraw title;
                 title.titleKey = clip->titleKey;
-                title.fx = clip->fx;
+                title.fx = fxAt(*clip, projectFrame);
                 title.transform = render::LayerTransform{
                     static_cast<float>(pose.posX),   static_cast<float>(pose.posY),        static_cast<float>(pose.scaleX),
                     static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
@@ -413,7 +414,8 @@ public:
             // The clip carries what its source is (render::ColorMode value of any target); the target is the export's.
             layer.mode = render::colorModeFor(render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)), space_);
             layer.turns = asset.turns;
-            layer.fx = clip->fx;
+            layer.fx = fxAt(*clip, projectFrame);
+            stab::resolveStabilisation(&layer.fx, source);  // the stabiliser's correction for this source frame
             layer.transform = render::LayerTransform{
                 static_cast<float>(pose.posX),   static_cast<float>(pose.posY),     static_cast<float>(pose.scaleX),
                 static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};

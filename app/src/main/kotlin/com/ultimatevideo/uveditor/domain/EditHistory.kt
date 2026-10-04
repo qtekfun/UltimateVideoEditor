@@ -4,6 +4,54 @@ package com.ultimatevideo.uveditor.domain
 sealed interface EditCommand {
     fun apply(timeline: Timeline): EditResult<Timeline>
 
+    /** Commits effects edited from what the controls showed at [frame]; keyframed values that changed become keys there. */
+    data class SetFxAt(val clipId: String, val fx: ClipFx, val frame: Long?) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setFxAt(timeline, clipId, fx, frame)
+    }
+
+    /** Like [SetFxAt] for pan and EQ gains of the clip's audio block. */
+    data class SetClipAudioAt(val clipId: String, val audio: ClipAudio, val frame: Long?) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setClipAudioAt(timeline, clipId, audio, frame)
+    }
+
+    /** Sets the volume: a key at [frame] when the volume is keyframed, else the fixed gain. */
+    data class SetGainAt(val clipId: String, val gainDb: Double, val frame: Long?) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setGainAt(timeline, clipId, gainDb, frame)
+    }
+
+    /** Adds or replaces a keyframe of one parameter (effect value, volume, pan, EQ gain or a pose component). */
+    data class SetParamKey(val clipId: String, val paramId: String, val key: ParamKey) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setKey(timeline, clipId, paramId, key)
+    }
+
+    data class RemoveParamKey(val clipId: String, val paramId: String, val frame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.removeKey(timeline, clipId, paramId, frame)
+    }
+
+    data class MoveParamKey(val clipId: String, val paramId: String, val fromFrame: Long, val toFrame: Long) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.moveKey(timeline, clipId, paramId, fromFrame, toFrame)
+    }
+
+    data class ClearParamTrack(val clipId: String, val paramId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.clearTrack(timeline, clipId, paramId)
+    }
+
+    /** Pastes copied keys onto a parameter (one undo step for the whole paste). */
+    data class PasteParamKeys(val clipId: String, val paramId: String, val keys: List<ParamKey>) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.pasteKeys(timeline, clipId, paramId, keys)
+    }
+
+    data class SetParamKeyShape(
+        val clipId: String,
+        val paramId: String,
+        val frame: Long,
+        val interpolation: Interpolation,
+        val out: BezierHandle? = null,
+        val inn: BezierHandle? = null,
+    ) : EditCommand {
+        override fun apply(timeline: Timeline) = ParamOps.setKeyShape(timeline, clipId, paramId, frame, interpolation, out, inn)
+    }
+
     data class AddTrack(val track: Track, val index: Int) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.addTrack(timeline, track, index)
     }
@@ -111,6 +159,23 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setTransform(timeline, clipId, transform)
     }
 
+    data class SetClipAudio(val clipId: String, val audio: ClipAudio) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setClipAudio(timeline, clipId, audio)
+    }
+
+    data class SetTrackAudio(val trackId: String, val audio: TrackAudio) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setTrackAudio(timeline, trackId, audio)
+    }
+
+    data class SetDucking(val ducking: Ducking?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setDucking(timeline, ducking)
+    }
+
+    /** Turns the stabiliser on (or off with null) for a clip; one undo step. */
+    data class SetStabilise(val clipId: String, val stabilise: Stabilise?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setStabilise(timeline, clipId, stabilise)
+    }
+
     data class SetGain(val clipId: String, val gainDb: Double) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setGain(timeline, clipId, gainDb)
     }
@@ -130,6 +195,15 @@ sealed interface EditCommand {
 
     data class SetEffectValues(val clipId: String, val effectId: String, val values: List<Double>) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setEffectValues(timeline, clipId, effectId, values)
+    }
+
+    data class SetEffectCurves(val clipId: String, val effectId: String, val curves: GradeCurves?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setEffectCurves(timeline, clipId, effectId, curves)
+    }
+
+    /** Values and curves of a colour grade in one undo step (apply a look, paste a grade). */
+    data class SetGrade(val clipId: String, val effectId: String, val values: List<Double>, val curves: GradeCurves?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setGrade(timeline, clipId, effectId, values, curves)
     }
 
     data class MoveEffect(val clipId: String, val effectId: String, val toIndex: Int) : EditCommand {
@@ -261,6 +335,10 @@ class EditHistory private constructor(
     constructor(timeline: Timeline, limit: Int = DEFAULT_LIMIT) : this(timeline, emptyList(), emptyList(), limit) {
         require(limit > 0) { "History limit must be positive" }
     }
+
+    /** Every timeline this history can still return to by undo or redo, plus the current one (for checks of what could come back). */
+    fun reachableTimelines(): List<Timeline> =
+        listOf(timeline) + undoStack.flatMap { listOf(it.before, it.after) } + redoStack.flatMap { listOf(it.before, it.after) }
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()

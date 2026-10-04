@@ -121,6 +121,8 @@ Status GlPipeline::init(Error* error) {
     effectSigmaLoc_ = glGetUniformLocation(effectProgram_, "uSigma");
     effectStepLoc_ = glGetUniformLocation(effectProgram_, "uStep");
     effectLutSizeLoc_ = glGetUniformLocation(effectProgram_, "uLutSize");
+    effectGradeLoc_ = glGetUniformLocation(effectProgram_, "uG");
+    effectCurveLoc_ = glGetUniformLocation(effectProgram_, "uCurve");
     glUniform1i(glGetUniformLocation(effectProgram_, "uLut"), 1);  // the LUT lives on texture unit 1
     glGenVertexArrays(1, &vao_);
     glGenFramebuffers(1, &fbo_);
@@ -366,6 +368,10 @@ void GlPipeline::effectPass(unsigned sourceTexture, const FxTarget& destination,
     glUniform2f(effectDirLoc_, dirX, dirY);
     glUniform1f(effectSigmaLoc_, sigma);
     glUniform1f(effectStepLoc_, step);
+    if (op.type == core::EffectType::ColorGrade && op.grade.size() == static_cast<size_t>(core::kGradeWireValues)) {
+        glUniform1fv(effectGradeLoc_, core::kGradeParams, op.grade.data());
+        glUniform4fv(effectCurveLoc_, core::kGradeCurveSamples, op.grade.data() + core::kGradeParams);
+    }
     if (op.type == core::EffectType::Lut) {
         const auto lut = lutTextures_.find(static_cast<uint32_t>(op.v[0]));
         if (lut != lutTextures_.end()) {

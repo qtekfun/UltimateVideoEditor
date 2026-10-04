@@ -39,6 +39,7 @@ import com.ultimatevideo.uveditor.domain.ClipMask
 import com.ultimatevideo.uveditor.domain.Effect
 import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.MaskShape
+import com.ultimatevideo.uveditor.domain.ParamIds
 import kotlin.math.roundToInt
 
 /**
@@ -110,6 +111,10 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
         ) { Text("Down") }
         TextButton(onClick = { onIntent(EditorIntent.RemoveEffect(effect.id)) }) { Text("Remove") }
     }
+    if (effect.type == EffectType.COLOR_GRADE) {
+        ColorGradeEditor(effect, onIntent)
+        return
+    }
     if (effect.type == EffectType.CHROMA_KEY) KeyColourSwatches(effect, onIntent)
     effect.type.params.forEachIndexed { i, param ->
         // The key colour is picked from the swatches; its three channels have no sliders.
@@ -123,6 +128,7 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
             readout = formatValue(effect.values[i], param.max - param.min),
             onIntent = onIntent,
             finish = EditorIntent.EndFxEdit(commit = true),
+            paramId = ParamIds.fx(effect.id, i),
         ) { v -> onIntent(EditorIntent.UpdateEffect(effect.id, effect.values.toMutableList().also { it[i] = v.toDouble() })) }
     }
 }

@@ -3,17 +3,35 @@ package com.ultimatevideo.uveditor.ui.editor
 import android.content.Context
 import android.net.Uri
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.AudioRole
+import com.ultimatevideo.uveditor.domain.ParamIds
+import com.ultimatevideo.uveditor.domain.ParamTracks
+import com.ultimatevideo.uveditor.engine.audio.AutoParam
+import com.ultimatevideo.uveditor.engine.audio.AutoPoint
+import com.ultimatevideo.uveditor.engine.audio.AutomationLane
+import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.isTrackAudible
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.audio.AudioClipSpec
+import com.ultimatevideo.uveditor.engine.audio.AudioErrorCode
 import com.ultimatevideo.uveditor.engine.audio.AudioException
+import com.ultimatevideo.uveditor.engine.audio.LoudnessResult
+import com.ultimatevideo.uveditor.engine.audio.PeakLevels
 import com.ultimatevideo.uveditor.engine.audio.AudioFault
 import com.ultimatevideo.uveditor.engine.audio.AudioPlaybackEngine
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
+import com.ultimatevideo.uveditor.engine.audio.AudioTrackSpec
+import com.ultimatevideo.uveditor.engine.audio.CompressorSpec
+import com.ultimatevideo.uveditor.engine.audio.DuckingSpec
+import com.ultimatevideo.uveditor.engine.audio.EqBandSpec
+import com.ultimatevideo.uveditor.engine.audio.EqSpec
 import com.ultimatevideo.uveditor.engine.audio.RetimeKnot
+import com.ultimatevideo.uveditor.engine.audio.TrackRole
 import com.ultimatevideo.uveditor.domain.RenderClip
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,11 +53,21 @@ internal fun audioSnapshotOf(
     assetKey: (String) -> Long,
 ): AudioSnapshot {
     val withAudio = assets.filter { it.hasAudio }.associateBy { it.id }
+    // One mixer track per timeline track that can carry sound (video clips bring their embedded audio).
+    val mixerTracks = timeline.tracks.filter { it.type != TrackType.TITLE }
+    val indexOfTrack = mixerTracks.withIndex().associate { (i, t) -> t.id to i }
     val specs = timeline.renderClips().mapNotNull { clip ->
         if (clip.kind == RenderKind.TITLE) return@mapNotNull null
         val asset = withAudio[clip.assetId] ?: return@mapNotNull null
+        val trackIndex = indexOfTrack[clip.trackId] ?: return@mapNotNull null
         val knots = retimeKnotsOf(clip)
         if (clip.retime != null && knots.isEmpty()) return@mapNotNull null // too fast, too slow or frozen: silent
+        val tools = clip.audio
+        // The clip's own fade handles are measured from the clip's own start and end. Where a transition
+        // already ramps that edge (the render window starts earlier or ends later) the crossfade is the fade.
+        val fadeIn = if (clip.crossfadeInFrames > 0) 0L else tools.fadeInFrames
+        val fadeOut = if (clip.crossfadeOutFrames > 0) 0L else tools.fadeOutFrames
+        val denoise = tools.denoise
         AudioClipSpec(
             clipKey = clipKey(clip.clipId),
             assetKey = assetKey(asset.id),
@@ -49,14 +77,83 @@ internal fun audioSnapshotOf(
             // A clip's source range is in project frames, so the source rate is the project's.
             sourceFpsNum = fps.num,
             sourceFpsDen = fps.den,
-            gainDb = clip.gainDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
+            // Volume and the stored loudness-normalise gain share one stage.
+            gainDb = (clip.gainDb + tools.normalizeDb).toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
             fadeInFrames = clip.crossfadeInFrames,
             fadeOutFrames = clip.crossfadeOutFrames,
             retimeKnots = knots,
+            trackIndex = trackIndex,
+            pan = tools.pan.toFloat(),
+            userFadeInFrames = fadeIn.coerceIn(0, clip.durationFrames),
+            userFadeOutFrames = fadeOut.coerceIn(0, clip.durationFrames),
+            eq = eqSpecOf(tools.eq),
+            denoiseStrength = denoise?.strength?.toFloat() ?: 0f,
+            noiseProfile = denoise?.profile ?: emptyList(),
+            automation = automationLanesOf(clip),
         )
     }
-    return AudioSnapshot(fps.num, fps.den, specs)
+    val tracks = mixerTracks.map { track ->
+        val a = track.audio
+        AudioTrackSpec(
+            trackKey = stableTrackKey(track.id),
+            gainDb = a.volumeDb.toFloat().coerceIn(AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
+            muted = !timeline.isTrackAudible(track),
+            role = when (a.role) {
+                AudioRole.NORMAL -> TrackRole.NORMAL
+                AudioRole.VOICE -> TrackRole.VOICE
+                AudioRole.MUSIC -> TrackRole.MUSIC
+            },
+            compressor = a.compressor?.let {
+                CompressorSpec(it.thresholdDb.toFloat(), it.ratio.toFloat(), it.attackMs.toFloat(), it.releaseMs.toFloat(), it.makeupDb.toFloat())
+            },
+        )
+    }.ifEmpty { listOf(AudioTrackSpec(trackKey = 0)) }
+    val ducking = timeline.ducking?.takeIf { it.amountDb > 0.0 }?.let {
+        DuckingSpec(it.amountDb.toFloat(), it.thresholdDb.toFloat(), it.attackMs.toFloat(), it.releaseMs.toFloat())
+    }
+    return AudioSnapshot(fps.num, fps.den, specs, tracks, ducking)
 }
+
+/**
+ * The keyframed volume, pan and EQ band gains of [clip] as mixer lanes. Keys are measured from the clip's own
+ * start, the snapshot from the start of its render window (a transition can begin earlier), so frames are
+ * shifted by the difference. The volume lane carries the same sum the static gain does (volume plus the stored
+ * loudness-normalise gain), so animating the volume never changes the normalised level.
+ */
+internal fun automationLanesOf(clip: RenderClip): List<AutomationLane> {
+    if (clip.params.isEmpty()) return emptyList()
+    val shift = clip.keyframeOriginFrame - clip.startFrame
+    val lanes = ArrayList<AutomationLane>(clip.params.size)
+    for (track in clip.params) {
+        val (param, offset) = when {
+            track.paramId == ParamIds.GAIN_DB -> AutoParam.GAIN_DB to clip.audio.normalizeDb
+            track.paramId == ParamIds.PAN -> AutoParam.PAN to 0.0
+            else -> {
+                val band = ParamIds.parseEqBand(track.paramId)?.takeIf { it in 0 until ClipEq.BAND_COUNT } ?: continue
+                AutoParam.eqGain(band) to 0.0
+            }
+        }
+        val points = ParamTracks.audioPoints(track.keys)
+            .map { (frame, value) -> AutoPoint(frame + shift, (value + offset).toFloat().coerceIn(param.min, param.max)) }
+            .filter { it.frame in 0..clip.durationFrames }
+        if (points.isNotEmpty()) lanes += AutomationLane(param, points)
+    }
+    return lanes
+}
+
+/** A key for a track id that is stable across snapshots, so the mixer keeps its envelopes running through edits. */
+internal fun stableTrackKey(trackId: String): Long = trackId.hashCode().toLong()
+
+internal fun eqSpecOf(eq: ClipEq): EqSpec =
+    if (eq.isFlat) {
+        EqSpec.FLAT
+    } else {
+        EqSpec(
+            highPassHz = eq.highPassHz.toFloat(),
+            lowPassHz = eq.lowPassHz.toFloat(),
+            bands = eq.bands.map { EqBandSpec(it.freqHz.toFloat(), it.gainDb.toFloat(), it.q.toFloat()) },
+        )
+    }
 
 /** Slowest and fastest source speed (frames per timeline frame) that is still played; beyond it a clip is muted. */
 internal const val MIN_AUDIBLE_SPEED = 0.25
@@ -96,7 +193,7 @@ class EditorAudio(
     private val context: Context,
     private val scope: CoroutineScope,
     private val onError: (String) -> Unit,
-) : PlaybackOutput, AutoCloseable {
+) : PlaybackOutput, AudioAnalyzer, AutoCloseable {
 
     private val engine: AudioPlaybackEngine? = try {
         AudioPlaybackEngine()
@@ -244,6 +341,59 @@ class EditorAudio(
 
     override fun heardFrame(): Long? = engine?.positionFrame()
 
+    /** Output peaks since the previous call, for the level meters (silent when the engine is unavailable). */
+    fun takePeaks(): PeakLevels = engine?.takePeaks() ?: PeakLevels.SILENT
+
+    // region analysis (loudness, noise profile)
+
+    override suspend fun loudness(asset: MediaAssetDto, assetKey: Long, startMicros: Long, endMicros: Long): LoudnessResult {
+        val engine = engine ?: throw AudioAnalysisException("Audio measurements are not available")
+        awaitRegistered(engine, asset, assetKey)
+        return try {
+            withContext(Dispatchers.IO) { engine.measureLoudness(assetKey, startMicros, endMicros) }
+        } catch (e: AudioException) {
+            throw analysisFailure(e, tooShort = "That stretch is too short to measure")
+        }
+    }
+
+    override suspend fun noiseProfile(asset: MediaAssetDto, assetKey: Long, startMicros: Long, endMicros: Long): FloatArray {
+        val engine = engine ?: throw AudioAnalysisException("Audio measurements are not available")
+        awaitRegistered(engine, asset, assetKey)
+        return try {
+            withContext(Dispatchers.IO) { engine.measureNoiseProfile(assetKey, startMicros, endMicros) }
+        } catch (e: AudioException) {
+            throw analysisFailure(e, tooShort = "The quiet stretch is too short: mark at least 0.1 s")
+        }
+    }
+
+    override fun cancel() {
+        engine?.cancelAnalysis()
+    }
+
+    /** Analyses open the file through the same registry as playback: wait for (or start) its registration. */
+    private suspend fun awaitRegistered(engine: AudioPlaybackEngine, asset: MediaAssetDto, key: Long) {
+        if (key !in registered && key !in opening && key !in failed) register(engine, asset, key)
+        var waited = 0L
+        while (key !in registered) {
+            if (key in failed) throw AudioAnalysisException("This file's sound cannot be opened")
+            if (waited >= REGISTER_TIMEOUT_MILLIS) throw AudioAnalysisException("The file took too long to open")
+            delay(REGISTER_POLL_MILLIS)
+            waited += REGISTER_POLL_MILLIS
+        }
+    }
+
+    private fun analysisFailure(e: AudioException, tooShort: String) = AudioAnalysisException(
+        when (e.errorCode) {
+            AudioErrorCode.Cancelled -> "The measurement was cancelled"
+            AudioErrorCode.InvalidArgument -> tooShort
+            AudioErrorCode.UnsupportedFormat -> "The sound of this file is in a format that cannot be measured"
+            else -> "The sound of this file could not be read (${e.errorCode})"
+        },
+        e,
+    )
+
+    // endregion
+
     override fun close() {
         closed = true
         stopJob?.cancel()
@@ -253,5 +403,7 @@ class EditorAudio(
     private companion object {
         const val FAULT_POLL_MILLIS = 500L
         const val IDLE_STOP_MILLIS = 1_500L
+        const val REGISTER_POLL_MILLIS = 50L
+        const val REGISTER_TIMEOUT_MILLIS = 10_000L
     }
 }

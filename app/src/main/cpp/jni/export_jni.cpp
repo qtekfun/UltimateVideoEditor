@@ -101,7 +101,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
-    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jlongArray sourceClips,
+    jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jlongArray fxFrameClips,
+    jdoubleArray fxFrameData, jlongArray sourceClips,
     jlongArray sourceTable, jintArray titleMeta, jobjectArray titlePixels, jintArray lutMeta, jobjectArray lutData, jobject audioSnapshot,
     jint outputFd) {
     ExportParams params;
@@ -253,6 +254,29 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
             return 0;
         }
         for (size_t n = 0; n < clipCount; ++n) params.clips[n].fx = std::move(parsed[n]);
+    }
+
+    // Keyframed effect values: per animated clip, the effects of each of its project frames.
+    {
+        std::vector<jlong> pairs;
+        if (fxFrameClips != nullptr) {
+            pairs.resize(static_cast<size_t>(env->GetArrayLength(fxFrameClips)));
+            if (!pairs.empty()) env->GetLongArrayRegion(fxFrameClips, 0, static_cast<jsize>(pairs.size()), pairs.data());
+        }
+        std::vector<jdouble> raw;
+        if (fxFrameData != nullptr) {
+            raw.resize(static_cast<size_t>(env->GetArrayLength(fxFrameData)));
+            if (!raw.empty()) env->GetDoubleArrayRegion(fxFrameData, 0, static_cast<jsize>(raw.size()), raw.data());
+        }
+        std::vector<std::vector<uv::core::LayerFx>> tables;
+        static_assert(sizeof(jlong) == sizeof(int64_t), "jlong must be 64-bit");
+        if (!uv::core::parseFxFrameTables(reinterpret_cast<const int64_t*>(pairs.data()), pairs.size(), raw.data(), raw.size(),
+                                          clipCount, &tables)) {
+            throwExport(env, Status::InvalidArgument, "keyframed effects do not match the clips");
+            closeAll(params.assetFds, outputFd);
+            return 0;
+        }
+        for (size_t n = 0; n < clipCount; ++n) params.clips[n].fxFrames = std::move(tables[n]);
     }
 
     // Titles: `titleMeta` holds {key, width, height} per title and `titlePixels` one direct
