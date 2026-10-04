@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProxyViewModelTest {
@@ -50,6 +51,8 @@ class ProxyViewModelTest {
         // The collectors of the view models live on Dispatchers.Main: stop them before it goes away.
         created.forEach { it.viewModelScope.cancel() }
         executor.shutdownNow()
+        // Wait for the worker thread before the temporary folder is deleted under it.
+        executor.awaitTermination(5, TimeUnit.SECONDS)
         Dispatchers.resetMain()
     }
 

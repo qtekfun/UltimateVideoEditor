@@ -161,7 +161,9 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     fromHandle(handle)->engine->setScopeMode(static_cast<int>(mode));
 }
 
-// Returns {width, height, durationFrames, fpsNum, fpsDen, colorTransfer, rotationDegrees}. Takes ownership of fd.
+// Returns {width, height, durationFrames, fpsNum, fpsDen, colorTransfer, rotationDegrees, software, proxyAdvised};
+// the last two are 1 when the FFmpeg fallback decodes the file and when that is too heavy for real time.
+// Takes ownership of fd.
 JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeOpenAsset(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint assetId, jint fd, jint fpsNum, jint fpsDen) {
     auto opened = fromHandle(handle)->engine->openAsset(static_cast<uint32_t>(assetId), fd, Rational{fpsNum, fpsDen});
@@ -170,10 +172,10 @@ JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_Nati
         return nullptr;
     }
     const auto& info = opened.value();
-    const jlong values[7] = {info.width, info.height, info.durationFrames, info.fps.num, info.fps.den,
-                             info.colorTransfer, info.rotationDegrees};
-    jlongArray result = env->NewLongArray(7);
-    env->SetLongArrayRegion(result, 0, 7, values);
+    const jlong values[9] = {info.width, info.height, info.durationFrames, info.fps.num, info.fps.den,
+                             info.colorTransfer, info.rotationDegrees, info.software ? 1 : 0, info.proxyAdvised ? 1 : 0};
+    jlongArray result = env->NewLongArray(9);
+    env->SetLongArrayRegion(result, 0, 9, values);
     return result;
 }
 

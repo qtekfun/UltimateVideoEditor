@@ -8,6 +8,8 @@
 #include "audio/analysis.h"
 #include "audio/android_pcm_decoder.h"
 #include "audio/audio_time.h"
+#include "audio/ffmpeg_pcm.h"
+#include "decode/ffmpeg/ffmpeg_api.h"
 
 #define LOG_TAG "uv_audio_engine"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -39,6 +41,16 @@ std::unique_ptr<PcmDecoder> AudioEngine::openAssetDecoder(int64_t assetKey, Stat
         return nullptr;
     }
     std::unique_ptr<PcmDecoder> decoder = AndroidPcmDecoder::open(fd, status);
+    if (!decoder && decode::ffmpeg::available() &&
+        (*status == Status::UnsupportedFormat || *status == Status::CodecError || *status == Status::IoError)) {
+        // The platform cannot decode this audio: try the software decoder (FFmpeg fallback), which also
+        // duplicates the descriptor. Keep the platform's error when it fails too (e.g. there is no audio track).
+        Status software = Status::Ok;
+        if (std::unique_ptr<PcmDecoder> fallback = openSoftwarePcmDecoder(fd, &software)) {
+            *status = Status::Ok;
+            decoder = std::move(fallback);
+        }
+    }
     close(fd);  // the decoder keeps its own duplicate
     return decoder;
 }

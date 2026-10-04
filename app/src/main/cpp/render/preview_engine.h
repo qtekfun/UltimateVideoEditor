@@ -16,7 +16,8 @@
 #include "cache/lru_cache.h"
 #include "decode/gpu_frame.h"
 #include "decode/status.h"
-#include "decode/video_decoder.h"
+#include "decode/open_decoder.h"
+#include "decode/video_decoder_api.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
 #include "render/scope_renderer.h"
@@ -159,7 +160,7 @@ public:
 
 private:
     struct Asset {
-        std::shared_ptr<decode::VideoDecoder> decoder;
+        std::shared_ptr<decode::IVideoDecoder> decoder;
         ColorMode mode = ColorMode::Sdr709;  // derived from `transfer` and the output space
         int turns = 0;  // clockwise quarter turns for display, from the container rotation
         // Look-behind/ahead its decoder keeps filled; frames inside it are evicted last.
@@ -191,7 +192,7 @@ private:
 
     PreviewEngine(size_t cacheBudgetBytes, ErrorSink sink);
 
-    std::shared_ptr<decode::VideoDecoder> decoderFor(uint32_t assetId);
+    std::shared_ptr<decode::IVideoDecoder> decoderFor(uint32_t assetId);
     void applyOutputSpace();
     void applyWindowForBudget();
 

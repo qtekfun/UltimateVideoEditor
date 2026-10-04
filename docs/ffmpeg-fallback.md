@@ -1,88 +1,122 @@
-# FFmpeg software-decode fallback — evaluation and design
+# FFmpeg software-decode fallback
 
-Status: **designed, not built.** Written 2026-10; measured numbers are marked, everything else is an estimate.
+Status: **built, optional, off by default.** Verified in CI only (host tests against a real libav, the pinned static build,
+and the engine linked against it); **not yet run on a device.** Written 2026-10.
 
-## What it would be for
+## What it is for
 
-`MediaCodec` (via `decode/video_decoder.cpp`) is the only decode path. It fails to open, or fails to decode, files whose codec the
-device has no decoder for. A fallback would only run when `VideoDecoder::open` fails with `UnsupportedFormat`. Typical cases
-on a phone: ProRes (iPhone ProRes clips), DNxHD/DNxHR, MPEG-2 and MPEG-4 part 2 (old camcorder and screen-recorder files),
-HEVC 4:2:2 or 4:4:4, MJPEG and VC-1/WMV. H.264, HEVC 4:2:0 (8 and 10 bit), VP9 and AV1 (software in the platform since
-Android 12) already work through MediaCodec and stay on it.
+`MediaCodec` is the only hardware decode path. It cannot open every file a creator may import. A phone has no decoder
+for ProRes (iPhone ProRes clips), DNxHD/DNxHR, MPEG-2 and MPEG-4 part 2 (old camcorders, screen recorders), MJPEG, VC-1/WMV,
+or for audio such as AC-3/E-AC-3, ALAC, Vorbis in unusual containers or WMA. With the fallback built in, such a file opens
+anyway, decoded on the CPU, instead of failing with "this clip cannot be previewed".
 
-It is not needed for the MVP and no format the author uses today requires it, which is why it is deferred.
+H.264 and HEVC 4:2:0 stay on MediaCodec, VP9 and AV1 too (the platform decodes them in software since Android 12). The fallback
+is tried **only** when MediaCodec fails to open the stream for a reason software can fix (unsupported format, no decoder,
+codec error, the container could not be parsed) **and** this build contains FFmpeg. Otherwise the typed MediaCodec error is
+reported, with a hint when the cause is that FFmpeg is not included.
 
-## Getting FFmpeg for arm64 — options compared
+It is off by default because it is not needed for the formats the project's author uses, and it adds about 7.6 MB of native
+code. Default builds, CI and APK size are unchanged.
 
-| Option | Verdict |
+## How to enable it
+
+1. Get the static libraries. Do **not** build them on a small laptop (a minimal build is still a long compile): run the manual
+   workflow `FFmpeg fallback` on GitHub (`Actions` > `FFmpeg fallback` > `Run workflow`) and download the artifact
+   `ffmpeg-android-arm64`. Or, on a machine with the NDK r29 and time: `scripts/build-ffmpeg-android.sh [output dir]`.
+2. Build the app against it:
+
+   ```
+   ./gradlew :app:assembleDebug -Puveditor.ffmpeg=/path/to/ffmpeg-android   # the directory with include/ and lib/
+   ```
+
+   `cmake/ffmpeg.cmake` checks that `include/libavcodec/avcodec.h` and the five `lib*.a` exist (a clear error otherwise) and
+   links them statically, with their symbols kept private to `libuveditor_engine.so`.
+3. Open a file MediaCodec cannot decode. The editor shows "Software decoding: this video format is not supported by the
+   phone's decoder, so it is decoded on the CPU and may play slower", and, when the stream is too heavy for real time, the
+   existing proxy suggestion appears.
+
+The app never downloads anything at run time. FFmpeg's source is fetched only by the build script, pinned by version and
+SHA-256.
+
+## What is built
+
+`scripts/build-ffmpeg-android.sh` configures FFmpeg **8.1.3** (`ffmpeg-8.1.3.tar.xz`, SHA-256
+`7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3`) for arm64-v8a, Android 33, NDK r29:
+`--disable-everything --disable-autodetect --disable-programs --disable-doc --disable-network --disable-avfilter
+--disable-avdevice --enable-static --disable-shared --enable-pic`, only the libraries avcodec, avformat, avutil, swscale and
+swresample, protocol `file` only, no hardware acceleration, no GPL or nonfree component. The script aborts if the resulting
+`config.h` is not `LGPL version 2.1 or later`.
+
+- **Video decoders:** h264, hevc, mpeg4, mpeg2video, mjpeg, prores, dnxhd, theora, vp8, vp9, vc1, wmv1/2/3, msmpeg4 v1-v3,
+  h263/h263p, flv, svq1, svq3, cinepak, msvideo1, rawvideo, ffv1, huffyuv, utvideo.
+- **Audio decoders:** aac, aac_latm, mp2, mp3, opus, vorbis, flac, alac, ac3, eac3, truehd, dca, wmav1/2, wmapro, amrnb/wb, and
+  the PCM variants (s16/s24/s32/f32/f64/u8/alaw/mulaw).
+- **Demuxers:** mov, matroska, mpegts, mpegps, avi, asf, flv, ogg, mp3, wav, flac, aac, ac3, eac3, h264, hevc, m4v, mpegvideo,
+  mxf, amr, rm, ivf, dts, yuv4mpegpipe. Parsers for the matching codecs.
+
+The workflow `.github/workflows/ffmpeg.yml` builds it (about a minute and a half on a runner), reports the sizes, uploads the
+libraries and headers as an artifact (nothing binary is committed), then compiles and links the engine against them.
+
+**Measured sizes (CI, stripped static libraries, arm64):**
+
+| Library | Size |
 |---|---|
-| **ffmpeg-kit** (the usual Android wrapper) | The GitHub project is archived and its Maven artifacts are retired; do not depend on it. |
-| **Media3 FFmpeg extension** | Audio decoders only and it must be built from FFmpeg sources by the app anyway. Not useful for video. |
-| **`org.bytedeco:ffmpeg` prebuilt jars** (Maven Central, e.g. `8.1.2-1.5.14`) | A real prebuilt option. Measured (`…-android-arm64.jar`, the `-gpl` variant is 23 MB): 20.6 MB compressed, 52.6 MB unpacked; `libavcodec.so` alone is 27 MB, `libavformat.so` 11 MB, `libavfilter.so` 6.5 MB, `libswscale.so` 1.2 MB, `libswresample.so` 0.1 MB, `libavutil.so` 0.7 MB, plus ~5 MB of JavaCPP `libjni*.so` we would not use. They are full builds (every codec), shared libraries, and carry **no headers** (those come from the FFmpeg source tag). Easy to use, but adds roughly **+20 MB to the APK** (arm64 only) for a feature almost nobody needs. |
-| **Build a minimal static FFmpeg ourselves** | Best result: with `--disable-everything` and only the wanted decoders/parsers/demuxers, `libavcodec`+`libavformat`+`libavutil`+`libswscale`+`libswresample` come to roughly **3–6 MB** stripped (estimate; a build must confirm it). Cost: a build recipe to maintain. |
+| libavcodec.a | 7,27 MB |
+| libavformat.a | 1,30 MB |
+| libswscale.a | 1,54 MB |
+| libavutil.a | 1,11 MB |
+| libswresample.a | 0,15 MB |
+| **total** | **11,4 MB** (archives; only what the engine uses is linked) |
 
-### Recommended path (when this is built)
+`libuveditor_engine.so` (debug, arm64, symbols stripped): **2,67 MB without FFmpeg, 10,26 MB with it (+7,6 MB).**
 
-Build the minimal static FFmpeg **in GitHub Actions**, never on the laptop (a configure+make of the minimal set takes on the
-order of 10–25 minutes per ABI with the NDK toolchain; the laptop is memory-constrained). The workflow publishes the
-`libav*.a` + headers as a release/CI artifact; the app build downloads a pinned, checksummed archive into
-`app/src/main/cpp/third_party/ffmpeg/` (git-ignored). Nothing large is committed.
+## How it plugs in
 
-Recipe sketch (NDK r29, `aarch64-linux-android33`, FFmpeg release branch pinned by tag):
+- `decode/video_decoder_api.h`: the abstract `IVideoDecoder` that the preview engine and the exporter use. `VideoDecoder`
+  (MediaCodec) and `ffmpeg::FfmpegDecoder` implement it. `AssetInfo` gained `software` and `proxyAdvised`.
+- `decode/open_decoder.cpp`: `openVideoDecoder()` tries MediaCodec, then software. The decision is the pure function in
+  `decode/decoder_selection.h` (also the typed error messages and the CPU budget).
+- `decode/ffmpeg/software_reader.*`: libavcodec/libavformat over a `pread()` file-descriptor reader (no FFmpeg protocol, so
+  several readers can use duplicates of one descriptor). Frame indices are exact: pts to frame is integer arithmetic with 128-bit
+  intermediates, round half up (`decode/ffmpeg/ts_math.h`). A seek goes to the previous key frame; when the demuxer lands
+  after the wanted frame (open GOPs) it retries further back, geometrically, and also when a seek ends before any picture.
+- `decode/ffmpeg/ffmpeg_decoder.*`: a worker thread with the same window (look-behind / look-ahead) and the same seek policy as
+  the MediaCodec decoder (`decode/seek_policy.h`, planned by `decode/ffmpeg/software_policy.h`), converting each wanted picture
+  with swscale into an RGBA8 `AHardwareBuffer` from a small pool and handing it to the render thread through `drainImages()`,
+  so the frame cache, colour shader, effects and exporter are untouched.
+- `audio/ffmpeg_pcm_decoder.cpp`: a `PcmDecoder` (interleaved stereo float at the stream rate, proper downmix with
+  libswresample), used when the platform cannot decode the audio: the mixer, loudness and noise measurements, and the waveform.
+- The colour transfer, the display-matrix rotation and the frame rate (average rate, snapped to exact broadcast rationals,
+  or the override) come from the container and feed the same per-asset paths the MediaCodec decoder uses.
+- CPU budget: libavcodec threads = half the cores, between 1 and 4; a stream above 1080p30 pixel rate is flagged as not real
+  time, its look-ahead is reduced and a proxy is advised.
 
-```
-./configure --target-os=android --arch=aarch64 --enable-cross-compile \
-  --cc=$NDK/…/aarch64-linux-android33-clang --sysroot=$NDK/…/sysroot \
-  --disable-everything --disable-programs --disable-doc --disable-network --disable-autodetect \
-  --enable-static --disable-shared --enable-small --enable-pic \
-  --enable-avcodec --enable-avformat --enable-avutil --enable-swscale --enable-swresample \
-  --enable-decoder=prores,dnxhd,mpeg2video,mpeg4,mjpeg,vc1,wmv3,hevc,h264 \
-  --enable-demuxer=mov,matroska,mpegts,mpegps,avi,asf \
-  --enable-parser=h264,hevc,mpegvideo,mpeg4video,mjpeg,vc1 \
-  --enable-protocol=file
-```
+## Limits
 
-`--disable-autodetect` avoids pulling system libs; no `--enable-gpl`/`--enable-nonfree` is needed for these decoders (they
-are LGPL), so the library stays LGPL-2.1+ and the app, which is GPL-3.0, may link it statically. If a GPL-only component were
-ever added, GPL-3.0 still allows it; record the exact configure line in `THIRD_PARTY_NOTICES.md` either way, ship the
-corresponding source/patch references, and note that FFmpeg is not covered by the project's own licence.
+- **Slower.** Software decode of 4K (or 1080p60) ProRes or HEVC 4:2:2 will not play in real time on a phone. Scrubbing is fine
+  once frames are cached; export decodes off screen and is simply slower. The editor says so and suggests a proxy.
+- **RGBA8 loses HDR precision.** Frames are converted to 8-bit RGBA. A 10-bit source (ProRes 422 HQ, HEVC Main10 4:2:2) loses
+  precision, and HLG/PQ gradients may band. The MediaCodec path keeps 10 bits. A 10-bit RGB path (`AHARDWAREBUFFER_FORMAT_R10G10B10A2`
+  or half-float through swscale) would fix it; not done.
+- **AV1 is not included.** It needs libdav1d (BSD-2-Clause) or libaom built separately and linked in; the platform decodes AV1
+  itself since Android 12, so it was left out. Adding dav1d means building it with the NDK and adding `--enable-libdav1d` plus
+  its static library to `cmake/ffmpeg.cmake`.
+- **Audio** that the platform decodes is never routed to the software path; only a failure to open it is.
+- **Not yet on a device.** The `AHardwareBuffer` upload, the preview/export path and the notice are covered by compile, link and
+  host tests only.
 
-## Where it plugs in
+## Licence
 
-The pipeline already has the right seam: `VideoDecoder::drainImages(fn)` hands the render thread an `AHardwareBuffer` per
-decoded frame, and everything after that (frame cache keyed by (asset, frame), look-ahead window, EGLImage import, colour
-shader, effects, export) is codec-agnostic.
-
-1. **Interface.** Extract the public surface of `VideoDecoder` (`info`, `setTarget`, `setWindow`, `drainImages`, `markResolved`,
-   `isUnavailable`, `recover`, `describe`, `shutdown`) into an abstract `IVideoDecoder`; `VideoDecoder` (MediaCodec) and a new
-   `FfmpegDecoder` implement it. `PreviewEngine` and the exporter hold `std::shared_ptr<IVideoDecoder>`.
-2. **Selection.** `openDecoder(fd, …)` tries MediaCodec first; only if it returns `UnsupportedFormat` (or the codec fails to
-   configure) and the build flag `UV_FFMPEG_FALLBACK` is on does it open `FfmpegDecoder`. A project file that needs it shows a
-   "decoded in software" badge on the clip, because it will be slower.
-3. **Frames.** `FfmpegDecoder` runs its own worker thread: `avformat` seek to the previous keyframe → `avcodec` decode →
-   `swscale` to `RGBA8` (or to NV12 and let the existing path treat it) written straight into a CPU-writable
-   `AHardwareBuffer` (`AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN | GPU_SAMPLED_IMAGE`) taken from a small pool. The buffer then flows
-   through `drainImages` exactly like a MediaCodec image, so the cache and render path are untouched. The window/eviction logic
-   needs the same `frame → pts` mapping the MediaCodec decoder uses (integer frames, rational fps).
-4. **Colour.** The container's colour metadata is read from `AVStream.codecpar` (`color_trc`, `color_primaries`) and fed into
-   the same per-asset transfer that the MediaCodec path reports (`AssetInfo.colorTransfer`), so the per-clip colour override works.
-5. **Audio.** Out of scope for the first version: the waveform and audio engines use `AMediaExtractor`/`AMediaCodec`, so a
-   file whose *audio* codec is unsupported would also need `avcodec` audio decode into the existing PCM paths.
-6. **Errors.** Typed (`Status::UnsupportedFormat`, `DecodeFailed`) with codec name and stage, surfaced like the MediaCodec ones.
-7. **Performance expectation.** Software decode of 4K ProRes/HEVC 4:2:2 will not play in real time on a phone; the cache and
-   look-ahead make scrubbing usable at 1080p. The export path can decode off-screen and is simply slower. This is acceptable for
-   a fallback and must be stated in the UI.
+FFmpeg is configured LGPL-2.1+ (no `--enable-gpl`, no `--enable-nonfree`) and linked statically into the GPL-3.0 app, which the
+LGPL allows. FFmpeg is **not** covered by the project's own licence: see `THIRD_PARTY_NOTICES.md` for the version, the exact
+configure options and where to get the corresponding source.
 
 ## Tests
 
-- Host: a fake `IVideoDecoder` for the selection logic (MediaCodec unsupported → fallback, flag off → typed error).
-- Host (CI only, because it needs the built library): decode a tiny generated ProRes and MPEG-2 clip and compare the frame
-  hash; seek accuracy at GOP boundaries.
-- Device: open a ProRes file from the phone, scrub, export, and compare with the same file transcoded to H.264.
-
-## Effort and decision
-
-About 1–2 weeks of focused work (CI build recipe, decoder interface refactor, `FfmpegDecoder`, tests, device verification),
-plus APK size and licence housekeeping. It cannot be validated without a device and test clips, so it was not built blind.
-**Decision: keep it deferred; build the CI recipe first when a real file needs it** (a ProRes/MPEG-2 clip failing to open is
-the trigger), then the decoder.
+- `app/src/test/cpp/ffmpeg_selection_tests.cpp` (always, no libav, in `scripts/run-native-tests.sh` and CMake): routing and error
+  messages, CPU budget, exact timestamp maths, and the worker's seek/decode planning driven by a fake reader (sequential
+  playback over a long GOP seeks once; jumps; recover).
+- `app/src/test/cpp/ffmpeg_reader_tests.cpp` via `scripts/run-ffmpeg-host-tests.sh` (needs libav dev files and the ffmpeg CLI;
+  CI job "FFmpeg host tests"): generated MPEG-2 (short and long GOP), MPEG-4, ProRes, H.264, 29.97 fps, frame-rate override, AAC
+  and AC-3: exact indices, seeking to targets inside a GOP, end of stream, the tone's frequency and an exact audio seek.
+- Still to do on a device: open a ProRes file from the phone, scrub, export, and compare with the same file transcoded to H.264.

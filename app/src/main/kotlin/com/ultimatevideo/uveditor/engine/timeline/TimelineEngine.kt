@@ -18,8 +18,9 @@ enum class EngineStatus(val code: Int) {
 /**
  * [ABOVE_LANES] is the free room between the ruler and the first lane (the 'add a lane' zone) and
  * [OUTSIDE] means the finger left the panel; both exist so a drag can tell where it would land.
+ * [LANE_HEADER] is the name tab at the left edge of a lane: a long press there starts a lane drag.
  */
-enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE }
+enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE, LANE_HEADER }
 
 /** What the indicator drawn over the timeline during a clip drag shows; mirrors the native `DropHintKind`. */
 enum class DropIndicator(val code: Int) { NONE(0), INSERT(1), OVERWRITE(2), NEW_LANE(3), CANCEL(4) }
@@ -105,6 +106,9 @@ class TimelineEngine(
     fun setMarquee(x0: Float, y0: Float, x1: Float, y1: Float) = NativeTimeline.nativeSetMarquee(live(), true, x0, y0, x1, y1)
 
     fun clearMarquee() = NativeTimeline.nativeSetMarquee(live(), false, 0f, 0f, 0f, 0f)
+
+    /** Tints lane [from] and draws a bar where it would land on lane [to] during a lane header drag; -1, -1 clears it. */
+    fun setLaneDrag(from: Int, to: Int) = NativeTimeline.nativeSetLaneDrag(live(), from, to)
 
     /** Keys of the clips whose block intersects the view-pixel rectangle, for the marquee selection. */
     fun clipsInRect(x0: Float, y0: Float, x1: Float, y1: Float): List<Long> =

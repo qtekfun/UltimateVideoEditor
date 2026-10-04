@@ -93,9 +93,14 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     snap.tracks.reserve(trackCount);
     snap.clips.reserve(clipCount);
     for (int32_t i = 0; i < trackCount; ++i) {
-        int32_t type = 0;
-        if (!r.read(&type) || type < 0 || type > 2) return Status::BadSnapshot;
-        snap.tracks.push_back({static_cast<TrackType>(type)});
+        int32_t word = 0;
+        if (!r.read(&word) || word < 0) return Status::BadSnapshot;
+        const int32_t type = word & kTrackTypeMask;
+        if (type > 2) return Status::BadSnapshot;
+        TrackSnapshot track{static_cast<TrackType>(type)};
+        track.muted = (word & kTrackMutedBit) != 0;
+        track.solo = (word & kTrackSoloBit) != 0;
+        snap.tracks.push_back(track);
     }
     for (int32_t i = 0; i < clipCount; ++i) {
         ClipSnapshot c{};
@@ -176,8 +181,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         snap.markers.reserve(static_cast<size_t>(markerCount));
         for (int32_t i = 0; i < markerCount; ++i) {
             MarkerSnapshot m{};
-            int32_t reserved = 0;
-            if (!r.read(&m.frame) || !r.read(&m.flags) || !r.read(&reserved) || m.frame < 0) return Status::BadSnapshot;
+            if (!r.read(&m.frame) || !r.read(&m.flags) || !r.read(&m.extra) || m.frame < 0) return Status::BadSnapshot;
             snap.markers.push_back(m);
         }
         std::sort(snap.markers.begin(), snap.markers.end(),

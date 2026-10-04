@@ -4,7 +4,7 @@ enum class RenderKind { VIDEO, TITLE, AUDIO }
 
 /**
  * One clip as the renderers see it. The preview, the exporter and the audio mixer all start from
- * this list, so a transition looks and sounds the same everywhere (SPECS.md 5.7).
+ * this list, so a transition looks and sounds the same everywhere (SPECS.md 5.8).
  *
  * A transition is expressed by extending the two clips around the cut: the outgoing clip keeps
  * playing past its out point, the incoming clip starts early, and the incoming one fades in over

@@ -11,3 +11,7 @@ g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
 g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
     "$root/app/src/test/cpp/decode_sim_tests.cpp" -o "$out/decode_sim_tests"
 "$out/decode_sim_tests"
+# FFmpeg fallback: decoder selection, CPU budget, exact timestamp mapping and the worker's seek planning (no libav needed).
+g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
+    "$root/app/src/test/cpp/ffmpeg_selection_tests.cpp" -o "$out/ffmpeg_selection_tests"
+"$out/ffmpeg_selection_tests"
