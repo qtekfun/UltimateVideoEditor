@@ -8,6 +8,7 @@
 
 #include "decode/log.h"
 #include "render/layout_math.h"
+#include "stabilise/stab_registry.h"
 
 namespace uv::render {
 
@@ -680,12 +681,17 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                                                      : asset->second.mode;
             LayerDraw draw{frame.get(), mode, asset->second.turns, layer.transform};
             draw.fx = layer.fx;
+            stab::resolveStabilisation(&draw.fx, layer.frame);  // the stabiliser's correction for this source frame
             layers.push_back(std::move(draw));
             signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source});
         }
     }
     if (layers.empty()) return;
-    if (!force && drawnValid_ && drawnCanvasW_ == canvasW_ && drawnCanvasH_ == canvasH_ && drawn_ == signature) return;
+    const uint64_t stabRevision = stab::StabRegistry::instance().revision();
+    if (!force && drawnValid_ && drawnCanvasW_ == canvasW_ && drawnCanvasH_ == canvasH_ && drawn_ == signature &&
+        drawnStabRevision_ == stabRevision) {
+        return;
+    }
 
     // Single-asset mode has no project canvas: use the first layer's displayed size.
     int canvasW = canvasW_;
@@ -725,6 +731,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
         });
     }
     drawn_ = std::move(signature);
+    drawnStabRevision_ = stabRevision;  // a re-analysed table under the same key must show up
     drawnCanvasW_ = canvasW_;
     drawnCanvasH_ = canvasH_;
     drawnValid_ = true;
