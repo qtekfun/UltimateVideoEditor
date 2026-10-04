@@ -334,7 +334,6 @@ class ExportViewModel(
         val running = synchronized(lock) { handle.also { handle = null } }
         running?.cancel()
         running?.close()
-        super.onCleared()
     }
 
     private companion object {
