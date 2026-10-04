@@ -73,8 +73,15 @@ data class TimelineSnapshot(
     val retimes: List<SnapshotRetime> = emptyList(),
     val markers: List<SnapshotMarker> = emptyList(),
     val labels: List<SnapshotLabel> = emptyList(),
+    /**
+     * Per-lane flags for the lane headers, one entry per track (or empty for none): [TRACK_MUTED] and [TRACK_SOLO] mark
+     * audio lanes. They travel in the high bits of the track's type word, so there is no version bump.
+     */
+    val trackFlags: List<Int> = emptyList(),
 ) {
     init {
+        require(trackFlags.isEmpty() || trackFlags.size == tracks.size) { "trackFlags must have one entry per track or none" }
+        for (flags in trackFlags) require(flags in 0..(TRACK_MUTED or TRACK_SOLO)) { "unknown lane flags $flags" }
         for (marker in markers) require(marker.frame >= 0) { "a marker is before frame 0" }
         val clipKeys = clips.mapTo(HashSet()) { it.clipKey }
         for (label in labels) require(label.clipKey in clipKeys) { "a label references missing clip ${label.clipKey}" }
@@ -116,7 +123,7 @@ data class TimelineSnapshot(
         buffer.putInt(fpsDen)
         buffer.putInt(tracks.size)
         buffer.putInt(clips.size)
-        for (type in tracks) buffer.putInt(type.code)
+        tracks.forEachIndexed { index, type -> buffer.putInt(type.code or (trackFlags.getOrElse(index) { 0 } shl TRACK_FLAGS_SHIFT)) }
         for (clip in clips) {
             buffer.putLong(clip.clipKey)
             buffer.putInt(clip.trackIndex)
@@ -172,6 +179,11 @@ data class TimelineSnapshot(
         const val VERSION = 7
         const val HEADER_BYTES = 24
         const val TRACK_BYTES = 4
+
+        /** Lane flags in [trackFlags]; on the wire they sit above the type's low byte (see `timeline_snapshot.h`). */
+        const val TRACK_MUTED = 1
+        const val TRACK_SOLO = 2
+        const val TRACK_FLAGS_SHIFT = 8
         const val CLIP_BYTES = 56
 
         /** The transition count that follows the clips. */

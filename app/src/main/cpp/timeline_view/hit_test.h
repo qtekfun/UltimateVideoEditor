@@ -19,6 +19,7 @@ enum class HitKind : int32_t {
     Playhead = 6,  // the playhead handle in the ruler
     Outside = 8,      // the finger left the panel (set by the renderer, which knows the panel size)
     AboveLanes = 7,  // below the ruler but above the first lane (room left by the bottom-anchored stack)
+    LaneHeader = 9,  // the header column at the left edge of a lane (only when the layout has one)
 };
 
 struct HitResult {
