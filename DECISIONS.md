@@ -583,6 +583,18 @@ text-template sheet with an optional text field. **Why:** the toolbar already sc
 **Why:** a creative LUT is expected on display-referred pixels and the effect chain already works there; a per-clip effect reuses ordering, undo, keyframable-parameter plumbing, JSON and preview/export parity. A global hash key avoids copying LUT data into every project.
 **Alternative:** LUTs stored inside the project (portable but bloats `project.json` or needs a project folder format); an adjustment/grade track that applies one LUT to everything below (a natural follow-up using the same shader); colour-space-aware LUTs (e.g. Rec.2020 log to HLG) which need transform metadata the .cube format does not carry.
 
+## Media tray and drag and drop (WP-U2)
+
+**Decisions**
+- **Drops are planned by `DropPlan.decideNew`**, a sibling of `decide` for clips that are not on the timeline yet, with the same zones (base: insert near a cut / overwrite over a clip / append at the end; other lanes: overwrite or free placement; above the top lane: new lane; far outside or a lane of the wrong kind: cancel). The indicator and the release use the same decision.
+- **Tray drags show the indicator only, no ghost clip on the canvas.** The platform drag shadow (the thumbnail) is the ghost. Free space is drawn like an overwrite (a tinted range) because the canvas has no "plain move" indicator; the new-lane placeholder needs a lane in the shown timeline, so the preview timeline gets one empty provisional lane (`track-v-new`). Alternative: a native "place" indicator (C++ change), not worth it for this package.
+- **Reordering the tray reorders `mediaLibrary` itself**, so no new JSON field and old files load unchanged. Alternative: a separate order list, which would need syncing with imports and deletions.
+- **Stickers and templates are tap-to-add, not draggable**, to keep the first version small; dragging them would need clip creation for stickers in the drop path. Alternative: payloads with a sticker/template id handled by `decideNew` too.
+- **Files from other apps**: hovering uses a 3 s stand-in clip (their length is unknown until probed) so the indicator can show where they land; on drop they are imported, then the first is placed where it was dropped and the rest follow it. Read access is requested with `requestDragAndDropPermissions` (it lasts for the activity) and a persistable grant is attempted; if the provider refuses, the files still work this session and may need relinking after a restart. No copy of the file is made (privacy and size).
+- **Thumbnails** come from `MediaMetadataRetriever` (first frame) and `ImageDecoder`, in a 12 MB in-memory LRU; no disk cache and nothing leaves the device.
+- **The bottom tray starts collapsed** (a thin tab strip) with half and full heights; sticker and template toolbar buttons now open its tabs instead of modal sheets.
+- **Audio on a video lane cancels** instead of jumping to the nearest audio lane, so what the indicator shows is always what happens.
+
 ## Privacy (user rule: no AI, no third-party services, no network)
 
 The user ruled out AI features and any dependence on third-party services ("la privacidad es algo importantisimo"). These
@@ -631,3 +643,15 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Alternative:** store a `thumb.jpg` inside each project folder (survives cache clearing but must be copied/cleaned by clone, delete and export); always show search (noise for short lists).
 
 **Confirmed by the user (2026-10-04):** remove whisper and the automatic transcription.
+
+## Resizable layout (WP-U3)
+
+**Decisions:**
+- `LayoutState` is pure data with a reducer and is saved as one `key=value` line per window class and orientation in a private preferences file; reading is forgiving and the result is clamped to the window. Why: unit-testable, no new dependency (no DataStore). Alternative: DataStore.
+- Dividers read the layout while measuring (custom `Layout` containers), so a drag re-measures instead of recomposing the editor; drags are coalesced to one update per 40 ms and flushed at the end, and preferences are written once per gesture. Alternative: `weight` modifiers (recompose per step).
+- The lane height is a scale (0.75, 1, 1.4) applied by the native timeline (`setLaneScale`), so waveforms, thumbnails and diamonds follow without Kotlin knowing about them. Alternative: scale in Compose (not possible, the lanes are drawn natively).
+- Side docks need a window of at least 600 dp; below that docks fall back to bottom / over the timeline. The editor keeps at least 30 % of the width.
+- The bottom tray's collapsed state is a thin bar of the layout (the tray's own snap heights stay inside it).
+- Lane height has +/- and chips but no vertical pinch: a two-finger vertical gesture would conflict with the timeline's pinch-zoom, and it can be added later in the native gesture code.
+- Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
+**Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).

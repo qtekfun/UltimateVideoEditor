@@ -131,10 +131,15 @@ waves of SPECS 9.20.
 
 ### Wave 0 — usability first
 - [x] WP-U1 (JVM-tested; not yet seen on the device) New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
-- [ ] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+- [x] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
+      _Status:_ implemented and unit-tested (domain `DropPlan.decideNew`, tray model, ViewModel drag/drop/import/reorder, drag payload helpers); **not seen on the OPPO** (not reachable by adb when this was built): the tray layout, the platform drag from tray to the native canvas, edge auto-scroll while dragging, drops from other apps and the drag shadow still need a manual check.
 
 ### Wave 1
-- [ ] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
+- [x] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
+  - _Status:_ pure `LayoutState` reducer, presets, per-window persistence and the controller are covered by 34 JVM tests; the native lane scale by a host test.
+    Seen on the Pixel 8 (not the reference phone): divider drag, the layout sheet, Large lanes, the Timeline focus preset, and the Two panels preset in a
+    widened (762 dp) window with the tray in a left column. Not seen: the inspector docked to a side, customise mode buttons, collapsing a side column,
+    persistence across a restart, split-screen/fold changes, and the OPPO. Pinch-to-resize lanes is not built (the -/+ control is).
 - [ ] WP-C Colour tools and scopes: waveform, vectorscope, histogram; grade effect; looks (after the 3D LUT and per-clip colour PRs)
 
 ### Wave 2
