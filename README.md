@@ -85,7 +85,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (overview), [SPECS.md](SPE
 
 ## Requirements
 
-- Android device with Android 13 or newer (minSdk 33); developed on a high-end phone (SM8850, Android 16).
+- Android device with Android 12 or newer (minSdk 31); developed on a high-end phone (SM8850, Android 16).
 - JDK 21, Android SDK with platform 37, NDK `29.0.14206865` and CMake `3.31.6`. Android Studio is not required.
 - `git`. `g++` (C++20) for the host-side native tests.
 

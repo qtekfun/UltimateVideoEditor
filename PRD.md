@@ -21,7 +21,7 @@ the differentiators.
 
 | Item | Decision |
 |---|---|
-| minSdk | 33 (Android 13) |
+| minSdk | 31 (Android 12) |
 | Reference device | OnePlus CPH2841, SM8850, Android 16 (API 36), GLES 3.2, Vulkan (Adreno), 11 GB RAM |
 | Form factor | Adaptive (Compose window size classes): phone portrait/landscape, tablet, foldable |
 | Engine | C++ (CMake/NDK), library `uveditor_engine` |

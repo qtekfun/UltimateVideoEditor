@@ -1201,6 +1201,17 @@ Taps still place a puck, add a curve point or (long press) remove one, and a dou
 swipe that began on a wheel or plot, which are most of the panel's width, so scrolling needed a narrow margin. **Alternative:** a dead zone on the
 panel edge or a long-press-to-drag (two gestures to learn, and long press already removes a curve point). Implemented in `detectGrabbedDrag`.
 
+## Android 12 (minSdk 31) and the Huawei decoder ladder
+**Chosen:** minSdk is 31 so the app installs on Android 12 devices such as the Huawei MatePad MRO-W09 (Maleoon 910, `hvgr` driver). Everything the app
+needs from APIs above 31 was already optional or replaceable (`InputStream.readNBytes`, API 33, became `readAtMost`). Opening a video decoder
+walks a ladder (`decode/decoder_ladder.h`): default decoder with a PRIVATE reader of 8, 6, 4, 3 images, a YUV_420_888 reader, then the platform
+software decoder (`c2.android.avc.decoder` / `c2.android.hevc.decoder`). The first rung whose codec starts wins; each failed rung is logged with its
+status and the winner shows in the `decode/s` log line. If every rung fails the error says the device could not start a decoder for that size.
+**Why:** the Huawei hisi AVC decoder reserves extra output buffers tied to the reader's `maxImages` and `AMediaCodec_start` returned -10000 with 8
+images, so the preview was black. Six images start the hardware decoder and play 4K60 with no stalls. Larger counts (24) are worse: the decoder's
+minimum undequeued buffers grows with them. **Alternative:** always use the software decoder on Huawei (works, but 4K60 would not play in real time)
+or a device allow-list (needs hardware to test each model; the ladder needs none).
+
 ## Quick markers, LumaFusion style
 **Chosen:** one tap on the marker button drops a marker at the playhead (one `AddMarker`, nothing else runs) and shows a
 state-based "Marker added · Edit" chip for 3 s; a marker within 2 frames of the playhead opens its popup instead of
