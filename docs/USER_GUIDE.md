@@ -12,7 +12,7 @@ automated tests so far; see [Known limits](#known-limits).
 4. [Media tray](#media-tray) and [Media library](#media-library)
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
 6. [Inspector](#inspector)
-7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates)
+7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates) (including [layers, fonts and presets](#titles-with-layers-fonts-and-presets))
 8. [Markers and beats](#markers-and-beats)
 9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
 10. [Stabilising shaky footage](#stabilising-shaky-footage)
@@ -321,8 +321,31 @@ the preview shows, up to 30 times a second, and only while open. The scale is in
 ## Titles, captions, stickers and templates
 
 - **T** adds a title. Drag it on the preview to move it (for a lower third, drag it to the bottom).
-- **Tt** opens the Titles tab of the tray: lower third, pop title, slide-in headline and subtitle bar. Type your
-  text first if you want, then tap a template; each one is a normal editable title with keyframes.
+- **Tt** opens the Titles tab of the tray: lower third, pop title, slide-in headline and subtitle bar, then "My
+  presets". Type your text first if you want, then tap a template; each one is a single editable title.
+
+### Titles with layers, fonts and presets
+
+Select a title and open the inspector. A plain title has one text style; tap **Edit as layers** to turn it into a
+multilayer title (a caption with word timing stays a plain title).
+
+- **Layers** are listed top first. **+ Text**, **+ Shape** (rectangle, rounded rectangle, ellipse, line),
+  **+ Sticker** and **+ Photo** add one on top (up to 16). Tap a layer to edit it; **Up**, **Down**, **Copy** and
+  **Remove** reorder, duplicate or delete it. Every change is one undo step.
+- **Text layers** have text, size, colour, alignment, bold, italic, letter spacing, line height, border, shadow, a
+  background box and a font. **Shapes** have size, fill, outline, shadow and corner radius. **Pictures** have a size
+  and a shadow. Each layer is placed inside the title (across, down, scale, rotation, opacity).
+- **On the preview**, with a layer selected, drag, pinch and twist move, scale and turn that layer (a ring and cross
+  mark it) instead of the whole title.
+- **Fonts**: **Import font…** picks a `.ttf` or `.otf` file from your device. Fonts stay on the device and are not
+  embedded in projects or presets: if a project uses a font this device lacks, a banner says so and the default font
+  is shown until you import the same font file. Check that a font's licence lets you use it in your videos.
+- **Animation**: pick an **In** and an **Out** (fade, slide from a side, pop) and **Apply animation**; it becomes
+  keyframes of the title and replaces any it had.
+- **Presets**: **Save** stores the title (without photos, which belong to one project) with its animation as a preset
+  in "My presets" of the Titles tab. **Export** writes a `.uvtitle` file you can share; **Import a .uvtitle file…**
+  adds one from a file. Nothing is sent anywhere.
+
 - **CC** opens the captions sheet. Type a caption, set where it starts and how long it lasts (the buttons step by one
   frame or one second; the next caption starts where the last one ended), and tap Add. Or import a `.srt` or `.vtt`
   subtitle file (it can start at the project start or at the playhead). Pick a style: Classic, Bold, Pop, Impact,

@@ -13,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -28,7 +29,25 @@ internal fun problemText(problem: MediaProblem): String = when (problem) {
 
 /** Banners under the top bar: unsaved changes (an error) and unreadable media (a warning). */
 @Composable
-internal fun MediaBanners(state: EditorState, onIntent: (EditorIntent) -> Unit) {
+internal fun MediaBanners(state: EditorState, onImportFont: () -> Unit = {}, onIntent: (EditorIntent) -> Unit) {
+    // Titles that name an imported font this device does not have are drawn in the default font.
+    val missingFonts = remember(state.timeline, state.availableFonts) { state.missingFonts }
+    if (missingFonts.isNotEmpty()) {
+        Surface(color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (missingFonts.size == 1) "1 font used by a title is not on this device (default font shown)" else "${missingFonts.size} fonts used by titles are not on this device (default font shown)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onImportFont) { Text("Import font") }
+            }
+        }
+    }
     val saveError = state.saveError
     if (saveError != null) {
         Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {

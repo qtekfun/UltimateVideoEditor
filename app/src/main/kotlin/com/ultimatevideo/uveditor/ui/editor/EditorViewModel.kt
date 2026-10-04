@@ -37,7 +37,10 @@ import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.MarkerOps
 import com.ultimatevideo.uveditor.domain.RemoveMarker
 import com.ultimatevideo.uveditor.domain.SetBeatMarkers
-import com.ultimatevideo.uveditor.domain.TemplateLayerKind
+import com.ultimatevideo.uveditor.domain.LayerPlacement
+import com.ultimatevideo.uveditor.domain.MotionPreset
+import com.ultimatevideo.uveditor.domain.SetTitleMotion
+import com.ultimatevideo.uveditor.domain.TextTemplate
 import com.ultimatevideo.uveditor.domain.TextTemplates
 import com.ultimatevideo.uveditor.domain.beat.BeatMapping
 import com.ultimatevideo.uveditor.engine.timeline.BeatResult
@@ -95,6 +98,8 @@ import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TimelineOps
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLayerEdit
+import com.ultimatevideo.uveditor.domain.TitleMotion
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.engine.still.StickerIds
@@ -231,7 +236,7 @@ class EditorViewModel(
 
     override fun onIntent(intent: EditorIntent) {
         // Typing in the title field is only provisional: any other action first makes it final.
-        if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
+        if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit && intent !is EditorIntent.LayerGesture) endTitleEdit(commit = true)
         // A key drag in the keyframe lane is provisional until released.
         if (intent !is EditorIntent.UpdateParamKey && intent !is EditorIntent.EndParamKeyEdit) endParamKeyEdit(commit = true)
         // Same for an effect slider: it stays provisional until released or until something else happens.
@@ -290,10 +295,15 @@ class EditorViewModel(
             EditorIntent.AnalyzeBeats -> analyzeBeats()
             EditorIntent.CutToBeatFromSelected -> cutToBeatFromSelected()
             is EditorIntent.ApplyTextTemplate -> applyTextTemplate(intent.templateId, intent.text)
+            is EditorIntent.ApplyPreset -> applyTemplate(intent.template, intent.text)
             is EditorIntent.AddSticker -> addSticker(intent.stickerId)
             is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips, intent.intoExistingTrack)
             is EditorIntent.RestyleCaptions -> execute(com.ultimatevideo.uveditor.domain.RestyleCaptions(intent.style, intent.canvasHeight))
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
+            is EditorIntent.SelectTitleLayer -> selectTitleLayer(intent.index)
+            is EditorIntent.LayerGesture -> layerGesture(intent)
+            is EditorIntent.FontsChanged -> reduce { copy(availableFonts = intent.available) }
+            is EditorIntent.ApplyTitleMotion -> applyTitleMotion(intent.intro, intent.outro)
             is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
             EditorIntent.AddTransition -> addTransition()
             is EditorIntent.SetTransitionDuration -> setTransitionDuration(intent.frames)
@@ -1682,8 +1692,10 @@ class EditorViewModel(
         execute(CutToBeat(ids, timeline.markers.map { it.frame.value }, lengths))
     }
 
-    private fun applyTextTemplate(templateId: String, text: String) {
-        val template = TextTemplates.find(templateId)
+    private fun applyTextTemplate(templateId: String, text: String) = applyTemplate(TextTemplates.find(templateId), text)
+
+    /** Puts [template] (a built-in or a saved preset) on the timeline at the playhead as one undo step and selects it. */
+    private fun applyTemplate(template: TextTemplate?, text: String) {
         if (template == null) {
             emit(EditorEffect.ShowMessage("That text template is not available"))
             return
@@ -1694,6 +1706,7 @@ class EditorViewModel(
         val ids = List(TextTemplates.idCount(template)) { "tpl-$token-$it" }
         val command = AddTextTemplate(
             templateId = template.id,
+            template = template,
             text = text.ifBlank { template.defaultText },
             start = state.value.playhead,
             durationFrames = frames,
@@ -1703,9 +1716,8 @@ class EditorViewModel(
             ids = ids,
         )
         if (!execute(command)) return
-        // Select the text, which is what the user will want to change; templates without text select their first layer.
-        val textIndex = template.layers.indexOfFirst { it.kind == TemplateLayerKind.TEXT }.takeIf { it >= 0 } ?: 0
-        val clipId = ids[textIndex]
+        // A template is one title clip: select it so the inspector shows what the user will want to change.
+        val clipId = ids[0]
         val trackId = history.timeline.trackOfClip(clipId)?.id
         reduce { copy(selectedClipId = clipId, selectedTrackId = trackId, inspectorOpen = true) }
     }
@@ -2192,6 +2204,42 @@ class EditorViewModel(
         titleEdit = null
         if (commit && session.content != session.base && execute(EditCommand.SetTitle(session.clipId, session.content))) return
         reduce { copy(dragPreview = null) }
+    }
+
+    private fun selectTitleLayer(index: Int) {
+        val clipId = state.value.selectedClipId
+        reduce { copy(titleLayerRef = if (clipId != null && index >= 0) TitleLayerRef(clipId, index) else null) }
+    }
+
+    /** A step of a preview gesture on the selected layer of a multilayer title: moves, scales and turns just that layer. */
+    private fun layerGesture(step: EditorIntent.LayerGesture) {
+        val ref = state.value.titleLayerRef ?: return
+        val clipId = state.value.selectedClipId?.takeIf { it == ref.clipId } ?: return
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
+        val base = titleEdit?.takeIf { it.clipId == clipId }?.content ?: clip.title ?: return
+        if (!base.isLayered || ref.index !in base.layers.indices) return
+        val layer = base.layers[ref.index]
+        val p = layer.placement
+        // Gestures are in canvas pixels; offsets are canvas fractions inside a title that the clip's own scale then enlarges.
+        val clipScale = clip.transform.scaleX.coerceAtLeast(MIN_CLIP_SCALE)
+        val moved = p.copy(
+            offsetX = (p.offsetX + step.panX / (state.value.canvasWidth * clipScale)).coerceIn(-LayerPlacement.MAX_OFFSET, LayerPlacement.MAX_OFFSET),
+            offsetY = (p.offsetY + step.panY / (state.value.canvasHeight * clipScale)).coerceIn(-LayerPlacement.MAX_OFFSET, LayerPlacement.MAX_OFFSET),
+            scale = (p.scale * step.zoom).coerceIn(LayerPlacement.MIN_SCALE, LayerPlacement.MAX_SCALE),
+            rotationDegrees = p.rotationDegrees + step.rotationDegrees,
+        )
+        updateTitle(TitleLayerEdit.replace(base, ref.index, layer.withPlacement(moved)))
+    }
+
+    /** In and out animation of the selected title as keyframes, replacing the clip's own. */
+    private fun applyTitleMotion(intro: MotionPreset, outro: MotionPreset) = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId)
+        if (clip?.title == null) {
+            emit(EditorEffect.ShowMessage("Select a title first"))
+            return@withSelection
+        }
+        val edge = state.value.fps.microsToFrames((TitleMotion.DEFAULT_EDGE_SECONDS * MICROS_PER_SECOND).toLong()).coerceAtLeast(1)
+        execute(SetTitleMotion(clipId, intro, outro, edge, state.value.canvasWidth, state.value.canvasHeight))
     }
 
     // region speed
@@ -2768,6 +2816,7 @@ class EditorViewModel(
         const val PLAY_TICK_MILLIS = 16L
         const val NANOS_PER_MICRO = 1_000L
         const val MICROS_PER_SECOND = 1_000_000.0
+        private const val MIN_CLIP_SCALE = 0.05
         const val MARKER_TOGGLE_RADIUS_FRAMES = 2L
         const val BEAT_WINDOW_PADDING_MICROS = 8_000_000L
     }
