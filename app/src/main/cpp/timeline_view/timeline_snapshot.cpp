@@ -1,5 +1,7 @@
 #include "timeline_view/timeline_snapshot.h"
 
+#include "timeline_view/text_atlas.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -118,6 +120,11 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         c.hasFx = (flags & 2) != 0;
         c.missing = (flags & 4) != 0;
         c.primary = version >= 6 ? (flags & 8) != 0 : c.selected;
+        // Version 8: bits 4..6 say what the block is, for its colour; an unknown value reads as "by lane type".
+        if (version >= 8) {
+            const int kind = (flags >> kClipKindShift) & kClipKindMask;
+            c.kind = kind <= static_cast<int>(ClipKind::Multicam) ? static_cast<ClipKind>(kind) : ClipKind::Default;
+        }
         snap.clips.push_back(c);
     }
     int32_t transitionCount = 0;
@@ -196,11 +203,14 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         for (int32_t i = 0; i < labelCount; ++i) {
             LabelSnapshot label{};
             int32_t length = 0;
-            if (!r.read(&label.clipKey) || !r.read(&length) || length < 0 || length > kSnapshotMaxLabelBytes) {
+            // Up to version 7 a label is a few ASCII bytes; from version 8 it is UTF-8 (accents, symbols, emoji).
+            const int32_t maxBytes = version >= 8 ? kSnapshotMaxLabelBytesUtf8 : kSnapshotMaxLabelBytes;
+            if (!r.read(&label.clipKey) || !r.read(&length) || length < 0 || length > maxBytes) {
                 return Status::BadSnapshot;
             }
             label.text.resize(static_cast<size_t>(length));
             if (length > 0 && !r.readBytes(label.text.data(), static_cast<size_t>(length))) return Status::BadSnapshot;
+            if (version >= 8 && !utf8Valid(label.text.data(), label.text.size())) return Status::BadSnapshot;
             if (!r.skip(static_cast<size_t>((4 - length % 4) % 4))) return Status::BadSnapshot;
             snap.labels.push_back(std::move(label));
         }
