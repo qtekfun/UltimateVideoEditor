@@ -260,9 +260,68 @@ class TitleTransitionViewModelTest {
     }
 
     @Test
-    fun `a transition needs a clip right after the selected one`() = runTest(dispatcher) {
+    fun `selecting the clip after the cut also enables and adds the transition`() = runTest(dispatcher) {
         val h = harness()
         h.select("c2")
+
+        assertEquals("c1", h.state.transitionCut?.from?.id)
+        assertEquals("c2", h.state.transitionCut?.to?.id)
+        h.vm.onIntent(EditorIntent.AddTransition)
+
+        val transition = h.state.timeline.transitions.single()
+        assertEquals("c1", transition.fromClipId)
+        assertEquals("c2", transition.toClipId)
+    }
+
+    @Test
+    fun `the playhead on a cut enables the transition without a selection`() = runTest(dispatcher) {
+        val h = harness()
+        assertNull(h.state.transitionCut)
+
+        h.vm.onIntent(EditorIntent.SetPlayhead(100))
+        assertEquals("c1", h.state.transitionCut?.from?.id)
+        h.vm.onIntent(EditorIntent.AddTransition)
+
+        assertEquals("c2", h.state.timeline.transitions.single().toClipId)
+    }
+
+    @Test
+    fun `the playhead only counts near a cut`() = runTest(dispatcher) {
+        val h = harness()
+
+        h.vm.onIntent(EditorIntent.SetPlayhead(100 + TRANSITION_NEAR_FRAMES))
+        assertNotNull(h.state.transitionCut)
+        h.vm.onIntent(EditorIntent.SetPlayhead(100 - TRANSITION_NEAR_FRAMES))
+        assertNotNull(h.state.transitionCut)
+        h.vm.onIntent(EditorIntent.SetPlayhead(100 + TRANSITION_NEAR_FRAMES + 1))
+        assertNull(h.state.transitionCut)
+        h.vm.onIntent(EditorIntent.SetPlayhead(0))
+        assertNull(h.state.transitionCut)
+    }
+
+    @Test
+    fun `a cut that already has a transition is not offered again`() = runTest(dispatcher) {
+        val h = harness(project(listOf(TransitionDto("t1", "crossfade", "c1", "c2", 20))))
+        h.select("c1")
+        assertNull(h.state.transitionCut)
+        h.select("c2")
+        assertNull(h.state.transitionCut)
+        h.vm.onIntent(EditorIntent.SetPlayhead(100))
+        h.vm.onIntent(EditorIntent.AddTransition)
+
+        assertEquals(1, h.state.timeline.transitions.size)
+    }
+
+    @Test
+    fun `a transition needs two adjacent clips on the same lane`() = runTest(dispatcher) {
+        val gap = project().let { p ->
+            p.copy(tracks = listOf(p.tracks[0].copy(clips = listOf(ClipDto("c1", "a1", 0, 0, 100), ClipDto("c2", "a1", 120, 50, 150))), p.tracks[1]))
+        }
+        val h = harness(gap)
+        h.select("c1")
+        assertNull(h.state.transitionCut)
+        h.vm.onIntent(EditorIntent.SetPlayhead(120))
+        assertNull(h.state.transitionCut)
 
         h.vm.onIntent(EditorIntent.AddTransition)
 
