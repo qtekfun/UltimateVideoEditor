@@ -154,7 +154,7 @@ waves of SPECS 9.20.
 - [ ] WP-K Generalised keyframes (after WP-C and WP-A)
 
 ### Wave 4
-- [ ] WP-X Stabiliser (builds the shared tracker and smoother)
+- [ ] WP-X Stabiliser (builds the shared tracker and smoother). _Status:_ engine, JNI, shader stage, model, undo, JSON, analysis controller and inspector section are implemented; host tests (tracker, analyser, smoothing, crop, cache, registry, wire) and 1383 JVM tests pass; the box stays open until a device run is recorded below.
 - [ ] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search
 
 ### Wave 5 — CapCut-style creator tools

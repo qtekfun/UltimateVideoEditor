@@ -722,3 +722,38 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Slider drags are "audio sessions": live preview without touching the history, one undo step on release.
 **Not verified:** how the noise suppression and EQ sound on real speech (only synthetic signals in tests); the Pixel was used for a smoke test only (app starts, playback with the new mixer, mixer sheet and meter appear). My first device checks looked at another agent's `.wpc` install because the focus check matched by package prefix; checks now match the exact activity.
 
+## Stabiliser (WP-X)
+
+- **Classical computer vision, written here, no OpenCV.** Shi-Tomasi corners, pyramidal Lucas-Kanade with a
+  forward-backward check and a RANSAC similarity fit are about 600 lines of C++ with no dependencies, no models and no
+  network (the project's privacy rule). OpenCV would add several MB per ABI and a dependency for three functions.
+  Alternative: OpenCV's `calcOpticalFlowPyrLK` + `estimateAffinePartial2D`.
+- **The cache holds the raw frame-to-frame motion, not the smoothed correction.** Strength and crop then change
+  instantly (the table is rebuilt in milliseconds) and the cache key does not depend on them. The spec said "output
+  per-frame correction stored in a cache file"; the correction is what the registry holds.
+- **One 24-bit key per (asset, strength percent, crop); the table is looked up by the source frame being drawn.** The
+  scene description and the JNI signatures did not change: the effect only carries the key and the native side
+  resolves the per-frame values in the draw loop (preview and exporter), so retime, reverse, transitions and export
+  parity come for free. Alternative: bake the correction into per-frame keyframes (thousands of keys, and it would fight
+  the user's own keyframes) or pass a table per layer through the scene.
+- **Stabilise is a clip property, not an entry of the effect list.** It does not use one of the 8 effect slots, cannot
+  be reordered or added twice, and always runs first (it moves pixels; the colour effects, mask and blend come after).
+  The wire allows 9 effects per layer for this (`kMaxWireEffectsPerLayer`).
+- **Frames are numbered at the project frame rate, from the media's first frame**, the same as the preview decoder
+  (it is opened with the project rate as override). The analysis stores presentation times and the table resamples the
+  path to project frames, so a 60 fps source in a 30 fps project works.
+- **Gaussian smoothing of the camera path's parameters with a mirrored *odd* extension at the ends.** Simple,
+  deterministic and tunable with one number (sigma from 0.1 s at strength 0 to 2.5 s at 1; the default strength 0.3 is
+  about 0.8 s). The odd extension keeps a steady drift steady up to the first and last frame. Alternative: L1-optimal
+  paths (better at separating pans from shake, much more code).
+- **A constant zoom per clip** (tight = what the worst frame needs, capped at 2x; medium = half; full = none) instead of
+  an adaptive per-frame zoom, which makes the picture "breathe". Edge fill always repeats the border pixels (edge mode
+  1); transparent edges (mode 0) are in the shader for a later "show the background" option.
+- **The analysis covers the clip plus 1 s on each side and merges with what exists.** A trim outwards within the
+  margin needs nothing; further out the clip is *Stale* and one tap re-analyses the union. The cache lives with the
+  project (`projects/<id>/stab`), not in the system cache folder, so it is not lost when the system trims caches.
+- **Progress by polling, not callbacks.** The native job exposes a packed state long that Kotlin polls every 150 ms;
+  no JNI callbacks, no thread attachment, nothing to leak.
+- **The preview redraws when the table registry changes** (a revision counter in the draw signature), so a finished
+  analysis or a new strength shows without scrubbing.
+
