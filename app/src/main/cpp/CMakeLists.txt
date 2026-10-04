@@ -26,3 +26,4 @@ target_link_libraries(uveditor_engine PRIVATE ${log-lib})
 
 include(cmake/preview.cmake)
 include(cmake/export.cmake)
+include(cmake/ffmpeg.cmake)
