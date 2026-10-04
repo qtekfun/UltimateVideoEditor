@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun UVEditorTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    // minSdk 33 guarantees dynamic colour is available.
+    // minSdk 31 guarantees dynamic colour is available (it starts at Android 12).
     val colorScheme = if (isSystemInDarkTheme()) {
         dynamicDarkColorScheme(context)
     } else {
