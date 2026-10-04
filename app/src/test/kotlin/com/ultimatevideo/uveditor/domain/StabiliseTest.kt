@@ -154,4 +154,13 @@ class StabiliseTest {
     }
 
     // endregion
+
+    @Test
+    fun animatedEffectValuesKeepTheStabiliseKey() {
+        val effect = Effect(id = "e1", type = EffectType.entries.first { it.defaults.isNotEmpty() })
+        val fx = ClipFx(effects = listOf(effect), stabKey = 1234)
+        val track = ParamTrack(ParamIds.fx("e1", 0), listOf(ParamKey(0, 0.0), ParamKey(10, 1.0)))
+        val shown = fx.animatedAt(listOf(track), 5)
+        assertEquals(1234, shown.stabKey)
+    }
 }

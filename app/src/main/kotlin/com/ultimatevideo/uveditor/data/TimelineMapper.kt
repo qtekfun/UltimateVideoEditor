@@ -47,6 +47,12 @@ import com.ultimatevideo.uveditor.domain.EffectType
 import com.ultimatevideo.uveditor.domain.GradeCurve
 import com.ultimatevideo.uveditor.domain.GradeCurves
 import com.ultimatevideo.uveditor.domain.Keyframe
+import com.ultimatevideo.uveditor.domain.BezierHandle
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.ParamTrack
+import com.ultimatevideo.uveditor.data.model.HandleDto
+import com.ultimatevideo.uveditor.data.model.ParamKeyDto
+import com.ultimatevideo.uveditor.data.model.ParamTrackDto
 import com.ultimatevideo.uveditor.domain.Marker
 import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.SpeedKey
@@ -199,6 +205,41 @@ object TimelineMapper {
         colorOverride = SourceColorSpace.fromIdOrNull(dto.colorOverride),
         audio = dto.audio?.let { toClipAudio(dto.id, it) } ?: ClipAudio.NONE,
         stabilise = dto.stabilise?.let { toStabilise(dto.id, it) },
+        params = dto.params.map { toParamTrack(dto.id, it) },
+    )
+
+    private fun toInterpolation(clipId: String, name: String): Interpolation = when (name) {
+        "linear" -> Interpolation.LINEAR
+        "ease" -> Interpolation.EASE
+        "hold" -> Interpolation.HOLD
+        "bezier" -> Interpolation.BEZIER
+        else -> throw ProjectError.Corrupt("clip $clipId has a keyframe with unknown interpolation '$name'")
+    }
+
+    private fun toParamTrack(clipId: String, dto: ParamTrackDto) = ParamTrack(
+        paramId = dto.paramId,
+        keys = dto.keys.map {
+            ParamKey(
+                frame = it.frame,
+                value = it.value,
+                interpolation = toInterpolation(clipId, it.interpolation),
+                out = it.out?.let { h -> BezierHandle(h.x, h.y) },
+                inn = it.inn?.let { h -> BezierHandle(h.x, h.y) },
+            )
+        },
+    )
+
+    private fun toParamTrackDto(track: ParamTrack) = ParamTrackDto(
+        paramId = track.paramId,
+        keys = track.keys.map {
+            ParamKeyDto(
+                frame = it.frame,
+                value = it.value,
+                interpolation = it.interpolation.name.lowercase(),
+                out = it.out?.let { h -> HandleDto(h.x, h.y) },
+                inn = it.inn?.let { h -> HandleDto(h.x, h.y) },
+            )
+        },
     )
 
     private fun toStabilise(clipId: String, dto: StabiliseDto): Stabilise {
@@ -279,18 +320,17 @@ object TimelineMapper {
     private fun toKeyframe(clipId: String, dto: KeyframeDto) = Keyframe(
         frame = dto.frame,
         transform = toTransform(clipId, dto.transform),
-        interpolation = when (dto.interpolation) {
-            "linear" -> Interpolation.LINEAR
-            "ease" -> Interpolation.EASE
-            "hold" -> Interpolation.HOLD
-            else -> throw ProjectError.Corrupt("clip $clipId has a keyframe with unknown interpolation '${dto.interpolation}'")
-        },
+        interpolation = toInterpolation(clipId, dto.interpolation),
+        out = dto.out?.let { BezierHandle(it.x, it.y) },
+        inn = dto.inn?.let { BezierHandle(it.x, it.y) },
     )
 
     private fun toKeyframeDto(key: Keyframe) = KeyframeDto(
         frame = key.frame,
         transform = toTransformDto(key.transform),
         interpolation = key.interpolation.name.lowercase(),
+        out = key.out?.let { HandleDto(it.x, it.y) },
+        inn = key.inn?.let { HandleDto(it.x, it.y) },
     )
 
     private fun toTitle(clipId: String, dto: TitleDto): TitleContent = TitleContent(
@@ -395,6 +435,7 @@ object TimelineMapper {
             colorOverride = clip.colorOverride?.id,
             audio = clip.audio.takeUnless { it.isNeutral }?.let(::toClipAudioDto),
             stabilise = clip.stabilise?.let { StabiliseDto(strength = it.strength, crop = it.crop.id) },
+            params = clip.params.map(::toParamTrackDto),
         )
 
     private const val COLOR_HEX_LENGTH = 8

@@ -94,6 +94,43 @@ data class AudioTrackSpec(
     }
 }
 
+/** What a keyframed lane drives; [code] is the wire value (see audio_snapshot.h). */
+enum class AutoParam(val code: Int, val min: Float, val max: Float) {
+    GAIN_DB(0, AudioClipSpec.MIN_GAIN_DB, AudioClipSpec.MAX_GAIN_DB),
+    PAN(1, -1f, 1f),
+    EQ_GAIN_0(2, EqBandSpec.MIN_EQ_GAIN_DB, EqBandSpec.MAX_EQ_GAIN_DB),
+    EQ_GAIN_1(3, EqBandSpec.MIN_EQ_GAIN_DB, EqBandSpec.MAX_EQ_GAIN_DB),
+    EQ_GAIN_2(4, EqBandSpec.MIN_EQ_GAIN_DB, EqBandSpec.MAX_EQ_GAIN_DB),
+    EQ_GAIN_3(5, EqBandSpec.MIN_EQ_GAIN_DB, EqBandSpec.MAX_EQ_GAIN_DB),
+    EQ_GAIN_4(6, EqBandSpec.MIN_EQ_GAIN_DB, EqBandSpec.MAX_EQ_GAIN_DB),
+    ;
+
+    companion object {
+        fun eqGain(band: Int): AutoParam = entries[EQ_GAIN_0.ordinal + band]
+    }
+}
+
+/** A value at [frame] project frames after the clip's own start. */
+data class AutoPoint(val frame: Long, val value: Float)
+
+/**
+ * A keyframed value of a clip: while the clip plays, [param] takes the value interpolated linearly (per
+ * sample) between [points] instead of its static one, holding before the first and after the last. [points]
+ * are strictly increasing in frame and inside the clip.
+ */
+data class AutomationLane(val param: AutoParam, val points: List<AutoPoint>) {
+    init {
+        require(points.isNotEmpty() && points.size <= MAX_POINTS) { "an automation lane needs 1..$MAX_POINTS points, got ${points.size}" }
+        require(points.zipWithNext().all { (a, b) -> b.frame > a.frame } && points.first().frame >= 0) { "automation points must increase from frame 0" }
+        require(points.all { it.value.isFinite() && it.value in param.min..param.max }) { "an automation value for $param is out of range" }
+    }
+
+    companion object {
+        const val MAX_POINTS = 1 shl 20
+        const val MAX_LANES = 7
+    }
+}
+
 /** Sidechain ducking: while a voice track is audible the music tracks drop by [amountDb]. */
 data class DuckingSpec(
     val amountDb: Float,
@@ -145,8 +182,17 @@ data class AudioClipSpec(
     /** Noise suppression strength 0..1 (0 = off); [noiseProfile] must then hold [NOISE_PROFILE_BINS] magnitudes. */
     val denoiseStrength: Float = 0f,
     val noiseProfile: List<Float> = emptyList(),
+    /**
+     * Keyframed gain (dB, the sum [gainDb] holds), pan and EQ band gains; each parameter at most once.
+     * Frames count from [startFrame]. Empty when nothing is animated.
+     */
+    val automation: List<AutomationLane> = emptyList(),
 ) {
     init {
+        require(automation.size <= AutomationLane.MAX_LANES && automation.map { it.param }.toSet().size == automation.size) {
+            "clip $clipKey has invalid automation lanes"
+        }
+        require(automation.all { it.points.last().frame <= durationFrames }) { "clip $clipKey has an automation point past its end" }
         require(trackIndex >= 0) { "clip $clipKey has a negative track index" }
         require(pan.isFinite() && pan in -1f..1f) { "clip $clipKey pan $pan is out of range" }
         require(userFadeInFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-in handle $userFadeInFrames" }
@@ -210,8 +256,10 @@ data class AudioSnapshot(
     fun encode(): ByteBuffer {
         val knotCount = clips.sumOf { it.retimeKnots.size }
         val profileFloats = clips.sumOf { it.noiseProfile.size }
+        val laneCount = clips.sumOf { it.automation.size }
+        val pointCount = clips.sumOf { clip -> clip.automation.sumOf { it.points.size } }
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + DUCKING_BYTES + clips.size * CLIP_BYTES +
-            knotCount * KNOT_BYTES + profileFloats * Float.SIZE_BYTES
+            knotCount * KNOT_BYTES + profileFloats * Float.SIZE_BYTES + laneCount * LANE_BYTES + pointCount * POINT_BYTES
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -263,9 +311,9 @@ data class AudioSnapshot(
             }
             buffer.putFloat(clip.denoiseStrength)
             buffer.putInt(clip.noiseProfile.size)
-            buffer.putInt(0) // reserved
+            buffer.putInt(clip.automation.size) // lane count (reserved, always 0, before version 5)
         }
-        // The knots of all clips follow, in clip order, then the noise profiles.
+        // The knots of all clips follow, in clip order, then the noise profiles, then the automation lanes.
         for (clip in clips) {
             for (knot in clip.retimeKnots) {
                 buffer.putLong(knot.frame)
@@ -275,13 +323,28 @@ data class AudioSnapshot(
         for (clip in clips) {
             for (magnitude in clip.noiseProfile) buffer.putFloat(magnitude)
         }
+        for (clip in clips) {
+            for (lane in clip.automation) {
+                buffer.putInt(lane.param.code)
+                buffer.putInt(lane.points.size)
+                buffer.putInt(0)
+                buffer.putInt(0)
+                for (point in lane.points) {
+                    buffer.putLong(point.frame)
+                    buffer.putFloat(point.value)
+                    buffer.putInt(0)
+                }
+            }
+        }
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53415655 // "UVAS"
-        const val VERSION = 4
+        const val VERSION = 5
+        const val LANE_BYTES = 16
+        const val POINT_BYTES = 16
         const val HEADER_BYTES = 28
         const val TRACK_BYTES = 40
         const val DUCKING_BYTES = 16

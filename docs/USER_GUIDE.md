@@ -220,7 +220,11 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 - **Stabilise** (video clips): a switch, **Strength**, **Crop** (tight, medium, full) and an **Analyse** button. See
   [Stabilising shaky footage](#stabilising-shaky-footage).
 - **Keyframes**: diamond button to add or remove a keyframe at the playhead, previous / next keyframe, and the
-  interpolation (linear, ease, hold). Editing an animated clip at the playhead writes a keyframe.
+  interpolation (linear, ease, hold, Bezier with two handle sliders). Editing an animated clip at the playhead
+  writes a keyframe. Effect sliders, colour-grade sliders, Volume, Pan and the EQ band gains each have their own
+  diamond. A **Keyframes** lane under the selected clip shows every animated parameter: tap a point to select
+  it, drag it in time or value, then use copy / paste, jump to previous / next, or clear the track. Keyframes
+  follow the clip when you split, trim, move or change its speed.
 - **Effects**: add up to 8 effects (colour grade, brightness, contrast, saturation, exposure, temperature,
   tint, blur, sharpen, vignette, grayscale, sepia, chroma key, LUT), reorder them, plus a **blend mode** and a
   **mask** (rectangle or ellipse, feather, invert). The **colour grade** has its own editor, see

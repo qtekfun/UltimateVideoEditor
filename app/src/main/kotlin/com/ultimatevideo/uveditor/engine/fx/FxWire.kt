@@ -31,6 +31,13 @@ object FxWire {
         return out.toDoubleArray()
     }
 
+    /** The blobs of [layers] back to back, even when every one is plain (the keyframed table needs one blob per frame). */
+    fun encodeAll(layers: List<ClipFx>): DoubleArray {
+        val out = ArrayList<Double>(layers.size * HEADER_DOUBLES)
+        for (fx in layers) encodeLayer(fx, out)
+        return out.toDoubleArray()
+    }
+
     private fun encodeLayer(fx: ClipFx, out: MutableList<Double>) {
         val mask: ClipMask? = fx.mask
         out += fx.blendMode.code.toDouble()

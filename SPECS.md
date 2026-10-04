@@ -33,7 +33,7 @@ app/                        Android app module (Compose UI, MVI, navigation)
     timeline_view/ SurfaceView renderer for the timeline canvas (blocks, waveforms, thumbnails, playhead)
     thumbnail/     Thumbnail tile generation, atlas, disk store
     audio/         Oboe playback, mixer, master clock, PCM decoder, waveform extractor
-    stabilise/     Classical tracker, motion analyser, path smoothing, analysis cache, table registry (SPECS 5.20)
+    stabilise/     Classical tracker, motion analyser, path smoothing, analysis cache, table registry (SPECS 5.21)
     encode/        Export: offline render loop, MediaCodec encoder, AAC, muxer
     jni/           JNI bindings only
     tests/         Host-built tests (no GoogleTest; see section 8)
@@ -606,7 +606,7 @@ second (a late redraw keeps a paused scope current). Nothing is read back to the
 
 **Not included:** secondary HSL qualifiers (see `DECISIONS.md`).
 
-### 5.20 Stabiliser and the shared tracker
+### 5.21 Stabiliser and the shared tracker
 
 Camera-shake correction of a video clip, computed on the device with classical computer vision only: no
 models, no third-party libraries, no network. Settings per clip (`Clip.stabilise`, JSON optional field
@@ -659,6 +659,74 @@ confidence (0 means lost and the box stays); `stabilise/similarity.h` has `Simil
 `estimateSimilarityRansac`. All take `Gray` float images (`stabilise/gray.h`, pyramids with `buildPyramid`) and are
 covered by `tests/stabilise_host_tests.cpp`. Frames come from `LumaDecoder::run`, which hands each decoded frame to a
 callback with its time from the media's first frame.
+
+### 5.20 Parameter keyframes (WP-K)
+
+Any single value of a clip can be animated, not only its pose. A clip carries `params: List<ParamTrack>`; each
+track is a `paramId` and strictly increasing `ParamKey(frame, value, interpolation, out, inn)` in clip frames
+(0 is the clip's first frame, so keys travel with the clip and are cropped by split, trim and overwrite, and
+stretched by a speed change, like the pose keyframes). Before the first key and after the last the value holds.
+
+**Parameters** (`domain/ParamTracks.kt`, ids in `ParamIds`):
+
+| Id | Value | Range |
+|---|---|---|
+| `fx.<effectId>.<index>` | value `index` of an effect (colour grade, LUT intensity, chroma key, ...); the LUT library key is not animatable | the effect parameter's range |
+| `audio.gainDb` | volume (the loudness-normalise gain is added when mixing) | -96..24 dB |
+| `audio.pan` | balance | -1..1 |
+| `audio.eq.<band>.gainDb` | gain of EQ band 0..4 | -18..18 dB |
+| `pose.positionX`, `pose.positionY`, `pose.scaleX`, `pose.scaleY`, `pose.rotation`, `pose.opacity` | the pose, a **per-parameter view** of the joint pose keyframes | the transform ranges |
+
+The pose stays stored as the clip's joint `Keyframe`s (native exporter, snapshot and older projects are
+unchanged); `Clip.paramKeys("pose.x")` projects them, and setting a pose component at a frame writes the joint
+keyframe with the pose the clip already has there for the other components. Removing a pose key removes the
+whole keyframe. A track in `params` never has a `pose.*` id.
+
+**Interpolation.** `LINEAR`, `EASE` (smoothstep), `HOLD`, and `BEZIER`: a cubic between the two keys shaped by
+the earlier key's `out` handle and the later key's `inn` handle, the CSS `cubic-bezier(x1, y1, x2, y2)`
+convention in the segment's unit square (`x` is a fraction of the segment's length in 0..1, `y` a fraction of the
+value change and may overshoot, -2..3). Missing handles default to an ease in-out. The curve parameter is solved
+by bisection (48 steps), so the result is deterministic. A Bezier segment that a crop cuts in the middle keeps its
+handles over what remains (like an ease it changes shape slightly; linear and hold are exact).
+
+**Evaluation is in Kotlin and identical in preview and export**, at integer frames:
+
+- *Video parameters.* `RenderClip.fxAt(frame)` evaluates the effect values; the preview scene is built from it at
+  the playhead and (like an animated pose) re-anchors the native clock every tick when a value moves. The exporter
+  receives `VideoClipSpec.fxFrames`, the effects of every project frame of the clip, encoded as consecutive
+  `core/layer_fx.h` blobs (`parseFxFrameTables` validates index, count and size before allocating); the native
+  loop picks `fxFrames[frame - startFrame]` (`encode/export_math.h` `fxAt`). A Bezier segment of the *pose* is
+  sent to the native evaluator as one linear key per frame (`Keyframes.bakedForNative`), exact at every frame.
+- *Audio parameters.* `automationLanesOf` turns each audio track into a lane of (frame, value) points
+  (`ParamTracks.audioPoints`: two points for a linear segment, one per frame for an ease or a Bezier, a hold keeps
+  its value to the last frame before the next key) in the audio snapshot (**version 5**, still reading 4; layout in
+  `audio/audio_snapshot.h`). The mixer interpolates linearly between points per sample for the volume and in
+  32-sample chunks aligned to the clip for pan and EQ band gains (the chunk is the unit, never the block, so the
+  realtime stream and the offline export render the same samples whatever the block size). EQ chains with an
+  animated band keep all five band stages (`EqChain::designAll`) so the filter states never shift.
+
+**Editing.** The inspector shows the clip as `Clip.displayedAt(frame)` (volume, pan, EQ and effect values
+evaluated at the playhead). A control that edits an animated value writes a key at the playhead (keeping the
+shape of the key already there) and leaves the fixed value as the base (`ParamOps.setFxAt`, `setClipAudioAt`,
+`setGainAt`); an unanimated control edits in place as before. Removing the last key of a parameter writes that
+key's value back as its fixed value, so nothing jumps; removing an effect drops its tracks (`withoutDanglingParams`).
+Commands: `SetParamKey`, `RemoveParamKey`, `MoveParamKey`, `ClearParamTrack`, `PasteParamKeys`,
+`SetParamKeyShape`, `SetFxAt`, `SetClipAudioAt`, `SetGainAt`, each one undo step. A key drag in the lane is shown
+live and committed on release (`UpdateParamKey` / `EndParamKeyEdit`).
+
+**UI** (`ui/editor/ParamKeyframeUi.kt`): a diamond at the end of every animatable slider; a *Keyframes* section
+under the inspector with one row per animated value (curve over the clip, playhead, draggable diamonds: sideways
+moves the key in time, up or down changes its value), previous / next key, copy, paste (the first copied key lands
+on the playhead, values clamped to the target range) and clear; tapping a key selects it and shows the curve
+controls (Linear / Ease / Hold / Bezier and the four handle coordinates). The pose row only moves keys in time.
+The colour wheels (three values each) have no diamond; their sliders do.
+
+**JSON** (`ClipDto.params`, optional): `[{ "paramId": "fx.c1.0", "keys": [{ "frame": 0, "value": 0.5,
+"interpolation": "bezier", "out": {"x": 0.3, "y": 0.0}, "inn": null }] }]`; pose `KeyframeDto` gains optional
+`out` / `inn` and the `bezier` mode. Projects written before load unchanged.
+
+**Copy and paste of clips** (WP-S): `Clip.params` travels with the clip like `keyframes`; a pasted clip's tracks
+are relative to its own start, so they need no change.
 
 ## 6. Timeline operations (specification for tests)
 

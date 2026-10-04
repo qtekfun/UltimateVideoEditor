@@ -173,6 +173,8 @@ data class ClipDto(
     val audio: ClipAudioDto? = null,
     /** Camera-shake correction; absent when off. The analysis it needs is a cache file, never part of the project. */
     val stabilise: StabiliseDto? = null,
+    /** Keyframes of single parameters (effect values, volume, pan, EQ gains); absent when nothing is animated. */
+    val params: List<ParamTrackDto> = emptyList(),
 )
 
 /** Settings of the stabiliser: [strength] 0..1 and [crop] (`tight`, `medium` or `full`). */
@@ -181,6 +183,27 @@ data class StabiliseDto(
     val strength: Double = 0.3,
     val crop: String = "medium",
 )
+
+/** Keyframes of one parameter; [paramId] is `fx.<effectId>.<index>`, `audio.gainDb`, `audio.pan` or `audio.eq.<band>.gainDb`. */
+@Serializable
+data class ParamTrackDto(
+    val paramId: String,
+    val keys: List<ParamKeyDto> = emptyList(),
+)
+
+/** [value] at [frame] clip frames; [interpolation] is `linear`, `ease`, `hold` or `bezier` (with optional handles). */
+@Serializable
+data class ParamKeyDto(
+    val frame: Long,
+    val value: Double,
+    val interpolation: String = "linear",
+    val out: HandleDto? = null,
+    val inn: HandleDto? = null,
+)
+
+/** A Bezier handle in the unit square of a segment; see `domain/BezierHandle`. */
+@Serializable
+data class HandleDto(val x: Double, val y: Double)
 
 /** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */
 @Serializable
@@ -232,6 +255,9 @@ data class KeyframeDto(
     val frame: Long,
     val transform: TransformDto = TransformDto(),
     val interpolation: String = "linear",
+    /** Bezier handles of the segment leaving / arriving at this key; absent unless [interpolation] is `bezier`. */
+    val out: HandleDto? = null,
+    val inn: HandleDto? = null,
 )
 
 /**

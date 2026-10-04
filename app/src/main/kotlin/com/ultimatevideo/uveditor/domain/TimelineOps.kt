@@ -85,7 +85,7 @@ object TimelineOps {
             is EditResult.Success -> {
                 val next = change(target.value.fx)
                 next.problem()?.let { return failure(EditError.InvalidEffect(it)) }
-                return updateClip(timeline, clipId) { it.copy(fx = next) }
+                return updateClip(timeline, clipId) { it.copy(fx = next).withoutDanglingParams() }
             }
         }
     }
@@ -281,6 +281,7 @@ object TimelineOps {
         val updated = clip.copy(
             retimedFrames = newDuration.takeIf { it != span },
             keyframes = Keyframes.scaled(clip.keyframes, clip.durationFrames, newDuration),
+            params = ParamTracks.scaledTracks(clip.params, clip.durationFrames, newDuration),
             speedRamp = SpeedRamps.scaled(clip.speedRamp, clip.durationFrames, newDuration),
         )
         val others = track.clips.filter { it.id != clipId }
