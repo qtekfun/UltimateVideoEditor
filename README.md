@@ -29,7 +29,7 @@ Implemented (and what has actually been verified; the full per-item notes are in
 | Photos and built-in stickers as still clips (import images, sticker picker) | Implemented and unit-tested; not yet seen on the device (EXIF orientation, HEIC, sticker art unverified) |
 | Social format presets, safe zones, upload presets | Implemented; not seen on the device |
 | Ruler markers, beat detection (from the waveform cache), snap to markers, "Cut to beat" | Implemented and unit-tested (detector on synthetic click tracks); not tried on real music or on the device |
-| Animated text templates (lower third, pop title, slide-in headline, subtitle bar) | Implemented and unit-tested; look not yet seen on the device |
+| Multilayer titles (text, shapes, pictures), imported fonts, in/out animation, shareable `.uvtitle` presets; the text templates are built on it | Layers, preview gestures, font import and animation seen on a Pixel 8; photo layers, export and the OPPO not yet |
 | Captions: typed or imported from `.srt` / `.vtt`, 8 animated styles, restyle all (no speech recognition, fully offline) | Implemented and unit-tested; not yet seen on the device |
 | HDR: HLG project colour space, HEVC Main10 export | Implemented; not seen on an HDR display |
 | Export to MP4 (H.264 / HEVC + AAC), 4K60 HEVC at ~90 fps on the test phone | Verified with `ffprobe` on synthetic clips; cancel/share untested on device |
