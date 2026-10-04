@@ -10,15 +10,16 @@ automated tests so far; see [Known limits](#known-limits).
 2. [Editor layout](#editor-layout) and [Layout](#layout)
 3. [Toolbar icons](#toolbar-icons)
 4. [Media tray](#media-tray)
-5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops)
+5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
 6. [Inspector](#inspector)
 7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates) (including [layers, fonts and presets](#titles-with-layers-fonts-and-presets))
 8. [Markers and beats](#markers-and-beats)
-9. [Colour grading and scopes](#colour-grading-and-scopes)
-10. [Colour spaces and HDR](#colour-spaces-and-hdr)
-11. [Exporting](#exporting)
-12. [Missing media and recovery](#missing-media-and-recovery)
-13. [Known limits](#known-limits)
+9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
+10. [Colour grading and scopes](#colour-grading-and-scopes)
+11. [Colour spaces and HDR](#colour-spaces-and-hdr)
+12. [Exporting](#exporting)
+13. [Missing media and recovery](#missing-media-and-recovery)
+14. [Known limits](#known-limits)
 
 ## Project hub
 
@@ -105,6 +106,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
 | ✂ | Split at playhead | Cuts the selected clip in two. |
+| ⛶ (dotted square) | Select several clips | Turns select mode on or off; see [Selecting several clips](#selecting-several-clips). |
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
 | T | Add a title | Adds a text title at the playhead. |
@@ -115,6 +117,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
 | ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
+| Two faders | Mixer | Opens the mixer sheet, see [Sound](#sound). |
 | ◫ (safe zone) | Safe zones | Shows TikTok, Reels or Shorts safe areas over the preview. |
 | ▮▮▮ (bars) | Video scopes | Opens or closes the scopes over the preview, see [Colour grading and scopes](#colour-grading-and-scopes). |
 | ◈ (layers) | Add track | Adds a video track (above the others) or an audio track. |
@@ -167,6 +170,29 @@ panel on the left.
 - **Pinch** on the timeline to zoom, **drag** on an empty area to scroll, **fling** to coast.
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
 
+### Selecting several clips
+
+- **Select mode** (dotted-square button, highlighted while on): tap clips to add or remove them, and drag on
+  empty lane space to draw a rectangle that adds every clip it touches. Tapping empty space keeps the selection.
+- **Long press** a clip in any mode to add it to the selection (or remove it again). A plain tap on a clip goes
+  back to just that clip.
+- The clip chosen last has the **yellow** outline: it is the one the inspector edits. The others are outlined
+  in **blue**.
+- A **selection bar** appears under the toolbar with the count and the group actions: copy, cut, paste,
+  duplicate, delete, paste attributes, align starts, align ends, transitions, and a menu (select the whole
+  lane, everything after the playhead or all clips, speed, volume, opacity) plus a button to clear the selection.
+- **Drag any selected clip** to move the whole group together; the clips keep their offsets and lanes, snap as a
+  block and a position that would land on another clip is refused. Dragging onto another lane of the same kind
+  moves all of them by that many lanes.
+- Every group action is **one undo step**. If an action cannot apply, a message says why (for example, base clips
+  can only move together when they touch each other, and the base track cannot be aligned).
+- **Copy** keeps the clips with their layout, effects, keyframes, speed and transitions between them. **Paste**
+  puts the earliest clip at the playhead: overlay clips keep their offsets (and fail rather than land on another
+  clip), base clips are inserted at the nearest cut. **Duplicate** pastes right after the last selected clip.
+  **Paste attributes** copies transform, effects, volume and speed of the copied clip onto the selection.
+- **Transitions** add a crossfade at the cut after each selected clip that touches the next one, or fade each
+  picture clip in and out (head and tail).
+
 ### Drops (what happens when you release a dragged clip)
 
 An indicator shows the action while you drag:
@@ -187,6 +213,7 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
 
 - **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview).
 - **Volume**: gain in dB for clips with audio.
+- **Sound tools** (clips with audio): pan, fades, equaliser, noise suppression and loudness, see [Sound](#sound).
 - **Speed**: presets and a slider (0.1x to 8x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
   the playhead**. Audio follows the speed between 0.25x and 4x and is muted outside that range.
 - **Keyframes**: diamond button to add or remove a keyframe at the playhead, previous / next keyframe, and the
@@ -280,6 +307,34 @@ The flag icon opens:
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
 - **Clear detected beats** and **Snap to markers** (on/off).
 
+## Sound
+
+Everything here is classical signal processing on the phone: no network, no AI models, nothing leaves the
+device. Every setting is non-destructive and one undo step (a slider drag is one step, not one per frame).
+
+**Per clip** (inspector, **Sound tools**; sliders change the sound while you drag during playback):
+
+- **Pan**: left to right, equal loudness across the arc. Mono clips are placed; stereo clips are balanced.
+- **Fade in / Fade out**: lengths in frames. Fades follow the clip edge when you trim it. Split or overwrite
+  clears the fade at the new cut.
+- **Equaliser**: low cut, low shelf (100 Hz), peaking bands at 400 Hz, 1.5 kHz and 5 kHz, high shelf (10 kHz) and
+  high cut. **Flat** resets it.
+- **Noise suppression**: **Mark start** and **Mark end** at the playhead to choose a stretch with only background
+  noise, then **Remove noise** and set the **Strength**. It learns the noise from that stretch (spectral
+  gating), so it works best on steady hiss or hum. Speech in the marked stretch will be partly removed.
+- **Loudness**: measures the clip (ITU-R BS.1770 / EBU R128) and **Normalise to** a target such as -16 LUFS by
+  adding gain. **Measure again** after you change the clip. The measurement is cached on the device.
+- **Reset sound** restores all of the above.
+
+**Mixer** (toolbar faders icon): for every track a **Mute**, **Solo**, **Volume** (dB), **Role** (Normal, Voice,
+Music) and a **Compressor** switch (**Threshold**, **Ratio**, **Make-up**). Solo plays only the soloed tracks.
+**Duck music under voice** lowers Music tracks by **Amount** while a Voice track speaks (**Trigger**
+threshold, **Recovery** time). It needs one Voice and one Music track. The ducking is a gain curve computed
+from the voice: your clips are never changed, and preview and export are the same.
+
+A master limiter at -1 dBFS stops clipping. The level meter above the toolbar shows left and right peaks while
+playing. Exported audio is produced by the same mixer as the preview.
+
 ## Colour spaces and HDR
 
 - The **project colour space** (Rec.709 SDR or Rec.2020 HLG) is the working and export space.
@@ -308,6 +363,8 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 - Several recent features are covered by automated tests but have had little time on a real device:
   captions and animated styles, photos and stickers, beat detection, text templates, relink flow and
   HDR export. Report anything odd with the steps you used.
+- Sound tools and the mixer are covered by automated tests; they have had only a short check on a real device
+  (the mixer sheet and meter opened and playback ran). Listen to a noise-suppressed clip before exporting.
 - Slow motion repeats frames (no blending). Audio speed change is varispeed.
 - Animated GIF and WebP use their first frame.
 - Reverse playback of long-GOP 4K footage is slow.
@@ -316,4 +373,5 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
   by starting the drag on a heading or in the gap between two wheels.
 - The scopes read the preview at 320 x 180 pixels, so fine detail in a 4K picture is sampled, not counted.
 - Inserting (shifting later clips) works on the base track only; other tracks overwrite.
+- Fading in and out (head and tail) uses opacity keyframes and does not fade the sound of video clips yet.
 - Dragging stickers and templates onto the timeline is not available yet (tap them); dragging media assets is.

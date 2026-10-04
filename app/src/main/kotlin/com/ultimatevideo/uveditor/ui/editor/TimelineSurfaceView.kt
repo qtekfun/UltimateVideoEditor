@@ -5,10 +5,12 @@ import android.content.Context
 import android.graphics.Rect
 import android.view.DragEvent
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
@@ -68,6 +70,7 @@ class TimelineSurfaceView(
     private val onTap: (TimelineHit) -> Unit,
     private val editing: () -> TimelineEditing? = { null },
     private val dropTarget: () -> TimelineDropTarget? = { null },
+    private val selecting: () -> TimelineSelecting? = { null },
 ) : SurfaceView(context), SurfaceHolder.Callback {
 
     private var hovering = false
@@ -144,6 +147,11 @@ class TimelineSurfaceView(
     }
 
     private var downHit: TimelineHit? = null
+    private var downX = 0f
+    private var downY = 0f
+
+    // A rectangle dragged over empty space in select mode: the clips inside it join the selection on release.
+    private var marquee = false
     private var dragging = false
     private var dragX = 0f
     private var dragY = 0f
@@ -177,16 +185,33 @@ class TimelineSurfaceView(
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean {
                 downHit = engine.hitTest(e.x, e.y)
+                downX = e.x
+                downY = e.y
                 return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                if (dragging || marquee) return
+                val target = selecting() ?: return
+                val hit = engine.hitTest(e.x, e.y)
+                if (hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE) {
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    target.onLongPress(hit)
+                }
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 if (scaleDetector.isInProgress) return true
-                if (!dragging) tryStartDrag()
+                if (!dragging && !marquee) {
+                    tryStartDrag()
+                    if (!dragging) tryStartMarquee()
+                }
                 if (dragging) {
                     dragX = e2.x
                     dragY = e2.y
                     editing()?.onDragMove(engine.hitTest(e2.x, e2.y))
+                } else if (marquee) {
+                    engine.setMarquee(downX, downY, e2.x, e2.y)
                 } else {
                     engine.scrollBy(distanceX, distanceY)
                 }
@@ -231,6 +256,14 @@ class TimelineSurfaceView(
         postOnAnimation(edgeScroll)
     }
 
+    /** In select mode a drag that starts on empty lane space draws a selection rectangle instead of scrolling. */
+    private fun tryStartMarquee() {
+        val target = selecting() ?: return
+        if (!target.selectMode) return
+        val kind = downHit?.kind ?: return
+        if (kind == HitKind.EMPTY_TRACK || kind == HitKind.ABOVE_LANES || kind == HitKind.NONE) marquee = true
+    }
+
     override fun surfaceCreated(holder: SurfaceHolder) = engine.surfaceCreated(holder.surface)
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) =
@@ -242,6 +275,14 @@ class TimelineSurfaceView(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
+        if (marquee && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
+            marquee = false
+            if (event.actionMasked == MotionEvent.ACTION_UP) {
+                val keys = engine.clipsInRect(downX, downY, event.x, event.y)
+                if (keys.isNotEmpty()) selecting()?.onMarquee(keys)
+            }
+            engine.clearMarquee()
+        }
         if (dragging && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
             dragging = false
             editing()?.onDragEnd(commit = event.actionMasked == MotionEvent.ACTION_UP)
