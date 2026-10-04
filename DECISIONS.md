@@ -820,3 +820,11 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** if the codec had nothing ready right after the seek, each following call seeked to the same place again (the gap exceeded the continue limit), flushing the codec every time, so the clip never became ready (export failed with the audio of clip N not ready after 30 s). Each stalled frame also blocked for 30 s while faults were only polled every 30 frames.
 **Alternative:** a larger continue gap (hides the problem for fast codecs only).
 
+## Text on title and sticker blocks of the timeline
+
+**Decision:** the timeline snapshot (wire version 7) carries an optional short label per clip: a title's first line or a sticker's name, reduced to capital ASCII letters, digits, spaces and '-' (accents dropped, at most 24 characters). The native canvas draws it with its existing 3x5 pixel font, extended with A-Z and '-' (now in `timeline_view/glyphs.h`, host-tested), at the visible left edge of the block, cut to the room left.
+**Why:** title, caption and sticker blocks were plain coloured rectangles, so a timeline with several of them could not be read (QA report, device pass 1).
+**Alternative:** render the label with Android's text engine into a texture (handles every script and emoji, but needs a bitmap upload per label and a font stack on the render thread) or draw only an icon per kind (no text). Titles in other scripts (CJK, Arabic, emoji) show the generic label TEXT; revisit if that matters.
+
+**Not verified:** the drawing itself was not seen on a device (the Pixel's screen was locked); the parser, the glyph shapes and the label rules are covered by host and JVM tests.
+
