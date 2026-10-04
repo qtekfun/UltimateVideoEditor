@@ -222,6 +222,12 @@ framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz ton
 | Export | Progress, elapsed time, time left, throughput | PASS | "5 s elapsed · About 12 s left · 46 frames/s · 1,5x real time" |
 | Export | Cancel mid-way | PASS | no partial file left in Downloads |
 | Export | Share | PASS | the system chooser opens ("Compartir 1 archivo") |
+| Layout | Layout sheet (presets, track height, tray and inspector docking, customise switch, Reset) | PASS | Timeline focus + Large lanes change the picture as described |
+| Layout | Persistence: layout and edits survive a forced stop; "The app closed while ... was open" offer with Reopen | PASS | project card now shows a real first-frame thumbnail and 0:28 |
+| Layout | Reset layout returns to the default split with the tray at the bottom | PASS | |
+| Media tray | Expanded tray: Media/Stickers/Titles/Audio tabs, search, All/Video/Photos/Unused filters, Import tile, thumbnails with duration and usage count | PASS | |
+| Media tray | Long-press drag of a tile onto the base lane junction inserts the clip there (`input draganddrop`) | PASS | 4 clips afterwards, usage count 1 -> 2, Undo enabled |
+| Audio | Stress for the audio-callback fix: 45 play/pause cycles, 11 backgroundings with audio running, 6 rapid toggle bursts, 7.6 minutes | PASS | `logcat -b crash` empty (no SIGSEGV), process alive at the end |
 
 ### Defects and observations (pass A)
 
