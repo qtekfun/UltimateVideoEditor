@@ -30,7 +30,7 @@ inline constexpr int kHistogramBins = 256;
 inline constexpr float kVectorScale = 1.8f;
 // Brightness curve: 1 - exp(-k * count). Counts are the samples that fell on one accumulation pixel.
 inline constexpr float kWaveformGain = 0.12f;
-inline constexpr float kVectorGain = 0.5f;
+inline constexpr float kVectorGain = 0.8f;
 // Histogram heights are log scaled against this many samples in one bin.
 inline constexpr float kHistogramFull = 2880.0f;
 
