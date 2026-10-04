@@ -10,13 +10,13 @@ for ProRes (iPhone ProRes clips), DNxHD/DNxHR, MPEG-2 and MPEG-4 part 2 (old cam
 or for audio such as AC-3/E-AC-3, ALAC, Vorbis in unusual containers or WMA. With the fallback built in, such a file opens
 anyway, decoded on the CPU, instead of failing with "this clip cannot be previewed".
 
-H.264 and HEVC 4:2:0 stay on MediaCodec, VP9 and AV1 too (the platform decodes them in software since Android 12). The fallback
-is tried **only** when MediaCodec fails to open the stream for a reason software can fix (unsupported format, no decoder,
+H.264 and HEVC 4:2:0 stay on MediaCodec, VP9 and AV1 too (the platform decodes them in software since Android 12; a phone without
+an AV1 decoder, or a stream its decoder refuses, falls back to the bundled libdav1d). The fallback is tried **only** when MediaCodec fails to open the stream for a reason software can fix (unsupported format, no decoder,
 codec error, the container could not be parsed) **and** this build contains FFmpeg. Otherwise the typed MediaCodec error is
 reported, with a hint when the cause is that FFmpeg is not included.
 
 It is off by default because it is not needed for the formats the project's author uses, and it adds about 7.6 MB of native
-code. Default builds, CI and APK size are unchanged.
+code (about 1,1 MB more for AV1, see below). Default builds, CI and APK size are unchanged.
 
 ## How to enable it
 
@@ -45,14 +45,21 @@ SHA-256.
 `--disable-everything --disable-autodetect --disable-programs --disable-doc --disable-network --disable-avfilter
 --disable-avdevice --enable-static --disable-shared --enable-pic`, only the libraries avcodec, avformat, avutil, swscale and
 swresample, protocol `file` only, no hardware acceleration, no GPL or nonfree component. The script aborts if the resulting
-`config.h` is not `LGPL version 2.1 or later`.
+`config.h` is not `LGPL version 2.1 or later`, or if the configured FFmpeg has no libdav1d decoder.
 
-- **Video decoders:** h264, hevc, mpeg4, mpeg2video, mjpeg, prores, dnxhd, theora, vp8, vp9, vc1, wmv1/2/3, msmpeg4 v1-v3,
+dav1d **1.5.4** (`dav1d-1.5.4.tar.xz` from downloads.videolan.org, SHA-256
+`686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5`, BSD-2-Clause) is built first with meson and ninja, cross-compiled
+with the same NDK toolchain (arm64 with its NEON assembly, static, PIC, release, 8 and 10/12-bit, no tools or tests), and FFmpeg's
+`configure` finds it through `pkg-config` with `PKG_CONFIG_LIBDIR` pointing only at that install (never a libdav1d of the build
+machine). `libdav1d.a` is copied next to FFmpeg's libraries and `cmake/ffmpeg.cmake` links it after libavcodec when it is there (an
+older artifact without it still links, it just has no AV1).
+
+- **Video decoders:** libdav1d (AV1), h264, hevc, mpeg4, mpeg2video, mjpeg, prores, dnxhd, theora, vp8, vp9, vc1, wmv1/2/3, msmpeg4 v1-v3,
   h263/h263p, flv, svq1, svq3, cinepak, msvideo1, rawvideo, ffv1, huffyuv, utvideo.
 - **Audio decoders:** aac, aac_latm, mp2, mp3, opus, vorbis, flac, alac, ac3, eac3, truehd, dca, wmav1/2, wmapro, amrnb/wb, and
   the PCM variants (s16/s24/s32/f32/f64/u8/alaw/mulaw).
 - **Demuxers:** mov, matroska, mpegts, mpegps, avi, asf, flv, ogg, mp3, wav, flac, aac, ac3, eac3, h264, hevc, m4v, mpegvideo,
-  mxf, amr, rm, ivf, dts, yuv4mpegpipe. Parsers for the matching codecs.
+  mxf, amr, rm, ivf, dts, yuv4mpegpipe. Parsers for the matching codecs (AV1 included).
 
 The workflow `.github/workflows/ffmpeg.yml` builds it (about a minute and a half on a runner), reports the sizes, uploads the
 libraries and headers as an artifact (nothing binary is committed), then compiles and links the engine against them.
@@ -61,14 +68,16 @@ libraries and headers as an artifact (nothing binary is committed), then compile
 
 | Library | Size |
 |---|---|
-| libavcodec.a | 7,27 MB |
+| libavcodec.a | 7,45 MB |
 | libavformat.a | 1,30 MB |
 | libswscale.a | 1,54 MB |
 | libavutil.a | 1,11 MB |
 | libswresample.a | 0,15 MB |
-| **total** | **11,4 MB** (archives; only what the engine uses is linked) |
+| libdav1d.a | 1,20 MB |
+| **total** | **12,8 MB** (archives; only what the engine uses is linked) |
 
-`libuveditor_engine.so` (debug, arm64, symbols stripped): **2,67 MB without FFmpeg, 10,26 MB with it (+7,6 MB).**
+`libuveditor_engine.so` (debug, arm64, symbols stripped): **2,67 MB without FFmpeg; 10,26 MB with FFmpeg alone (+7,6 MB, measured
+in CI before dav1d) and 11,36 MB with FFmpeg and dav1d (+8,7 MB, measured on a local build of this script).**
 
 ## How it plugs in
 
@@ -98,9 +107,11 @@ libraries and headers as an artifact (nothing binary is committed), then compile
 - **RGBA8 loses HDR precision.** Frames are converted to 8-bit RGBA. A 10-bit source (ProRes 422 HQ, HEVC Main10 4:2:2) loses
   precision, and HLG/PQ gradients may band. The MediaCodec path keeps 10 bits. A 10-bit RGB path (`AHARDWAREBUFFER_FORMAT_R10G10B10A2`
   or half-float through swscale) would fix it; not done.
-- **AV1 is not included.** It needs libdav1d (BSD-2-Clause) or libaom built separately and linked in; the platform decodes AV1
-  itself since Android 12, so it was left out. Adding dav1d means building it with the NDK and adding `--enable-libdav1d` plus
-  its static library to `cmake/ffmpeg.cmake`.
+- **AV1 is decoded by libdav1d**, only when MediaCodec cannot open the stream. FFmpeg's own AV1 decoder needs a hardware
+  accelerator and libaom is slow and larger, so dav1d is the only software AV1 decoder in the build. 4K AV1 will not play in real
+  time on the CPU of a phone (the same proxy advice as for other heavy codecs applies); 10-bit AV1 is converted to RGBA8 like
+  every software frame. There is no AV1 encoder (and no export in AV1). dav1d's own threading is not used: libavcodec's frame
+  threads (half the cores, at most 4) drive it.
 - **Audio** that the platform decodes is never routed to the software path; only a failure to open it is.
 - **Not yet on a device.** The `AHardwareBuffer` upload, the preview/export path and the notice are covered by compile, link and
   host tests only.
@@ -119,4 +130,6 @@ configure options and where to get the corresponding source.
 - `app/src/test/cpp/ffmpeg_reader_tests.cpp` via `scripts/run-ffmpeg-host-tests.sh` (needs libav dev files and the ffmpeg CLI;
   CI job "FFmpeg host tests"): generated MPEG-2 (short and long GOP), MPEG-4, ProRes, H.264, 29.97 fps, frame-rate override, AAC
   and AC-3: exact indices, seeking to targets inside a GOP, end of stream, the tone's frequency and an exact audio seek.
+- The reader tests also open an AV1 clip (libaom makes it, the distribution's libav decodes it with libdav1d), when the encoder
+  exists on the machine.
 - Still to do on a device: open a ProRes file from the phone, scrub, export, and compare with the same file transcoded to H.264.

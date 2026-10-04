@@ -17,6 +17,16 @@ if(UV_FFMPEG_DIR AND EXISTS "${UV_FFMPEG_DIR}/include/libavcodec/avcodec.h")
         set_target_properties(uv_ff_${lib} PROPERTIES IMPORTED_LOCATION "${UV_FFMPEG_DIR}/lib/lib${lib}.a")
     endforeach()
 
+    # libdav1d (the AV1 decoder, BSD-2-Clause) is part of the build made by scripts/build-ffmpeg-android.sh; an older artifact
+    # without it still links, it just has no AV1 software decoder.
+    set(UV_FF_LIBS uv_ff_avformat uv_ff_avcodec)
+    if(EXISTS "${UV_FFMPEG_DIR}/lib/libdav1d.a")
+        message(STATUS "uveditor_engine: AV1 software decoding enabled (libdav1d)")
+        add_library(uv_ff_dav1d STATIC IMPORTED)
+        set_target_properties(uv_ff_dav1d PROPERTIES IMPORTED_LOCATION "${UV_FFMPEG_DIR}/lib/libdav1d.a")
+        list(APPEND UV_FF_LIBS uv_ff_dav1d)
+    endif()
+
     target_sources(uveditor_engine PRIVATE
         decode/ffmpeg/software_reader.cpp
         decode/ffmpeg/ffmpeg_decoder.cpp
@@ -26,7 +36,7 @@ if(UV_FFMPEG_DIR AND EXISTS "${UV_FFMPEG_DIR}/include/libavcodec/avcodec.h")
     # SYSTEM: FFmpeg's headers use deprecated declarations that -Werror would reject.
     target_include_directories(uveditor_engine SYSTEM PRIVATE "${UV_FFMPEG_DIR}/include")
     # Link order matters for static archives: users before the libraries they use.
-    target_link_libraries(uveditor_engine PRIVATE uv_ff_avformat uv_ff_avcodec uv_ff_swscale uv_ff_swresample uv_ff_avutil)
+    target_link_libraries(uveditor_engine PRIVATE ${UV_FF_LIBS} uv_ff_swscale uv_ff_swresample uv_ff_avutil)
     # Keep FFmpeg's symbols private to our library.
     target_link_options(uveditor_engine PRIVATE -Wl,--exclude-libs,ALL)
 else()
