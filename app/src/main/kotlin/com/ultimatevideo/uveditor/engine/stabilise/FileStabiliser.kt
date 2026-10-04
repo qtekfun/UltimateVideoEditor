@@ -125,8 +125,9 @@ class FileStabiliser internal constructor(
     }
 
     override fun cancel() {
-        val handle = synchronized(lock) { runningHandle }
-        if (handle != 0L) native.cancel(handle)
+        // Under the lock: the analysis clears `runningHandle` under the same lock before it destroys the native
+        // service, so the handle cannot be freed while this call is using it.
+        synchronized(lock) { if (runningHandle != 0L) native.cancel(runningHandle) }
     }
 
     override fun register(asset: MediaAssetDto, clip: Clip, fps: FrameRate): Boolean {

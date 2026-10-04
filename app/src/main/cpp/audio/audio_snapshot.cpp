@@ -101,8 +101,11 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
     if (knotsTotal > tail / kAudioSnapshotKnotBytes) return Status::BadSnapshot;
     const uint64_t fixedTail = knotsTotal * kAudioSnapshotKnotBytes + profilesTotal * sizeof(float);
     if (fixedTail > tail) return Status::BadSnapshot;
-    // What is left after the knots and profiles is the lanes, checked to fill the buffer exactly further down.
-    const size_t laneRegionBytes = tail - static_cast<size_t>(fixedTail);
+    // Version 6 ends with one voice block per clip; what is left between the profiles and those blocks is the
+    // lanes, checked to fill the space exactly further down.
+    const uint64_t voiceBytes = version >= 6 ? static_cast<uint64_t>(count) * kAudioSnapshotVoiceBytes : 0;
+    if (fixedTail + voiceBytes > tail) return Status::BadSnapshot;
+    const size_t laneRegionBytes = tail - static_cast<size_t>(fixedTail) - static_cast<size_t>(voiceBytes);
     size_t knotsLeft = static_cast<size_t>(knotsTotal);
     const uint8_t* knotData = data + clipsEnd;
     const uint8_t* profileData = knotData + knotsTotal * kAudioSnapshotKnotBytes;
@@ -229,6 +232,17 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         }
     }
     if (laneLeft != 0) return Status::BadSnapshot;  // lanes nobody asked for, or a truncated buffer
+
+    if (version >= 6) {
+        for (uint32_t i = 0; i < count; ++i, laneData += kAudioSnapshotVoiceBytes) {
+            float f[kVoiceParamFloats];
+            for (int k = 0; k < kVoiceParamFloats; ++k) f[k] = readLe<float>(laneData + static_cast<size_t>(k) * sizeof(float));
+            VoiceParams voice;
+            voiceParamsFromFloats(f, &voice);
+            if (!voiceParamsValid(voice) || f[14] != 0.0f || f[15] != 0.0f) return Status::BadSnapshot;
+            result.clips[i].voice = voice;
+        }
+    }
     *out = std::move(result);
     return Status::Ok;
 }
