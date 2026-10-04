@@ -23,6 +23,11 @@ struct TrackSnapshot {
     bool solo = false;
 };
 
+// What a block is, for its colour (version 8; older snapshots are all Default, which follows the lane type).
+enum class ClipKind : int32_t { Default = 0, Image = 1, Sticker = 2, Multicam = 3 };
+constexpr int32_t kClipKindShift = 4;
+constexpr int32_t kClipKindMask = 7;
+
 struct ClipSnapshot {
     int64_t clipKey;
     int32_t trackIndex;
@@ -38,6 +43,7 @@ struct ClipSnapshot {
     // The clip the inspector edits (flags bit3, version 6). With several clips selected it is outlined
     // brighter than the rest; before version 6 a selected clip is its own primary.
     bool primary = false;
+    ClipKind kind = ClipKind::Default;
 };
 
 // A transition across the cut at `cutFrame`, shown from `cutFrame - preFrames` to
@@ -77,8 +83,9 @@ struct MarkerSnapshot {
     bool beat() const { return (flags & 1) != 0; }
 };
 
-// A short text drawn on the clip block with key `clipKey` (the text of a title, the name of a sticker): ASCII
-// letters, digits and a few signs, at most kSnapshotMaxLabelBytes long (version 7).
+// A short text drawn on the clip block with key `clipKey` (a clip's name, the text of a title, the name of a sticker or
+// of a marker): ASCII letters, digits and a few signs, at most kSnapshotMaxLabelBytes long in version 7; UTF-8 text,
+// at most kSnapshotMaxLabelBytesUtf8 bytes, from version 8.
 struct LabelSnapshot {
     int64_t clipKey;
     std::string text;
@@ -119,7 +126,8 @@ struct TimelineSnapshot {
     std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> keyframesOf(int64_t clipKey) const;
 };
 
-// Wire layout (little endian), version 7 (version 6 plus a label trailer after the markers), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
+// Wire layout (little endian), version 8 (the same layout as version 7; the per-clip flags gain bits 4..6 = ClipKind, and a
+// label is UTF-8 up to 96 bytes), version 7 (version 6 plus a label trailer after the markers), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
 // primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
@@ -136,8 +144,9 @@ struct TimelineSnapshot {
 //   labels (v7): i32 labelCount, then per label: i64 clipKey, i32 length (0..24), then the ASCII bytes padded with
 //           zeros to a multiple of 4
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
-constexpr uint32_t kSnapshotVersion = 7;
+constexpr uint32_t kSnapshotVersion = 8;
 constexpr int32_t kSnapshotMaxLabelBytes = 24;
+constexpr int32_t kSnapshotMaxLabelBytesUtf8 = 96;
 constexpr uint32_t kSnapshotMinVersion = 2;
 constexpr size_t kSnapshotHeaderBytes = 24;
 constexpr size_t kSnapshotClipBytes = 56;
