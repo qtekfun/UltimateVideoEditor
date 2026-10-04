@@ -31,6 +31,7 @@ internal object NativeTimeline {
     external fun nativeSetDropHint(handle: Long, kind: Int, trackIndex: Int, startFrame: Long, endFrame: Long)
 
     external fun nativeSetMarquee(handle: Long, active: Boolean, x0: Float, y0: Float, x1: Float, y1: Float)
+    external fun nativeSetLaneDrag(handle: Long, from: Int, to: Int)
     external fun nativeClipsInRect(handle: Long, x0: Float, y0: Float, x1: Float, y1: Float): LongArray?
 
     external fun nativeSetLaneScale(handle: Long, scale: Float)

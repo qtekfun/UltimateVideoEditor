@@ -91,6 +91,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
+import com.ultimatevideo.uveditor.domain.LaneOps
 import com.ultimatevideo.uveditor.domain.BezierHandle
 import com.ultimatevideo.uveditor.domain.ParamIds
 import com.ultimatevideo.uveditor.domain.ParamKey
@@ -428,6 +429,7 @@ class EditorViewModel(
             EditorIntent.Flush -> flush(thenClose = false)
             EditorIntent.Back -> flush(thenClose = true)
             is SelectionIntent -> selectionIntent(intent)
+            is LaneDragIntent -> laneDragIntent(intent)
             is LibraryIntent -> libraryIntent(intent)
             is QuickEditIntent -> quickEditIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
@@ -464,6 +466,14 @@ class EditorViewModel(
                 TrackType.VIDEO -> SnapshotTrackType.VIDEO
                 TrackType.AUDIO -> SnapshotTrackType.AUDIO
                 TrackType.TITLE -> SnapshotTrackType.TITLE
+            }
+        }
+        // Mute and solo marks for the lane headers of audio lanes.
+        val trackFlags = timeline.tracks.map {
+            if (it.type == TrackType.AUDIO) {
+                (if (it.audio.mute) TimelineSnapshot.TRACK_MUTED else 0) or (if (it.audio.solo) TimelineSnapshot.TRACK_SOLO else 0)
+            } else {
+                0
             }
         }
         val clips = timeline.tracks.flatMapIndexed { trackIndex, track ->
@@ -506,11 +516,18 @@ class EditorViewModel(
                 SnapshotRetime(clipKeys.keyFor(it.id), it.sourceSpan, reverse = it.reverse, freeze = it.isFreeze)
             }
         }
-        val markers = timeline.markers.map { SnapshotMarker(it.frame.value, beat = it.kind == MarkerKind.BEAT) }
+        val markers = timeline.markers.map {
+            SnapshotMarker(
+                it.frame.value,
+                beat = it.kind == MarkerKind.BEAT,
+                colorCode = it.color?.let { color -> color.ordinal + 1 } ?: 0,
+                hasNote = !it.note.isNullOrBlank(),
+            )
+        }
         val labels = timeline.tracks.flatMap { track ->
             track.clips.mapNotNull { clip -> ClipLabels.of(clip)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels)
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels, trackFlags)
     }
 
     // region loading and saving
@@ -751,6 +768,8 @@ class EditorViewModel(
                     )
                 }
             }
+            // A tap on a lane header selects the lane (the up/down and remove buttons then act on it); a long press drags it.
+            HitKind.LANE_HEADER -> reduce { copy(selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId) }
             // Above the lanes (room left by the bottom-anchored stack) a tap is a tap on nothing; OUTSIDE only occurs mid-drag.
             HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE ->
                 if (!state.value.selectMode) reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
@@ -1168,6 +1187,47 @@ class EditorViewModel(
             return
         }
         execute(EditCommand.MoveTrack(id, delta))
+    }
+
+    /** Lane header drag: pick a lane up, choose where it lands among the lanes of its kind, apply on release. */
+    private fun laneDragIntent(intent: LaneDragIntent) {
+        val timeline = history.timeline
+        when (intent) {
+            is LaneDragIntent.Start -> {
+                val index = intent.hit.trackIndex
+                val track = timeline.tracks.getOrNull(index) ?: return
+                if (intent.hit.kind != HitKind.LANE_HEADER) return
+                reduce { copy(selectedTrackId = track.id) }
+                if (LaneOps.laneDropTarget(timeline, track.id, index) == null) {
+                    val isBase = ClipDeletion.baseTrack(timeline)?.id == track.id
+                    emit(
+                        EditorEffect.ShowMessage(
+                            if (isBase) "The base track stays at the bottom of the video lanes" else "This is the only lane of its kind",
+                        ),
+                    )
+                    return
+                }
+                reduce { copy(laneDrag = LaneDrag(track.id, index, index)) }
+            }
+            is LaneDragIntent.Move -> {
+                val drag = state.value.laneDrag ?: return
+                val hover = when (intent.hit.kind) {
+                    // Above the lanes or in the ruler: the top of the stack.
+                    HitKind.ABOVE_LANES, HitKind.RULER, HitKind.PLAYHEAD -> 0
+                    // Outside the panel or in the gap between lanes: keep the last target.
+                    HitKind.OUTSIDE, HitKind.NONE -> return
+                    else -> intent.hit.trackIndex
+                }
+                if (hover < 0) return
+                val target = LaneOps.laneDropTarget(timeline, drag.trackId, hover) ?: return
+                if (target != drag.toIndex) reduce { copy(laneDrag = drag.copy(toIndex = target)) }
+            }
+            is LaneDragIntent.End -> {
+                val drag = state.value.laneDrag ?: return
+                reduce { copy(laneDrag = null) }
+                if (intent.commit && drag.toIndex != drag.fromIndex) execute(EditCommand.MoveTrackTo(drag.trackId, drag.toIndex))
+            }
+        }
     }
 
     private fun removeSelectedTrack() {
