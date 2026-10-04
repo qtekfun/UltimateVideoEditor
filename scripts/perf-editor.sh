@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
-# Frame-time check of the editor on a connected device: opens the first project in the hub, plays it for N
-# seconds and prints the jank summary of the app window from `dumpsys gfxinfo`. Compare two APKs by running it
-# once per install. Needs an unlocked screen; it only taps (open project, play, pause), never installs or clears data.
+# Frame-time check of the editor on a connected device: opens a project from the hub, plays it for N seconds and
+# prints the jank summary of the app window from `dumpsys gfxinfo`. Compare two APKs by running it once per install.
+# It only taps (open project, play, pause) and never installs or clears data; the screen must be unlocked.
 #
-#   scripts/perf-editor.sh <adb-serial> [seconds=10]
+#   [PKG=com.ultimatevideo.uveditor[.suffix]] scripts/perf-editor.sh <adb-serial> [seconds=10] [project name]
 #
-# Taps are placed from the screen size (portrait phone layout: first hub card at 18.5% of the height, play
-# button at 43.5%), so adjust PROJECT_Y / PLAY_Y if the layout changes.
+# The project is found by its name through uiautomator (the "app closed while ... was open" offer is dismissed
+# first). Without a name the first card is tapped by position (18.5% of the screen height).
 set -euo pipefail
-serial="${1:?usage: $0 <adb-serial> [seconds]}"
+serial="${1:?usage: $0 <adb-serial> [seconds] [project name]}"
 secs="${2:-10}"
-pkg=com.ultimatevideo.uveditor
-adb_() { adb -s "$serial" "$@"; }
+project="${3:-}"
+pkg="${PKG:-com.ultimatevideo.uveditor}"
+. "$(dirname "$0")/device-ui.sh"
 
-focus="$(adb_ shell dumpsys window | grep -m1 mCurrentFocus || true)"
-echo "focus: $focus"
-read -r width height < <(adb_ shell wm size | awk -F'[: x]+' '/Physical size/ {print $3, $4}')
-cx=$((width / 2))
-project_y=${PROJECT_Y:-$((height * 185 / 1000))}
-play_y=${PLAY_Y:-$((height * 435 / 1000))}
+ui_require_unlocked
+ui_launch
+if [ -n "$project" ]; then
+    ui_open_project "$project"
+else
+    if ui_has_text "Dismiss"; then ui_tap_text "Dismiss"; sleep 1; fi
+    read -r width height < <(adb_ shell wm size | awk -F'[: x]+' '/Physical size/ {print $3, $4}')
+    adb_ shell input tap $((width / 2)) $((height * 185 / 1000))
+    sleep 4
+fi
 
-adb_ shell am force-stop "$pkg"
-adb_ shell am start -n "$pkg/.MainActivity" >/dev/null
-sleep 3
-adb_ shell input tap "$cx" "$project_y"   # first project card
-sleep 4
 adb_ shell dumpsys gfxinfo "$pkg" reset >/dev/null
-adb_ shell input tap "$cx" "$play_y"      # play
+ui_tap_text "Play"
 sleep "$secs"
-adb_ shell input tap "$cx" "$play_y"      # pause
+ui_tap_text "Pause" || true
 sleep 1
 adb_ shell dumpsys gfxinfo "$pkg" | sed -n '/Total frames rendered/,/Number Slow issue draw commands/p'
