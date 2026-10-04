@@ -54,12 +54,17 @@ private const val TIMELINE = "timeline"
  * The editor's middle block, top to bottom: the preview, the divider handle, the controls (transport and
  * toolbar, at their natural height) and the timeline. The preview and the timeline split what is left by
  * [fraction], which is read while measuring: a drag changes the layout without recomposing anything.
+ *
+ * With [fullscreen] the preview takes the whole block. The other three are still composed and measured as
+ * before, but placed below the block (outside the window) instead of being removed: the native timeline view
+ * keeps its surface, so playback and the timeline renderer are never torn down by the toggle.
  */
 @Composable
 internal fun PreviewTimelineLayout(
     fraction: () -> Float,
     metrics: SplitMetrics,
     handleThickness: () -> Dp,
+    fullscreen: Boolean,
     modifier: Modifier = Modifier,
     preview: @Composable () -> Unit,
     handle: @Composable () -> Unit,
@@ -85,13 +90,16 @@ internal fun PreviewTimelineLayout(
         metrics.flexiblePx = flexible
         val previewHeight = (flexible * fraction()).roundToInt().coerceIn(0, flexible)
         val timelineHeight = flexible - previewHeight
-        val previewPlaceable = byId.getValue(PREVIEW).measure(Constraints.fixed(width, previewHeight))
+        val shownHeight = if (fullscreen) height else previewHeight
+        val previewPlaceable = byId.getValue(PREVIEW).measure(Constraints.fixed(width, shownHeight))
         val timelinePlaceable = byId.getValue(TIMELINE).measure(Constraints.fixed(width, timelineHeight))
+        // Fullscreen: everything but the preview sits one block below, where nothing is drawn or touched.
+        val shift = if (fullscreen) height else 0
         layout(width, height) {
             previewPlaceable.place(0, 0)
-            handlePlaceable.place(0, previewHeight)
-            chromePlaceable.place(0, previewHeight + handlePx)
-            timelinePlaceable.place(0, previewHeight + handlePx + chromePlaceable.height)
+            handlePlaceable.place(0, previewHeight + shift)
+            chromePlaceable.place(0, previewHeight + handlePx + shift)
+            timelinePlaceable.place(0, previewHeight + handlePx + chromePlaceable.height + shift)
         }
     }
 }
@@ -115,6 +123,7 @@ internal fun DockLayout(
     left: () -> SideRequest,
     right: () -> SideRequest,
     handleThickness: () -> Dp,
+    fullscreen: Boolean,
     modifier: Modifier = Modifier,
     leftPanel: @Composable () -> Unit,
     leftHandle: @Composable () -> Unit,
@@ -143,10 +152,11 @@ internal fun DockLayout(
             request.collapsed -> stripPx
             else -> request.widthDp.dp.roundToPx()
         }
-        var leftPx = columnPx(left())
-        var rightPx = columnPx(right())
-        val leftHandlePx = if (left().present && !left().collapsed) handlePx else 0
-        val rightHandlePx = if (right().present && !right().collapsed) handlePx else 0
+        // Fullscreen preview: the side columns keep their place in the tree but get no room.
+        var leftPx = if (fullscreen) 0 else columnPx(left())
+        var rightPx = if (fullscreen) 0 else columnPx(right())
+        val leftHandlePx = if (!fullscreen && left().present && !left().collapsed) handlePx else 0
+        val rightHandlePx = if (!fullscreen && right().present && !right().collapsed) handlePx else 0
         // Whatever the saved widths say, the editor keeps at least 30 % of the window.
         val room = (width * 0.7f).roundToInt() - leftHandlePx - rightHandlePx
         if (leftPx + rightPx > room && leftPx + rightPx > 0) {

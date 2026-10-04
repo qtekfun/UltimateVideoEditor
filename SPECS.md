@@ -43,6 +43,7 @@ Status: v1, reconciled with the code after phases 1-4 and 6 · Date: 2026-10-03
   - [5.31 Proxy media (WP-P)](#531-proxy-media-wp-p)
   - [5.32 Appearance: dark only, optional pure black](#532-appearance-dark-only-optional-pure-black)
   - [5.33 Timeline canvas rendering: text atlas, ruler, blocks](#533-timeline-canvas-rendering-text-atlas-ruler-blocks)
+  - [5.34 Fullscreen preview](#534-fullscreen-preview)
 - [6. Timeline operations (specification for tests)](#6-timeline-operations-specification-for-tests)
   - [6.1 Base track and overlays (LumaFusion model)](#61-base-track-and-overlays-lumafusion-model)
 - [7. Error handling](#7-error-handling)
@@ -1241,6 +1242,32 @@ the upload list are reused). The renderer can print its own frame statistics: `s
 editor, then `logcat -s uv_timeline` shows every 240 frames the CPU milliseconds to build and submit a frame (up to, not including, the buffer
 swap) as p50 / p95 / p99 / max plus the draw calls and vertices per frame; `scripts/perf-timeline.sh` drives a 110-clip project
 (`scripts/make-perf-project.py`) and prints them. Numbers are in DECISIONS.md.
+
+### 5.34 Fullscreen preview
+
+A double tap on the preview makes it fill the window; a double tap again, the on-screen exit icon or Back leaves.
+
+- **State.** `ui/editor/PreviewFullscreen.kt` is pure Kotlin: `FullscreenState(active, overlayVisible, overlayEpoch)` with a reducer
+  (`DoubleTap`, `Tap`, `Exit`, `Interact`, `Timeout(epoch)`) and `DoubleTapTracker` (gap `doubleTapTimeoutMillis`, distance 8 touch slops).
+  The screen holds it with `rememberSaveable`; only `active` is saved, so rotation and recreation keep the mode and the overlay starts
+  hidden. The overlay is shown on entering and on every single tap (a tap while it shows hides it), and a `LaunchedEffect` keyed on
+  the epoch hides it after `FULLSCREEN_OVERLAY_MS` = 2.5 s; a timeout for an older epoch is ignored.
+- **Gesture.** `Modifier.previewTapGestures` (`PreviewFullscreenUi.kt`) sits on the preview box and reads touches in the *initial* pass,
+  so it sees them before the drag/pinch/twist layer, the track picker and the eyedropper, and consumes nothing except the down of the
+  second tap of a double tap. Only a one-finger, short (long-press timeout), barely moving touch counts as a tap. Touches that start on
+  the overlay's own buttons are ignored (their bounds are reported by `FullscreenControls`). `PreviewGestureLayer` now holds back a
+  pan until it passes the touch slop (a second finger starts at once), so finger jitter during a tap never creates an edit. The first
+  tap of a double tap still acts like any tap (a pick layer picks once); the toggle works whatever layer is armed.
+- **Layout.** Nothing native is removed. `DockLayout` gives the side columns zero width and `PreviewTimelineLayout(fullscreen = true)`
+  measures the preview at the whole block and measures the handle, controls and timeline as usual but places them one block below, outside
+  the window. The editor's title row, banners and the bottom tray are plain Compose and are not composed while fullscreen. The preview
+  `SurfaceView`, the timeline `SurfaceView`, the engine, the audio and the playback state therefore stay alive and are only resized
+  (`surfaceChanged`); no layer is re-opened and the audio clock is not re-anchored. While fullscreen the layout controller is not told
+  about the few dp the bars give back, so it never re-picks a layout.
+- **System bars.** `ImmersiveWhile` hides them with `WindowInsetsControllerCompat` (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`: a swipe from
+  the edge shows them for a moment), re-hides on resume, and shows them again when fullscreen ends or the editor leaves. The preview keeps
+  its letterboxing and the HDR/SDR output-space logic (`wantedOutputSpace`, `DisplayHdr`) is untouched.
+- **Tests.** `PreviewFullscreenTest` (reducer, timer epochs, double-tap tracker). The gesture integration and the layout are verified on a device.
 
 ## 6. Timeline operations (specification for tests)
 
