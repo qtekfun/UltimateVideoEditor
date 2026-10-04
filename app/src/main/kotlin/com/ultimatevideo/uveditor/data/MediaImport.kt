@@ -203,7 +203,7 @@ class AndroidMediaImporter(
         val type = context.contentResolver.getType(uri) ?: return null
         if (type != "image/gif" && type != "image/webp") return null
         val bytes = try {
-            context.contentResolver.openInputStream(uri)?.use { it.readNBytes(MAX_ANIMATION_BYTES) } ?: return null
+            context.contentResolver.openInputStream(uri)?.use { it.readAtMost(MAX_ANIMATION_BYTES) } ?: return null
         } catch (e: IOException) {
             return null
         } catch (e: SecurityException) {

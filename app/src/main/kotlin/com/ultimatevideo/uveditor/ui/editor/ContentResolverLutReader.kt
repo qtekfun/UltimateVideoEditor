@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.editor
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.ultimatevideo.uveditor.data.readAtMost
 import java.io.IOException
 
 /** Reads a picked `.cube` file through the content resolver, refusing anything implausibly large. */
@@ -14,7 +15,7 @@ class ContentResolverLutReader(private val context: Context) : LutFileReader {
         } ?: parsed.lastPathSegment ?: "LUT"
         val input = context.contentResolver.openInputStream(parsed) ?: throw IOException("The file cannot be opened")
         val text = input.use { stream ->
-            val bytes = stream.readNBytes(MAX_BYTES + 1)
+            val bytes = stream.readAtMost(MAX_BYTES + 1)
             if (bytes.size > MAX_BYTES) throw IOException("The file is too large for a LUT")
             bytes.toString(Charsets.UTF_8)
         }

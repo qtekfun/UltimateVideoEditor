@@ -8,7 +8,7 @@ how to add a feature safely) before writing code. Privacy is a hard rule: no AI,
 ## Project facts
 - App name: ultimateVE · Application ID / namespace: `com.ultimatevideo.uveditor`
 - Kotlin + Jetpack Compose (UI), C++20 via CMake/NDK (engine), native library `uveditor_engine`
-- minSdk 33, targetSdk 36, compileSdk 37, ABI `arm64-v8a`
+- minSdk 31, targetSdk 36, compileSdk 37, ABI `arm64-v8a`
 - Graphics: OpenGL ES 3.2 first (Vulkan later). Audio: Oboe/AAudio. Decode/encode: NDK MediaCodec.
 - Language: code, comments, commits and docs in English.
 

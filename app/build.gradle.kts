@@ -72,7 +72,7 @@ android {
         applicationId = "com.ultimatevideo.uveditor"
         // Debug-only helper for shared test devices: -PappIdSuffix=.mine installs next to the normal app.
         (findProperty("appIdSuffix") as String?)?.let { applicationIdSuffix = it }
-        minSdk = 33
+        minSdk = 31
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName

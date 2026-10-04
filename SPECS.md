@@ -54,7 +54,7 @@ Section numbers are stable: other documents refer to them (for example `SPECS 5.
 - App name: ultimateVE · Application ID / namespace: `com.ultimatevideo.uveditor`
 - Native library: `uveditor_engine` (C++20, CMake, NDK). JNI package prefix `com.ultimatevideo.uveditor.engine`.
 - Gradle Kotlin DSL (`*.gradle.kts`) with a version catalog (`gradle/libs.versions.toml`).
-- minSdk 33 · targetSdk 36 · compileSdk 37 (current AndroidX requires it) · ABIs: `arm64-v8a` (plus `x86_64` optional for emulator UI work).
+- minSdk 31 · targetSdk 36 · compileSdk 37 (current AndroidX requires it) · ABIs: `arm64-v8a` (plus `x86_64` optional for emulator UI work).
 - Dev host: Fedora Linux, no Android Studio. Command-line only: JDK 21, `$ANDROID_HOME=~/Android/Sdk`,
   `sdkmanager`, `adb`. Needed extras: NDK, CMake, Gradle wrapper.
 - Test device: physical, wireless adb (more than one adb transport may be listed; use `adb -s <serial>`).
