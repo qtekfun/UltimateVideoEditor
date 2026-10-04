@@ -192,6 +192,12 @@ panel on the left.
 - **Overlay tracks** sit above the base, stacked upward. They are free: clips can be placed anywhere and gaps
   are kept. Higher lanes are drawn on top.
 - **Audio tracks** are below the base. **Title** tracks hold text and caption clips.
+- **Lane headers**: a small name tab (V3, V2, V1 for the base, A1, T1...) sits over the left edge of every lane;
+  audio lanes also show a red **M** when muted and a yellow **S** when soloed. **Tap** a header to select the lane.
+  **Long press and drag** a header up or down to reorder the lane: a bar shows where it will land and releasing
+  applies it as one undo step. Lanes only reorder among their own kind (overlay videos together, audio together, titles
+  together) and the base never moves; the ▲ / ▼ buttons do the same one step at a time. The header covers the first
+  22dp of every lane, so scroll the timeline slightly if you need to grab the very start of a clip.
 
 ### Gestures
 
@@ -412,7 +418,9 @@ The flag icon opens:
 - **Add or remove a marker** at the playhead.
 - **Marker note and colour…**: with the playhead on a marker, type a note (up to 200 characters) and pick one
   of six colours or none. The note and colour are saved with the project and are written to EDL and FCPXML
-  exports (the colour as a `[red]` prefix in the marker text). It is one undo step.
+  exports (the colour as a `[red]` prefix in the marker text). It is one undo step. On the ruler the marker's flag
+  and the faint line through the lanes take that colour (pink when there is none), and a small light square under the
+  flag shows that the marker has a note.
 - **Find beats in the selected clip**: detects the rhythm of its audio and drops beat markers on the ruler.
   Works on music with a clear pulse; speech or ambience may report "no clear beat".
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
