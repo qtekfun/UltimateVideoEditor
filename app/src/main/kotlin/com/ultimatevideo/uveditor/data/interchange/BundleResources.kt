@@ -173,8 +173,16 @@ class ResourcePayload(val kind: ResourceKind, val key: String, val file: Resourc
     val sha256: String by lazy { Hashes.sha256Hex(file.bytes) }
 }
 
-/** The resources a bundle is made of and the ones the user asked for but this device cannot provide. */
-class ResourcePlan(val payloads: List<ResourcePayload>, val skipped: List<String>)
+/**
+ * The resources a bundle is made of and the ones the user asked for but this device cannot provide. [references]
+ * are the resources the project uses that stay out of the bundle (by choice or because they are not here): they
+ * go into the manifest by name only, so whoever imports the bundle is told which LUT or font to get.
+ */
+class ResourcePlan(
+    val payloads: List<ResourcePayload>,
+    val skipped: List<String>,
+    val references: List<BundleResource> = emptyList(),
+)
 
 /** The library keys and font ids a project refers to. */
 data class ResourceRefs(val lutKeys: Set<Int>, val fontIds: Set<String>) {
@@ -296,7 +304,17 @@ object BundleResources {
                 if (data == null) skipped += "font $id (not in this device's library)" else payloads += ResourcePayload(ResourceKind.FONT, id, data)
             }
         }
-        return ResourcePlan(payloads, skipped)
+        val included = payloads.mapTo(HashSet()) { it.kind to it.key }
+        val references = ArrayList<BundleResource>()
+        for (key in refs.lutKeys.sorted()) {
+            if (ResourceKind.LUT to key.toString() in included) continue
+            references += BundleResource(ResourceKind.LUT.wire, key.toString(), library?.lutName(key) ?: "#$key")
+        }
+        for (id in refs.fontIds.sorted()) {
+            if (ResourceKind.FONT to id in included) continue
+            references += BundleResource(ResourceKind.FONT.wire, id, library?.fontFamily(id) ?: id)
+        }
+        return ResourcePlan(payloads, skipped, references)
     }
 }
 

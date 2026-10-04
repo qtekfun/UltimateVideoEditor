@@ -4,6 +4,7 @@ import androidx.lifecycle.viewModelScope
 import com.ultimatevideo.uveditor.data.ClipPeeker
 import com.ultimatevideo.uveditor.data.ImportReport
 import com.ultimatevideo.uveditor.data.MatchedClip
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
 import com.ultimatevideo.uveditor.data.MediaImportException
 import com.ultimatevideo.uveditor.data.NewProjectDefaults
@@ -17,6 +18,9 @@ import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.engine.EngineClient
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
+import com.ultimatevideo.uveditor.ui.library.BundleExportText
+import com.ultimatevideo.uveditor.ui.library.ImportReportNotes
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,13 +109,24 @@ class HubViewModel(
                 val report = projects.importWithReport(intent.uri)
                 refreshNow()
                 emit(HubEffect.ShowMessage(importMessage(report)))
+                importNotesOf(report)?.let { notes -> reduce { copy(importNotes = notes) } }
             }
-            is HubIntent.RequestExportBundle ->
-                emit(HubEffect.LaunchBundleExportPicker(intent.project.id, "${intent.project.name}.uvbundle", intent.includeMedia))
+            is HubIntent.RequestExportBundle -> openBundleDialog(intent.project, intent.includeMedia)
+            is HubIntent.BundleChoiceChanged ->
+                reduce { copy(bundleExport = bundleExport?.let { it.copy(draft = it.draft.copy(choice = intent.choice)) }) }
+            HubIntent.DismissBundleExport -> reduce { copy(bundleExport = null) }
+            HubIntent.ConfirmBundleExport -> {
+                val dialog = state.value.bundleExport
+                if (dialog != null && dialog.draft.canExport) {
+                    reduce { copy(bundleExport = null) }
+                    emit(HubEffect.LaunchBundleExportPicker(dialog.project.id, "${dialog.project.name}.uvbundle", dialog.draft.choice))
+                }
+            }
             is HubIntent.ExportBundleTo -> launchProjectOp {
-                val result = projects.exportBundle(intent.projectId, intent.uri, intent.includeMedia)
-                emit(HubEffect.ShowMessage(bundleExportMessage(intent.includeMedia, result)))
+                val result = projects.exportBundle(intent.projectId, intent.uri, intent.choice)
+                emit(HubEffect.ShowMessage(bundleExportMessage(intent.choice, result)))
             }
+            HubIntent.DismissImportNotes -> reduce { copy(importNotes = null) }
 
             is HubIntent.RecoverProject -> launchProjectOp {
                 val project = projects.recover(intent.projectId)
@@ -135,7 +150,7 @@ class HubViewModel(
             }
 
             HubIntent.DismissDialogs ->
-                reduce { copy(newProjectDraft = null, renameDraft = null, deleteTarget = null) }
+                reduce { copy(newProjectDraft = null, renameDraft = null, deleteTarget = null, bundleExport = null) }
         }
     }
 
@@ -281,6 +296,7 @@ class HubViewModel(
         return buildString {
             append("Imported \"$name\"")
             if (bundle.mediaCopied > 0) append(". ${bundle.mediaCopied} media file${if (bundle.mediaCopied == 1) "" else "s"} came with it")
+            BundleExportText.importSentence(bundle.resources)?.let { append(". $it") }
             if (bundle.relinked > 0) append(". ${bundle.relinked} found on this device by name and size")
             if (bundle.missing.isNotEmpty()) {
                 append(". Missing (relink in the editor): ${bundle.missing.take(3).joinToString()}")
@@ -289,12 +305,29 @@ class HubViewModel(
         }
     }
 
-    internal fun bundleExportMessage(includeMedia: Boolean, result: BundleWriteResult): String = buildString {
-        append("Bundle exported")
-        if (includeMedia) append(" with ${result.mediaCopied} media file${if (result.mediaCopied == 1) "" else "s"}")
-        if (result.mediaSkipped.isNotEmpty()) {
-            append(". Not copied (cannot be read): ${result.mediaSkipped.take(3).joinToString()}")
-            if (result.mediaSkipped.size > 3) append(" and ${result.mediaSkipped.size - 3} more")
+    internal fun bundleExportMessage(choice: BundleChoice, result: BundleWriteResult): String =
+        BundleExportText.exportMessage("Bundle exported", choice, result)
+
+    /** The list of LUTs and fonts an import could not install, or null when it went fully through. */
+    internal fun importNotesOf(report: ImportReport): ImportReportNotes? {
+        val resources = report.bundle?.resources ?: return null
+        val problems = BundleExportText.importProblems(resources)
+        if (problems.isEmpty()) return null
+        return ImportReportNotes(report.project.name, problems, BundleExportText.importNotes(resources))
+    }
+
+    /** Opens the bundle dialog at once and fills in what the project holds when it has been measured. */
+    private fun openBundleDialog(project: ProjectSummary, includeMedia: Boolean) {
+        val choice = BundleChoice(includeMedia = includeMedia)
+        reduce { copy(bundleExport = HubBundleExport(project, BundleExportDraft(choice = choice))) }
+        viewModelScope.launch {
+            val draft = try {
+                BundleExportDraft(preview = projects.bundlePreview(project.id), choice = state.value.bundleExport?.draft?.choice ?: choice)
+            } catch (e: ProjectError) {
+                BundleExportDraft(choice = choice, failed = e.message ?: "The project could not be read")
+            }
+            // The dialog may have been closed or reopened for another project while the project was measured.
+            reduce { if (bundleExport?.project?.id == project.id) copy(bundleExport = HubBundleExport(project, draft)) else this }
         }
     }
 

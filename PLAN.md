@@ -145,6 +145,7 @@ the Pixel 8 is named; the Pixel 8 is a debug device, not the reference).
 | Multiselect | Select mode, marquee, group move, copy/paste (Pixel) | Cut, paste attributes, align, transitions, group speed/volume/opacity |
 | Multicam, auto cut, reframe, templates, filter and transition packs | Not seen | Everything: sheets, sync on two real recordings, cuts, shader looks, wizard |
 | Interchange and library | Bundle with media, EDL and FCPXML written and read, bundle import (Pixel) | Tags and notes, find in timeline/library, remove unused, relink by name and size; open the FCPXML/EDL in another editor |
+| Bundle with LUTs and fonts | Not seen (host tests only) | Export dialog switches and estimate, a bundle with a LUT and a font moved to a second phone and opened there, the import report dialog, a bundle made by an older build opening here |
 | Relink and recovery | Offer to reopen after a crash (Pixel) | Relink picker round trip, hatched clips, recover from `.bak` |
 | Release build | Release APK signed with a throwaway key verifies; builds and lint pass (host) | Minified build runtime behaviour (JNI lookups, project round trip), About screen, crash report, tips |
 

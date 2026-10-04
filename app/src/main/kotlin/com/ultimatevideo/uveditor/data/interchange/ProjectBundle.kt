@@ -100,6 +100,8 @@ data class BundleWriteResult(
     val mediaSkipped: List<String>,
     val resourcesIncluded: Int = 0,
     val resourcesSkipped: List<String> = emptyList(),
+    val lutsIncluded: Int = 0,
+    val fontsIncluded: Int = 0,
 )
 
 /**
@@ -163,7 +165,7 @@ object ProjectBundle {
             schemaVersion = project.version,
             media = entries,
             thumbnails = thumbnails.keys.sorted(),
-            resources = resourceEntries,
+            resources = resourceEntries + resources.references,
         )
         ZipOutputStream(out).use { zip ->
             putText(zip, MANIFEST, json.encodeToString(manifest))
@@ -199,7 +201,14 @@ object ProjectBundle {
                 copied++
             }
         }
-        return BundleWriteResult(copied, skipped, resources.payloads.size, resources.skipped)
+        return BundleWriteResult(
+            mediaCopied = copied,
+            mediaSkipped = skipped,
+            resourcesIncluded = resources.payloads.size,
+            resourcesSkipped = resources.skipped,
+            lutsIncluded = resources.payloads.count { it.kind == ResourceKind.LUT },
+            fontsIncluded = resources.payloads.count { it.kind == ResourceKind.FONT },
+        )
     }
 
     /** The entry name under `resources/` of a LUT or font: its kind, its key and a safe version of its file name. */

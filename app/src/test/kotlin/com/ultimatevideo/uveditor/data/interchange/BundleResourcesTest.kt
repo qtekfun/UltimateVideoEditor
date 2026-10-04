@@ -181,11 +181,16 @@ class BundleResourcesTest {
         assertFalse(BundleChoice().includeFonts)
         assertTrue(BundleChoice().includeLuts)
 
+        // The font stays out but the manifest still names it, so the importer can say which one to get.
+        val manifest = ProjectBundle.extract(files.getValue("doc://b").inputStream(), tmp.newFolder()).manifest
+        val reference = manifest.resources.single { it.kind == "font" }
+        assertEquals("Private Font", reference.name)
+        assertNull(reference.entry)
+
         val target = Device("b")
         val res = target.repo.importWithReport("doc://b").bundle!!.resources
         assertEquals(1, res.installed.size)
-        assertEquals(1, res.missing.size)
-        assertTrue(res.missing.single(), res.missing.single().startsWith("font "))
+        assertEquals(listOf("font Private Font"), res.missing)
         assertNull(target.fonts.file(font.id))
     }
 
