@@ -66,7 +66,6 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 
 - [x] Offline render loop to MediaCodec (H.264/HEVC, HEVC Main10 HLG) with AAC mix, MP4 through SAF, progress, ETA, cancel, share
 - [x] Platform upload presets
-- [ ] Optional static FFmpeg fallback — **designed, not built** (`docs/ffmpeg-fallback.md`); trigger: a real file MediaCodec cannot open
 - Measured on the reference phone: 4K60 HEVC export ~90 fps (1.5x real time), 1080p30 H.264 ~100 fps, frame counts and PTS exact with
   ffprobe. Long-GOP material exported at ~11.6 fps until the seek fix; ~54-71 fps on the Pixel 8 afterwards (simulation in
   `uv_decode_sim_host_tests` protects it). Two-layer export ~1.3x real time. Cancel and Share are test-covered only.
