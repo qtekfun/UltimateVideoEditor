@@ -7,7 +7,7 @@ automated tests so far; see [Known limits](#known-limits).
 ## Contents
 
 1. [Project hub](#project-hub)
-2. [Editor layout](#editor-layout) and [Layout](#layout)
+2. [Editor layout](#editor-layout), [Fullscreen preview](#fullscreen-preview) and [Layout](#layout)
 3. [Toolbar icons](#toolbar-icons)
 4. [Media tray](#media-tray) and [Media library](#media-library)
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
@@ -98,6 +98,16 @@ From top to bottom:
 6. **Media tray** at the bottom (see [Media tray](#media-tray)): collapsed to a thin tab strip until you open it.
 
 On wide windows (tablet, foldable open, or a phone sideways) the tray and the inspector can sit in side columns.
+
+## Fullscreen preview
+
+**Double tap** the picture on the preview to make it fill the whole screen. The timeline, toolbars and the system bars are
+hidden; playback carries on exactly where it was, and the picture keeps its shape (black bars if the project's shape differs
+from the screen's). **Tap once** to show a small strip with **play/pause** and **leave fullscreen**; it fades after about 2.5
+seconds. To leave, **double tap** again, use the strip's exit icon or press **Back**. Swiping from a screen edge shows the
+system bars for a moment. Fullscreen survives rotating the device. Dragging, pinching and twisting on the picture still edit
+the selected clip, in fullscreen too (a tap or a double tap never moves anything). The
+four-arrows button in the transport row is something else: it fits the whole project into the timeline.
 
 ## Layout
 

@@ -90,6 +90,9 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.geometry.Rect
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -613,6 +616,18 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     StateEffect(holder, { it.assets }) { s -> proxyVm.onIntent(ProxyIntent.SetAssets(s.assets)) }
 
     BackHandler { viewModel.onIntent(EditorIntent.Back) }
+    // A double tap on the preview makes it fill the window. Registered after the editor's own Back, so it wins.
+    var fullscreen by rememberSaveable(stateSaver = FullscreenSaver) { mutableStateOf(FullscreenState()) }
+    val onFullscreen: (FullscreenAction) -> Unit = { fullscreen = fullscreen.reduce(it) }
+    BackHandler(enabled = fullscreen.consumesBack) { onFullscreen(FullscreenAction.Exit) }
+    ImmersiveWhile(fullscreen.active)
+    LaunchedEffect(fullscreen.overlayEpoch, fullscreen.overlayVisible) {
+        if (fullscreen.overlayVisible) {
+            val epoch = fullscreen.overlayEpoch
+            delay(FULLSCREEN_OVERLAY_MS)
+            onFullscreen(FullscreenAction.Timeout(epoch))
+        }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         // Flush pauses playback; the audio device is then freed until the next play.
         viewModel.onIntent(EditorIntent.Flush)
@@ -651,7 +666,8 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                         window,
                     )
                 }
-                LaunchedEffect(window) { layout.onWindow(window) }
+                // Hiding the system bars changes the window by a few dp: that must not re-pick the layout, so it waits.
+                LaunchedEffect(window, fullscreen.active) { if (!fullscreen.active) layout.onWindow(window) }
                 // Lane heights are the native timeline's business: it scales its lanes and what is drawn in them.
                 LaunchedEffect(engine, layout) { snapshotFlow { layout.laneHeight }.collect { engine.setLaneScale(it.scale) } }
                 var layoutSheetOpen by remember { mutableStateOf(false) }
@@ -728,6 +744,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     left = { SideRequest(leftPanels.isNotEmpty(), layout.state.leftWidthDp, leftCollapsed) },
                     right = { SideRequest(rightPanels.isNotEmpty(), layout.state.rightWidthDp, rightCollapsed) },
                     handleThickness = { handleThickness(layout.state.customising) },
+                    fullscreen = fullscreen.active,
                     modifier = Modifier.fillMaxSize(),
                     leftPanel = { sideColumn(Side.LEFT, leftPanels, leftCollapsed) },
                     leftHandle = { sideHandle(Side.LEFT) },
@@ -741,6 +758,8 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                         onOpenLayout = { layoutSheetOpen = true },
                         titleTools = titleTools,
                         onOpenTray = { tray = tray.open(it) },
+                        fullscreen = fullscreen,
+                        onFullscreen = onFullscreen,
                         bottomTray = {
                             val trayDock = layout.tray
                             if (bottomTrayShown(layout.state, inspectorOpen)) {
@@ -780,6 +799,8 @@ private fun EditorMain(
     onOpenLayout: () -> Unit,
     bottomTray: @Composable () -> Unit,
     titleTools: TitleTools,
+    fullscreen: FullscreenState,
+    onFullscreen: (FullscreenAction) -> Unit,
     modifier: Modifier = Modifier,
     /** Output peaks since the previous call, for the level meter next to the timecode. */
     takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
@@ -808,7 +829,8 @@ private fun EditorMain(
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {
-        Row(
+        // Fullscreen: only the rows above and below the preview/timeline block go (they hold no native view).
+        if (!fullscreen.active) Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -824,8 +846,10 @@ private fun EditorMain(
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
             ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
         }
-        MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }
-        ProxyBannerHost()
+        if (!fullscreen.active) {
+            MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }
+            ProxyBannerHost()
+        }
 
         val splitMetrics = remember { SplitMetrics() }
         val ticker = rememberTicker()
@@ -835,10 +859,20 @@ private fun EditorMain(
             fraction = { layout.state.previewFraction },
             metrics = splitMetrics,
             handleThickness = { handleThickness(layout.state.customising) },
+            fullscreen = fullscreen.active,
             modifier = Modifier.fillMaxWidth().weight(1f),
             preview = {
+                // Where the fullscreen controls sit, so a tap on them is not taken for a tap on the picture.
+                var controlsBounds by remember { mutableStateOf<Rect?>(null) }
                 // No background here: the preview is a SurfaceView, and an opaque parent would hide it.
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.fillMaxSize().previewTapGestures(
+                        ignoreIn = { controlsBounds },
+                        onTap = { onFullscreen(FullscreenAction.Tap) },
+                        onDoubleTap = { onFullscreen(FullscreenAction.DoubleTap) },
+                    ),
+                    contentAlignment = Alignment.Center,
+                ) {
                     val previewEngine = preview.engine
                     if (previewEngine != null) {
                         // HLG project: render the preview as HDR when the screen shows it, else tone-mapped SDR.
@@ -900,6 +934,17 @@ private fun EditorMain(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
+                        FullscreenControls(
+                            visible = fullscreen.overlayVisible,
+                            playing = state.isPlaying,
+                            onPlayPause = {
+                                onFullscreen(FullscreenAction.Interact)
+                                viewModel.onIntent(EditorIntent.TogglePlay)
+                            },
+                            onExit = { onFullscreen(FullscreenAction.Exit) },
+                            onBounds = { controlsBounds = it },
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        )
                         if (scopesOpen) {
                             ScopesPanel(
                                 engine = previewEngine,
@@ -1046,7 +1091,7 @@ private fun EditorMain(
                 }
             },
         )
-        bottomTray()
+        if (!fullscreen.active) bottomTray()
     }
 }
 
