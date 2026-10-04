@@ -6,12 +6,15 @@ import com.ultimatevideo.uveditor.data.MediaCaches
 import com.ultimatevideo.uveditor.data.MediaImporter
 import com.ultimatevideo.uveditor.data.MediaProblem
 import com.ultimatevideo.uveditor.data.MissingMedia
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.data.interchange.Edl
 import com.ultimatevideo.uveditor.data.interchange.Fcpxml
 import com.ultimatevideo.uveditor.data.interchange.InterchangeExporter
 import com.ultimatevideo.uveditor.domain.AnimationTiming
 import com.ultimatevideo.uveditor.domain.AnnotateMarker
 import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
+import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
+import com.ultimatevideo.uveditor.ui.library.BundleExportText
 import com.ultimatevideo.uveditor.ui.library.Library
 import com.ultimatevideo.uveditor.ui.library.LibraryQuery
 import java.io.IOException
@@ -2982,6 +2985,10 @@ class EditorViewModel(
             is LibraryIntent.FindInTimeline -> findInTimeline(intent.assetId)
             is LibraryIntent.RequestExport -> requestExport(intent.kind)
             is LibraryIntent.ExportTo -> exportTo(intent.kind, intent.uri)
+            is LibraryIntent.BundleChoiceChanged ->
+                reduce { copy(library = library.copy(bundleDraft = library.bundleDraft?.copy(choice = intent.choice))) }
+            LibraryIntent.DismissBundleExport -> reduce { copy(library = library.copy(bundleDraft = null)) }
+            LibraryIntent.ConfirmBundleExport -> confirmBundleExport()
             LibraryIntent.OpenMarkerEdit -> openMarkerEdit()
             is LibraryIntent.MarkerNoteChanged -> reduce { copy(markerEdit = markerEdit?.copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH))) }
             is LibraryIntent.MarkerColorSelected -> reduce { copy(markerEdit = markerEdit?.copy(color = intent.color)) }
@@ -3068,7 +3075,49 @@ class EditorViewModel(
         execute(AnnotateMarker(draft.markerId, draft.note, draft.color))
     }
 
+    /** What the bundle dialog was confirmed with, kept while the document picker is open; consumed by the export that follows. */
+    private var pendingBundleChoice: BundleChoice? = null
+
+    /**
+     * Opens the bundle dialog at once, then measures the saved project (what its media, LUTs and fonts weigh) and
+     * shows it. The project is saved first because the bundle is made from the file on disk.
+     */
+    private fun openBundleDialog(kind: InterchangeKind) {
+        val choice = BundleChoice(includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
+        reduce { copy(library = library.copy(bundleDraft = BundleExportDraft(choice = choice))) }
+        viewModelScope.launch {
+            val measured = try {
+                saveJob?.cancelAndJoin()
+                if (dirty && !persist()) throw IOException("the project could not be saved first")
+                BundleExportDraft(preview = interchange.bundlePreview(projectId), choice = choice)
+            } catch (e: ProjectError) {
+                BundleExportDraft(choice = choice, failed = e.message ?: "The project could not be read")
+            } catch (e: IOException) {
+                BundleExportDraft(choice = choice, failed = e.message ?: "The project could not be read")
+            }
+            reduce {
+                val current = library.bundleDraft ?: return@reduce this // closed while measuring
+                copy(library = library.copy(bundleDraft = measured.copy(choice = current.choice)))
+            }
+        }
+    }
+
+    private fun confirmBundleExport() {
+        val draft = state.value.library.bundleDraft ?: return
+        if (!draft.canExport) return
+        pendingBundleChoice = draft.choice
+        reduce { copy(library = library.copy(bundleDraft = null)) }
+        val kind = if (draft.choice.includeMedia) InterchangeKind.BUNDLE_WITH_MEDIA else InterchangeKind.BUNDLE
+        val project = currentProjectDto() ?: return
+        val base = project.name.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifEmpty { "project" }
+        emit(EditorEffect.LaunchInterchangePicker(kind, "$base.${kind.extension}", kind.mime))
+    }
+
     private fun requestExport(kind: InterchangeKind) {
+        if (kind == InterchangeKind.BUNDLE || kind == InterchangeKind.BUNDLE_WITH_MEDIA) {
+            if (state.value.library.busy == null) openBundleDialog(kind)
+            return
+        }
         val project = currentProjectDto() ?: return
         val base = project.name.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').ifEmpty { "project" }
         val (extension, mime) = when (kind) {
@@ -3114,12 +3163,10 @@ class EditorViewModel(
                 // The bundle is made from the project file, so what is on screen has to be saved first.
                 saveJob?.cancelAndJoin()
                 if (dirty && !persist()) throw IOException("the project could not be saved first")
-                val result = interchange.exportBundle(projectId, uri, includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
-                return buildString {
-                    append("Bundle written")
-                    if (kind == InterchangeKind.BUNDLE_WITH_MEDIA) append(" with ${result.mediaCopied} media file${if (result.mediaCopied == 1) "" else "s"}")
-                    if (result.mediaSkipped.isNotEmpty()) append(". Not copied (cannot be read): ${result.mediaSkipped.take(3).joinToString()}${if (result.mediaSkipped.size > 3) "…" else ""}")
-                }
+                val choice = pendingBundleChoice ?: BundleChoice(includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
+                pendingBundleChoice = null
+                val result = interchange.exportBundle(projectId, uri, choice)
+                return BundleExportText.exportMessage("Bundle written", choice, result)
             }
             InterchangeKind.EDL -> {
                 val export = Edl.export(project)

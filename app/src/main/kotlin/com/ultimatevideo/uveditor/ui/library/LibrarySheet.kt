@@ -81,6 +81,14 @@ internal fun LibraryOverlays(state: EditorState, onIntent: (EditorIntent) -> Uni
     if (state.library.open) LibrarySheet(state, onIntent)
     state.library.editing?.let { AssetEditDialog(it, onIntent) }
     state.library.confirmDeleteUnused?.let { count -> DeleteUnusedDialog(count, onIntent) }
+    state.library.bundleDraft?.let { draft ->
+        BundleExportDialog(
+            draft = draft,
+            onChoice = { onIntent(LibraryIntent.BundleChoiceChanged(it)) },
+            onConfirm = { onIntent(LibraryIntent.ConfirmBundleExport) },
+            onDismiss = { onIntent(LibraryIntent.DismissBundleExport) },
+        )
+    }
     state.markerEdit?.let { MarkerEditDialog(it, onIntent) }
 }
 
