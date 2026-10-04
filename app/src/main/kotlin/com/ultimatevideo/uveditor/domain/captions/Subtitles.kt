@@ -67,7 +67,7 @@ object Subtitles {
     fun parse(bytes: ByteArray): SubtitleFile = parse(decode(bytes))
 
     fun parse(text: String): SubtitleFile {
-        val blocks = text.replace("\r\n", "\n").replace('\r', '\n').trimStart('﻿').split(Regex("\n{2,}"))
+        val blocks = text.replace("\r\n", "\n").replace('\r', '\n').trimStart('\uFEFF').split(Regex("\n{2,}"))
         val cues = ArrayList<SubtitleCue>()
         var skipped = 0
         for ((index, rawBlock) in blocks.withIndex()) {
