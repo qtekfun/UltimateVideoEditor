@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.editor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -157,7 +158,7 @@ fun InspectorPanel(
 }
 
 /**
- * Speed of the selected media clip: presets and a slider for a constant speed (0.1x to 8x), a ramp
+ * Speed of the selected media clip: presets and a slider for a constant speed (0.1x to 100x), a speed curve (presets and a graphical editor)
  * that speeds it up or slows it down over the clip, reverse, and (for video) a freeze frame at the
  * playhead. Changing the speed changes the clip's length and moves the clips after it.
  */
@@ -197,13 +198,42 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
             Text(text = formatSpeed(2.0.pow(logSpeed.toDouble())), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
         }
         val shape = rampShapeOf(clip)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = "Ramp", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = "Speed curve", style = MaterialTheme.typography.labelMedium)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        ) {
             for ((option, label) in RAMP_SHAPES) {
                 FilterChip(
                     selected = shape == option,
                     onClick = { onIntent(EditorIntent.SetSpeedRamp(option)) },
                     label = { Text(label) },
+                )
+            }
+        }
+        var curveOpen by remember(clip.id) { mutableStateOf(false) }
+        TextButton(onClick = { curveOpen = !curveOpen }) { Text(if (curveOpen) "Hide curve editor" else "Edit curve") }
+        if (curveOpen && clip.durationFrames >= 2) {
+            SpeedCurveEditor(
+                keys = clip.speedRamp,
+                durationFrames = clip.durationFrames,
+                onCommit = { onIntent(EditorIntent.SetSpeedKeys(it)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (isVisual && (speed < 1.0 || !rampless)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "Smooth slow motion", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "Makes in-between frames where the clip plays slower than real time",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = clip.smoothSlowMo,
+                    onCheckedChange = { onIntent(EditorIntent.ToggleSmoothSlowMo) },
+                    modifier = Modifier.semantics { contentDescription = "Smooth slow motion" },
                 )
             }
         }
@@ -229,6 +259,11 @@ private fun rampShapeOf(clip: Clip): SpeedRampShape? = when (clip.speedRamp) {
     SpeedRamps.easeIn(clip.durationFrames) -> SpeedRampShape.EASE_IN
     SpeedRamps.easeOut(clip.durationFrames) -> SpeedRampShape.EASE_OUT
     SpeedRamps.bell(clip.durationFrames) -> SpeedRampShape.BELL
+    SpeedRamps.easeInSmooth(clip.durationFrames) -> SpeedRampShape.EASE_IN_SMOOTH
+    SpeedRamps.easeOutSmooth(clip.durationFrames) -> SpeedRampShape.EASE_OUT_SMOOTH
+    SpeedRamps.montage(clip.durationFrames) -> SpeedRampShape.MONTAGE
+    SpeedRamps.hero(clip.durationFrames) -> SpeedRampShape.HERO
+    SpeedRamps.bullet(clip.durationFrames) -> SpeedRampShape.BULLET
     else -> null
 }
 
@@ -246,16 +281,21 @@ internal fun formatSpeed(speed: Double): String {
     return if (rounded % PERCENT.toInt() == 0) "${rounded / PERCENT.toInt()}x" else "${(rounded / PERCENT).toString().trimEnd('0').trimEnd('.')}x"
 }
 
-private val SPEED_PRESETS = listOf(0.25, 0.5, 1.0, 2.0, 4.0)
+private val SPEED_PRESETS = listOf(0.25, 0.5, 1.0, 2.0, 4.0, 10.0)
 private val RAMP_SHAPES = listOf(
     SpeedRampShape.NONE to "None",
     SpeedRampShape.EASE_IN to "Ease in",
     SpeedRampShape.EASE_OUT to "Ease out",
+    SpeedRampShape.EASE_IN_SMOOTH to "Ease in (round)",
+    SpeedRampShape.EASE_OUT_SMOOTH to "Ease out (round)",
     SpeedRampShape.BELL to "Bell",
+    SpeedRampShape.MONTAGE to "Montage",
+    SpeedRampShape.HERO to "Hero",
+    SpeedRampShape.BULLET to "Bullet time",
 )
 private const val SPEED_MATCH = 0.01
 private val LOG_SPEED_MIN = log2(0.1).toFloat()
-private val LOG_SPEED_MAX = log2(8.0).toFloat()
+private val LOG_SPEED_MAX = log2(SpeedLimits.MAX.toDouble()).toFloat()
 
 /**
  * Animation of the selected clip: a diamond adds or removes a keyframe at the playhead, arrows jump
