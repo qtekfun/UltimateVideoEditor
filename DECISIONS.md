@@ -979,3 +979,9 @@ shown in the viewer as badges (live / proxy / still) from `MulticamPlanner` inst
 low-rate decode path that was not built in this pass.
 **Alternative:** periodic stills from the thumbnail decoder or proxy decoders for each angle (the planner already
 decides which angles would use which).
+
+## Project templates (WP-V5)
+
+**Decision:** a template is the project structure with media replaced by placeholders (clips with the asset id `slot:<id>`); filling it reuses the base-track rules (trim and ripple when a file is short, delete when an optional slot is empty, `Reframe` for the centre crop, transition clamping with `maxTransitionFrames`). The file is the `project.json` structure plus a placeholder list, never media. The entry point is the hub menu rather than a third mode of the New project sheet.
+**Why:** every edit rule stays in one place and is already tested; sharing structure only keeps `.uvtemplate` files tiny and private. A separate wizard needs the media importer and creates the project in one step, which does not fit the sheet's format selectors.
+**Alternative:** a Template start mode inside the New project sheet (one flow, but entangled with the selectors and the match-first-clip probing), or placeholder clips with retained stand-in media references (they would break when the media is missing).
