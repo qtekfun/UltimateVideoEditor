@@ -1014,3 +1014,9 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Why:** reordering overlay lanes only by buttons was a LumaFusion gap; the header column also gives the lanes names and shows mute/solo state.
 **Alternative:** shifting the whole timeline right by the header width (cleaner, but changes every x coordinate and hit test), or a Compose overlay for the headers (breaks the rule that the canvas is drawn natively, and recomposes while scrolling vertically).
 **Trade-off:** the header covers the first 22dp of the lanes; the first frames of a clip scrolled to the very left can only be grabbed after scrolling the timeline a little. Mute/solo are shown, not toggled, in the header (the Mixer sheet toggles them). Not seen on a device: host and JVM tests and the NDK build only.
+
+## Launcher icon (leftovers)
+
+**Decision:** an original adaptive icon: three timeline clips (two in periwinkle, one in sky blue) and an amber playhead with a downward triangular head, on a deep blue-violet vertical gradient; layers `ic_launcher_background`, `ic_launcher_foreground`, `ic_launcher_monochrome` under `mipmap-anydpi` (also used as the round icon); manifest points to `@mipmap/ic_launcher` and `ic_launcher_round`. All foreground points are within about 30 units of the canvas centre, inside the 33-unit safe-zone radius, checked by `IconGeometryTest` from the path data (paths use only absolute M/L/Q/Z for that reason).
+**Why:** the placeholder vector was a play triangle; the release checklist required a designed icon, original and not resembling other editors.
+**Alternative:** a play triangle on the timeline (closer to generic video apps), or a raster icon set (larger APK, needs a design tool). Not seen rendered on a device; only the geometry is verified.
