@@ -140,18 +140,25 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         }
     }
 
-    // The last few GIFs opened, so playing or exporting one does not re-read the file for every frame.
-    private val gifs = object : LinkedHashMap<String, GifAnimation?>(4, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, GifAnimation?>?) = size > MAX_OPEN_GIFS
+    // The last few animated pictures opened, so playing or exporting one does not re-read the file for every frame.
+    private val animations = object : LinkedHashMap<String, AnimatedPicture?>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AnimatedPicture?>?) = size > MAX_OPEN_ANIMATIONS
     }
 
-    private fun gifOf(uri: String): GifAnimation? = synchronized(gifs) {
-        if (gifs.containsKey(uri)) return gifs[uri]
-        val gif = try {
-            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readNBytes(MAX_GIF_BYTES) }
-            bytes?.let { GifAnimation.parse(it) }
+    private fun animationOf(uri: String): AnimatedPicture? = synchronized(animations) {
+        if (animations.containsKey(uri)) return animations[uri]
+        val animation = try {
+            val bytes = context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readNBytes(MAX_ANIMATION_BYTES) }
+            when {
+                bytes == null -> null
+                AnimationSniff.isGif(bytes) -> GifAnimation.parse(bytes)
+                AnimationSniff.isWebp(bytes) -> WebpAnimation.parse(bytes, PlatformWebpDecoder)
+                else -> null
+            }
         } catch (e: GifFormatException) {
-            null // not a GIF (an animated WebP, say): the platform decoder shows its first frame
+            null // the platform decoder shows the first frame
+        } catch (e: WebpFormatException) {
+            null // a still WebP, or one this reader cannot use: the platform decoder shows its first frame
         } catch (e: IOException) {
             null
         } catch (e: SecurityException) {
@@ -159,20 +166,24 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         } catch (e: OutOfMemoryError) {
             null
         }
-        gifs[uri] = gif
-        return gif
+        animations[uri] = animation
+        return animation
     }
 
     /**
-     * Frame [StillRef.frame] of an animated GIF, composited by [GifAnimation]; null for a still photo, frame 0, and
-     * any file that is not a GIF this decoder reads (animated WebP shows its first frame through [decodePhoto]).
+     * Frame [StillRef.frame] of an animated GIF or WebP, composited by [AnimatedPicture]; null for a still photo,
+     * frame 0, and any file that is not an animation this reader handles (the platform decoder shows its first frame).
      */
     private fun decodeAnimatedFrame(ref: StillRef, canvasWidth: Int, canvasHeight: Int): Bitmap? {
         if (ref.frame <= 0) return null
-        val gif = gifOf(ref.id) ?: return null
-        val pixels = gif.render(ref.frame % gif.frameCount)
+        val animation = animationOf(ref.id) ?: return null
+        val pixels = try {
+            animation.render(ref.frame % animation.frameCount)
+        } catch (e: WebpFormatException) {
+            throw StillRasterException("An animated picture could not be decoded", e)
+        }
         val frame = try {
-            Bitmap.createBitmap(pixels, gif.width, gif.height, Bitmap.Config.ARGB_8888)
+            Bitmap.createBitmap(pixels, animation.width, animation.height, Bitmap.Config.ARGB_8888)
         } catch (e: OutOfMemoryError) {
             throw StillRasterException("Not enough memory to show an animated picture", e)
         }
@@ -192,8 +203,8 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
     }
 
     private companion object {
-        const val MAX_OPEN_GIFS = 2
-        const val MAX_GIF_BYTES = 48 * 1024 * 1024
+        const val MAX_OPEN_ANIMATIONS = 2
+        const val MAX_ANIMATION_BYTES = 48 * 1024 * 1024
         const val BYTES_PER_PIXEL = 4
     }
 }
@@ -249,5 +260,35 @@ class StillKeyCache(private val budgetBytes: Long = DEFAULT_BUDGET_BYTES) {
         private const val BYTES_PER_PIXEL = 4
         private const val INITIAL_CAPACITY = 16
         private const val LOAD_FACTOR = 0.75f
+    }
+}
+
+/** Recognises the animated formats by their first bytes, not by what the file claims to be. */
+object AnimationSniff {
+    fun isGif(b: ByteArray): Boolean = b.size >= 6 && b[0] == 'G'.code.toByte() && b[1] == 'I'.code.toByte() && b[2] == 'F'.code.toByte() && b[3] == '8'.code.toByte()
+
+    fun isWebp(b: ByteArray): Boolean = b.size >= 12 && String(b, 0, 4, Charsets.ISO_8859_1) == "RIFF" && String(b, 8, 4, Charsets.ISO_8859_1) == "WEBP"
+}
+
+/** Decodes the standalone still WebP of one animation frame with the platform: lossy, lossless and alpha. */
+internal object PlatformWebpDecoder : WebpStillDecoder {
+    override fun decode(webp: ByteArray): WebpPixels {
+        val bitmap = try {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(webp))) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                // Straight alpha: the animation composites frames itself, and the compositor premultiplies once.
+                decoder.setUnpremultipliedRequired(true)
+                decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
+            }
+        } catch (e: IOException) {
+            throw WebpFormatException("a WebP frame could not be decoded: ${e.message}")
+        }
+        try {
+            val argb = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(argb, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            return WebpPixels(bitmap.width, bitmap.height, argb)
+        } finally {
+            bitmap.recycle()
+        }
     }
 }
