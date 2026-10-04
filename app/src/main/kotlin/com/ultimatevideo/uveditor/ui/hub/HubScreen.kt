@@ -58,14 +58,22 @@ import com.ultimatevideo.uveditor.data.ProjectOverview
 import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.data.ProjectThumbnails
 import com.ultimatevideo.uveditor.data.UnreadableProject
+import com.ultimatevideo.uveditor.ui.templates.TemplateWizardSheet
+import com.ultimatevideo.uveditor.ui.templates.TemplateWizardViewModel
 import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnails: ProjectThumbnails? = null) {
+fun HubScreen(
+    viewModel: HubViewModel,
+    onOpenProject: (String) -> Unit,
+    thumbnails: ProjectThumbnails? = null,
+    templates: TemplateWizardViewModel? = null,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
+    var wizardOpen by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.onIntent(HubIntent.ImportFrom(uri.toString()))
@@ -115,7 +123,20 @@ fun HubScreen(viewModel: HubViewModel, onOpenProject: (String) -> Unit, thumbnai
         onImport = { importLauncher.launch(arrayOf("*/*")) },
         onPickMatchClip = { matchLauncher.launch(arrayOf("video/*", "image/*")) },
         thumbnails = thumbnails,
+        onTemplates = if (templates != null) ({ wizardOpen = true }) else null,
     )
+    if (wizardOpen && templates != null) {
+        TemplateWizardSheet(
+            viewModel = templates,
+            projects = state.projects,
+            onCreated = {
+                wizardOpen = false
+                viewModel.onIntent(HubIntent.Refresh)
+                onOpenProject(it)
+            },
+            onDismiss = { wizardOpen = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,13 +148,14 @@ internal fun HubContent(
     onImport: () -> Unit,
     onPickMatchClip: () -> Unit = {},
     thumbnails: ProjectThumbnails? = null,
+    onTemplates: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = { Text("ultimateVE") },
-                actions = { HubOverflowMenu(onImport) },
+                actions = { HubOverflowMenu(onImport, onTemplates) },
             )
         },
         floatingActionButton = {
@@ -187,11 +209,12 @@ internal fun HubContent(
 
 /** The one overflow menu of the top bar: importing a project file lives here, not on its own button. */
 @Composable
-private fun HubOverflowMenu(onImport: () -> Unit) {
+private fun HubOverflowMenu(onImport: () -> Unit, onTemplates: (() -> Unit)? = null) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (onTemplates != null) DropdownMenuItem(text = { Text("New from a template…") }, onClick = { open = false; onTemplates() })
             DropdownMenuItem(text = { Text("Import project file or bundle") }, onClick = { open = false; onImport() })
         }
     }

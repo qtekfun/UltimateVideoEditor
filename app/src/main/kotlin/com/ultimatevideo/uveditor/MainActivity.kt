@@ -44,6 +44,8 @@ import com.ultimatevideo.uveditor.ui.editor.loudnessCacheIn
 import com.ultimatevideo.uveditor.ui.hub.HubIntent
 import com.ultimatevideo.uveditor.ui.hub.HubScreen
 import com.ultimatevideo.uveditor.ui.hub.HubViewModel
+import com.ultimatevideo.uveditor.ui.templates.TemplateWizardViewModel
+import com.ultimatevideo.uveditor.data.TemplateStore
 import com.ultimatevideo.uveditor.ui.theme.UVEditorTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -102,6 +104,19 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 )
+                val templateWizard: TemplateWizardViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            TemplateWizardViewModel(
+                                repository,
+                                TemplateStore(File(filesDir, "templates")),
+                                mediaImporter,
+                                clipPeeker,
+                                transferIO,
+                            )
+                        }
+                    },
+                )
                 var openProjectId by rememberSaveable { mutableStateOf<String?>(null) }
                 val projectId = openProjectId
                 if (projectId == null) {
@@ -114,6 +129,7 @@ class MainActivity : ComponentActivity() {
                             openProjectId = it
                         },
                         thumbnails = projectThumbnails,
+                        templates = templateWizard,
                     )
                 } else {
                     val owner = rememberScopedViewModelOwner(projectId)

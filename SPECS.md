@@ -988,6 +988,39 @@ A multicam clip lines up two to six recordings of one event and cuts between the
 - **Not in this version:** the grid does not show moving pictures of the other angles (the badges show how each would
   be fed), and a multicam clip is always created on the base.
 
+### 5.27 Project templates
+
+`ProjectTemplate` (domain) is a project without media: width, height, frame rate, colour space, a `Timeline` and a list of
+`Placeholder`s. A placeholder has an id, a name, a kind (video, video or photo, photo, audio), a length in project frames,
+a minimum, and an `optional` flag; the timeline clip that stands for it carries the asset id `slot:<placeholderId>`
+(`Placeholder.idOfSlotAsset`). Slot clips pretend to have `TemplateBuilder.SLOT_HANDLE_FRAMES` (60) of footage before their
+in point, so transitions around them are valid in the template.
+
+`TemplateInstantiator.instantiate(template, fills)` returns a timeline plus the assets it uses and warnings, or an error:
+for each slot in timeline order, no fill means remove an optional slot with `ClipDeletion.delete` (the gap closes, overlays
+follow) or fail on a required one; the fill is checked against the kind; a video is placed at the chosen start (bumped to
+the incoming transition's lead when the file can afford it) with the slot's length, then shortened with
+`MagneticBase.trim` when the file is shorter (so what follows moves up); a photo becomes a still of the slot's length; a
+picture whose size is known is centre-cropped to the canvas with `Reframe.poseFor`; finally the template's transitions are
+put back with `TimelineOps.addTransition`, shortened to `maxTransitionFrames` and dropped with a warning when even the
+shortest does not fit.
+
+`TemplateBuilder.fromProject` goes the other way: every media clip becomes a placeholder of its length at its place (kind
+from the asset, minimum half the length), keeping effects, grades, keyframes, titles, stickers, tracks, transitions that
+stay valid, and manual markers, and dropping speed changes, stabilisation, motion tracks and multicam links.
+
+`TemplateFile` reads and writes the `.uvtemplate` document: `format`, `version`, `id`, `name`, `description`, the same
+`project` object `project.json` uses (with an empty media library) and the placeholders. `decode` refuses a file that is
+too big, not a template, newer than this build, holds media, has a clip that plays media but is not a slot, has an unknown
+placeholder kind or fails `ProjectTemplate.problem()`. `TemplateStore` keeps the user's templates as files under the app's
+`templates` folder (atomic writes, free ids, broken files skipped) and lists the built-in ones first. The built-in starters
+(`BuiltInTemplates`) are built in code.
+
+UI: `TemplateWizardViewModel` and `TemplateWizardSheet` (reached from the hub's top-bar menu): the list of templates, then one
+row per slot with a picker, a live preview of what fitting will do (warnings, or why it cannot be done yet) and Create, which
+creates the project through `ProjectRepository` and opens it; the sheet also saves a project as a template, shares a
+template as a file and imports one. All files come from the system picker; nothing touches the network.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
