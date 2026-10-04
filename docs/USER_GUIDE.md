@@ -13,7 +13,7 @@ automated tests so far; see [Known limits](#known-limits).
 5. [Timeline: tracks, gestures and drops](#timeline-tracks-gestures-and-drops) and [Selecting several clips](#selecting-several-clips)
 6. [Inspector](#inspector)
 7. [Titles, captions, stickers and templates](#titles-captions-stickers-and-templates) (including [layers, fonts and presets](#titles-with-layers-fonts-and-presets))
-8. [Markers and beats](#markers-and-beats)
+8. [Markers and beats](#markers-and-beats) and [Quick edits: cut silences and reframe](#quick-edits-cut-silences-and-reframe)
 9. [Sound: pan, fades, EQ, noise, loudness, mixer and ducking](#sound)
 10. [Stabilising shaky footage](#stabilising-shaky-footage)
 11. [Colour grading and scopes](#colour-grading-and-scopes)
@@ -123,6 +123,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ≡ (sliders) | Adjust clip | Opens the inspector for the selected clip. |
 | ▭ (canvas) | Canvas format | Changes aspect ratio and resolution of the project. |
 | ⚑ | Markers and beats | Marker and beat tools, see [Markers and beats](#markers-and-beats). |
+| ▮▮▮ | Quick edits | Cut silences from the selected base clip, or reframe a clip for another canvas shape, see [Quick edits](#quick-edits-cut-silences-and-reframe). |
 | ⚡ (lightning) | Proxy media | Opens the proxy sheet: small copies of heavy video for smooth editing, see [Proxy media](#proxy-media). |
 | Two faders | Mixer | Opens the mixer sheet, see [Sound](#sound). |
 | Two overlapping frames | Multicam | Opens the multicam sheet: line up several cameras by their sound and cut between them, see [Multicam](#multicam). |
@@ -374,6 +375,30 @@ The flag icon opens:
   Works on music with a clear pulse; speech or ambience may report "no clear beat".
 - **Cut to beat**: ends the selected base clip and the following ones on the nearest beats.
 - **Clear detected beats** and **Snap to markers** (on/off).
+
+## Quick edits: cut silences and reframe
+
+The level-meter icon next to the flag opens two edits that need no analysis beyond the clip's own audio or
+the canvas shape. Nothing is detected with a model and nothing leaves the device.
+
+**Cut silences** (select a clip on the base track that has audio and normal speed):
+
+1. Set what counts as silence: the level (in dB, quieter than it), how long it must last, and how much to keep at
+   each end so words are not clipped.
+2. **Find silences** lists the stretches that qualify, with their timecodes. Untick any you want to keep.
+3. **Remove** cuts them out in one step: the gap closes, later clips move up and overlays follow, exactly as when
+   you delete a base clip by hand. One Undo puts everything back.
+
+It reads the waveform the timeline already shows, so wait until the waveform is drawn. A clip with changed speed
+or played backwards is not supported.
+
+**Reframe** (select a video or photo clip; useful after changing the canvas to 9:16 or 1:1):
+
+- Move the two sliders to the point of the picture that matters (for example a speaker's face), choose a zoom, and
+  press **Apply**: the picture fills the canvas with that point in the middle, as far as the picture allows.
+- To follow a moving subject, move the playhead, set the sliders for that moment and press **Mark at playhead**;
+  repeat at other moments, then **Apply**. Each mark becomes an eased position keyframe, editable afterwards in the
+  inspector. You pick the point yourself; the app does not look for the subject.
 
 ## Sound
 

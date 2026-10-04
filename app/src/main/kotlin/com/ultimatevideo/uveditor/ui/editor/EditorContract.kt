@@ -123,6 +123,8 @@ data class EditorState(
     val paramClipboard: ParamClipboard? = null,
     /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
     val selectedParamKey: Pair<String, Long>? = null,
+    /** Silence auto cut and manual reframe sheets (SPECS.md 9.16). */
+    val quickEdits: QuickEditsUiState = QuickEditsUiState(),
     /** The multicam sheet: angles being picked and synced, and live cutting between the angles of a multicam clip. */
     val multicam: com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState = com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState(),
 ) : UiState {
