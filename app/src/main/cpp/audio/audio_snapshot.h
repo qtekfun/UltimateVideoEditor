@@ -14,9 +14,17 @@
 //           i32 fadeInFrames | i32 fadeOutFrames | i32 knotCount
 //     audio: i32 trackIndex | f32 pan | i32 userFadeInFrames | i32 userFadeOutFrames |
 //            f32 highPassHz | f32 lowPassHz | 5 x (f32 freqHz, f32 gainDb, f32 q) EQ bands (low shelf,
-//            3 peaking, high shelf) | f32 denoiseStrength (0 = off) | i32 profileBins (0 or 513) | u32 reserved
+//            3 peaking, high shelf) | f32 denoiseStrength (0 = off) | i32 profileBins (0 or 513) |
+//            u32 laneCount (version 5; 0 in version 4, where this was reserved)
 //   knots (16 bytes each, after all clips, in clip order): i64 frame | f64 sourceFrame
 //   noise profiles (profileBins x f32 each, after the knots, for the clips that have one, in clip order)
+//   automation lanes (version 5, after the noise profiles, per clip in order, laneCount lanes each):
+//     lane header (16 bytes): i32 param | u32 pointCount | u32 0 | u32 0
+//     points (16 bytes each): i64 frame | f32 value | u32 0
+//   A lane replaces one static value of its clip while it plays: param 0 the gain in dB (the same sum the
+//   static gainDb holds, loudness normalise included), 1 the pan, 2..6 the gain in dB of EQ band 0..4.
+//   `frame` counts project frames from the clip's own start (strictly increasing, within the clip); the
+//   value is interpolated linearly between points per sample and holds before the first / after the last.
 // A clip with knotCount 0 plays its source at 1x from sourceInFrame. A retimed clip (speed change,
 // ramp or reverse) lists knotCount >= 2 knots instead: `frame` counts project frames from the clip's
 // own start (first 0, last durationFrames, strictly increasing) and `sourceFrame` is the source
@@ -40,7 +48,12 @@
 namespace uv::audio {
 
 constexpr uint32_t kAudioSnapshotMagic = 0x53415655;  // "UVAS"
-constexpr uint32_t kAudioSnapshotVersion = 4;
+constexpr uint32_t kAudioSnapshotVersion = 5;
+constexpr uint32_t kAudioSnapshotMinVersion = 4;  // version 4 has no automation lanes and still parses
+constexpr size_t kAudioSnapshotLaneBytes = 16;
+constexpr size_t kAudioSnapshotPointBytes = 16;
+constexpr uint32_t kMaxClipLanes = 7;
+constexpr uint32_t kMaxLanePoints = 1u << 20;
 constexpr size_t kAudioSnapshotHeaderBytes = 28;
 constexpr size_t kAudioSnapshotTrackBytes = 40;
 constexpr size_t kAudioSnapshotDuckingBytes = 16;
@@ -52,6 +65,20 @@ constexpr float kMinGainDb = -96.0f;
 constexpr float kMaxGainDb = 24.0f;
 
 enum class TrackRole : uint32_t { Normal = 0, Voice = 1, Music = 2 };
+
+// What an automation lane drives; the values are the wire codes.
+enum class AutoParam : int32_t { GainDb = 0, Pan = 1, EqGain0 = 2, EqGain1 = 3, EqGain2 = 4, EqGain3 = 5, EqGain4 = 6 };
+constexpr int32_t kAutoParamCount = 7;
+
+struct AutoPoint {
+    int64_t frame = 0;  // project frames after the clip's own start
+    float value = 0.0f;
+};
+
+struct AutoLane {
+    AutoParam param = AutoParam::GainDb;
+    std::vector<AutoPoint> points;  // never empty, frames strictly increasing
+};
 
 struct AudioTrackDesc {
     int64_t trackKey = 0;
@@ -80,6 +107,7 @@ struct AudioClipDesc {
     dsp::EqParams eq;
     float denoiseStrength = 0.0f;       // 0 = off
     std::vector<float> noiseProfile;    // kDenoiseBins magnitudes when denoiseStrength > 0
+    std::vector<AutoLane> lanes;        // keyframed gain, pan and EQ gains (version 5)
 };
 
 struct AudioSnapshotData {

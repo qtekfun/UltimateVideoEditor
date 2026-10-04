@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.ui.export
 
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.RenderClip
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
@@ -57,7 +58,8 @@ private fun RenderClip.toSpec(
     crossfadeInFrames = crossfadeIn,
     lane = lane,
     titleKey = titleKey,
-    keyframes = keyframes.map {
+    // The native evaluator only knows linear, ease and hold: a Bezier segment goes over as one linear key per frame.
+    keyframes = Keyframes.bakedForNative(keyframes, transform).map {
         ExportKeyframe(
             frame = it.frame,
             positionX = it.transform.positionX,
@@ -73,6 +75,8 @@ private fun RenderClip.toSpec(
     sourceFrames = retime?.let { LongArray(durationFrames.toInt()) { i -> sourceFrameAt(startFrame + i) } },
     reverse = isReverse,
     fx = fx,
+    // Keyframed effect values go over as the effects of every project frame of the spec.
+    fxFrames = if (hasAnimatedFx) List(duration.toInt()) { i -> fxAt(start + i) } else null,
 )
 
 private val SDR = SourceColorSpace.SDR.nativeModeValue

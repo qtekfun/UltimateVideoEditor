@@ -103,6 +103,24 @@ EqChain EqChain::design(const EqParams& p, double sampleRate) {
     return chain;
 }
 
+BiquadCoeffs EqChain::designBand(int band, const EqBandParams& b, double sampleRate) {
+    static constexpr FilterType kTypes[kEqBands] = {FilterType::LowShelf, FilterType::Peaking, FilterType::Peaking,
+                                                    FilterType::Peaking, FilterType::HighShelf};
+    if (b.gainDb == 0.0f) return BiquadCoeffs{};
+    const double gain = std::clamp<double>(b.gainDb, kMinEqGainDb, kMaxEqGainDb);
+    return designBiquad(kTypes[band], sampleRate, b.freqHz, gain, b.q);
+}
+
+EqChain EqChain::designAll(const EqParams& p, double sampleRate) {
+    EqChain chain;
+    constexpr double kButterworthQ = 0.70710678;
+    if (p.highPassHz >= kMinFilterHz) chain.coeffs[chain.stages++] = designBiquad(FilterType::HighPass, sampleRate, p.highPassHz, 0, kButterworthQ);
+    if (p.lowPassHz >= kMinFilterHz) chain.coeffs[chain.stages++] = designBiquad(FilterType::LowPass, sampleRate, p.lowPassHz, 0, kButterworthQ);
+    chain.firstBandStage = chain.stages;
+    for (int i = 0; i < kEqBands; ++i) chain.coeffs[chain.stages++] = designBand(i, p.bands[i], sampleRate);
+    return chain;
+}
+
 double EqChain::magnitude(double sampleRate, double freqHz) const {
     double m = 1.0;
     for (int i = 0; i < stages; ++i) m *= biquadMagnitude(coeffs[i], sampleRate, freqHz);
