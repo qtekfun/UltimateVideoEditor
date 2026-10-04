@@ -27,6 +27,9 @@ struct ClipSnapshot {
     bool selected;
     bool hasFx = false;  // the clip carries effects, a blend mode or a mask (flags bit1)
     bool missing = false;  // its media file cannot be read; the canvas tints it (flags bit2)
+    // The clip the inspector edits (flags bit3, version 6). With several clips selected it is outlined
+    // brighter than the rest; before version 6 a selected clip is its own primary.
+    bool primary = false;
 };
 
 // A transition across the cut at `cutFrame`, shown from `cutFrame - preFrames` to
@@ -95,12 +98,13 @@ struct TimelineSnapshot {
     std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> keyframesOf(int64_t clipKey) const;
 };
 
-// Wire layout (little endian), version 5 (version 4 is the same without the marker trailer, version 3
+// Wire layout (little endian), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
+// primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):
 //   header: u32 magic 'UVTS', u32 version, i32 fpsNum, i32 fpsDen, i32 trackCount, i32 clipCount
 //   tracks: i32 type * trackCount
 //   clips : i64 clipKey, i32 trackIndex, i64 assetKey, i64 start, i64 duration, i64 sourceIn,
-//           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected, bit1=hasFx, bit2=missing)   (56 bytes each)
+//           i32 srcFpsNum, i32 srcFpsDen, i32 flags(bit0=selected, bit1=hasFx, bit2=missing, bit3=primary)   (56 bytes each)
 //   trailer: i32 transitionCount, then per transition:
 //           i32 trackIndex, i32 reserved, i64 cutFrame, i64 preFrames, i64 postFrames   (32 bytes each)
 //   keyframes (v3): i32 keyframeCount, then per keyframe: i64 clipKey, i64 frame           (16 bytes each)
@@ -108,7 +112,7 @@ struct TimelineSnapshot {
 //           i64 clipKey, i64 sourceSpanFrames, i32 flags(bit0=reverse, bit1=freeze), i32 reserved   (24 bytes each)
 //   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 reserved   (16 bytes each)
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
-constexpr uint32_t kSnapshotVersion = 5;
+constexpr uint32_t kSnapshotVersion = 6;
 constexpr uint32_t kSnapshotMinVersion = 2;
 constexpr size_t kSnapshotHeaderBytes = 24;
 constexpr size_t kSnapshotClipBytes = 56;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 #include "timeline_view/layout.h"
 #include "timeline_view/timeline_snapshot.h"
@@ -32,5 +33,11 @@ struct HitResult {
 // clip's trim handle.
 HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x, float y,
                   int64_t playheadFrame = -1);
+
+// Keys of the clips whose block on screen intersects the rectangle (x0,y0)-(x1,y1), in snapshot order. The
+// corners may come in any order; the ruler never counts, so a rectangle dragged up into it still selects the
+// lanes below. Used by the marquee selection.
+std::vector<int64_t> clipsInRect(const TimelineSnapshot& snap, const Viewport& vp, const Layout& layout, float x0, float y0, float x1,
+                                 float y1);
 
 }  // namespace uv::timeline

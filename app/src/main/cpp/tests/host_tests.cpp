@@ -55,7 +55,7 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         w.put<int64_t>(c.sourceInFrame);
         w.put<int32_t>(c.sourceFpsNum);
         w.put<int32_t>(c.sourceFpsDen);
-        w.put<int32_t>((c.selected ? 1 : 0) | (c.hasFx ? 2 : 0) | (c.missing ? 4 : 0));
+        w.put<int32_t>((c.selected ? 1 : 0) | (c.hasFx ? 2 : 0) | (c.missing ? 4 : 0) | (c.primary ? 8 : 0));
     }
     w.put<int32_t>(static_cast<int32_t>(transitions.size()));
     for (const auto& t : transitions) {
@@ -264,6 +264,69 @@ static void testSnapshotMarkers() {
     CHECK(timeline::parseSnapshot(extra.data(), extra.size(), &s) == core::Status::BadSnapshot);
     auto negative = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {{-5, 0}});
     CHECK(timeline::parseSnapshot(negative.b.data(), negative.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+static void testSnapshotPrimarySelection() {
+    // Version 6: the primary flag is read; several clips can be selected with one of them primary.
+    auto first = clip(1, 0, 0, 10);
+    first.selected = true;
+    first.primary = true;
+    auto second = clip(2, 0, 10, 10);
+    second.selected = true;
+    auto third = clip(3, 0, 20, 10);
+    auto buf = makeSnapshot(1, {first, second, third});
+    timeline::TimelineSnapshot s;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].selected && s.clips[0].primary);
+    CHECK(s.clips[1].selected && !s.clips[1].primary);
+    CHECK(!s.clips[2].selected && !s.clips[2].primary);
+
+    // Version 5 has no primary bit: a selected clip is its own primary, so the old look is kept.
+    auto only = clip(4, 0, 0, 10);
+    only.selected = true;
+    auto v5 = makeSnapshot(1, {only, clip(5, 0, 10, 10)}, {}, {}, 5);
+    CHECK(timeline::parseSnapshot(v5.b.data(), v5.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].selected && s.clips[0].primary);
+    CHECK(!s.clips[1].selected && !s.clips[1].primary);
+
+    // A version newer than the parser is still rejected.
+    auto future = makeSnapshot(1, {clip(1, 0, 0, 10)}, {}, {}, timeline::kSnapshotVersion + 1);
+    CHECK(timeline::parseSnapshot(future.b.data(), future.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+static void testClipsInRect() {
+    timeline::TimelineSnapshot s;
+    // Lane 0: clips 1 (0..100) and 2 (200..300); lane 1: clip 3 (50..150); lane 2: clip 4 (0..400).
+    auto buf = makeSnapshot(3, {clip(1, 0, 0, 100), clip(2, 0, 200, 100), clip(3, 1, 50, 100), clip(4, 2, 0, 400)});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    timeline::Viewport vp;
+    vp.pxPerFrame = 1.0;
+    const auto lay = timeline::Layout::forDensity(1.0f);  // ruler 28, track 64, gap 4
+    auto keys = [&](float x0, float y0, float x1, float y1) { return timeline::clipsInRect(s, vp, lay, x0, y0, x1, y1); };
+
+    // A rectangle over the first two lanes between frames 90 and 210 touches clips 1, 2 and 3.
+    auto r = keys(90, lay.trackTop(0) + 5, 210, lay.trackTop(1) + 5);
+    CHECK((r == std::vector<int64_t>{1, 2, 3}));
+    // Corners in any order give the same result.
+    CHECK(keys(210, lay.trackTop(1) + 5, 90, lay.trackTop(0) + 5) == r);
+    // Only touching an edge does not count, but one pixel inside does.
+    CHECK(keys(100, lay.trackTop(0) + 5, 200, lay.trackTop(0) + 20).empty());
+    CHECK((keys(99, lay.trackTop(0) + 5, 201, lay.trackTop(0) + 20) == std::vector<int64_t>{1, 2}));
+    // The gap between lanes selects nothing; the whole stack selects everything.
+    CHECK(keys(0, lay.trackTop(0) + lay.trackHeight + 1, 500, lay.trackTop(1) - 1).empty());
+    CHECK(keys(0, 0, 500, 1000).size() == 4);
+    // The ruler never counts: a rectangle that only covers it is empty, one dragged up into it still selects below.
+    CHECK(keys(0, 0, 500, lay.rulerHeight - 1).empty());
+    CHECK((keys(0, 0, 60, lay.trackTop(0) + 5) == std::vector<int64_t>{1}));
+    // Scrolling and zooming move the clips under the rectangle.
+    vp.pxPerFrame = 2.0;
+    vp.scrollX = 100.0;  // x 0..10 is now frames 50..55: still inside clip 1
+    CHECK((keys(0, lay.trackTop(0) + 5, 10, lay.trackTop(0) + 20) == std::vector<int64_t>{1}));
+    vp.scrollX = 300.0;  // frames 150..155 on lane 0: between clip 1 and clip 2
+    CHECK(keys(0, lay.trackTop(0) + 5, 10, lay.trackTop(0) + 20).empty());
+    vp.scrollX = 0.0;
+    vp.scrollY = lay.trackHeight + lay.trackGap;  // lane 1 now sits where lane 0 was
+    CHECK((keys(150, lay.trackTop(0) + 5, 180, lay.trackTop(0) + 20) == std::vector<int64_t>{3}));
 }
 
 static void testSnapshotRejectsBadInput() {
@@ -585,6 +648,8 @@ int main() {
     testSnapshotMarkers();
     testRetimeBoundaries();
     testSnapshotRejectsBadInput();
+    testSnapshotPrimarySelection();
+    testClipsInRect();
     testViewport();
     testHitTest();
     testBottomAnchoredLanes();
