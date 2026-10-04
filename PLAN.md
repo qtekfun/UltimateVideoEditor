@@ -145,6 +145,9 @@ waves of SPECS 9.20.
 ### Wave 2
 - [ ] WP-S Multiselect and bulk edits
 - [ ] WP-A Audio tools: pan, fades, EQ, noise suppression, loudness, track mixer, auto-ducking, meters
+    Built and covered by host/JVM tests (DSP vectors, LUFS, ducking envelope, realtime vs offline parity, snapshot v4, model/undo/JSON). On the Pixel 8:
+    app starts, playback with the v4 mixer, level meter and Mixer sheet render. Not verified: how denoise/EQ sound on real speech, ducking by ear, export audio
+    compared by ear, fade handles on the clip, the inspector Sound tools on a device, the noise-region marking flow. Left unticked until those are checked.
 
 ### Wave 3
 - [ ] WP-T Multilayer titles and fonts

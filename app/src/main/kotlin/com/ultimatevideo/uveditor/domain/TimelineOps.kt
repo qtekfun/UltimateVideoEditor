@@ -43,6 +43,27 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(gainDb = gainDb) }
     }
 
+    /** Replaces the audio tools (pan, fades, EQ, noise suppression, normalise) of a clip that has sound. */
+    fun setClipAudio(timeline: Timeline, clipId: String, audio: ClipAudio): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (!clip.hasMedia) return failure(EditError.InvalidAudio("only clips with media have audio settings"))
+        audio.problem(clip.durationFrames)?.let { return failure(EditError.InvalidAudio(it)) }
+        return updateClip(timeline, clipId) { it.copy(audio = audio) }
+    }
+
+    /** Replaces the mixer settings of a track (volume, mute, solo, ducking role, bus compressor). */
+    fun setTrackAudio(timeline: Timeline, trackId: String, audio: TrackAudio): EditResult<Timeline> {
+        val track = timeline.track(trackId) ?: return failure(EditError.TrackNotFound(trackId))
+        audio.problem()?.let { return failure(EditError.InvalidAudio(it)) }
+        return success(timeline.withTrack(track.copy(audio = audio)))
+    }
+
+    /** Turns sidechain ducking on, changes it, or removes it (null). */
+    fun setDucking(timeline: Timeline, ducking: Ducking?): EditResult<Timeline> {
+        ducking?.problem()?.let { return failure(EditError.InvalidAudio(it)) }
+        return success(timeline.copy(ducking = ducking))
+    }
+
     /** Sets transform and gain together, so one edit changes both or neither. */
     fun setAppearance(timeline: Timeline, clipId: String, transform: ClipTransform, gainDb: Double): EditResult<Timeline> {
         transform.problem()?.let { return failure(EditError.InvalidAppearance(it)) }
@@ -314,10 +335,10 @@ object TimelineOps {
             retimedFrames = durationFrames.takeIf { it != 1L },
         )
         val later = clip.cropped(offset, clip.durationFrames).copy(timelineStart = at + durationFrames)
-        val right = if (splitting) later.copy(id = rightClipId) else later
+        val right = if (splitting) later.withoutFadeIn().copy(id = rightClipId) else later
         val kept = track.clips.mapNotNull { other ->
             when {
-                other.id == clip.id -> if (splitting) clip.cropped(0, offset) else null
+                other.id == clip.id -> if (splitting) clip.cropped(0, offset).withoutFadeOut() else null
                 other.timelineStart >= clip.timelineEnd -> other.copy(timelineStart = other.timelineStart + durationFrames)
                 else -> other
             }
@@ -348,8 +369,9 @@ object TimelineOps {
         val clip = track.clips.firstOrNull { at > it.timelineStart && at < it.timelineEnd }
             ?: return failure(EditError.SplitOutsideClip)
         val offset = at - clip.timelineStart
-        val left = clip.cropped(0, offset)
-        val rightRaw = clip.cropped(offset, clip.durationFrames).copy(id = newClipId, timelineStart = at)
+        // A fade handle stays on the side that holds the clip's own start or end; a cut inside it must not restart it.
+        val left = clip.cropped(0, offset).withoutFadeOut()
+        val rightRaw = clip.cropped(offset, clip.durationFrames).withoutFadeIn().copy(id = newClipId, timelineStart = at)
         // A title, photo or sticker has no media length, so [cropped] gives both halves a range starting at 0.
         val right = rightRaw
         // The right half is the one now adjacent to whatever followed the clip, so it inherits the
@@ -453,11 +475,11 @@ object TimelineOps {
             }
             if (existing.timelineStart < start) {
                 val keptFrames = start - existing.timelineStart
-                result += existing.cropped(0, keptFrames)
+                result += existing.cropped(0, keptFrames).withoutFadeOut()
             }
             if (existing.timelineEnd > end) {
                 val cutFrames = end - existing.timelineStart
-                result += existing.cropped(cutFrames, existing.durationFrames).copy(id = "${existing.id}~${clip.id}", timelineStart = end)
+                result += existing.cropped(cutFrames, existing.durationFrames).withoutFadeIn().copy(id = "${existing.id}~${clip.id}", timelineStart = end)
             }
         }
         result += clip

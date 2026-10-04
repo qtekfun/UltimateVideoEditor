@@ -139,6 +139,7 @@ fun InspectorPanel(
                 readout = if (clip.gainDb <= GAIN_MIN) "mute" else "${formatDb(clip.gainDb)} dB",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateGain(if (it <= GAIN_MIN) ClipGain.MIN_DB else it.toDouble())) }
+            AudioControls(state, clip, onIntent)
         }
         TransitionControls(state, onIntent, transitionLimit)
     }

@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.EngineException
+import com.ultimatevideo.uveditor.engine.audio.PeakLevels
 import com.ultimatevideo.uveditor.domain.captions.captionCount
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsHost
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
@@ -273,18 +274,21 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
     }
     DisposableEffect(audio, viewModel) {
         viewModel.playbackOutput = audio
+        viewModel.audioAnalyzer = audio
         onDispose {
             viewModel.playbackOutput = null
+            viewModel.audioAnalyzer = null
             audio.close()
         }
     }
 
-    // Keep the mixer in step with the committed timeline (not with a drag in progress).
-    StateEffect(holder, { listOf(it.timeline, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
+    // Keep the mixer in step with the committed timeline (not with a clip drag in progress). A slider
+    // of the audio tools (pan, EQ, track volume, ducking) is heard live: audioSource is its preview.
+    StateEffect(holder, { listOf(it.audioSource, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         // Files that cannot be read are left out: the mixer would only fail on them.
         audio.update(
-            audioSnapshotOf(s.timeline, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
+            audioSnapshotOf(s.audioSource, s.playableAssets, s.fps, viewModel::clipKey, viewModel::assetKey),
             s.playableAssets,
             viewModel::assetKey,
         )
@@ -573,6 +577,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
+                        takePeaks = audio::takePeaks,
                     )
                 }
             }
@@ -600,8 +605,11 @@ private fun EditorMain(
     onOpenLayout: () -> Unit,
     bottomTray: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    /** Output peaks since the previous call, for the level meter next to the timecode. */
+    takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
 ) {
     val hasSelection = state.selectedClipId != null
+    if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
     var scopesOpen by remember { mutableStateOf(false) }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
@@ -704,7 +712,10 @@ private fun EditorMain(
                 Column(modifier = Modifier.fillMaxWidth()) {
                 // Transport: timecode on the left, previous / play / next centred.
                 Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Timecode(holder, Modifier.align(Alignment.CenterStart))
+                    Column(modifier = Modifier.align(Alignment.CenterStart)) {
+                        Timecode(holder)
+                        LevelMeter(takePeaks, state.isPlaying)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
                         ToolButton(
@@ -739,6 +750,7 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
                     MarkerMenu(state, viewModel::onIntent)
+                    ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
                     ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
                         scopesOpen = !scopesOpen
                     }

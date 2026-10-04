@@ -4,6 +4,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "audio/analysis.h"
 #include "audio/android_pcm_decoder.h"
 #include "audio/audio_time.h"
 
@@ -28,16 +29,38 @@ int64_t monotonicNanos() {
 }  // namespace
 
 AudioEngine::AudioEngine()
-    : core_([this](int64_t assetKey, Status* status) -> std::unique_ptr<PcmDecoder> {
-          const int fd = dupAsset(assetKey);
-          if (fd < 0) {
-              *status = Status::InvalidArgument;  // asset was never registered or already removed
-              return nullptr;
-          }
-          std::unique_ptr<PcmDecoder> decoder = AndroidPcmDecoder::open(fd, status);
-          close(fd);  // the decoder keeps its own duplicate
-          return decoder;
-      }) {}
+    : core_([this](int64_t assetKey, Status* status) -> std::unique_ptr<PcmDecoder> { return openAssetDecoder(assetKey, status); }) {}
+
+std::unique_ptr<PcmDecoder> AudioEngine::openAssetDecoder(int64_t assetKey, Status* status) {
+    const int fd = dupAsset(assetKey);
+    if (fd < 0) {
+        *status = Status::InvalidArgument;  // asset was never registered or already removed
+        return nullptr;
+    }
+    std::unique_ptr<PcmDecoder> decoder = AndroidPcmDecoder::open(fd, status);
+    close(fd);  // the decoder keeps its own duplicate
+    return decoder;
+}
+
+int32_t AudioEngine::measureLoudness(int64_t assetKey, int64_t startMicros, int64_t endMicros, double* lufs, double* samplePeak) {
+    Status st = Status::Ok;
+    std::unique_ptr<PcmDecoder> decoder = openAssetDecoder(assetKey, &st);
+    if (!decoder) return static_cast<int32_t>(st == Status::Ok ? Status::IoError : st);
+    cancelAnalysis_.store(false, std::memory_order_release);
+    return static_cast<int32_t>(uv::audio::measureLoudness(*decoder, startMicros, endMicros, lufs, samplePeak, [this] {
+        return cancelAnalysis_.load(std::memory_order_acquire);
+    }));
+}
+
+int32_t AudioEngine::measureNoiseProfile(int64_t assetKey, int64_t startMicros, int64_t endMicros, float* magnitudes) {
+    Status st = Status::Ok;
+    std::unique_ptr<PcmDecoder> decoder = openAssetDecoder(assetKey, &st);
+    if (!decoder) return static_cast<int32_t>(st == Status::Ok ? Status::IoError : st);
+    cancelAnalysis_.store(false, std::memory_order_release);
+    return static_cast<int32_t>(uv::audio::measureNoiseProfile(*decoder, startMicros, endMicros, magnitudes, [this] {
+        return cancelAnalysis_.load(std::memory_order_acquire);
+    }));
+}
 
 AudioEngine::~AudioEngine() {
     stop();
