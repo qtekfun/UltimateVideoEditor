@@ -9,6 +9,9 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import com.ultimatevideo.uveditor.domain.AnimationTiming
+import com.ultimatevideo.uveditor.engine.still.GifDelayScan
+import com.ultimatevideo.uveditor.engine.still.WebpAnimationScan
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +31,8 @@ data class ProbedMedia(
     val isImage: Boolean = false,
     /** The file name as the document provider reports it, when it does. */
     val displayName: String? = null,
+    /** An animated GIF or WebP: the normalised delay of each frame in milliseconds; null for other pictures. */
+    val animationDelaysMs: List<Int>? = null,
 )
 
 /** Why a media file cannot be used; decides what the editor tells the user and offers. */
@@ -189,7 +194,23 @@ class AndroidMediaImporter(
             hasAudio = false,
             isImage = true,
             displayName = displayNameOf(uri),
+            animationDelaysMs = animationDelays(uri),
         )
+    }
+
+    /** Frame delays of an animated GIF or WebP, or null for any other picture (read from the headers, no pixels). */
+    private fun animationDelays(uri: Uri): List<Int>? {
+        val type = context.contentResolver.getType(uri) ?: return null
+        if (type != "image/gif" && type != "image/webp") return null
+        val bytes = try {
+            context.contentResolver.openInputStream(uri)?.use { it.readNBytes(MAX_ANIMATION_BYTES) } ?: return null
+        } catch (e: IOException) {
+            return null
+        } catch (e: SecurityException) {
+            return null
+        }
+        val raw = if (type == "image/gif") GifDelayScan.delaysMs(bytes) else WebpAnimationScan.delaysMs(bytes)
+        return AnimationTiming.ofRaw(raw)?.delaysMs
     }
 
     private fun displayNameOf(uri: Uri): String? = try {
@@ -249,3 +270,6 @@ class AndroidMediaImporter(
 }
 
 private const val TAG = "MediaImport"
+
+/** Largest animated picture read to find its frame delays; a bigger file is imported as a still photo. */
+private const val MAX_ANIMATION_BYTES = 48 * 1024 * 1024
