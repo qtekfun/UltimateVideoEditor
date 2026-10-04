@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ultimateVE launcher foreground: three clips on a timeline and an amber playhead.
+  Geometry (108 x 108 viewport, centre 54,54): every point lies inside the 66dp-diameter
+  safe-zone circle (radius 33 around the centre); the farthest point is about 30 from the centre.
+  Clips are rounded rectangles drawn with quadratic corners, absolute commands only (M, L, Q, Z),
+  so IconGeometryTest can verify the safe zone from the path data.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Clip 1: x 31..58, y 35..43 -->
+    <path
+        android:fillColor="#FF8FA8FF"
+        android:pathData="M34,35 L55,35 Q58,35 58,38 L58,40 Q58,43 55,43 L34,43 Q31,43 31,40 L31,38 Q31,35 34,35 Z" />
+    <!-- Clip 2: x 40..77, y 48..56 -->
+    <path
+        android:fillColor="#FF5CC8F5"
+        android:pathData="M43,48 L74,48 Q77,48 77,51 L77,53 Q77,56 74,56 L43,56 Q40,56 40,53 L40,51 Q40,48 43,48 Z" />
+    <!-- Clip 3: x 31..70, y 61..69 -->
+    <path
+        android:fillColor="#FF8FA8FF"
+        android:pathData="M34,61 L67,61 Q70,61 70,64 L70,66 Q70,69 67,69 L34,69 Q31,69 31,66 L31,64 Q31,61 34,61 Z" />
+    <!-- Playhead: line x 52..56, y 33..80 plus a triangular head pointing down -->
+    <path
+        android:fillColor="#FFFFB300"
+        android:pathData="M52,33 L56,33 L56,80 L52,80 Z" />
+    <path
+        android:fillColor="#FFFFB300"
+        android:pathData="M47,27 L61,27 L54,35 Z" />
+</vector>
