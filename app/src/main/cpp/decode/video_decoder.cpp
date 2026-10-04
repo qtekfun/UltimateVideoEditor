@@ -21,13 +21,7 @@ namespace {
 
 constexpr int64_t kPendingTimeoutMs = 400;       // a frame still missing this long after a drain that followed its release is retried
 constexpr int64_t kPendingHardTimeoutMs = 5000;  // and one nobody drained for this long is retried anyway
-// Frames released to the reader but not yet taken by the consumer. The buffer queue between the codec and the
-// image reader keeps only the newest of the frames queued since the consumer last acquired one: releasing a second
-// frame before the first was drained silently discards the first (seen on a Pixel 8: with 4 in flight, 4K60
-// playback drew 429 of 600 frames with 227 stalls and a 1080p export of a long-GOP clip ran at 0.35x real time
-// because every lost frame meant a backward seek and a re-decode from the key frame; with 1, 600 of 600 frames and
-// 1.8x real time). Do not raise it without re-measuring on a device.
-constexpr size_t kMaxInFlight = 1;
+constexpr size_t kMaxInFlight = kMaxInFlightFrames;  // see decode/pending_policy.h
 constexpr int64_t kUnknownDuration = INT64_MAX / 4;
 
 int64_t nowMs() {
