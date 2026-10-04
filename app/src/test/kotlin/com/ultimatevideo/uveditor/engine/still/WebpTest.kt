@@ -277,6 +277,51 @@ class WebpTest {
     }
 
     @Test
+    fun `random access matches linear playback and sequential play costs one decode per frame`() {
+        val n = 70
+        val colours = IntArray(n) { 0xFF000000.toInt() or (it * 3 shl 16) or (it * 2 shl 8) or it }
+        val bytes = WebpBuilder(8, 6).apply {
+            for (i in 0 until n) frame(0, 0, 8, 6, 20, colours[i], blend = false)
+        }.build()
+        FakeWebpDecoder.decoded.clear()
+        val a = WebpAnimation.parse(bytes, FakeWebpDecoder)
+        for (i in 0 until n) assertEquals(colours[i], a.render(i)[0])
+        assertEquals("one decode per frame going forward", n, FakeWebpDecoder.decoded.size)
+        val interval = CanvasSnapshots(n, 8 * 6).interval
+        for (target in listOf(60, 41, 40, 9, 8, 0, 69, 3)) {
+            val before = a.framesDrawn
+            assertEquals("frame $target", colours[target], a.render(target)[0])
+            val cost = a.framesDrawn - before
+            assertTrue("seek to $target drew $cost frames (interval $interval)", target > 60 || cost <= interval)
+        }
+    }
+
+    @Test
+    fun `snapshot interval grows with the canvas so the snapshots stay in budget`() {
+        val small = CanvasSnapshots(600, 480 * 270)
+        val big = CanvasSnapshots(600, 3840 * 2160)
+        assertTrue(small.interval >= CanvasSnapshots.MIN_INTERVAL)
+        assertTrue(big.interval > small.interval)
+        // Whatever the canvas, snapshot memory is at most the budget plus one snapshot.
+        for (canvas in listOf(480 * 270, 1920 * 1080, 3840 * 2160)) {
+            val s = CanvasSnapshots(600, canvas)
+            val snapshots = (599 / s.interval) + 1
+            assertTrue("$canvas px: $snapshots snapshots", snapshots.toLong() * canvas * 4 <= CanvasSnapshots.DEFAULT_BUDGET_BYTES + canvas * 4L)
+        }
+    }
+
+    @Test
+    fun `formats are recognised by their first bytes`() {
+        val webp = file { frame(0, 0, 8, 6, 10, red) }
+        assertTrue(AnimationSniff.isWebp(webp))
+        assertFalse(AnimationSniff.isGif(webp))
+        assertTrue(AnimationSniff.isGif("GIF89a....".toByteArray()))
+        assertTrue(AnimationSniff.isGif("GIF87a....".toByteArray()))
+        assertFalse(AnimationSniff.isWebp("GIF89a......".toByteArray()))
+        assertFalse(AnimationSniff.isGif(ByteArray(3)) || AnimationSniff.isWebp(ByteArray(11)))
+    }
+
+    @Test
     fun `trailing bytes after the RIFF are ignored`() {
         val bytes = file { frame(0, 0, 8, 6, 10, red) } + byteArrayOf(1, 2, 3, 4, 5)
         assertEquals(1, WebpContainerParser.parse(bytes).frames.size)

@@ -337,6 +337,26 @@ class GifTest {
     }
 
     @Test
+    fun `random access matches linear playback and a seek back replays only up to one snapshot interval`() {
+        val n = 90
+        val frames = (0 until n).map { GifWriter.Frame((it % 3), (it % 2), 3, 2, solid(3, 2, it % 4), disposal = it % 4) }
+        val bytes = GifWriter.write(8, 6, palette, frames)
+        val truth = GifAnimation.parse(bytes).let { g -> (0 until n).map { g.render(it) } }
+        val gif = GifAnimation.parse(bytes)
+        gif.render(n - 1) // forward once: snapshots are taken on the way
+        assertEquals(n.toLong(), gif.framesDrawn)
+        val interval = CanvasSnapshots(n, 8 * 6).interval
+        for (target in listOf(70, 33, 32, 31, 8, 0, 89, 5)) {
+            val before = gif.framesDrawn
+            val got = gif.render(target)
+            assertArrayEquals("frame $target", truth[target], got)
+            val cost = gif.framesDrawn - before
+            // Forward jumps cost the distance; backward jumps cost less than one interval.
+            assertTrue("seek to $target drew $cost frames (interval $interval)", cost <= maxOf(interval.toLong(), 0L) || target > 70)
+        }
+    }
+
+    @Test
     fun `delays can be read without decoding any picture and a broken file reads as empty`() {
         val bytes = GifWriter.write(
             2, 2, palette,

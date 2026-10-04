@@ -228,23 +228,35 @@ class WebpAnimation(
     private val bytes: ByteArray,
     private val container: WebpContainer,
     private val decoder: WebpStillDecoder,
-) {
-    val width: Int get() = container.canvasWidth
-    val height: Int get() = container.canvasHeight
-    val frameCount: Int get() = container.frames.size
+) : AnimatedPicture {
+    override val width: Int get() = container.canvasWidth
+    override val height: Int get() = container.canvasHeight
+    override val frameCount: Int get() = container.frames.size
     val loopCount: Int get() = container.loopCount
 
     /** Delay of every frame as the file states it, in milliseconds. */
-    val rawDelaysMs: List<Int> get() = container.frames.map { it.durationMs }
+    override val rawDelaysMs: List<Int> get() = container.frames.map { it.durationMs }
+
+    override var framesDrawn: Long = 0
+        private set
 
     private var canvas = IntArray(width * height)
     private var drawn = -1
+    private val snapshots = CanvasSnapshots(container.frames.size, width * height)
 
     /** The composited picture after frame [index]; the array is a copy the caller owns. */
     @Synchronized
-    fun render(index: Int): IntArray {
+    override fun render(index: Int): IntArray {
         require(index in container.frames.indices) { "frame $index of ${container.frames.size}" }
-        if (index < drawn) reset()
+        if (index < drawn) {
+            val near = snapshots.floor(index)
+            if (near == null) {
+                reset()
+            } else {
+                canvas = near.second.canvas.copyOf()
+                drawn = near.first
+            }
+        }
         while (drawn < index) drawNext()
         return canvas.copyOf()
     }
@@ -266,6 +278,8 @@ class WebpAnimation(
         }
         draw(next, pixels)
         drawn++
+        framesDrawn++
+        snapshots.offer(drawn, canvas, null)
     }
 
     private fun clearRect(f: WebpFrame) {
