@@ -1,8 +1,10 @@
 package com.ultimatevideo.uveditor.engine.export
 
+import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import java.io.IOException
 import kotlin.math.roundToInt
 
 /**
@@ -36,7 +38,33 @@ class MediaCodecHdrExportSupport : HdrExportSupport {
         val name = list.findEncoderForFormat(format) ?: return false
         val info = list.codecInfos.firstOrNull { it.name == name } ?: return false
         val capabilities = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC)
-        return capabilities.profileLevels.any { it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }
+        if (capabilities.profileLevels.none { it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }) return false
+        return canConfigure(name, format)
+    }
+
+    /**
+     * The capability list is not enough: the Huawei MatePad's hisi HEVC encoder lists Main10 but its `configureCodec`
+     * fails (-38) at any size, which used to leave an HDR option that could only end in "the encoder rejected the settings".
+     * Configuring the encoder once, without starting it, tells the truth.
+     */
+    private fun canConfigure(codecName: String, format: MediaFormat): Boolean {
+        val codec = try {
+            MediaCodec.createByCodecName(codecName)
+        } catch (e: IOException) {
+            return false
+        }
+        return try {
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            true
+        } catch (e: MediaCodec.CodecException) {
+            false
+        } catch (e: IllegalArgumentException) {
+            false
+        } catch (e: IllegalStateException) {
+            false
+        } finally {
+            codec.release()
+        }
     }
 
     private companion object {

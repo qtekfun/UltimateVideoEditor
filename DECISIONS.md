@@ -1240,6 +1240,13 @@ one line; the note keeps 200 and several lines. **Exports:** the EDL has no mark
 then the note, then "Marker" / "Beat". **Measured:** the add-marker step in a JVM test is about 0.2 ms median (see the PR).
 
 
+## HDR export is offered only when the encoder really configures (found on the Huawei MatePad)
+`HdrExportSupport` trusted `MediaCodecInfo` profile lists. The MatePad's `OMX.hisi.video.encoder.hevc` lists HEVC Main10 but
+`configureCodec` fails (-38) at every size, so an HLG project showed "HDR (HLG, 10-bit HEVC)" and every export ended in "the
+encoder rejected the settings". The probe now also creates the encoder and calls `configure(..., CONFIGURE_FLAG_ENCODE)` once
+(no start), and the HDR option is hidden when that throws; the project then exports as SDR with HLG clips tone-mapped, as on any
+device without Main10. The failure text also gained its missing full stop.
+
 ## Tray tile: the click sits inside the drag source (found on the Huawei MatePad)
 A tap on a media tray tile added nothing; only a long-press drag did (adb `input tap`, a short swipe and a real touch all
 failed, so it was not adb timing). `dragAndDropSource` consumes the release of a short press, and the `clickable` was

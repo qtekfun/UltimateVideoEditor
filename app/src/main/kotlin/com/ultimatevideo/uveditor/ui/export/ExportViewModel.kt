@@ -329,7 +329,7 @@ class ExportViewModel(
     private fun describe(error: ExportException?): String = when (error?.code) {
         null -> "The export failed"
         ExportErrorCode.UNSUPPORTED_FORMAT ->
-            "This device cannot encode with these settings: ${error.message}" +
+            "This device cannot encode with these settings: ${error.message}." +
                 if (state.value.hdr) " Export as SDR instead." else ""
         ExportErrorCode.IO_ERROR -> "A file error stopped the export: ${error.message}"
         else -> "The export failed: ${error.message}"
