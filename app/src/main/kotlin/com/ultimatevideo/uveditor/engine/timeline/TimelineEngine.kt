@@ -3,6 +3,8 @@ package com.ultimatevideo.uveditor.engine.timeline
 import android.view.Surface
 import com.ultimatevideo.uveditor.engine.EngineException
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** Native status codes (mirror of uv::core::Status). */
 enum class EngineStatus(val code: Int) {
@@ -56,6 +58,25 @@ class TimelineEngine(
         throw EngineException("Native engine is not available", e)
     }
 
+    // Text bitmaps for the canvas are made on their own thread: never on the main thread nor the render thread.
+    private val labelExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "timeline-text").apply { isDaemon = true } }
+    private val labelPump = LabelPump(
+        AndroidLabelRasteriser(density),
+        object : LabelSink {
+            override fun putLabel(hash: Long, label: RasterLabel) {
+                // Closed meanwhile: nothing to draw into any more.
+                val h = handle
+                if (h != 0L) NativeTimeline.nativeLabelPut(h, hash, label.pixels, label.width, label.height, label.colour)
+            }
+
+            override fun labelGeneration(): Int {
+                val h = handle
+                return if (h != 0L) NativeTimeline.nativeLabelGeneration(h) else 0
+            }
+        },
+        labelExecutor,
+    )
+
     init {
         if (handle == 0L) throw EngineException("Could not create the native timeline")
         val attached = NativeThumbnails.nativeAttach(handle, thumbnailListener)
@@ -80,7 +101,11 @@ class TimelineEngine(
     fun setSnapshot(snapshot: TimelineSnapshot) {
         val buffer = snapshot.encode()
         throwIfFailed(NativeTimeline.nativeSetSnapshot(live(), buffer, buffer.remaining()), "setSnapshot")
+        labelPump.request(snapshot.labelNeeds())
     }
+
+    /** Sets the canvas colours from the app palette (`Palette.nativeColours()`); redraws at once. */
+    fun setPalette(argb: IntArray) = NativeTimeline.nativeSetPalette(live(), argb)
 
     fun scrollBy(dx: Float, dy: Float) = NativeTimeline.nativeScrollBy(live(), dx, dy)
     fun zoomBy(factor: Float, focusX: Float) = NativeTimeline.nativeZoomBy(live(), factor, focusX)
@@ -142,6 +167,9 @@ class TimelineEngine(
         val h = handle
         if (h == 0L) return
         handle = 0L
+        labelExecutor.shutdown()
+        // A bitmap being put on the text thread right now holds the old handle: wait for it before the canvas goes away.
+        labelExecutor.awaitTermination(2, TimeUnit.SECONDS)
         NativeTimeline.nativeDestroy(h)
     }
 

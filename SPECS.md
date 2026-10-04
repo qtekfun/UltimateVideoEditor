@@ -41,6 +41,8 @@ Status: v1, reconciled with the code after phases 1-4 and 6 · Date: 2026-10-03
   - [5.29 Multicam (WP-M)](#529-multicam-wp-m)
   - [5.30 Project templates](#530-project-templates)
   - [5.31 Proxy media (WP-P)](#531-proxy-media-wp-p)
+  - [5.32 Appearance: dark only, optional pure black](#532-appearance-dark-only-optional-pure-black)
+  - [5.33 Timeline canvas rendering: text atlas, ruler, blocks](#533-timeline-canvas-rendering-text-atlas-ruler-blocks)
 - [6. Timeline operations (specification for tests)](#6-timeline-operations-specification-for-tests)
   - [6.1 Base track and overlays (LumaFusion model)](#61-base-track-and-overlays-lumafusion-model)
 - [7. Error handling](#7-error-handling)
@@ -956,9 +958,9 @@ point buttons.
 wide target; the nearest marker within it wins, a marker beats the playhead unless the playhead is strictly
 nearer, the hit carries the marker's index in `clipKey` and the finger frame in `frame`). A marker's name is a
 snapshot label under the key `-2 - markerIndex` (`SnapshotLabel.markerKey`), drawn beside the flag only when it fits
-before the next marker (at least 3 characters, cut at the next marker's tick) with the existing ASCII label font. No
-snapshot version bump: the label section already carries arbitrary keys and an old canvas simply ignores keys it does
-not know. The EDL has no markers (a CMX3600 list has no place for them); FCPXML uses the name, then the note.
+before the next marker (cut at the next marker's tick; nothing when under 24 dp is left). Since snapshot version 8 the name is
+UTF-8 and drawn from a text bitmap (section 5.33); before that it was ASCII in the built-in 3x5 font. The label section already
+carries arbitrary keys and an old canvas simply ignores keys it does not know. The EDL has no markers (a CMX3600 list has no place for them); FCPXML uses the name, then the note.
 
 ### 5.25 Silence auto cut and manual reframe (WP-V2, no AI)
 
@@ -1179,6 +1181,64 @@ Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in file
 - **UI**: a toolbar button opens the proxy sheet (switch, size, make/cancel/remove per video, storage and budget,
   clear cache with confirmation); proxy badges on the media tray tiles and in the library rows.
 - **Validation** (`ProxyManager.validate`): a proxy whose source changed size, or whose file is gone, becomes STALE.
+
+### 5.32 Appearance: dark only, optional pure black
+
+The app has one look, dark. There is no light scheme and no dynamic (wallpaper) colour: `ui/theme/Palette.kt` holds every colour as
+a plain ARGB `Int` (`Palette.Dark`, `Palette.Amoled` = the same with black backgrounds), `Theme.kt` builds the Material 3
+`darkColorScheme` from it (`paletteColorScheme`) and provides it as `LocalPalette`. `PreferencesAppearanceStore` keeps the one choice
+(`amoled`, SharedPreferences `appearance`, device only) in Compose state, so changing it recomposes `UVEditorTheme` and everything under it
+at once, with no activity restart. `MainActivity` also sets the window background from it before the first frame (no grey flash on a
+black theme), draws the system bars transparent with light icons (`SystemBarStyle.dark`), and `Theme.UVEditor` (themes.xml) has the dark
+window background, light-icon bars and a dark splash background.
+**One source of truth.** The native renderers do not keep a second palette: `Palette.nativeColours()` is a flat list of
+`NATIVE_COLOUR_COUNT` (22) ARGB values in a fixed order (background, lane A/B, ruler, tick, ruler text, six block colours, on-block text,
+playhead, selection, keyframe, marker, header tab, on-surface, on-surface-variant, primary, error) that `EditorScreen` pushes through
+`TimelineEngine.setPalette` (JNI `nativeSetPalette`) whenever the palette changes; `timeline_theme.h` reads them in the same order and
+ignores a list of another length (the defaults, which equal `Palette.Dark`, stay). Colours that carry their own meaning on any theme
+(drop-target amber / orange / green / red, the missing-media red veil, transition bands) stay constants in the renderer.
+**Contrast** is checked by `PaletteTest` (WCAG 2.x maths over ARGB): 4.5:1 for text and 3:1 for graphics, for every on-colour pair, text on
+all six surface steps, block text on each block colour and on its darker header strip, and playhead, selection, keyframe and marker against the
+lanes and the ruler, in both variants. The AMOLED variant keeps the surface steps ordered lighter so cards still separate from the black.
+
+### 5.33 Timeline canvas rendering: text atlas, ruler, blocks
+
+**Text.** The canvas used to draw all text with a 3x5 pixel font scaled up (capital ASCII only, blocky on a 2800 px tablet). Text is now
+bitmaps made by Kotlin with the system typeface (`AndroidLabelRasteriser`: `Paint` + `Canvas`, anti-aliased, dp x density sizes, system
+fallback fonts for accents, scripts, symbols and emoji, white on transparent; a bitmap with colour of its own is flagged and drawn
+untinted). Three size classes: 0 regular 11 dp, 1 small 9.5 dp, 2 bold 11 dp. The sides agree on a bitmap by a 64-bit FNV-1a hash of
+`size class byte + UTF-8` (`LabelHash.of` / `labelHash` in `text_atlas.h`, one shared test vector in both test suites), so only pixels
+cross the JNI (`nativeLabelPut`, a copy; callable from any thread). `LabelPump` (Kotlin, one background thread) is told what the
+snapshot needs (`labelNeeds()`: every label text with its class, plus `StaticGlyphs`: digits, `:+.-x<|`, `VATMS` for the ruler, lane
+names, speed badges, timecode and M/S chips), rasterises what the canvas does not have and sends it once; only the latest request
+is kept while it is busy. The render thread takes queued bitmaps at the start of a frame, at most 512 KB per frame (at least one), places
+them with a shelf packer (`ShelfPacker`, one pixel gutter) in a 2048x1024 RGBA atlas (`LabelTable`, 8 MB, NEAREST, created once and kept for the
+life of the context) and uploads them with `glTexSubImage2D`. When the atlas is full it is emptied (`LabelTable::reset`) and a generation
+counter moves on (`nativeLabelGeneration`); `LabelPump` sees it and sends again what is still needed. At most 700 distinct labels per generation.
+A label is drawn as one quad snapped to whole pixels; a run of single glyphs (ruler, lane name, timecode) is one quad per glyph. Text is
+queued in its own vertex array (position, uv, colour; a negative alpha marks a coloured glyph) and drawn by a text program that outputs
+premultiplied colour: two passes per frame (blocks and lane names, then ruler, markers and the playhead tag), so text is **2 extra draw
+calls** per frame. Until a bitmap has arrived, plain ASCII falls back to the old font and any other text waits (no blocking, no hitch).
+**Snapshot version 8.** Same layout as 7; the per-clip flags gain bits 4..6 = `ClipKind` (0 by lane type, 1 image, 2 sticker, 3 multicam;
+photos, stickers and multicam clips get their own colour) and a label is UTF-8, 0..96 bytes, validated (`utf8Valid`); versions 2 to 7 still
+parse (v7 labels stay ASCII, at most 24 bytes). `ClipLabels` (Kotlin) tidies text (control characters and blank runs become one space) and cuts it at 32
+characters / 96 bytes on a grapheme boundary with an ellipsis; media and photo clips now send their file name without the extension.
+**Ruler** (`ruler_ticks.h`, host-tested). `planRuler(fps, pxPerFrame, 72 dp, 7 dp)` picks the smallest round step (1, 2, 5, 10 frames, then 1,
+2, 5, 10, 15, 30 s, 1, 2, 5, 10, 30 min, 1, 2, 6, 24 h) with at least 72 dp between labelled ticks, and 5, 4, 3 or 2 small ticks per step
+when they are at least 7 dp apart. Labels `m:ss`, `h:mm:ss`, and `m:ss:ff` below one second per step; the playhead tag shows `m:ss:ff`. The tick
+before the left edge is drawn too, so its label reaches into view. Ticks and labels sit on whole pixels.
+**Blocks.** A block is drawn on a plain rectangle and its four corners are then cut back with small triangle fans in the colour behind the
+block (3 segments, 4 dp; the sagitta error is under 0.4 px at 2.6x), so thumbnails and waveforms need no rounding of their own and the number of
+draw calls does not change. A selected block gets a rounded outline fill under the body (primary: the selection colour, 2 dp; others: the
+primary colour, 1.5 dp) and, for the primary clip, a rounded handle pill at each end. The 18 dp header strip (darker, with a highlight
+line) carries the name, speed label, keyframe diamonds and fx badge; titles and stickers put their text in the body. The waveform gets a
+vertical shading and a centre line under it when there are no thumbnails. Lane bands have one-pixel edges in the ruler colour; lane headers
+have a stripe in the lane's colour, bold name and M/S chips. All sizes are dp x density.
+**Cost.** Everything stays in the batched coloured quads plus the thumbnail and text draws; per-frame allocations are none (the vertex vectors and
+the upload list are reused). The renderer can print its own frame statistics: `setprop debug.uveditor.timeline_stats 1` before opening the
+editor, then `logcat -s uv_timeline` shows every 240 frames the CPU milliseconds to build and submit a frame (up to, not including, the buffer
+swap) as p50 / p95 / p99 / max plus the draw calls and vertices per frame; `scripts/perf-timeline.sh` drives a 110-clip project
+(`scripts/make-perf-project.py`) and prints them. Numbers are in DECISIONS.md.
 
 ## 6. Timeline operations (specification for tests)
 
