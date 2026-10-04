@@ -82,6 +82,21 @@ enum class EffectType(val code: Int, val label: String, val params: List<EffectP
             EffectParam("Tint", -1.0, 1.0, 0.0),
         ),
     ),
+
+    /**
+     * Noise reduction: a spatial edge-preserving smoothing of Strength, plus a temporal average with the
+     * previous source frame (Temporal 0 turns that off) that fades out where the picture moved, so grain
+     * and sensor noise calm down without ghosting. Both run in the compositor, so preview and export agree.
+     * Code 15 is the stabiliser, which is not an effect the user adds.
+     */
+    DENOISE(16, "Noise reduction", listOf(EffectParam("Strength", 0.0, 1.0, 0.5), EffectParam("Temporal", 0.0, 1.0, 0.6))),
+
+    /**
+     * Flicker removal: scales each frame so its average brightness follows the average over the previous,
+     * current and next source frame (a three-frame window), by Strength. Steady changes in brightness
+     * (a fade, a sunrise) pass through; frame-to-frame pumping (lights on a bad shutter) is flattened.
+     */
+    DEFLICKER(17, "Flicker removal", listOf(EffectParam("Strength", 0.0, 1.0, 1.0))),
     ;
 
     val defaults: List<Double> get() = params.map { it.default }

@@ -5,6 +5,7 @@ target_sources(uveditor_engine PRIVATE
     decode/video_decoder.cpp
     render/gl_context.cpp
     render/gl_pipeline.cpp
+    render/gl_repair.cpp
     render/preview_engine.cpp
     render/scope_renderer.cpp
     jni/preview_jni.cpp

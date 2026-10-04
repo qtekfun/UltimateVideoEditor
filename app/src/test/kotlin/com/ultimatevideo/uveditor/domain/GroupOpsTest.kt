@@ -235,7 +235,7 @@ class GroupOpsTest {
         assertEquals(0.4, opacity.track("v2")!!.clip("p")!!.transform.opacity, 0.0)
         assertEquals(0.4, opacity.track("v3")!!.clip("s")!!.transform.opacity, 0.0)
         assertEquals(1.0, opacity.track("a1")!!.clip("m")!!.transform.opacity, 0.0) // audio is untouched
-        assertTrue(GroupOps.setSpeed(t, listOf("p"), 20, 1).errorOrFail() is EditError.InvalidSpeed)
+        assertTrue(GroupOps.setSpeed(t, listOf("p"), 200, 1).errorOrFail() is EditError.InvalidSpeed)
     }
 
     @Test

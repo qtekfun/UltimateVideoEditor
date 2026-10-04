@@ -49,6 +49,8 @@ data class RenderClip(
     val audio: ClipAudio = ClipAudio.NONE,
     /** Keyframed parameters (effect values, volume, pan, EQ gains); frames are relative to [keyframeOriginFrame]. */
     val params: List<ParamTrack> = emptyList(),
+    /** Smooth slow motion: frames of a slowed clip are interpolated between two source frames, see [sourceMixAt]. */
+    val smooth: Boolean = false,
     /** The look of the transition this clip comes in with, or null when it has none. [crossfadeInFrames] is its length for audio. */
     val transitionIn: TransitionLook? = null,
     /** The look of the transition this clip goes out with, or null when it has none. */
@@ -131,6 +133,16 @@ data class RenderClip(
     fun sourceFrameAt(frame: Long): Long =
         retime?.sourceFrameAt(frame - keyframeOriginFrame) ?: (sourceInFrame + (frame - startFrame))
 
+    /**
+     * Where [frame] falls between two source frames. Without smooth slow motion, or on a clip that is not slowed, the
+     * mix is 0 and only [SourceMix.frame] (the same as [sourceFrameAt]) is shown.
+     */
+    fun sourceMixAt(frame: Long): SourceMix {
+        val r = retime
+        if (!smooth || r == null) return SourceMix(sourceFrameAt(frame), sourceFrameAt(frame), 0)
+        return r.mixAt(frame - keyframeOriginFrame)
+    }
+
     /** True when the clip plays its source backwards. */
     val isReverse: Boolean get() = retime?.reverse == true
 }
@@ -202,6 +214,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 still = clip.still,
                 audio = clip.audio,
                 params = clip.params,
+                smooth = clip.smoothSlowMo && clip.hasMedia,
                 transitionIn = incoming?.let { TransitionLook(it.type, it.direction, it.durationFrames) },
                 transitionOut = outgoing?.let { TransitionLook(it.type, it.direction, it.durationFrames) },
             )

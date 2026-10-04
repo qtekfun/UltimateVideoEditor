@@ -64,7 +64,7 @@ class FxWireTest {
             EffectType.BRIGHTNESS to 1, EffectType.CONTRAST to 2, EffectType.SATURATION to 3, EffectType.EXPOSURE to 4,
             EffectType.TEMPERATURE to 5, EffectType.TINT to 6, EffectType.BLUR to 7, EffectType.SHARPEN to 8,
             EffectType.VIGNETTE to 9, EffectType.GRAYSCALE to 10, EffectType.SEPIA to 11, EffectType.CHROMA_KEY to 12, EffectType.LUT to 13,
-            EffectType.COLOR_GRADE to 14,
+            EffectType.COLOR_GRADE to 14, EffectType.DENOISE to 16, EffectType.DEFLICKER to 17,
         )
         for ((type, code) in expected) assertEquals(type.name, code, type.code)
         assertEquals(EffectType.entries.size, expected.size)

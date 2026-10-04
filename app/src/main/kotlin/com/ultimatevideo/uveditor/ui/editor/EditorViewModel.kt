@@ -401,6 +401,8 @@ class EditorViewModel(
             is EditorIntent.SetSpeed -> setSpeed(intent.num, intent.den)
             EditorIntent.ToggleReverse -> toggleReverse()
             is EditorIntent.SetSpeedRamp -> setSpeedRamp(intent.shape)
+            is EditorIntent.SetSpeedKeys -> withSelection { clipId -> execute(EditCommand.SetSpeedRamp(clipId, intent.keys)) }
+            EditorIntent.ToggleSmoothSlowMo -> toggleSmoothSlowMo()
             EditorIntent.FreezeFrame -> freezeFrame()
             is EditorIntent.SetSafeZone -> reduce { copy(safeZone = intent.platform) }
             EditorIntent.ShowCanvasDialog -> reduce { copy(canvasDialogOpen = true) }
@@ -2415,6 +2417,11 @@ class EditorViewModel(
         execute(EditCommand.SetSpeed(clipId, num, den, ripple = true))
     }
 
+    private fun toggleSmoothSlowMo() = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        execute(EditCommand.SetSmoothSlowMo(clipId, !clip.smoothSlowMo))
+    }
+
     private fun toggleReverse() = withSelection { clipId ->
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         execute(EditCommand.SetReverse(clipId, !clip.reverse))
@@ -2427,6 +2434,11 @@ class EditorViewModel(
             SpeedRampShape.EASE_IN -> SpeedRamps.easeIn(clip.durationFrames)
             SpeedRampShape.EASE_OUT -> SpeedRamps.easeOut(clip.durationFrames)
             SpeedRampShape.BELL -> SpeedRamps.bell(clip.durationFrames)
+            SpeedRampShape.EASE_IN_SMOOTH -> SpeedRamps.easeInSmooth(clip.durationFrames)
+            SpeedRampShape.EASE_OUT_SMOOTH -> SpeedRamps.easeOutSmooth(clip.durationFrames)
+            SpeedRampShape.MONTAGE -> SpeedRamps.montage(clip.durationFrames)
+            SpeedRampShape.HERO -> SpeedRamps.hero(clip.durationFrames)
+            SpeedRampShape.BULLET -> SpeedRamps.bullet(clip.durationFrames)
         }
         if (shape != SpeedRampShape.NONE && ramp.isEmpty()) {
             emit(EditorEffect.ShowMessage("This clip is too short for a speed ramp"))

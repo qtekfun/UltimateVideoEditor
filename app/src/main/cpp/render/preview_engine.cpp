@@ -3,6 +3,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <future>
 #include <vector>
 
@@ -649,6 +651,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
     // Every layer's frame must be cached before anything is drawn, or a scrub would flash a
     // half-updated composite. The frames are held by shared_ptr, so they outlive the draw call.
     std::vector<std::shared_ptr<GpuFrame>> frames;
+    std::vector<std::shared_ptr<GpuFrame>> extra;  // neighbouring frames of smooth slow motion and repair effects
     std::vector<LayerDraw> layers;
     std::vector<DrawnLayer> signature;
     frames.reserve(scene_.size());
@@ -682,8 +685,37 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
             LayerDraw draw{frame.get(), mode, asset->second.turns, layer.transform};
             draw.fx = layer.fx;
             stab::resolveStabilisation(&draw.fx, layer.frame);  // the stabiliser's correction for this source frame
+            // Smooth slow motion and the repair effects read neighbouring source frames when they are decoded
+            // (they are optional: a missing one just means the effect works with what it has).
+            uint8_t neighbours = 0;
+            if (layer.mix != 0.0f) {
+                std::shared_ptr<GpuFrame> other;
+                if (cache_.get(FrameKey{layer.asset, layer.frame + (layer.mix > 0.0f ? 1 : -1)}, &other)) {
+                    draw.blendWith = other.get();
+                    draw.blendMix = std::fabs(layer.mix);
+                    neighbours |= 1;
+                    extra.push_back(std::move(other));
+                }
+            }
+            const core::NeighbourNeeds needs = core::neighbourNeeds(layer.fx);
+            if (needs.prev) {
+                std::shared_ptr<GpuFrame> other;
+                if (cache_.get(FrameKey{layer.asset, layer.frame - 1}, &other)) {
+                    draw.prev = other.get();
+                    neighbours |= 2;
+                    extra.push_back(std::move(other));
+                }
+            }
+            if (needs.next) {
+                std::shared_ptr<GpuFrame> other;
+                if (cache_.get(FrameKey{layer.asset, layer.frame + 1}, &other)) {
+                    draw.next = other.get();
+                    neighbours |= 4;
+                    extra.push_back(std::move(other));
+                }
+            }
             layers.push_back(std::move(draw));
-            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source});
+            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source, layer.mix, neighbours});
         }
     }
     if (layers.empty()) return;
@@ -712,6 +744,28 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
         scope_->capture(shown.x, shown.y, shown.w, shown.h);
     }
     const auto swapStart = Clock::now();
+    {
+        // Optical-flow interpolation costs GPU time: if drawing frames that use it keeps running over the
+        // frame budget, blend frames instead until there is room again.
+        bool interpolating = false;
+        for (const LayerDraw& l : layers) interpolating = interpolating || (l.blendWith != nullptr && l.blendMix > 0.0f);
+        const double drawMs = std::chrono::duration<double, std::milli>(swapStart - drawStart).count();
+        if (interpolating && pipeline_->interpolationQuality() > 0) {
+            slowInterpDraws_ = drawMs > 14.0 ? slowInterpDraws_ + 1 : 0;
+            if (slowInterpDraws_ >= 4) {
+                pipeline_->setInterpolationQuality(0);
+                slowInterpDraws_ = 0;
+                fastInterpDraws_ = 0;
+                UV_LOGW("smooth slow motion: draws take %.1f ms, falling back to frame blending", drawMs);
+            }
+        } else if (interpolating && pipeline_->interpolationQuality() == 0) {
+            fastInterpDraws_ = drawMs < 5.0 ? fastInterpDraws_ + 1 : 0;
+            if (fastInterpDraws_ >= 90) {
+                pipeline_->setInterpolationQuality(1);
+                fastInterpDraws_ = 0;
+            }
+        }
+    }
     if (drawStatus == Status::Ok) egl_->setPresentationTime(presentNs);
     const Status swapStatus = drawStatus == Status::Ok ? egl_->swap(&error) : drawStatus;
     const auto drawEnd = Clock::now();

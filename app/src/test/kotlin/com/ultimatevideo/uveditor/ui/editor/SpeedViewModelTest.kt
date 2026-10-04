@@ -11,6 +11,7 @@ import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.SpeedKey
 import com.ultimatevideo.uveditor.domain.SpeedRamps
 import com.ultimatevideo.uveditor.domain.isFreeze
 import com.ultimatevideo.uveditor.domain.isRetimed
@@ -132,7 +133,7 @@ class SpeedViewModelTest {
         val h = harness()
         h.select("c1")
 
-        h.vm.onIntent(EditorIntent.SetSpeed(1000, 100))
+        h.vm.onIntent(EditorIntent.SetSpeed(10100, 100))
 
         assertEquals(100L, h.clip("c1")!!.durationFrames)
         assertTrue(h.messages().single().startsWith("That speed is not possible"))
@@ -171,6 +172,67 @@ class SpeedViewModelTest {
         assertEquals(SpeedRamps.bell(100), h.clip("c1")!!.speedRamp)
         h.vm.onIntent(EditorIntent.SetSpeedRamp(SpeedRampShape.NONE))
         assertTrue(h.clip("c1")!!.speedRamp.isEmpty())
+    }
+
+    @Test
+    fun `eased presets and the montage hero and bullet curves apply as one undo step`() = runTest {
+        val h = harness()
+        h.select("c1")
+        val expected = mapOf(
+            SpeedRampShape.MONTAGE to SpeedRamps.montage(100),
+            SpeedRampShape.HERO to SpeedRamps.hero(100),
+            SpeedRampShape.BULLET to SpeedRamps.bullet(100),
+            SpeedRampShape.EASE_IN_SMOOTH to SpeedRamps.easeInSmooth(100),
+            SpeedRampShape.EASE_OUT_SMOOTH to SpeedRamps.easeOutSmooth(100),
+        )
+        for ((shape, ramp) in expected) {
+            h.vm.onIntent(EditorIntent.SetSpeedRamp(shape))
+            assertEquals(shape.name, ramp, h.clip("c1")!!.speedRamp)
+            assertTrue(h.clip("c1")!!.speedRamp.dropLast(1).all { it.smooth })
+        }
+        // The last applied shape (ease out, round) goes back to the one before it (ease in, round) with one undo.
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(SpeedRamps.easeInSmooth(100), h.clip("c1")!!.speedRamp)
+    }
+
+    @Test
+    fun `the curve editor sets exact keys in one step and an empty list removes the curve`() = runTest {
+        val h = harness()
+        h.select("c1")
+        val keys = listOf(SpeedKey(0, 400, true), SpeedKey(50, 2000, true), SpeedKey(99, 600))
+
+        h.vm.onIntent(EditorIntent.SetSpeedKeys(keys))
+        assertEquals(keys, h.clip("c1")!!.speedRamp)
+        h.vm.onIntent(EditorIntent.SetSpeedKeys(emptyList()))
+        assertTrue(h.clip("c1")!!.speedRamp.isEmpty())
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(keys, h.clip("c1")!!.speedRamp)
+    }
+
+    @Test
+    fun `smooth slow motion toggles on a slowed clip and undoes`() = runTest {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetSpeed(50, 100))
+        assertFalse(h.clip("c1")!!.smoothSlowMo)
+
+        h.vm.onIntent(EditorIntent.ToggleSmoothSlowMo)
+        assertTrue(h.clip("c1")!!.smoothSlowMo)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertFalse(h.clip("c1")!!.smoothSlowMo)
+        h.vm.onIntent(EditorIntent.Redo)
+        assertTrue(h.clip("c1")!!.smoothSlowMo)
+    }
+
+    @Test
+    fun `a hundred times speed is accepted`() = runTest {
+        val h = harness()
+        h.select("c1")
+
+        h.vm.onIntent(EditorIntent.SetSpeed(10000, 100))
+
+        assertEquals(1L, h.clip("c1")!!.durationFrames)
+        assertTrue(h.messages().isEmpty())
     }
 
     @Test
