@@ -13,7 +13,10 @@ import com.ultimatevideo.uveditor.domain.isTrackAudible
 import com.ultimatevideo.uveditor.domain.renderClips
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.engine.audio.AudioClipSpec
+import com.ultimatevideo.uveditor.engine.audio.AudioErrorCode
 import com.ultimatevideo.uveditor.engine.audio.AudioException
+import com.ultimatevideo.uveditor.engine.audio.LoudnessResult
+import com.ultimatevideo.uveditor.engine.audio.PeakLevels
 import com.ultimatevideo.uveditor.engine.audio.AudioFault
 import com.ultimatevideo.uveditor.engine.audio.AudioPlaybackEngine
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
@@ -157,7 +160,7 @@ class EditorAudio(
     private val context: Context,
     private val scope: CoroutineScope,
     private val onError: (String) -> Unit,
-) : PlaybackOutput, AutoCloseable {
+) : PlaybackOutput, AudioAnalyzer, AutoCloseable {
 
     private val engine: AudioPlaybackEngine? = try {
         AudioPlaybackEngine()
@@ -305,6 +308,59 @@ class EditorAudio(
 
     override fun heardFrame(): Long? = engine?.positionFrame()
 
+    /** Output peaks since the previous call, for the level meters (silent when the engine is unavailable). */
+    fun takePeaks(): PeakLevels = engine?.takePeaks() ?: PeakLevels.SILENT
+
+    // region analysis (loudness, noise profile)
+
+    override suspend fun loudness(asset: MediaAssetDto, assetKey: Long, startMicros: Long, endMicros: Long): LoudnessResult {
+        val engine = engine ?: throw AudioAnalysisException("Audio measurements are not available")
+        awaitRegistered(engine, asset, assetKey)
+        return try {
+            withContext(Dispatchers.IO) { engine.measureLoudness(assetKey, startMicros, endMicros) }
+        } catch (e: AudioException) {
+            throw analysisFailure(e, tooShort = "That stretch is too short to measure")
+        }
+    }
+
+    override suspend fun noiseProfile(asset: MediaAssetDto, assetKey: Long, startMicros: Long, endMicros: Long): FloatArray {
+        val engine = engine ?: throw AudioAnalysisException("Audio measurements are not available")
+        awaitRegistered(engine, asset, assetKey)
+        return try {
+            withContext(Dispatchers.IO) { engine.measureNoiseProfile(assetKey, startMicros, endMicros) }
+        } catch (e: AudioException) {
+            throw analysisFailure(e, tooShort = "The quiet stretch is too short: mark at least 0.1 s")
+        }
+    }
+
+    override fun cancel() {
+        engine?.cancelAnalysis()
+    }
+
+    /** Analyses open the file through the same registry as playback: wait for (or start) its registration. */
+    private suspend fun awaitRegistered(engine: AudioPlaybackEngine, asset: MediaAssetDto, key: Long) {
+        if (key !in registered && key !in opening && key !in failed) register(engine, asset, key)
+        var waited = 0L
+        while (key !in registered) {
+            if (key in failed) throw AudioAnalysisException("This file's sound cannot be opened")
+            if (waited >= REGISTER_TIMEOUT_MILLIS) throw AudioAnalysisException("The file took too long to open")
+            delay(REGISTER_POLL_MILLIS)
+            waited += REGISTER_POLL_MILLIS
+        }
+    }
+
+    private fun analysisFailure(e: AudioException, tooShort: String) = AudioAnalysisException(
+        when (e.errorCode) {
+            AudioErrorCode.Cancelled -> "The measurement was cancelled"
+            AudioErrorCode.InvalidArgument -> tooShort
+            AudioErrorCode.UnsupportedFormat -> "The sound of this file is in a format that cannot be measured"
+            else -> "The sound of this file could not be read (${e.errorCode})"
+        },
+        e,
+    )
+
+    // endregion
+
     override fun close() {
         closed = true
         stopJob?.cancel()
@@ -314,5 +370,7 @@ class EditorAudio(
     private companion object {
         const val FAULT_POLL_MILLIS = 500L
         const val IDLE_STOP_MILLIS = 1_500L
+        const val REGISTER_POLL_MILLIS = 50L
+        const val REGISTER_TIMEOUT_MILLIS = 10_000L
     }
 }

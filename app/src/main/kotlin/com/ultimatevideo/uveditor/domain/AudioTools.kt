@@ -103,16 +103,15 @@ data class ClipAudio(
     }
 
     /**
-     * The settings of the part [from, to) of a clip that was [oldDuration] frames long (see
-     * [Clip.cropped]). A fade handle shrinks by what the cut takes away (a trim that eats into a fade
-     * leaves the rest of it) and never exceeds the new length.
+     * The settings of the part [from, to) of a clip (see [Clip.cropped]). A fade handle belongs to its
+     * edge: trimming moves the edge and the handle goes with it, never longer than the new length.
+     * Cuts that leave a clip in two (split, overwrite) clear the handle of the side that is no longer
+     * the original edge with [withoutFadeIn] / [withoutFadeOut].
      */
-    fun cropped(from: Long, to: Long, oldDuration: Long): ClipAudio {
+    fun cropped(from: Long, to: Long): ClipAudio {
         if (this == NONE) return this
         val length = to - from
-        val fadeIn = if (from <= 0) fadeInFrames else maxOf(0L, fadeInFrames - from)
-        val fadeOut = if (to >= oldDuration) fadeOutFrames else maxOf(0L, fadeOutFrames - (oldDuration - to))
-        return copy(fadeInFrames = fadeIn.coerceIn(0, length), fadeOutFrames = fadeOut.coerceIn(0, length))
+        return copy(fadeInFrames = fadeInFrames.coerceIn(0, length), fadeOutFrames = fadeOutFrames.coerceIn(0, length))
     }
 
     companion object {
