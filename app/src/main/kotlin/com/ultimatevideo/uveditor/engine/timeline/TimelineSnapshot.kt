@@ -22,7 +22,12 @@ data class SnapshotClip(
     val hasFx: Boolean = false,
     /** The clip's media file cannot be read; the canvas tints and hatches it. */
     val missing: Boolean = false,
+    /** What the block is, for its colour (wire version 8). */
+    val kind: SnapshotClipKind = SnapshotClipKind.DEFAULT,
 )
+
+/** What a clip block is, so the canvas can colour it; [DEFAULT] follows the lane type (video, audio, title). */
+enum class SnapshotClipKind(val code: Int) { DEFAULT(0), IMAGE(1), STICKER(2), MULTICAM(3) }
 
 /**
  * A transition drawn across the cut at [cutFrame] on [trackIndex], from `cutFrame - preFrames` to
@@ -41,17 +46,40 @@ data class SnapshotKeyframe(val clipKey: Long, val frame: Long)
 data class SnapshotRetime(val clipKey: Long, val sourceSpanFrames: Long, val reverse: Boolean = false, val freeze: Boolean = false)
 
 /**
- * A short text drawn on the block of the clip with key [clipKey] (a title's text, a sticker's name). The native
- * canvas can only draw printable ASCII in its tiny font, and at most [MAX_CHARS] characters (see `ClipLabels`).
+ * A short text drawn on the block of the clip with key [clipKey] (a clip's name, a title's text, a sticker's name) or
+ * of a marker. Any text: the canvas draws it from bitmaps the system font makes (accents, symbols, emoji), so it must be
+ * valid UTF-16, have no control characters and fit in [MAX_BYTES] bytes of UTF-8 (see `ClipLabels`).
  */
 data class SnapshotLabel(val clipKey: Long, val text: String) {
     init {
-        require(text.length <= MAX_CHARS) { "a label is longer than $MAX_CHARS characters" }
-        require(text.all { it.code in 0x20..0x7E }) { "a label has a character that is not printable ASCII" }
+        require(text.none { it.code < 0x20 || it.code == 0x7F }) { "a label has a control character" }
+        require(isWellFormed(text)) { "a label has an unpaired surrogate" }
+        require(utf8Length(text) <= MAX_BYTES) { "a label is longer than $MAX_BYTES bytes of UTF-8" }
     }
 
     companion object {
-        const val MAX_CHARS = 24
+        /** The longest label on the wire, in UTF-8 bytes (`kSnapshotMaxLabelBytesUtf8`). */
+        const val MAX_BYTES = 96
+
+        /** The most characters `ClipLabels` keeps (three UTF-8 bytes each at most for text outside emoji, so within [MAX_BYTES]). */
+        const val MAX_CHARS = 32
+
+        fun utf8Length(text: String): Int = text.toByteArray(Charsets.UTF_8).size
+
+        fun isWellFormed(text: String): Boolean {
+            var i = 0
+            while (i < text.length) {
+                val c = text[i]
+                if (Character.isHighSurrogate(c)) {
+                    if (i + 1 >= text.length || !Character.isLowSurrogate(text[i + 1])) return false
+                    i += 2
+                    continue
+                }
+                if (Character.isLowSurrogate(c)) return false
+                i++
+            }
+            return true
+        }
 
         /** A marker's name travels as a label under a negative key, which never clashes with a clip key; see `marker_style.h`. */
         private const val MARKER_KEY_BASE = -2L
@@ -170,7 +198,8 @@ data class TimelineSnapshot(
             buffer.putInt(clip.sourceFpsNum)
             buffer.putInt(clip.sourceFpsDen)
             buffer.putInt(
-                (if (clip.selected) 1 else 0) or (if (clip.hasFx) 2 else 0) or (if (clip.missing) 4 else 0) or (if (clip.primary) 8 else 0),
+                (if (clip.selected) 1 else 0) or (if (clip.hasFx) 2 else 0) or (if (clip.missing) 4 else 0) or (if (clip.primary) 8 else 0) or
+                    (clip.kind.code shl CLIP_KIND_SHIFT),
             )
         }
         buffer.putInt(transitions.size)
@@ -202,9 +231,10 @@ data class TimelineSnapshot(
         buffer.putInt(labels.size)
         for (label in labels) {
             buffer.putLong(label.clipKey)
-            buffer.putInt(label.text.length)
-            for (ch in label.text) buffer.put(ch.code.toByte())
-            repeat(paddedLength(label.text) - label.text.length) { buffer.put(0) }
+            val bytes = label.text.toByteArray(Charsets.UTF_8)
+            buffer.putInt(bytes.size)
+            buffer.put(bytes)
+            repeat(paddedLength(label.text) - bytes.size) { buffer.put(0) }
         }
         buffer.flip()
         return buffer
@@ -212,7 +242,7 @@ data class TimelineSnapshot(
 
     companion object {
         const val MAGIC = 0x53545655 // "UVTS"
-        const val VERSION = 7
+        const val VERSION = 8
         const val HEADER_BYTES = 24
         const val TRACK_BYTES = 4
 
@@ -221,6 +251,9 @@ data class TimelineSnapshot(
         const val TRACK_SOLO = 2
         const val TRACK_FLAGS_SHIFT = 8
         const val CLIP_BYTES = 56
+
+        /** The clip kind sits in bits 4..6 of a clip's flags word (wire version 8). */
+        const val CLIP_KIND_SHIFT = 4
 
         /** The transition count that follows the clips. */
         const val TRAILER_BYTES = 4
@@ -242,7 +275,7 @@ data class TimelineSnapshot(
         const val LABEL_TRAILER_BYTES = 4
         const val LABEL_FIXED_BYTES = 12
 
-        /** Length of [text] padded with zeros to a multiple of 4, as it is written. */
-        fun paddedLength(text: String): Int = (text.length + 3) / 4 * 4
+        /** Length of [text] in UTF-8 padded with zeros to a multiple of 4, as it is written. */
+        fun paddedLength(text: String): Int = (SnapshotLabel.utf8Length(text) + 3) / 4 * 4
     }
 }

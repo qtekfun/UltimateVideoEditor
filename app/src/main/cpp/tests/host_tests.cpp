@@ -13,6 +13,9 @@
 #include "timeline_view/hit_test.h"
 #include "timeline_view/lane_header.h"
 #include "timeline_view/marker_style.h"
+#include "timeline_view/ruler_ticks.h"
+#include "timeline_view/text_atlas.h"
+#include "timeline_view/timeline_theme.h"
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
 
@@ -60,7 +63,8 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         w.put<int64_t>(c.sourceInFrame);
         w.put<int32_t>(c.sourceFpsNum);
         w.put<int32_t>(c.sourceFpsDen);
-        w.put<int32_t>((c.selected ? 1 : 0) | (c.hasFx ? 2 : 0) | (c.missing ? 4 : 0) | (c.primary ? 8 : 0));
+        w.put<int32_t>((c.selected ? 1 : 0) | (c.hasFx ? 2 : 0) | (c.missing ? 4 : 0) | (c.primary ? 8 : 0) |
+                       (static_cast<int32_t>(c.kind) << timeline::kClipKindShift));
     }
     w.put<int32_t>(static_cast<int32_t>(transitions.size()));
     for (const auto& t : transitions) {
@@ -465,12 +469,23 @@ static void testSnapshotLabels() {
     CHECK(s.labelOf(3) != nullptr && *s.labelOf(3) == "LOWER THIRD");
     CHECK(s.labelOf(99) == nullptr);
 
-    // The longest allowed label (24 bytes) parses; one more byte and a cut or extended buffer are rejected.
+    // Version 7: the longest allowed label is 24 bytes; one more byte is rejected. A cut or extended buffer is rejected too.
     const std::string longest(24, 'A');
-    auto full = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, longest}});
+    auto full = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, 7, {}, {}, {{1, longest}});
     CHECK(timeline::parseSnapshot(full.b.data(), full.b.size(), &s) == core::Status::Ok && s.labelOf(1)->size() == 24);
-    auto tooLong = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, std::string(25, 'A')}});
+    auto tooLong = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, 7, {}, {}, {{1, std::string(25, 'A')}});
     CHECK(timeline::parseSnapshot(tooLong.b.data(), tooLong.b.size(), &s) == core::Status::BadSnapshot);
+
+    // Version 8: labels are UTF-8 up to 96 bytes (accents, symbols, emoji); malformed UTF-8 and longer labels are rejected.
+    const std::string accents = "Caf\xC3\xA9 \xE2\x98\x95 \xF0\x9F\x8E\xAC";  // Café ☕ 🎬
+    auto utf8 = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, accents}});
+    CHECK(timeline::parseSnapshot(utf8.b.data(), utf8.b.size(), &s) == core::Status::Ok && *s.labelOf(1) == accents);
+    auto ninetySix = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, std::string(96, 'A')}});
+    CHECK(timeline::parseSnapshot(ninetySix.b.data(), ninetySix.b.size(), &s) == core::Status::Ok && s.labelOf(1)->size() == 96);
+    auto ninetySeven = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, std::string(97, 'A')}});
+    CHECK(timeline::parseSnapshot(ninetySeven.b.data(), ninetySeven.b.size(), &s) == core::Status::BadSnapshot);
+    auto broken = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, timeline::kSnapshotVersion, {}, {}, {{1, std::string("A\xC3")}});
+    CHECK(timeline::parseSnapshot(broken.b.data(), broken.b.size(), &s) == core::Status::BadSnapshot);
     auto cut = buf.b;
     cut.resize(cut.size() - 2);
     CHECK(timeline::parseSnapshot(cut.data(), cut.size(), &s) == core::Status::BadSnapshot);
@@ -482,6 +497,139 @@ static void testSnapshotLabels() {
     auto v6 = makeSnapshot(1, {clip(1, 0, 0, 100)}, {}, {}, 6);
     CHECK(timeline::parseSnapshot(v6.b.data(), v6.b.size(), &s) == core::Status::Ok);
     CHECK(s.labels.empty() && s.labelOf(1) == nullptr);
+}
+
+static void testClipKinds() {
+    auto photo = clip(1, 0, 0, 10);
+    photo.kind = timeline::ClipKind::Image;
+    auto sticker = clip(2, 0, 10, 10);
+    sticker.kind = timeline::ClipKind::Sticker;
+    auto multi = clip(3, 0, 20, 10);
+    multi.kind = timeline::ClipKind::Multicam;
+    auto buf = makeSnapshot(1, {photo, sticker, multi, clip(4, 0, 30, 10)});
+    timeline::TimelineSnapshot s;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].kind == timeline::ClipKind::Image && s.clips[1].kind == timeline::ClipKind::Sticker);
+    CHECK(s.clips[2].kind == timeline::ClipKind::Multicam && s.clips[3].kind == timeline::ClipKind::Default);
+    // The kind bits do not disturb the other flags, and an older snapshot has no kinds.
+    auto selected = clip(5, 0, 0, 10);
+    selected.selected = true;
+    selected.primary = true;
+    selected.kind = timeline::ClipKind::Sticker;
+    auto withFlags = makeSnapshot(1, {selected});
+    CHECK(timeline::parseSnapshot(withFlags.b.data(), withFlags.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].selected && s.clips[0].primary && s.clips[0].kind == timeline::ClipKind::Sticker);
+    auto v7 = makeSnapshot(1, {sticker}, {}, {}, 7);
+    CHECK(timeline::parseSnapshot(v7.b.data(), v7.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].kind == timeline::ClipKind::Default);
+}
+
+static void testLabelHashAndUtf8() {
+    // The same values are checked by LabelHashTest in the Kotlin tests: both sides must agree on every bitmap's identity.
+    CHECK(timeline::labelHash("0:05", 4, 1) == 0xb962b729c3e24061ull);
+    const std::string cafe = "Caf\xC3\xA9 \xE2\x98\x95";
+    CHECK(timeline::labelHash(cafe, 0) == 0x35af4f84ab8cd82aull);
+    CHECK(timeline::labelHash("", 0, 2) == 0xaf63bf4c8601bb45ull);
+    CHECK(timeline::labelHash("A", 1, 0) != timeline::labelHash("A", 1, 1));  // the size class is part of the identity
+
+    CHECK(timeline::utf8Valid("", 0) && timeline::utf8Valid("plain", 5));
+    const std::string emoji = "\xF0\x9F\x8E\xAC";
+    CHECK(timeline::utf8Valid(emoji.data(), emoji.size()) && timeline::utf8Valid(cafe.data(), cafe.size()));
+    CHECK(!timeline::utf8Valid("\xC3", 1));                  // cut in the middle of a character
+    CHECK(!timeline::utf8Valid("\xC0\xAF", 2));              // overlong form of '/'
+    CHECK(!timeline::utf8Valid("\xED\xA0\x80", 3));          // a surrogate
+    CHECK(!timeline::utf8Valid("\xF4\x90\x80\x80", 4));      // above U+10FFFF
+    CHECK(!timeline::utf8Valid("\x80", 1));                  // a continuation byte on its own
+    CHECK(timeline::isAscii("V1") && !timeline::isAscii(cafe));
+}
+
+static void testShelfPackerAndLabelTable() {
+    timeline::ShelfPacker packer(64, 40);
+    int x = -1, y = -1;
+    CHECK(packer.pack(20, 10, &x, &y) && x == 0 && y == 0);
+    CHECK(packer.pack(20, 10, &x, &y) && x == 21 && y == 0);  // next to the first, one pixel of gutter
+    CHECK(packer.pack(20, 8, &x, &y) && x == 42 && y == 0);   // a little shorter still fits the same row
+    CHECK(packer.pack(30, 10, &x, &y) && y == 11);            // the row is full: a new row below
+    CHECK(!packer.pack(100, 4, &x, &y) && !packer.pack(4, 100, &x, &y));  // wider or taller than the atlas
+    CHECK(packer.pack(60, 10, &x, &y) && y == 22);
+    CHECK(!packer.pack(60, 10, &x, &y));  // full
+    packer.reset();
+    CHECK(packer.pack(60, 10, &x, &y) && x == 0 && y == 0 && packer.usedPixels() == 600);
+
+    timeline::LabelTable table(128, 64);
+    CHECK(table.generation() == 0 && table.size() == 0);
+    CHECK(table.place(1, 40, 20, false, &x, &y) == timeline::LabelTable::Result::Placed);
+    const timeline::LabelEntry* e = table.find(1);
+    CHECK(e != nullptr && e->w == 40 && e->h == 20 && !e->colour);
+    CHECK(e->u0 == static_cast<float>(x) / 128.0f && e->v1 == static_cast<float>(y + 20) / 64.0f);
+    CHECK(table.place(1, 40, 20, false, &x, &y) == timeline::LabelTable::Result::Exists);  // sent twice: kept once
+    CHECK(table.place(2, 30, 20, true, &x, &y) == timeline::LabelTable::Result::Placed && table.find(2)->colour);
+    CHECK(table.place(3, 500, 20, false, &x, &y) == timeline::LabelTable::Result::TooBig);
+    // Fill it: every place() either lands or reports Full, never overlaps (checked through the entries' rectangles).
+    uint64_t key = 100;
+    bool sawFull = false;
+    for (int i = 0; i < 200 && !sawFull; ++i) sawFull = table.place(key++, 33, 17, false, &x, &y) == timeline::LabelTable::Result::Full;
+    CHECK(sawFull);
+    // The atlas is emptied when full: a new generation, nothing found, the same bitmap can be placed again.
+    table.reset();
+    CHECK(table.generation() == 1 && table.size() == 0 && table.find(1) == nullptr);
+    CHECK(table.place(1, 40, 20, false, &x, &y) == timeline::LabelTable::Result::Placed && x == 0 && y == 0);
+}
+
+static void testRulerPlanAndLabels() {
+    // 30 fps, at least 72 px between labels, small ticks at least 7 px apart.
+    auto planAt = [](double pxPerFrame) { return timeline::planRuler(30, pxPerFrame, 72.0, 7.0); };
+    CHECK(planAt(80.0).step == 1);                           // zoomed right in: every frame
+    CHECK(planAt(20.0).step == 5);                           // 5 frames * 20 px = 100 px
+    CHECK(planAt(3.0).step == 30);                           // one second = 90 px
+    // 2 s is 60 px (too close), 5 s is 150 px
+    CHECK(planAt(1.0).step == 150);
+    CHECK(planAt(0.1).step == 900 && planAt(0.02).step == 3600);  // half a minute, two minutes
+    CHECK(timeline::planRuler(30, 1e-9, 72.0, 7.0).step == 86400LL * 30);  // never runs off the end of the candidates
+    // Steps always grow with zoom-out, so labels never get closer than asked.
+    int64_t previous = 0;
+    for (double ppf = 96.0; ppf > 0.02; ppf *= 0.8) {
+        const auto plan = planAt(ppf);
+        CHECK(plan.step >= previous && (static_cast<double>(plan.step) * ppf >= 72.0 || plan.step == 86400LL * 30));
+        previous = plan.step;
+        CHECK(plan.minorDiv >= 1 && plan.step % plan.minorDiv == 0);
+        if (plan.minorDiv > 1) CHECK(static_cast<double>(plan.step / plan.minorDiv) * ppf >= 7.0);
+    }
+    // A 25 fps timeline works the same; a 24 fps one has 24-frame seconds.
+    CHECK(timeline::planRuler(24, 3.0, 72.0, 7.0).step == 24);
+    CHECK(timeline::planRuler(1, 100.0, 72.0, 7.0).step == 1);  // degenerate frame rate
+
+    char out[32];
+    auto label = [&](int64_t frame, int64_t fps, int64_t step) {
+        timeline::formatRulerLabel(frame, fps, step, out, sizeof(out));
+        return std::string(out);
+    };
+    CHECK(label(150, 30, 30) == "0:05");
+    CHECK(label(1800, 30, 30) == "1:00");
+    CHECK(label(30 * 3725, 30, 30) == "1:02:05");  // hours appear only when there are some
+    CHECK(label(30 * 125, 30, 300) == "2:05");
+    CHECK(label(0, 30, 30) == "0:00");
+    CHECK(label(157, 30, 1) == "0:05:07");           // below a second: minutes:seconds:frames
+    CHECK(label(30 * 3600 + 31, 30, 5) == "1:00:01:01");
+    CHECK(label(-5, 30, 30) == "0:00");
+    char tiny[4];
+    const size_t n = timeline::formatRulerLabel(30 * 3725, 30, 30, tiny, sizeof(tiny));
+    CHECK(n == 3 && tiny[3] == '\0');  // cut to the buffer, still terminated
+    CHECK(timeline::formatTimecode(157, 30, out, sizeof(out)) == 7 && std::string(out) == "0:05:07");
+}
+
+static void testTheme() {
+    const timeline::TimelineTheme dark = timeline::TimelineTheme::dark();
+    CHECK(std::abs(dark.background.r - 0x0F / 255.0f) < 1e-6f && dark.background.a == 1.0f);
+    CHECK(std::abs(dark.clipVideo.b - 0xD6 / 255.0f) < 1e-6f);
+    uint32_t custom[timeline::kNativeColourCount];
+    for (size_t i = 0; i < timeline::kNativeColourCount; ++i) custom[i] = 0xFF000000u | static_cast<uint32_t>(i);
+    timeline::TimelineTheme t = dark;
+    t.assign(custom);
+    CHECK(t.background.b == 0.0f && std::abs(t.laneA.b - 1.0f / 255.0f) < 1e-6f);
+    CHECK(std::abs(t.error.b - 21.0f / 255.0f) < 1e-6f);  // the last of the 22 colours
+    const timeline::Rgba half = timeline::rgbaFromArgb(0x80FF0000u);
+    CHECK(std::abs(half.a - 128.0f / 255.0f) < 1e-6f && half.r == 1.0f && half.g == 0.0f);
 }
 
 static void testSnapshotPrimarySelection() {
@@ -868,6 +1016,11 @@ int main() {
     testMarkerHitTestAndLabels();
     testSnapshotMarkers();
     testSnapshotLabels();
+    testClipKinds();
+    testLabelHashAndUtf8();
+    testShelfPackerAndLabelTable();
+    testRulerPlanAndLabels();
+    testTheme();
     testGlyphFont();
     testRetimeBoundaries();
     testSnapshotRejectsBadInput();
