@@ -1013,3 +1013,9 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Decision:** the colour code (0 none, 1..6 in `MarkerColor` order) and a has-note bit travel in the marker's last wire word, which snapshot version 5 reserved as zero, so there is no snapshot version bump and old snapshots read as unstyled. The renderer colours the ruler flag and the lane line (alpha kept) and draws a small light square under the flag for a note; beats are unchanged. Colour table and parsing live in `timeline_view/marker_style.h` (host-tested); `SnapshotMarker` validates the code range.
 **Why:** colours and notes existed in the model, the EDL/FCPXML export and the dialog but were invisible on the ruler.
 **Alternative:** a new snapshot version with a dedicated field (cleaner but forces a format bump for four bits), or drawing the note text on the ruler (needs a glyph atlas for arbitrary text).
+
+## Launcher icon (leftovers)
+
+**Decision:** an original adaptive icon: three timeline clips (two in periwinkle, one in sky blue) and an amber playhead with a downward triangular head, on a deep blue-violet vertical gradient; layers `ic_launcher_background`, `ic_launcher_foreground`, `ic_launcher_monochrome` under `mipmap-anydpi` (also used as the round icon); manifest points to `@mipmap/ic_launcher` and `ic_launcher_round`. All foreground points are within about 30 units of the canvas centre, inside the 33-unit safe-zone radius, checked by `IconGeometryTest` from the path data (paths use only absolute M/L/Q/Z for that reason).
+**Why:** the placeholder vector was a play triangle; the release checklist required a designed icon, original and not resembling other editors.
+**Alternative:** a play triangle on the timeline (closer to generic video apps), or a raster icon set (larger APK, needs a design tool). Not seen rendered on a device; only the geometry is verified.
