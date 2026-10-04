@@ -58,6 +58,8 @@ data class PreviewRequest(
     val sourceOverride: Int = -1,
     /** Smooth slow motion: how far the shown moment is from [sourceFrame] towards its neighbour, 0..1 (0 shows the frame alone). */
     val mix: Float = 0f,
+    /** Set when [uri] is a proxy of this asset (see `ProxyPlanner`), so a failure to open it can be traced back. */
+    val proxyAssetId: String? = null,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -90,6 +92,8 @@ class EditorPreview(
     private val stillRasterizer: StillRasterizer = AndroidStillRasterizer(context),
     /** Reads a LUT of the library by key (off the main thread); null when it is missing or unreadable. */
     private val lutLoader: (Int) -> CubeLut? = { null },
+    /** The proxy of this asset could not be opened: the owner stops offering it and the original is shown instead. */
+    private val onProxyFailed: (assetId: String) -> Unit = {},
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -105,6 +109,9 @@ class EditorPreview(
 
     /** Open assets, least recently shown first. */
     private val open = LinkedHashSet<Int>()
+
+    /** The file each open asset was opened from: a proxy switched on or off, or finished, reopens the asset. */
+    private val openUris = HashMap<Int, String>()
     private val opening = HashSet<Int>()
     private val failed = HashSet<Int>()
     private var latest: PreviewScene? = null
@@ -132,6 +139,16 @@ class EditorPreview(
     private val uploadedLuts = HashSet<Int>()
     private val loadingLuts = HashSet<Int>()
     private val brokenLuts = HashSet<Int>()
+
+    /**
+     * Drops every cached title picture and shows the latest scene again. Called when an imported font
+     * changed: titles drawn with a missing font fall back to the default one and must be drawn again.
+     */
+    fun titlesChanged() {
+        titleKeys.clear()
+        brokenTitles.clear()
+        if (!following) latest?.let(::show)
+    }
 
     /** Shows [scene] as a still frame (paused, scrubbing, editing). Stops any native playback. */
     fun show(scene: PreviewScene) {
@@ -218,7 +235,18 @@ class EditorPreview(
 
         for (key in plan.toClose) {
             open -= key
+            openUris -= key
             engine.closeAsset(key)
+        }
+        // The same media may now be served by another file (a proxy was switched on or off, or finished):
+        // close it so the loop below opens it again from the new file. Frame numbers are the same for both.
+        for (layer in media) {
+            val openedFrom = openUris[layer.assetKey] ?: continue
+            if (layer.assetKey in open && openedFrom != layer.uri) {
+                open -= layer.assetKey
+                openUris -= layer.assetKey
+                engine.closeAsset(layer.assetKey)
+            }
         }
         reportSkipped(plan.skipped)
         for (layer in media) {
@@ -382,12 +410,20 @@ class EditorPreview(
             }
             opening -= key
             if (error != null) {
-                failed += key
-                onError(error)
+                val proxyOf = request.proxyAssetId
+                if (proxyOf != null) {
+                    // Only the stand-in failed: not a failure of the media. The owner stops offering the proxy,
+                    // which re-sends the scene with the original.
+                    onProxyFailed(proxyOf)
+                } else {
+                    failed += key
+                    onError(error)
+                }
                 if (!following) latest?.let(::show)  // lower layers may now be shown without it
                 return@launch
             }
             open += key
+            openUris[key] = request.uri
             // The playhead may have moved while the asset was opening. While following, the next
             // tick sees the changed set of ready layers and re-anchors by itself.
             if (!following) latest?.let(::show)

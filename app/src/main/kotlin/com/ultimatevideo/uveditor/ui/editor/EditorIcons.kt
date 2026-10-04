@@ -28,6 +28,12 @@ internal object EditorIcons {
 
     val Back = icon("Back", "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z")
 
+    /** A lightning bolt: fast, light copies of heavy video (proxy media). */
+    val Proxy = icon(
+        "Proxy",
+        "M11,21h-1l1,-7H7.5c-0.88,0 -0.33,-0.75 -0.31,-0.78C8.48,10.94 10.42,7.54 13.01,3h1l-1,7h3.51c0.4,0 0.62,0.19 0.4,0.66C12.97,17.55 11,21 11,21z",
+    )
+
     val Layers = icon(
         "Layers",
         "M11.99,18.54l-7.37,-5.73L3,14.07l9,7 9,-7 -1.63,-1.27 -7.38,5.74zM12,16l7.36,-5.73L21,9l-9,-7 -9,7 1.63,1.25L12,16z",
@@ -131,6 +137,7 @@ internal object EditorIcons {
     val Flag = icon("Flag", "M14.4,6L14,4H5v17h2v-7h5.6l0.4,2h7V6z")
 
     /** Two vertical faders: the track mixer. */
+    val Multicam = icon("Multicam", "M3,5h12v9H3zM9,10h12v9H9z")
     val Mixer = icon("Mixer", "M7,4v7H5v2h2v7h2v-7h2v-2H9V4H7zM15,4v3h-2v2h2v11h2V9h2V7h-2V4h-2z")
     /** Four bars of different heights: the video scopes. */
     val Scopes = icon("Scopes", "M4,14h3v6H4zM9,8h3v12H9zM14,11h3v9h-3zM19,4h3v16h-3z")

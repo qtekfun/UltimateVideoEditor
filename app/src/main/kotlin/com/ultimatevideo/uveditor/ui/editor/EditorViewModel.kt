@@ -37,7 +37,10 @@ import com.ultimatevideo.uveditor.domain.MarkerKind
 import com.ultimatevideo.uveditor.domain.MarkerOps
 import com.ultimatevideo.uveditor.domain.RemoveMarker
 import com.ultimatevideo.uveditor.domain.SetBeatMarkers
-import com.ultimatevideo.uveditor.domain.TemplateLayerKind
+import com.ultimatevideo.uveditor.domain.LayerPlacement
+import com.ultimatevideo.uveditor.domain.MotionPreset
+import com.ultimatevideo.uveditor.domain.SetTitleMotion
+import com.ultimatevideo.uveditor.domain.TextTemplate
 import com.ultimatevideo.uveditor.domain.TextTemplates
 import com.ultimatevideo.uveditor.domain.beat.BeatMapping
 import com.ultimatevideo.uveditor.engine.timeline.BeatResult
@@ -95,6 +98,8 @@ import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TimelineOps
 import com.ultimatevideo.uveditor.domain.TitleContent
+import com.ultimatevideo.uveditor.domain.TitleLayerEdit
+import com.ultimatevideo.uveditor.domain.TitleMotion
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.engine.still.StickerIds
@@ -107,6 +112,7 @@ import com.ultimatevideo.uveditor.domain.sourceSpan
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotClip
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotKeyframe
+import com.ultimatevideo.uveditor.engine.timeline.SnapshotLabel
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotRetime
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTrackType
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotTransition
@@ -120,6 +126,11 @@ import com.ultimatevideo.uveditor.domain.TrackMath
 import com.ultimatevideo.uveditor.domain.TrackSeed
 import com.ultimatevideo.uveditor.engine.stabilise.NoStabiliser
 import com.ultimatevideo.uveditor.engine.track.MotionTracker
+import com.ultimatevideo.uveditor.engine.multicam.MulticamServices
+import com.ultimatevideo.uveditor.domain.multicam.AngleFeed
+import com.ultimatevideo.uveditor.domain.multicam.MulticamClip
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamController
+import com.ultimatevideo.uveditor.ui.editor.multicam.MulticamUiState
 import com.ultimatevideo.uveditor.engine.track.NoMotionTracker
 import com.ultimatevideo.uveditor.engine.track.TrackOutcome
 import com.ultimatevideo.uveditor.engine.track.TrackStatus
@@ -165,6 +176,8 @@ class EditorViewModel(
     private val trackDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** Writes bundles, EDLs and FCPXML files; the default cannot write anything. */
     private val interchange: InterchangeExporter = InterchangeExporter.None,
+    /** What the multicam editor needs from the engine: waveform envelopes to sync angles, proxy readiness, the decoder limit. */
+    private val multicamServices: MulticamServices = MulticamServices.None,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD }
@@ -204,6 +217,23 @@ class EditorViewModel(
     private val assetKeys = KeyRegistry()
 
     private var history = EditHistory(Timeline())
+
+    /** Picking, syncing and cutting multicam angles; it borrows this model's state, undo history and messages. */
+    private val multicamController = MulticamController(
+        object : MulticamController.Host {
+            override val editor: EditorState get() = state.value
+            override fun update(change: (MulticamUiState) -> MulticamUiState) = reduce { copy(multicam = change(multicam)) }
+            override fun execute(command: EditCommand): Boolean = this@EditorViewModel.execute(command)
+            override fun message(text: String) = emit(EditorEffect.ShowMessage(text))
+            override fun newId(): String = idGenerator()
+            override fun assetLengthFrames(assetId: String): Long? = this@EditorViewModel.assetLengthFrames(assetId)
+        },
+        multicamServices,
+        viewModelScope,
+    )
+
+    /** Where each angle of [group] is shown from while [active] is on screen (the viewer's decoder budget). */
+    fun multicamFeeds(group: MulticamClip, active: Int): List<AngleFeed> = multicamController.feeds(group, active)
     private var baseProject: ProjectDto? = null
     private var drag: DragSession? = null
     private var trayDrag: TrayDragSession? = null
@@ -230,7 +260,7 @@ class EditorViewModel(
 
     override fun onIntent(intent: EditorIntent) {
         // Typing in the title field is only provisional: any other action first makes it final.
-        if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit) endTitleEdit(commit = true)
+        if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit && intent !is EditorIntent.LayerGesture) endTitleEdit(commit = true)
         // A key drag in the keyframe lane is provisional until released.
         if (intent !is EditorIntent.UpdateParamKey && intent !is EditorIntent.EndParamKeyEdit) endParamKeyEdit(commit = true)
         // Same for an effect slider: it stays provisional until released or until something else happens.
@@ -262,6 +292,7 @@ class EditorViewModel(
             EditorIntent.RemoveNoiseSuppression -> removeNoiseSuppression()
             EditorIntent.CancelAudioAnalysis -> audioAnalyzer?.cancel()
             EditorIntent.ToggleMixer -> reduce { copy(mixerOpen = !mixerOpen) }
+            is EditorIntent.Multicam -> multicamController.handle(intent.intent)
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             is EditorIntent.DragStart -> dragStart(intent.hit)
@@ -289,10 +320,15 @@ class EditorViewModel(
             EditorIntent.AnalyzeBeats -> analyzeBeats()
             EditorIntent.CutToBeatFromSelected -> cutToBeatFromSelected()
             is EditorIntent.ApplyTextTemplate -> applyTextTemplate(intent.templateId, intent.text)
+            is EditorIntent.ApplyPreset -> applyTemplate(intent.template, intent.text)
             is EditorIntent.AddSticker -> addSticker(intent.stickerId)
             is EditorIntent.AddCaptionClips -> addCaptionClips(intent.clips, intent.intoExistingTrack)
             is EditorIntent.RestyleCaptions -> execute(com.ultimatevideo.uveditor.domain.RestyleCaptions(intent.style, intent.canvasHeight))
             is EditorIntent.UpdateTitle -> updateTitle(intent.content)
+            is EditorIntent.SelectTitleLayer -> selectTitleLayer(intent.index)
+            is EditorIntent.LayerGesture -> layerGesture(intent)
+            is EditorIntent.FontsChanged -> reduce { copy(availableFonts = intent.available) }
+            is EditorIntent.ApplyTitleMotion -> applyTitleMotion(intent.intro, intent.outro)
             is EditorIntent.EndTitleEdit -> endTitleEdit(intent.commit)
             EditorIntent.AddTransition -> addTransition()
             is EditorIntent.SetTransitionDuration -> setTransitionDuration(intent.frames)
@@ -459,7 +495,10 @@ class EditorViewModel(
             }
         }
         val markers = timeline.markers.map { SnapshotMarker(it.frame.value, beat = it.kind == MarkerKind.BEAT) }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers)
+        val labels = timeline.tracks.flatMap { track ->
+            track.clips.mapNotNull { clip -> ClipLabels.of(clip)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels)
     }
 
     // region loading and saving
@@ -1680,8 +1719,10 @@ class EditorViewModel(
         execute(CutToBeat(ids, timeline.markers.map { it.frame.value }, lengths))
     }
 
-    private fun applyTextTemplate(templateId: String, text: String) {
-        val template = TextTemplates.find(templateId)
+    private fun applyTextTemplate(templateId: String, text: String) = applyTemplate(TextTemplates.find(templateId), text)
+
+    /** Puts [template] (a built-in or a saved preset) on the timeline at the playhead as one undo step and selects it. */
+    private fun applyTemplate(template: TextTemplate?, text: String) {
         if (template == null) {
             emit(EditorEffect.ShowMessage("That text template is not available"))
             return
@@ -1692,6 +1733,7 @@ class EditorViewModel(
         val ids = List(TextTemplates.idCount(template)) { "tpl-$token-$it" }
         val command = AddTextTemplate(
             templateId = template.id,
+            template = template,
             text = text.ifBlank { template.defaultText },
             start = state.value.playhead,
             durationFrames = frames,
@@ -1701,9 +1743,8 @@ class EditorViewModel(
             ids = ids,
         )
         if (!execute(command)) return
-        // Select the text, which is what the user will want to change; templates without text select their first layer.
-        val textIndex = template.layers.indexOfFirst { it.kind == TemplateLayerKind.TEXT }.takeIf { it >= 0 } ?: 0
-        val clipId = ids[textIndex]
+        // A template is one title clip: select it so the inspector shows what the user will want to change.
+        val clipId = ids[0]
         val trackId = history.timeline.trackOfClip(clipId)?.id
         reduce { copy(selectedClipId = clipId, selectedTrackId = trackId, inspectorOpen = true) }
     }
@@ -2190,6 +2231,42 @@ class EditorViewModel(
         titleEdit = null
         if (commit && session.content != session.base && execute(EditCommand.SetTitle(session.clipId, session.content))) return
         reduce { copy(dragPreview = null) }
+    }
+
+    private fun selectTitleLayer(index: Int) {
+        val clipId = state.value.selectedClipId
+        reduce { copy(titleLayerRef = if (clipId != null && index >= 0) TitleLayerRef(clipId, index) else null) }
+    }
+
+    /** A step of a preview gesture on the selected layer of a multilayer title: moves, scales and turns just that layer. */
+    private fun layerGesture(step: EditorIntent.LayerGesture) {
+        val ref = state.value.titleLayerRef ?: return
+        val clipId = state.value.selectedClipId?.takeIf { it == ref.clipId } ?: return
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
+        val base = titleEdit?.takeIf { it.clipId == clipId }?.content ?: clip.title ?: return
+        if (!base.isLayered || ref.index !in base.layers.indices) return
+        val layer = base.layers[ref.index]
+        val p = layer.placement
+        // Gestures are in canvas pixels; offsets are canvas fractions inside a title that the clip's own scale then enlarges.
+        val clipScale = clip.transform.scaleX.coerceAtLeast(MIN_CLIP_SCALE)
+        val moved = p.copy(
+            offsetX = (p.offsetX + step.panX / (state.value.canvasWidth * clipScale)).coerceIn(-LayerPlacement.MAX_OFFSET, LayerPlacement.MAX_OFFSET),
+            offsetY = (p.offsetY + step.panY / (state.value.canvasHeight * clipScale)).coerceIn(-LayerPlacement.MAX_OFFSET, LayerPlacement.MAX_OFFSET),
+            scale = (p.scale * step.zoom).coerceIn(LayerPlacement.MIN_SCALE, LayerPlacement.MAX_SCALE),
+            rotationDegrees = p.rotationDegrees + step.rotationDegrees,
+        )
+        updateTitle(TitleLayerEdit.replace(base, ref.index, layer.withPlacement(moved)))
+    }
+
+    /** In and out animation of the selected title as keyframes, replacing the clip's own. */
+    private fun applyTitleMotion(intro: MotionPreset, outro: MotionPreset) = withSelection { clipId ->
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId)
+        if (clip?.title == null) {
+            emit(EditorEffect.ShowMessage("Select a title first"))
+            return@withSelection
+        }
+        val edge = state.value.fps.microsToFrames((TitleMotion.DEFAULT_EDGE_SECONDS * MICROS_PER_SECOND).toLong()).coerceAtLeast(1)
+        execute(SetTitleMotion(clipId, intro, outro, edge, state.value.canvasWidth, state.value.canvasHeight))
     }
 
     // region speed
@@ -2776,6 +2853,7 @@ class EditorViewModel(
         const val PLAY_TICK_MILLIS = 16L
         const val NANOS_PER_MICRO = 1_000L
         const val MICROS_PER_SECOND = 1_000_000.0
+        private const val MIN_CLIP_SCALE = 0.05
         const val MARKER_TOGGLE_RADIUS_FRAMES = 2L
         const val BEAT_WINDOW_PADDING_MICROS = 8_000_000L
     }

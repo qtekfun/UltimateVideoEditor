@@ -686,6 +686,21 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
 **Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
 
+## WP-T: multilayer titles, fonts and presets
+
+- **A title is one clip drawn into one bitmap.** Layers (text, shape, image) live inside `TitleContent.layers` and are rasterised together by `LayeredTitleDrawer`, instead of making each layer a separate clip. *Why:* preview and export, the key cache, keyframes, effects, blend modes and transitions already work on a title clip; one clip also moves, trims and deletes as a unit and a preset is one file. *Alternative:* a group of clips on several lanes (what the old templates did): flexible per-layer animation but fragile (lanes, collisions, ungrouping). *Consequence:* the whole title animates as one; per-layer animation is not possible (the old lower third staggered its bar and text; the new one slides as a unit).
+- **Plain titles stay.** `layers` is empty for plain titles and captions, which keep their own drawer and word animation; a plain title converts to layers on request (`Edit as layers`), except captions with word timing. *Why:* old projects, captions and their tests keep working unchanged.
+- **Layer order.** Stored in painter's order (index 0 at the bottom), listed top first in the editor. *Why:* matches how drawing works; LumaFusion 5.5.3 lists top first.
+- **The bitmap is symmetric around the canvas centre and cropped.** Because the compositor centres title bitmaps and the native side is unchanged. *Alternative:* full-canvas bitmaps (simple, but up to 33 MB per 4K title; the cap is 0.6 of the canvas beyond each side, so at most 1.2x the canvas per side).
+- **Photo layers store the asset id; the file is resolved at render time** (`ImageLayer.resolvedUri`, never stored). *Why:* relinking a missing photo then just works and changes the cache key. *Alternative:* store the URI (breaks on relink and on other devices).
+- **Photos are not saved in presets.** *Why:* they are files of one project (and privacy: a shared preset must not carry a reference to the user's media). Stickers, text and shapes travel.
+- **Fonts are imported, not downloaded, and not embedded.** Font id = SHA-256 prefix of the file, so a project or preset names a font the same way on every device; a missing font falls back to the system font with a banner. *Why:* privacy (no network), licences (we must not redistribute a font inside a shared file), simplicity. *Alternative:* embed fonts in projects (works anywhere, but redistributes the font); a bundled font set (licence-clean fonts could be added later).
+- **No `.ttc` collections.** The picker gives one file; choosing a face inside a collection needs UI we do not have yet.
+- **Animation is the clip's keyframes.** `MotionPreset` generates ease keyframes over the first and last 0.4 s (editable afterwards with the usual keyframe tools), and applying one replaces the clip's keyframes. *Alternative:* a stored `intro`/`outro` on the clip that is evaluated at render time (cleaner to edit, but a new concept everywhere).
+- **Built-in templates migrated to the preset format** (one multilayer title each). `AddTextTemplate` now needs two ids (clip, spare lane) instead of one per layer plus two.
+- **Layer handles on the preview are a ring and cross** at the layer centre (plus the outline of a shape) with the existing gestures redirected, not corner handles. *Why:* text and picture bounds need native measurement; the gestures cover move, scale and rotate.
+- **Decoding photos for a title happens where the title is rasterised** (the main thread in the preview, with a small cache), not on a worker like photo clips. *Why:* a title is rasterised synchronously today; layers are few and decoded at their drawn size. *Alternative:* a worker with a placeholder (more code); revisit if large photos cause jank.
+
 ## Multi-selection and group edits (WP-S)
 
 **Decision:** selection is `selectedClipId` (primary) plus `selectedClipIds` (the group, when more than one); a plain tap, an empty-space tap or Clear resets the group, long press toggles a clip in any mode, and select mode adds taps and a marquee on empty lane space. The marquee is native state and `clipsInRect` runs natively. Group operations are pure `Timeline -> Timeline` functions (`GroupOps`) behind one command each, so they are all-or-nothing and one undo step.
@@ -806,6 +821,33 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 
 **Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).
 
+## Proxy media (WP-P)
+
+**Decision:** proxies are made with the existing offline export engine (a one-clip, no-audio, H.264 movie at the source's own frame rate and length, short side 720 or 1080) instead of a separate transcoder.
+**Why:** it reuses the tested decode, GLES and encoder path and the colour conversion, and guarantees the same frame count so every timeline frame maps to the same frame of the proxy.
+**Alternative:** a Kotlin MediaCodec decoder-to-encoder loop with its own GL scaling (more code, a second pipeline to maintain). Costs: proxy generation is as slow as an export of that clip, and the engine's fixed 1 s keyframe interval is used rather than all-intra.
+
+**Decision:** the proxy of an HDR source is a tone-mapped SDR Rec.709 file, read as SDR in the preview.
+**Why:** an 8-bit H.264 proxy is the cheap, universal case; HDR projects only need the picture to be plausible while editing, export uses the original.
+**Alternative:** a 10-bit HEVC HLG proxy (not every device encodes it, and it is heavier to decode).
+
+**Decision:** the side index and the proxy files live in `cacheDir/proxies`, and the per-project switch, the budget and the proxy size live in local preferences, never in `project.json`.
+**Why:** bundles, EDL/FCPXML and old builds see no change; the system may clear the cache, and the index self-heals (`recoverAfterKill`, `validate`).
+**Alternative:** `filesDir` (survives cache clears but is never reclaimed by the system) or an optional field per asset in the project file.
+
+**Decision:** an interrupted job restarts from the beginning after the process dies (the part file is deleted); "resumable" means the queue survives, not the half-written file.
+**Why:** an MP4 muxer cannot be reopened mid-stream; proxies are a cache.
+**Alternative:** fragmented MP4 segments (a much larger change in the encoder).
+
+**Decision:** the app never makes proxies on its own: heavy media or three preview stalls raise a dismissible suggestion (the stall signal is detected from the preview's error messages).
+**Why:** proxies cost disk and time, and the user asked for consent.
+**Alternative:** automatic proxies above a threshold.
+
+**Decision:** the proxy badges, the banner and the sheet read the live proxy state through a `State` in a composition local, not through the editor screen.
+**Why:** a proxy's progress changes many times a second; reading it in the screen root would recompose the whole editor.
+
+**Not verified:** see the PR description (device checks were limited to what is listed there).
+
 ## Export and preview reliability (device pass 2)
 
 **Decision:** the decoder keeps ONE frame in flight (released to the image reader but not yet acquired by the consumer). A frame is only given up as lost when the consumer drained the reader more than 400 ms after its release, or after a hard limit of 5 s.
@@ -819,6 +861,14 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Decision:** a reversed audio clip remembers the sample its block must reach after a seek and keeps filling instead of seeking again; the export checks audio faults on every frame.
 **Why:** if the codec had nothing ready right after the seek, each following call seeked to the same place again (the gap exceeded the continue limit), flushing the codec every time, so the clip never became ready (export failed with the audio of clip N not ready after 30 s). Each stalled frame also blocked for 30 s while faults were only polled every 30 frames.
 **Alternative:** a larger continue gap (hides the problem for fast codecs only).
+
+## Text on title and sticker blocks of the timeline
+
+**Decision:** the timeline snapshot (wire version 7) carries an optional short label per clip: a title's first line or a sticker's name, reduced to capital ASCII letters, digits, spaces and '-' (accents dropped, at most 24 characters). The native canvas draws it with its existing 3x5 pixel font, extended with A-Z and '-' (now in `timeline_view/glyphs.h`, host-tested), at the visible left edge of the block, cut to the room left.
+**Why:** title, caption and sticker blocks were plain coloured rectangles, so a timeline with several of them could not be read (QA report, device pass 1).
+**Alternative:** render the label with Android's text engine into a texture (handles every script and emoji, but needs a bitmap upload per label and a font stack on the render thread) or draw only an icon per kind (no text). Titles in other scripts (CJK, Arabic, emoji) show the generic label TEXT; revisit if that matters.
+
+**Not verified:** the drawing itself was not seen on a device (the Pixel's screen was locked); the parser, the glyph shapes and the label rules are covered by host and JVM tests.
 
 
 ## Motion tracking (WP-V1)
@@ -846,3 +896,68 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Decision:** picking is a tap (box of 7, 12 or 20 % of the frame height by chip) or a dragged box on the preview, at the playhead's frame, which must be on the clip.
 **Why:** a tap is the common case and the chips cover sizes without a second gesture; the playhead frame is what the user is looking at.
 **Alternative:** a draggable box with handles over the preview (more precise, more code to keep out of the gesture layer used for moving clips).
+
+## Export speed on long-GOP clips: model instead of more code (third pass)
+
+**Decision:** no further production change to the decoder: the slowdown was already removed by keeping one frame in flight (second pass). This pass moves the constant to `decode/pending_policy.h` (`kMaxInFlightFrames`, shared by the decoder and a new host simulation) and adds `decode_sim_tests.cpp`, a deterministic simulation of the decoder worker with a sequential export consumer. It reproduces the old behaviour (138 backward seeks, 1.9 fps with 4 in flight) and guards the fix (1 seek, within 15% of the pipelined ideal), and checks that scrub and long jumps still seek once.
+**Why:** the Pixel was locked, so a decoder change could not be verified; the root cause was already identified and fixed, and a regression guard that fails if someone raises the in-flight limit is the cheapest protection.
+**Alternative:** allow two frames in flight with a reader that does not drop (would help the decode-bound case, 85% of ideal) or pre-arm the decoder targets of all layers before waiting for the first one (helps cuts with a new decoder). Both need a device to be measured; listed as follow-ups.
+
+## Release preparation (WP-R)
+
+**Versioning:** `gradle/version.properties` is the only place a version is written; `versionCode = major*10000 + minor*100 + patch` (0.1.0 -> 100). **Why:** no counter file to forget, a tag `v<versionName>` is checked against it by the release workflow, and codes stay monotonic for normal semver bumps. **Alternative:** a git-describe or CI-run-number code (needs full history and breaks local builds), or an explicit `versionCode` line (two numbers to keep in sync).
+
+**Signing:** read from `keystore.properties` (ignored) or `UVEDITOR_*` variables, and only used when all four values are present. **Why:** a partial setup must not sign with the wrong key or fail oddly; CI stays secret-free and produces unsigned files. **Alternative:** a Gradle `signingConfig` that fails when values are missing (forces everyone, including CI, to have a key).
+
+**R8 on by default for release, with explicit keep rules:** the whole `engine` package (native methods, exceptions thrown from C++), any class with native methods, the callback method names C++ looks up (`onProgress`, `onFinished`, `onError`, `onWaveformReady`, `onThumbnailError`), our `@Serializable` classes/serializers and enum names. The APK went from 30.1 MB (unminified, resources unshrunk) to 6.5 MB. **Why:** a store build should be small and the JNI names are the only reflection-like surface. **Alternative:** keep minification off (simplest, but 4.6x larger).
+
+**Local-only crash report:** an uncaught-exception handler writes `files/crash/last-crash.txt` (64 KB cap, atomic write), after which the system handler runs as before. The report has exception types, messages cut to 200 characters with content URIs, absolute paths and media file names replaced, stack frames, app version, phone model and Android version. About can show, copy, share (system share sheet, user-initiated) or delete it. **Why:** gives users a way to report a crash without any crash-reporting service. **Alternative:** nothing stored (users would need `adb logcat`), or a third-party service (rejected by the privacy rule).
+
+**About screen and legal assets:** the licence text, `THIRD_PARTY_NOTICES.md` and `docs/PRIVACY.md` are copied into the APK's assets at build time by a Gradle task registered through the AGP variant API, so the app shows exactly what the repository says. **Alternative:** hard-code the text in Kotlin (two copies to keep in sync).
+
+**"Clear caches" does not touch proxies:** proxy copies have their own switch and clear action because a running job owns that folder; About shows their size and points to the proxy sheet. **Alternative:** delete everything under the cache folder (could break a job in flight).
+
+**First-run tips:** three dismissible cards in a dialog over the hub, shown once (preferences flag), reopenable from About. **Alternative:** a coach-mark overlay on the real controls (nicer, but it needs a stable layout, which the resizable layout package keeps changing).
+
+**Two latent defects found by building the release variant, fixed here:** `thumb_atlas.h` kept a field only read by a debug-guarded log, which `-Werror` rejects in an optimised build; `Subtitles.kt` contained a literal byte-order mark in the source (lint error), now written as the escape sequence `\uFEFF`.
+
+## Multicam (WP-M)
+
+**Decision:** a multicam clip is realised as ordinary clips on the tracks, and the group (`Timeline.multicams`) is only
+the recipe: angles with offsets, the audio angle, the lane ids and the cuts. Switching angles rewrites the realised
+clips in place; "Flatten" just forgets the group; export needs no special path because it only ever sees plain clips.
+**Why:** preview, export, the magnetic base, group edits, effects and speed all already work on plain clips, so a new
+clip type would have touched every renderer and operation; this keeps the change inside `domain/multicam/`.
+**Alternative:** a dedicated clip type resolved inside `RenderPlan` (smaller project files and angle media kept
+visible in the model, at the cost of new code in the planner, the mixer snapshot, export and every clip operation).
+
+**Decision:** edits on single realised clips (split, trim, retime, deleting one) make the group forget itself
+(`MulticamOps.settle` from `Timeline.pruned()`), while moves of the whole block make it follow; styling keeps it.
+**Why:** a group that no longer matches its clips would lie to the cut buttons.
+**Alternative:** refuse those edits, or rebuild the group from the clips.
+
+**Decision:** sync correlates the loudness envelopes of the waveform cache (the same data beat detection uses) in
+Kotlin, with an FFT, instead of a new native decoder at 8 kHz PCM.
+**Why:** no audio is decoded twice, it is host-testable, and a 100 Hz envelope resolves offsets finer than one frame at
+60 fps; speech, claps and music all give strong loudness shapes.
+**Alternative:** native 8 kHz PCM cross-correlation (finer than 10 ms, needed only for sample-accurate audio alignment
+between recorders, which the picture cuts do not require).
+
+**Decision:** a doubtful sync (confidence below 0.15: correlation minus the best rival peak) is shown as "unsure" and
+not applied; the offset stays 0 until the user nudges it.
+**Why:** a wrong offset looks plausible and wastes the whole edit; silence or unrelated audio must not pretend to match.
+**Alternative:** apply the best guess anyway and show the confidence.
+
+**Decision:** the audio of a multicam is one clip from one angle on a free audio lane, and the picture clips are
+silenced with -96 dB (the gain floor) rather than muting a track. Without a free audio lane the pictures keep their own
+sound and a message says so.
+**Why:** cutting to another camera must not make the sound jump; muting a whole video track would silence the user's
+other clips on the base.
+**Alternative:** a per-clip mute flag (not in the model today).
+
+**Decision:** a multicam clip is created on the base only, at the nearest cut to the playhead, and the other angles are
+shown in the viewer as badges (live / proxy / still) from `MulticamPlanner` instead of moving pictures.
+**Why:** one decoder at full quality is all the preview pipeline guarantees; moving thumbnails of five more angles need a
+low-rate decode path that was not built in this pass.
+**Alternative:** periodic stills from the thumbnail decoder or proxy decoders for each angle (the planner already
+decides which angles would use which).

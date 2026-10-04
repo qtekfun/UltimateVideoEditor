@@ -150,7 +150,7 @@ waves of SPECS 9.20.
     compared by ear, fade handles on the clip, the inspector Sound tools on a device, the noise-region marking flow. Left unticked until those are checked.
 
 ### Wave 3
-- [ ] WP-T Multilayer titles and fonts
+- [x] WP-T Multilayer titles and fonts (SPECS 5.25). _Status:_ domain (layers, edits, in/out motion), JSON, presets (`.uvtitle`), font registry, layer bounds, editor view model, plan resolution and the library view model are covered by JVM tests; the 40 fonts under `/usr/share/fonts` parse with the font reader. Seen working on the Pixel 8 (not the reference phone): converting a title to layers, adding a rectangle, dragging only the selected layer on the preview (ring and outline follow it), importing a real `.otf` from Downloads through the system picker and the title redrawing in it (rounded Comfortaa letters against the system font), a fade-in leaving frame 0 transparent, and saving a preset (listed with Export and Delete). Not yet seen on a device: photo layers and stickers inside a title, shadows, borders and boxes, pinch and twist on a layer, preset export and import through the picker, the missing-font banner, the export of a layered title (preview and export share one plan and one rasteriser, checked only by tests), the instrumented rasteriser test (compiles, not run), anything on the OPPO.
 - [ ] WP-K Generalised keyframes (after WP-C and WP-A): implemented and covered by JVM and native host tests (tracks, Bezier, cropping, migration, preview/export parity, audio automation v5, lane UI, loudness cache wiring); NOT yet verified on the Pixel (diamond, lane drag, exported frames) so left unticked
 
 ### Wave 4
@@ -166,12 +166,12 @@ waves of SPECS 9.20.
 - [ ] WP-V3 Voice effects (classical DSP)
 
 ### Wave 7
-- [ ] WP-P Proxy media
+- [ ] WP-P Proxy media (implemented and unit-tested, SPECS 5.22; tick after it has been seen working on the OPPO)
 - [ ] WP-V5 Project templates, transition and filter packs
 
 ### Wave 8
-- [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
-- [ ] WP-R Release preparation
+- [x] WP-M Multicam (after WP-A, WP-S, WP-P). _Status:_ implemented (SPECS 5.26) and covered by JVM tests (sync recovers known offsets from synthetic shifted audio with noise, cut/record/undo, flatten equivalence, following moves, decoder budget planner, JSON round trips); nothing seen on a device (the Pixel was locked with a credential), so the sheet layout, a real sync of two phone recordings and live recording during playback are unverified
+- [ ] WP-R Release preparation. _Status:_ done and verified on the host: single-source versioning (`gradle/version.properties`, versionCode derived), optional signing from `keystore.properties` or `UVEDITOR_*` variables (a signed APK built with a throwaway key passes `apksigner verify`, versionCode 100, no permissions beyond AndroidX's own), R8 minification and resource shrinking with keep rules (APK 30.1 MB -> 6.5 MB; mapping inspected: JNI classes, native holders and serializers kept), `lintRelease` clean of errors (a literal BOM in `Subtitles.kt` and a release-only `-Werror` failure in `thumb_atlas.h` were fixed), local crash report writer, About screen model, first-run tips model, `.github/workflows/release.yml` (valid YAML; runs only on a `v*` tag or by hand, so it has not run on GitHub yet), `docs/RELEASE.md` with store text, data-safety answers and checklist. Not verified: the minified build and the About screen, tips and crash handler have not been run on a device (the Pixel was locked, the OPPO absent), so R8 runtime behaviour (JNI lookups, project.json round trip) is only checked through the mapping file and the unit tests of the unminified build; the release workflow has not run.
 
 ### Standing requirements for every package
 - [ ] Privacy rule: no AI/ML, no network, no third-party service, no analytics (`docs/PRIVACY.md`; `OfflineGuaranteeTest` enforces the technical part)

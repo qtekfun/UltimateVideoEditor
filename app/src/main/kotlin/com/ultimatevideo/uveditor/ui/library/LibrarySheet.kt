@@ -61,6 +61,8 @@ import com.ultimatevideo.uveditor.ui.editor.LibraryIntent
 import com.ultimatevideo.uveditor.ui.editor.MarkerEditDraft
 import com.ultimatevideo.uveditor.ui.editor.ToolButton
 import com.ultimatevideo.uveditor.ui.editor.formatTimecode
+import com.ultimatevideo.uveditor.ui.editor.proxy.badgeLabel
+import com.ultimatevideo.uveditor.ui.editor.proxy.proxyStatusOf
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetThumbnails
 import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
@@ -182,10 +184,12 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            val proxyLabel = proxyStatusOf(item.asset.id).badgeLabel()
             val meta = buildList {
                 add(kindLabel(item.kind))
                 if (item.kind != AssetKind.PHOTO) add(formatTimecode(item.durationFrames, fps))
                 item.badge?.let { add(it) }
+                proxyLabel?.let { add(it) }
                 add(if (item.usage == 0) "unused" else "used ${item.usage}×")
             }.joinToString(" · ")
             Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

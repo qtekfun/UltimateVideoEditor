@@ -42,7 +42,9 @@ private:
     AtlasLayout layout_;
     GLuint texture_ = 0;
     std::unique_ptr<SlotLru> lru_;
-    unsigned evictions_ = 0;  // debug logging only
+#ifndef NDEBUG
+    unsigned evictions_ = 0;  // debug logging only (only read by the NDEBUG-guarded log in the .cpp)
+#endif
 };
 
 }  // namespace uv::thumb

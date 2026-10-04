@@ -23,7 +23,30 @@ data class ProjectDto(
     val ducking: DuckingDto? = null,
     /** Tracking targets on video clips (SPECS.md 9.15); absent in projects written before motion tracking existed. */
     val motionTracks: List<MotionTrackDto> = emptyList(),
+    /** Multicam groups (SPECS.md 9.9); absent in projects written before multicam existed. */
+    val multicams: List<MulticamDto> = emptyList(),
 )
+
+/** A synchronised multi-angle clip; see `domain/multicam/Multicam.kt`. */
+@Serializable
+data class MulticamDto(
+    val id: String,
+    val name: String,
+    val angles: List<MulticamAngleDto>,
+    val audioAngle: Int,
+    val videoTrackId: String,
+    val audioTrackId: String? = null,
+    val startFrame: Long,
+    val inFrame: Long,
+    val lengthFrames: Long,
+    val cuts: List<AngleCutDto>,
+)
+
+@Serializable
+data class MulticamAngleDto(val id: String, val name: String, val assetId: String, val offsetFrames: Long, val durationFrames: Long)
+
+@Serializable
+data class AngleCutDto(val frame: Long, val angle: Int)
 
 /** A tracking target: where [clipId]'s picture was pointed at, in fractions of the upright frame. See `domain/MotionTrack`. */
 @Serializable
@@ -308,6 +331,8 @@ data class TitleDto(
     val animation: String = "none",
     /** Colour of the emphasised word, `#AARRGGBB`. */
     val highlight: String = "#FFFFE600",
+    /** A multilayer title: the layers bottom to top. When not empty the single-text fields above are ignored (but [text] mirrors the first text layer). */
+    val layers: List<TitleLayerDto> = emptyList(),
 )
 
 /** One word of a caption with its timing in clip frames. */
