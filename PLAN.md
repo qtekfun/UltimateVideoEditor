@@ -170,7 +170,7 @@ waves of SPECS 9.20.
 - [ ] WP-V5 Project templates, transition and filter packs. _Filter pack:_ 20 original looks generated in code and installed into the LUT library on first use, with swatches in the LUT picker (SPECS 5.24), covered by JVM tests (identity, range, monotonic grey, cube round trip, idempotent install); not yet seen on a device.
 
 ### Wave 8
-- [ ] WP-M Multicam (after WP-A, WP-S, WP-P)
+- [x] WP-M Multicam (after WP-A, WP-S, WP-P). _Status:_ implemented (SPECS 5.26) and covered by JVM tests (sync recovers known offsets from synthetic shifted audio with noise, cut/record/undo, flatten equivalence, following moves, decoder budget planner, JSON round trips); nothing seen on a device (the Pixel was locked with a credential), so the sheet layout, a real sync of two phone recordings and live recording during playback are unverified
 - [ ] WP-R Release preparation
 
 ### Standing requirements for every package

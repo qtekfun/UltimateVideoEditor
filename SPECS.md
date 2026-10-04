@@ -916,6 +916,48 @@ Original look is the identity, every look stays in 0..1, grey is non-decreasing 
 black-and-white looks have equal channels, a cube reproduces the look on its lattice, and installing twice stores it
 once. The pack contains no third-party data.
 
+### 5.26 Multicam (WP-M)
+
+A multicam clip lines up two to six recordings of one event and cuts between them. Code: `domain/multicam/`
+(`Multicam.kt`, `AudioSync.kt`), `engine/multicam/MulticamServices.kt`, `ui/editor/multicam/`.
+
+- **Shared time.** Every angle (`MulticamAngle`) has an `offsetFrames` in project frames: shared frame `t` is the
+  angle's own frame `t - offsetFrames` (0 for the reference, negative if it started earlier) and a `durationFrames`.
+  The group (`MulticamClip`) covers shared time `[inFrame, inFrame + lengthFrames)`, sits on the timeline from
+  `startFrame`, and holds sorted `cuts` (`AngleCut(frame, angle)`, the first at 0, neighbours never the same angle).
+  Only the angle on screen has to cover its stretch.
+- **Realised as ordinary clips.** The programme is written to `Timeline.tracks` as one clip per stretch of one angle
+  (`mc-<id>-v<n>`, source = `inFrame + cutFrame - offset`) on `videoTrackId`, plus one clip from `audioAngle` for the
+  whole length (`mc-<id>-a`) on `audioTrackId`; the picture clips then carry -96 dB so the sound never follows the
+  cuts. Preview, export and every other edit therefore work on a flattened timeline, and "Flatten" only forgets the
+  group (`FlattenMulticam`). Without an audio lane each angle keeps its own sound.
+- **Edits** (`MulticamOps`, all one undo step, all rewriting the realised clips in place over the same stretch so the
+  base stays gap free): `create` (on the base: a ripple insert at the nearest cut, the group follows where it landed;
+  on another lane the stretch must be free), `cutAt`, `record` (a whole live recording at once), `removeCut`,
+  `nudge`, `setOffsets` (a sync result), `setAudioAngle`, `flatten`. A cut that would show an angle where it has no
+  media is refused and nothing changes.
+- **Staying consistent.** `Timeline.pruned()` calls `MulticamOps.settle`: a group whose realised clips moved together
+  (a ripple, a block drag, a group move) follows them (`startFrame` is re-read from the first clip); one that was
+  edited clip by clip (split, trim, retime, a deleted piece) is forgotten and its clips carry on as ordinary clips.
+  Styling a clip (gain, transform, effects) keeps the group.
+- **Sync** (`AudioSync.offsetOf`, no learning): the loudness envelopes the waveform cache already holds are brought to
+  100 Hz, log-compressed and centred; a coarse pass (1/8 rate) correlates every offset through one FFT scored by
+  normalised correlation with a minimum overlap, a fine pass searches +-2 coarse steps at full rate, and the offset is
+  converted to project frames with exact integer rounding (`stepsToFrames`). `SyncResult.ncc` is the correlation at
+  the winner and `confidence` is that minus the best rival peak more than a second away; below
+  `AudioSync.MIN_CONFIDENCE` (0.15) the offset is not applied and the user nudges by ear. Resolution is 10 ms, so the
+  result is within one frame at 60 fps and below.
+- **Viewer budget** (`MulticamPlanner`): the active angle is `FULL` (the one the preview decodes), other angles are
+  `PROXY` while a proxy is ready and a decoder is spare (`maxDecoders - 1`), else `STILL`.
+- **JSON.** `ProjectDto.multicams` (optional; old projects load with none): angles, audio angle, lane ids, start, in,
+  length and cuts. A stored group whose clips are missing is a corrupt project.
+- **UI.** A toolbar button opens the Multicam sheet: pick 2 to 6 library files, "Sync by sound", nudge, "Create at
+  playhead"; then angle buttons that cut at the playhead (with live / proxy / still badges), "Record cuts" (taps are
+  collected with their playhead frame and applied as one undo step), "Remove cut here", the audio angle, fine sync,
+  "Sync again" and "Flatten".
+- **Not in this version:** the grid does not show moving pictures of the other angles (the badges show how each would
+  be fed), and a multicam clip is always created on the base.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

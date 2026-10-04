@@ -908,3 +908,44 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Decision:** the 20 built-in looks are functions (a handful of ordered colour operations) in code, baked into 17-point `.cube` files on first use and stored in the existing LUT library; the picker shows them above imported LUTs with a computed swatch.
 **Why:** original work with a clear licence and no assets to ship or download; reusing the LUT library and effect keeps preview/export parity, intensity and keyframes for free. 17 points is enough for smooth looks and small to store.
 **Alternative:** shipping pre-baked `.cube` files in the APK (bigger, hard to review), a dedicated shader effect per look (more native code, no reuse of the LUT path), or 33-point cubes (smoother steep curves, 8x the data).
+
+## Multicam (WP-M)
+
+**Decision:** a multicam clip is realised as ordinary clips on the tracks, and the group (`Timeline.multicams`) is only
+the recipe: angles with offsets, the audio angle, the lane ids and the cuts. Switching angles rewrites the realised
+clips in place; "Flatten" just forgets the group; export needs no special path because it only ever sees plain clips.
+**Why:** preview, export, the magnetic base, group edits, effects and speed all already work on plain clips, so a new
+clip type would have touched every renderer and operation; this keeps the change inside `domain/multicam/`.
+**Alternative:** a dedicated clip type resolved inside `RenderPlan` (smaller project files and angle media kept
+visible in the model, at the cost of new code in the planner, the mixer snapshot, export and every clip operation).
+
+**Decision:** edits on single realised clips (split, trim, retime, deleting one) make the group forget itself
+(`MulticamOps.settle` from `Timeline.pruned()`), while moves of the whole block make it follow; styling keeps it.
+**Why:** a group that no longer matches its clips would lie to the cut buttons.
+**Alternative:** refuse those edits, or rebuild the group from the clips.
+
+**Decision:** sync correlates the loudness envelopes of the waveform cache (the same data beat detection uses) in
+Kotlin, with an FFT, instead of a new native decoder at 8 kHz PCM.
+**Why:** no audio is decoded twice, it is host-testable, and a 100 Hz envelope resolves offsets finer than one frame at
+60 fps; speech, claps and music all give strong loudness shapes.
+**Alternative:** native 8 kHz PCM cross-correlation (finer than 10 ms, needed only for sample-accurate audio alignment
+between recorders, which the picture cuts do not require).
+
+**Decision:** a doubtful sync (confidence below 0.15: correlation minus the best rival peak) is shown as "unsure" and
+not applied; the offset stays 0 until the user nudges it.
+**Why:** a wrong offset looks plausible and wastes the whole edit; silence or unrelated audio must not pretend to match.
+**Alternative:** apply the best guess anyway and show the confidence.
+
+**Decision:** the audio of a multicam is one clip from one angle on a free audio lane, and the picture clips are
+silenced with -96 dB (the gain floor) rather than muting a track. Without a free audio lane the pictures keep their own
+sound and a message says so.
+**Why:** cutting to another camera must not make the sound jump; muting a whole video track would silence the user's
+other clips on the base.
+**Alternative:** a per-clip mute flag (not in the model today).
+
+**Decision:** a multicam clip is created on the base only, at the nearest cut to the playhead, and the other angles are
+shown in the viewer as badges (live / proxy / still) from `MulticamPlanner` instead of moving pictures.
+**Why:** one decoder at full quality is all the preview pipeline guarantees; moving thumbnails of five more angles need a
+low-rate decode path that was not built in this pass.
+**Alternative:** periodic stills from the thumbnail decoder or proxy decoders for each angle (the planner already
+decides which angles would use which).
