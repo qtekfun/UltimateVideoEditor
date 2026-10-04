@@ -1,68 +1,61 @@
 # ultimateVE — Implementation Plan
 
-Status: reconciled 2026-10-03. Each phase has a gate. Phases were run in parallel; where a gate is still open it says why.
-Check items off as completed. Details live in SPECS.md; scope in PRD.md.
+Status: reconciled 2026-10-04. Details live in `SPECS.md` (how), `PRD.md` (what), `DECISIONS.md` (why),
+`docs/QA_REPORT.md` (what was exercised on a phone) and `docs/ARCHITECTURE.md` (overview).
 
-## Phase 0 — Scaffold (this is where we start)
-- [x] Install NDK, CMake, platform 36, Gradle wrapper via `sdkmanager` (CLI, no Android Studio)
-- [x] Gradle Kotlin DSL project, version catalog, `com.ultimatevideo.uveditor`, minSdk 33
+**Convention.** `[x]` means *implemented, and covered by the automated tests that pass in CI* (JVM unit tests,
+native host tests, the debug and release builds). It does **not** mean "seen on a phone": what has and has not been
+seen on a device is tracked in [Verification debt](#verification-debt) at the end, which is the checklist to
+walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a gate that is still open.
+
+**Project rule (privacy).** No AI/ML, no third-party services, no analytics, no accounts, no network access.
+`docs/PRIVACY.md` states it and `OfflineGuaranteeTest` enforces the technical part.
+
+## Phase 0 — Scaffold
+- [x] Gradle Kotlin DSL project, version catalog, `com.ultimatevideo.uveditor`, minSdk 33, NDK/CMake from the command line
 - [x] Jetpack Compose + Material 3 + Navigation, theme, edge-to-edge
-- [x] CMake + `uveditor_engine` shared library with a JNI hello (`EngineClient.version()`)
-- [x] MVI base contracts (State/Intent/Effect/ViewModel) and a sample screen
-- [x] Unit test and instrumented smoke test wiring; `.gitignore`, LICENSE (GPL-3.0), README
-- [x] Debug APK builds and runs on the reference device via `adb -s <serial>`
-- **Gate:** `./gradlew :app:assembleDebug` and `:app:testDebugUnitTest` pass; app launches on device and shows the JNI version string.
+- [x] `uveditor_engine` shared library with JNI, MVI base contracts, `.gitignore`, GPL-3.0 licence, README
+- [x] Unit-test and instrumented smoke-test wiring; CI (`.github/workflows/ci.yml`)
+- **Gate (met):** `./gradlew :app:assembleDebug :app:testDebugUnitTest` pass; the app launches and shows the engine version.
 
 ## Phase 1 — Project hub
-- [x] Hub UI (project list, empty/welcome state)
-- [x] New Project dialog (resolution, FPS rational, colour space)
-- [x] `project.json` model + serialization (kotlinx.serialization), atomic writes, forward-compatible
-- [x] CRUD: create, clone, delete, rename; import/export via SAF
-- [x] Unit tests: serialization round-trips, repository operations
-- **Gate:** projects survive app restarts; JSON validates against the SPECS schema.
+- [x] Hub (project list, empty state), New project flow, `project.json` with atomic writes and forward compatibility
+- [x] Create, clone, rename, delete, import/export through SAF
+- **Gate (met):** projects survive restarts; JSON round trips are tested.
 
-## Phase 2 — Domain timeline and operations (pure Kotlin, TDD)
-- [x] `FrameIndex`, rational fps, time conversion helpers
-- [x] Track/Clip model with invariants
-- [x] Split, move, overwrite, ripple delete, ripple append, trim, snapping
-- [x] Undo/redo command stack
-- [x] Exhaustive unit tests for collisions and gaps
-- **Gate:** all operation tests green; invariants fuzz-tested.
+## Phase 2 — Domain timeline and operations (pure Kotlin)
+- [x] `FrameIndex`, rational fps, integer time conversions; track/clip model with invariants
+- [x] Split, move, overwrite, ripple delete/append, trim, snapping; undo/redo stack
+- [x] Exhaustive collision and gap tests and randomized invariant tests
+- **Gate (met).**
 
 ## Phase 3 — Timeline canvas and waveforms
-- [x] Timeline `SurfaceView` + native GLES renderer (blocks, playhead, ruler)
-- [x] Scroll and pinch-zoom at 60/120 fps; gesture forwarding; hit-testing (scroll, fling and tap seen working on device; frame rate not measured; pinch-zoom only host-tested)
-- [x] Media import (SAF picker, persisted URI permission), media library panel (probe verified on device and picker opens; the picker-to-timeline path was not seen end to end)
-- [x] Background waveform extraction and on-disk peak cache
-- [x] Magnetic base track with overlays that follow it (delete, insert/import, reorder, trim; `MagneticBase`, `ClipDeletion`), unit-tested incl. randomized invariants; not yet verified on device
-- [ ] Draw waveforms and thumbnails; snapping, split, move, trim via touch (waveforms drawn; play/seek transport and playhead drag verified on device; clip drag/trim, split and delete implemented and unit-tested but not yet verified on device; thumbnail filmstrip drawn from a disk-cached, atlas-LRU tile pipeline and verified on device with a synthetic clip)
-- **Gate:** smooth scroll/zoom on a 50-clip timeline; waveforms appear without UI jank. (Waveforms are now normalised per media and use the whole clip body; zoom fits the whole project until the user zooms by hand. Both are host-tested only: not yet seen on the device.)
+- [x] Native GLES timeline on a `SurfaceView` (ruler, lanes, clips, playhead, scroll/fling/pinch, hit testing)
+- [x] SAF media import with persisted permissions; background waveform extraction with an on-disk peak cache
+- [x] Waveforms (normalised per media) and video thumbnails on clips (cached filmstrip; photos get one tile)
+- [x] Base track (magnetic, overlays follow) and free overlay lanes; touch editing: select, move, trim, split, delete, drops
+- **Gate:** smooth scroll/zoom on a 50-clip timeline without UI jank. Seen on a Pixel 8: editor frames 379 in 10 s, 1.3 % jank,
+  p50 10 ms, p99 18 ms. Not measured on the reference phone.
 
 ## Phase 4 — Decode, preview and audio playback
-- [x] EGL/GLES 3.2 preview compositor on a `SurfaceView`
-- [x] AMediaExtractor/AMediaCodec decode (H.264/HEVC) to AHardwareBuffer
-- [x] LRU frame cache with look-ahead; scrubbing
-- [x] Oboe audio playback + mixer (per-clip gain in the mixer); audio device as master clock (`AudioPlaybackEngine.positionFrame()`)
-- [x] A/V sync: the preview follows the audio clock without per-tick seeks (native `playScene` clock, re-anchored on composition change or drift > 2 frames; `PreviewAnchor` JVM-tested). Audio output closes when paused and in the background. Not yet exercised on the device: the phone was disconnected when this was written, so `scripts/av-drift-test.sh` has not been run
-- [x] Per-clip transform (position/scale/rotation/opacity) with on-preview gestures; gain control UI — inspector sliders and one-finger drag verified on the reference device; pinch and twist are unit-tested maths only (adb cannot inject multi-touch)
-- [x] Colour shaders: HLG/Rec.2020 → SDR Rec.709; per-clip override
-- [x] Multi-layer compositing (video tracks above one another): one decoder per layer within the device's hardware-decoder limit (top layers win), per-layer transform and opacity, source-over blending in track order; `GlPipeline::drawScene` is reusable offscreen for export. Not yet measured: playback performance with several 4K layers.
-- _Status (4a, after preview-perf):_ synthetic 4K60 HEVC (480 frames) and 1080p30 H.264 (300 frames) play on the reference device with every frame decoded once and shown (0 seeks, 0 dropped decodes in steady state); render thread spends ~0.2 ms blit + ~0.15 ms draw + ~0.5 ms swap per frame. The 4K60 criterion is met on synthetic clips only (not real footage). The A/V drift criterion cannot be measured until audio lands, so the gate stays open.
-- _Status (audio):_ on the reference device the Oboe stream (AAudio, shared mode, 192-frame burst, 384-frame buffer) holds the master clock to within 0.4 ms over 55 s with zero underruns; estimated output latency ~30 ms. Linear resampling, no downmix beyond the first two channels, no fades at clip edges yet.
-- **Gate (open):** 4K60 single-layer playback without drops (met on synthetic clips only); no measurable A/V drift on a long timeline (NOT measured yet: run `scripts/av-drift-test.sh <serial> 5` on the device; both clocks are CLOCK_MONOTONIC based and the audio clock was seen to hold within 0.4 ms over 55 s, which predicts well under one frame over 5 minutes, but that is an inference, not a measurement).
+- [x] GLES 3.2 compositor, MediaCodec decode (H.264/HEVC) to `AHardwareBuffer`, LRU frame cache with look-ahead, scrubbing
+- [x] Oboe playback with the audio clock as master; the preview follows it (re-anchored on change or drift > 2 frames)
+- [x] Per-clip transform with on-preview gestures; multi-layer compositing within the decoder limit
+- [x] Colour: HLG/Rec.2020 and PQ to SDR Rec.709 shaders, per-clip source colour override
+- **Gate (open):** 4K60 single-layer playback without drops: met on synthetic clips on the reference phone (480/480 frames shown
+  once); ~51 fps average on the Pixel 8. A/V drift over a long timeline: clocks agree within 0.4 ms over 55 s on the reference phone and
+  at most 2 frames over ~35 s on the Pixel 8; the 5-minute run (`scripts/av-drift-test.sh <serial> 5`) is still to be recorded.
 
 ## Phase 5 — Titles and transitions
-- [x] Title clips (text, size, colour, alignment, bold, position/scale/rotation/opacity) and composition
-- [x] Crossfade transition between adjacent clips (video opacity ramp, equal-power audio, handles-aware limits)
-- _Status:_ domain, JSON, preview, export, audio and editor UI are implemented and unit-tested (see the PR for
-  what was and was not verified on the device). Not done: other transition types, title animations, custom fonts.
-- **Gate:** titles and transitions render in preview and match export.
+- [x] Title clips (multilayer text, shapes and images; custom fonts; presets; in/out motion) and composition
+- [x] Crossfade and a transition pack (slide, push, zoom, spin, glitch, wipe, whip pan, light leak), equal-power audio fade
+- **Gate:** titles and transitions render in preview and match the export (shared `RenderPlan`; checked by tests, not by eye).
 
 ## Phase 6 — Export
 - [x] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
 - [x] Audio offline mix and AAC encode
 - [x] Export UI: resolution/fps/bitrate, progress, cancel, share
-- [ ] Optional: static FFmpeg fallback behind a feature flag — **designed, not built**: see `docs/ffmpeg-fallback.md` (options, sizes, CI recipe, decoder seam); trigger is a real file MediaCodec cannot open
+- [x] Optional: static FFmpeg fallback behind a feature flag (`-Puveditor.ffmpeg=<dir>`, off by default): **built, verified in CI only** — host tests of the readers against a real libav (MPEG-2, MPEG-4, ProRes, H.264, AAC, AC-3: exact frame indices, seeking inside GOPs, audio seek), the pinned LGPL static build for arm64 (+7.6 MB in `libuveditor_engine.so`) and the engine linked against it. **Not yet run on a device** (preview/export path, RGBA8 upload, the "software decoding" notice): see `docs/ffmpeg-fallback.md`.
 - _Status:_ exports the full timeline (all video layers composited with their transform and opacity through the preview's
   `drawScene`, clip gain in the audio mix, gaps black, HLG sources tone-mapped to SDR Rec.709) at the project
   or a lower frame rate, H.264 or HEVC + AAC in MP4, saved through SAF. On the reference device a 4K60 HEVC export runs at ~90 fps
@@ -71,68 +64,85 @@ Check items off as completed. Details live in SPECS.md; scope in PRD.md.
   Share are covered by unit tests only (not exercised on the device); colour fidelity was checked with synthetic charts, not real footage.
 - **Gate:** exported file plays correctly with matching A/V sync and colours.
 
-## Phase 7 — CapCut-style features (post-MVP, in this order, revisit priority later)
-- [x] Social format presets (9:16, 1:1, 4:5, 16:9), safe zones, per-platform export presets — JVM and host tests
-      pass; not yet seen on the device (phone offline during this work)
-- [x] Keyframes: position, scale, rotation, opacity (linear / ease / hold), inspector diamond, timeline markers,
-      same pose in preview and export — JVM and host tests pass; not yet seen on the device
-- [x] Speed changes (0.1x–8x), ramps, reverse, freeze frame — domain, preview, export table, audio (varispeed, muted
-      outside 0.25x–4x) and inspector; JVM and host tests pass. On the OnePlus the export of a timeline with a freeze,
-      2x, reversed, ramped and 0.5x clip was checked frame by frame and by pitch (`scripts/run-retime-export-test.sh`):
-      correct in 3 clean runs, but 2 of the first 6 runs failed (a decoder stall, an audio decode error) while another
-      session shared the phone. The inspector, the timeline labels and reverse playback in the preview were not seen.
-      Export reliability fixes (fetch waits for late frames, decoder self-recovery, offline audio retries) are in and pass
-      host tests, but were not yet re-run on the phone (adb offline): re-run `scripts/run-retime-export-test.sh` ~10 times.
-      Follow-ups: pitch-preserving time stretch, frame blending for slow motion
-- [x] Chainable shader effects, chroma key, masks, blend modes — domain, JSON, undo, JVM and host tests pass and the
-      native engine compiles; the shaders and the inspector are not yet seen on the device (adb offline)
-- [x] Captions: typed or imported from `.srt` / `.vtt`, eight animated styles, restyle all (one undo step). Fully offline:
-      the earlier on-device speech recognition (whisper.cpp, model download, INTERNET permission) was removed for the privacy
-      rule. Subtitle parsing, frame conversion, the sheet's view model and caption placement are covered by JVM tests; the
-      sheet and the animated looks have not been seen on the device yet.
-- [x] Photos and stickers: import images, still clips on video tracks (default 5 s, free to stretch), a built-in sticker set
-      (8 drawn shapes + 8 emoji) and an 'Add sticker' picker; same compositor path and effects/keyframes as titles, in
-      preview and export. Domain, JSON, preview scene and export plan are covered by JVM tests; nothing of this has been
-      seen on the device yet (the OPPO was not reachable by adb), in particular EXIF orientation, HEIC and the sticker art.
-      Photos now ask the native thumbnail worker for one tile (AImageDecoder, host-tested sampling; not seen on the device). Follow-ups: animated GIF/WebP
-- [x] Animated text templates (lower third, pop title, slide-in headline, subtitle bar) and beat sync (ruler markers, beat
-      detection from the waveform cache, snap to markers, 'Cut to beat'). Domain, JSON, snapshot v5, ViewModel and the beat
-      detector (synthetic click tracks) are covered by JVM tests and the host tests pass; the native ruler drawing, the template
-      look and beat detection on real music were not seen on the device (the OPPO was not reachable by adb).
-      Follow-ups: spectral-flux onsets (the detector reads amplitude only), dragging markers on the ruler, text animations
-      beyond keyframes
-- [x] HDR end-to-end (HLG project colour space, 10-bit compositing, HLG preview, HEVC Main10 export). _Status:_ CPU reference and host tests pass and the engine builds; the HDR surface, the HEVC Main10 HLG encode and the look of the conversions have not been seen on an HDR display (see the device notes in DECISIONS.md)
-- [x] 3D LUTs (.cube 17/33/65): library import, per-clip LUT effect with intensity, preview/export parity — parser, store, wire format and the CPU reference have JVM/host tests; the GL 3D-texture path was not seen on the device
-- [x] Vulkan renderer evaluation — `docs/vulkan-evaluation.md`: recommendation is **not to migrate now** (render thread costs ~0.85 ms of a 16.6 ms frame at 4K60); prepare a `Compositor` seam, revisit when a feature needs compute
+- [x] Offline render loop to MediaCodec (H.264/HEVC, HEVC Main10 HLG) with AAC mix, MP4 through SAF, progress, ETA, cancel, share
+- [x] Platform upload presets
+- [ ] Optional static FFmpeg fallback — **designed, not built** (`docs/ffmpeg-fallback.md`); trigger: a real file MediaCodec cannot open
+- Measured on the reference phone: 4K60 HEVC export ~90 fps (1.5x real time), 1080p30 H.264 ~100 fps, frame counts and PTS exact with
+  ffprobe. Long-GOP material exported at ~11.6 fps until the seek fix; ~54-71 fps on the Pixel 8 afterwards (simulation in
+  `uv_decode_sim_host_tests` protects it). Two-layer export ~1.3x real time. Cancel and Share are test-covered only.
+- **Gate:** exported file plays with matching A/V sync and colours (checked with synthetic charts, not real footage).
+
+## Phase 7 — Creator features
+- [x] Social presets (9:16, 1:1, 4:5, 16:9), safe zones, upload presets
+- [x] Keyframes: pose and opacity, then parameter tracks (effects, grade, audio level/pan/EQ) with Bezier handles and a lane
+- [x] Speed 0.1x-100x, ramps with an editor, reverse, freeze, optical-flow slow motion (classical), video denoise and deflicker
+- [x] Effects, masks, blend modes, chroma key; colour grade (wheels, curves), looks, scopes (waveform, parade, vectorscope, histogram)
+- [x] 3D LUTs (`.cube`), filter pack (20 original looks)
+- [x] Captions typed or imported (`.srt`/`.vtt`) with eight styles including karaoke and typewriter. The earlier on-device speech
+  recognition was removed for the privacy rule.
+- [x] Photos and stickers; text templates; beat markers, snap to markers, cut to beat
+- [x] HDR end to end: HLG project space, 10-bit compositing, HLG preview, HEVC Main10 export
+- [x] Stabiliser and motion tracking (classical tracker), auto cut by silence, manual reframe helper
+- [x] Project templates (`.uvtemplate`), starter set, "New from a template" wizard
+- [ ] Voice effects (WP-V3, classical DSP): not built
+- [x] Vulkan renderer evaluation (`docs/vulkan-evaluation.md`): not worth migrating now (~0.85 ms of a 16.6 ms frame at 4K60)
+
+## Phase 8 — Gaps against LumaFusion and CapCut (all packages of `SPECS.md` 9 are in)
+- [x] WP-U1 New-project flow with selectors and a simpler hub
+- [x] WP-U2 Media tray with drag and drop onto the timeline, drops from other apps
+- [x] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, presets, persistence
+- [x] WP-C Colour tools and scopes
+- [x] WP-S Multiselect and bulk edits (SPECS 5.19)
+- [x] WP-A Audio tools: pan, fades, EQ, classical noise suppression, LUFS normalise, track mixer, ducking, meters
+- [x] WP-T Multilayer titles and fonts (SPECS 5.26)
+- [x] WP-K Generalised keyframes (SPECS 5.23)
+- [x] WP-X Stabiliser (SPECS 5.21)
+- [x] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search (SPECS 5.24)
+- [x] WP-V1 Motion tracking (SPECS 5.22)
+- [x] WP-V4 Slow motion, speed curves, denoise, deflicker
+- [x] WP-V2 Auto cut and manual reframe helper (SPECS 5.25)
+- [x] WP-P Proxy media (SPECS 5.31)
+- [x] WP-V5 Project templates, transition and filter packs
+- [x] WP-M Multicam (SPECS 5.29)
+- [x] WP-R Release preparation: versioning, optional signing, R8 (release APK 6.6 MB), release workflow, local crash report, About, tips
+- Removed from the plan by the privacy rule: ML cutout, subject-detecting reframe, neural voices, vocal isolation, speaker captions,
+  speech recognition.
 
 ## Cross-cutting
 - Every clip-manipulation feature ships with unit tests for collisions and gaps.
 - Profile on the reference device at the end of each phase (frame time, memory, battery).
 - Keep CLAUDE.md and SPECS.md updated when decisions change.
 
-## Media relink and resilience
-- [x] Detect unreadable media at load; mark its clips on the canvas; skip it in preview, audio and thumbnails; block export with a clear message
-- [x] Relink flow (picker, compatibility check with warnings, caches invalidated, saved, not an undo step)
-- [x] Persisted-permission housekeeping near Android's limit
-- [x] Autosave failures surfaced (banner, bounded retries, refuse to leave); `.bak` of the last good save; Recover/Delete for unreadable projects; "reopen after an interrupted session"
-- [ ] Seen working on the OPPO (the app was in use on the device while this was built, so nothing was installed)
+## Deferred
+- Frame blending option for slow motion, pitch-preserving time stretch, animated GIF/WebP (first frame only), dragging lane headers,
+  dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
 
-## Lane layout and drops (added after the first on-device review)
-- [x] Video stack anchored to the bottom of the timeline panel (overlays above, base below, audio under it)
-- [x] Drop zones decided by position with a live native indicator: insert (base), overwrite, new lane, cancel
-- [x] Move lanes up/down (toolbar)
-- [ ] Verified on the OPPO (the device was unreachable when this was written)
-- [x] Insert on overlay/audio lanes: a drop in a cut between two touching clips shifts that lane's later clips right (`LaneOps.insertOnLane`, JVM tests; not seen on the device)
+## Verification debt
 
-## Phase 8 — Closing the gaps with LumaFusion and CapCut (queued work packages)
-Detailed specs, designs, tests and file ownership are in `SPECS.md` section 9; the research is in
-`docs/lumafusion-comparison.md` and `docs/capcut-comparison.md`. Run at most two packages at a time, in the
-waves of SPECS 9.20.
+Everything below is covered by automated tests but has had little or no time on a real phone. Walk through it on the OPPO CPH2841
+with a clip that has sound; report what looks wrong. "Seen" lists what a person or an agent did observe on a device (the OPPO unless
+the Pixel 8 is named; the Pixel 8 is a debug device, not the reference).
 
-### Wave 0 — usability first
-- [x] WP-U1 (JVM-tested; not yet seen on the device) New-project flow with selectors (aspect, resolution, frame rate, colour space), quick presets, "match first clip", simpler hub
-- [x] WP-U2 Media tray (media, stickers, titles, audio) with drag and drop onto the timeline, drops from other apps
-      _Status:_ implemented and unit-tested (domain `DropPlan.decideNew`, tray model, ViewModel drag/drop/import/reorder, drag payload helpers); **not seen on the OPPO** (not reachable by adb when this was built): the tray layout, the platform drag from tray to the native canvas, edge auto-scroll while dragging, drops from other apps and the drag shadow still need a manual check.
+| Area | Seen on a device | Still to check on the OPPO |
+|---|---|---|
+| Hub and projects | Project list (OPPO); new-project sheet opens in a wide window (Pixel) | Selector sheet, presets, "match first clip", thumbnails on cards, search/sort, About and tips, bundle import/export, template wizard, recover/reopen banners |
+| Timeline editing | Layer layout, horizontal and vertical drags, lift from base, new lane, undo, scrub (OPPO); split, import, lanes (Pixel) | Trim handles, insert at junctions (base and overlay), overwrite, delete rules, group moves, magnetic reorder |
+| Media tray | Not seen | Tray layout and snap heights, drag onto the canvas with the live indicator, edge auto-scroll, drops from other apps, reordering |
+| Layout | Divider drag, layout sheet, Large lanes, presets (Pixel) | Inspector docked to a side, customise mode, folding a side column, persistence across restart, split screen |
+| Playback and audio | AAudio started, clock drift 0.4 ms in 55 s (OPPO); playback with the v4 mixer, meter and Mixer sheet (Pixel) | Hearing it: sync by ear, EQ, noise suppression on speech, ducking, fades, pan; export audio against preview; 5-minute drift run |
+| Export | Many ffprobe-checked exports on the OPPO; ETA text and a full UI export (Pixel) | Cancel, Share, HDR HEVC Main10 on an HDR display, real footage colour, long-GOP 4K, two-layer speed |
+| Colour | Grade and scopes render and respond (Pixel) | HLG/SDR mixing look, LUT 3D path, save/apply a look, copy/paste, scopes cost at 4K60 |
+| Titles, captions, stickers | Title and sticker blocks (Pixel) | Layer editor, fonts import, presets, SRT/VTT import, the eight caption styles, stickers and emoji art, photos (EXIF, HEIC) |
+| Keyframes | Not seen | Diamonds, lane drag, exported frames against preview |
+| Speed and slow motion | Export of freeze/2x/reverse/ramp/0.5x checked frame by frame (OPPO); 0.25x interpolation PSNR 43.9 dB vs 35.9 dB (Pixel) | Inspector and curve editor, reverse in preview, denoise/deflicker on real footage |
+| Stabiliser and tracking | Stabiliser demo export 21.5 to 42.6 dB (Pixel) | Inspector sections, live preview, tracking on real clips, attaching a title to a path |
+| Markers and beats | Not seen | Ruler markers, beat detection on music, cut to beat, templates look |
+| Proxies | One 4K clip became a 720p proxy in 7.9 s (Pixel) | Sheet, badges, preview switching to the proxy and back, scrub smoothness with proxies |
+| Multiselect | Select mode, marquee, group move, copy/paste (Pixel) | Cut, paste attributes, align, transitions, group speed/volume/opacity |
+| Multicam, auto cut, reframe, templates, filter and transition packs | Not seen | Everything: sheets, sync on two real recordings, cuts, shader looks, wizard |
+| Interchange and library | Bundle with media, EDL and FCPXML written and read, bundle import (Pixel) | Tags and notes, find in timeline/library, remove unused, relink by name and size; open the FCPXML/EDL in another editor |
+| Relink and recovery | Offer to reopen after a crash (Pixel) | Relink picker round trip, hatched clips, recover from `.bak` |
+| Release build | Release APK signed with a throwaway key verifies; builds and lint pass (host) | Minified build runtime behaviour (JNI lookups, project round trip), About screen, crash report, tips |
 
 ### Wave 1
 - [x] WP-U3 Resizable and customisable layout: dividers, lane heights, dockable panels, layout presets, persistence
@@ -176,3 +186,5 @@ waves of SPECS 9.20.
 ### Standing requirements for every package
 - [ ] Privacy rule: no AI/ML, no network, no third-party service, no analytics (`docs/PRIVACY.md`; `OfflineGuaranteeTest` enforces the technical part)
 - [ ] Verified on the OPPO CPH2841 (list what was and was not seen in the PR body)
+
+When an area has been walked through, move it out of this table and say so in the pull request.

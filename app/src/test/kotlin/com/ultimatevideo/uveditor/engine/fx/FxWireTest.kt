@@ -64,11 +64,30 @@ class FxWireTest {
             EffectType.BRIGHTNESS to 1, EffectType.CONTRAST to 2, EffectType.SATURATION to 3, EffectType.EXPOSURE to 4,
             EffectType.TEMPERATURE to 5, EffectType.TINT to 6, EffectType.BLUR to 7, EffectType.SHARPEN to 8,
             EffectType.VIGNETTE to 9, EffectType.GRAYSCALE to 10, EffectType.SEPIA to 11, EffectType.CHROMA_KEY to 12, EffectType.LUT to 13,
-            EffectType.COLOR_GRADE to 14, EffectType.DENOISE to 16, EffectType.DEFLICKER to 17,
+            EffectType.COLOR_GRADE to 14, EffectType.DENOISE to 16, EffectType.DEFLICKER to 17, EffectType.QUALIFIER to 18,
         )
         for ((type, code) in expected) assertEquals(type.name, code, type.code)
         assertEquals(EffectType.entries.size, expected.size)
         assertEquals(listOf(0, 1, 2, 3, 4), BlendMode.entries.map { it.code })
+    }
+
+    @Test
+    fun `an HSL qualifier writes its 14 values in the documented order`() {
+        val values = EffectType.QUALIFIER.defaults.toMutableList().also {
+            it[com.ultimatevideo.uveditor.domain.Qualifier.HUE] = 0.33
+            it[com.ultimatevideo.uveditor.domain.Qualifier.SHOW_MATTE] = 1.0
+            it[com.ultimatevideo.uveditor.domain.Qualifier.LIGHTNESS] = -0.2
+        }
+        val wire = FxWire.encode(listOf(ClipFx(effects = listOf(Effect("q", EffectType.QUALIFIER, values)))))
+        val at = FxWire.HEADER_DOUBLES
+        assertEquals(18.0, wire[at], 0.0)
+        assertEquals(14.0, wire[at + 1], 0.0)
+        assertEquals(FxWire.HEADER_DOUBLES + 2 + 14, wire.size)
+        assertEquals(0.33, wire[at + 2 + 0], 0.0)    // hue centre
+        assertEquals(0.08, wire[at + 2 + 1], 0.0)    // default hue half width
+        assertEquals(1.0, wire[at + 2 + 10], 0.0)    // show matte
+        assertEquals(1.0, wire[at + 2 + 12], 0.0)    // default saturation gain
+        assertEquals(-0.2, wire[at + 2 + 13], 0.0)   // lightness
     }
 
     @Test
