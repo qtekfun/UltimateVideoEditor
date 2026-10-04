@@ -18,7 +18,8 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
 | Export dialog, ETA, ffprobe | PASS |
 | 4 Stabiliser | PARTIAL (inspector section and analysis flow PASS; steadiness of the result and motion tracking NOT RUN) |
 | 6 Multiselect | PARTIAL (select mode, 2 selected, selection bar, duplicate and undo PASS; cut, paste attributes, align, transitions, group speed NOT RUN) |
-| 2, 7, 8, 9 Keyframes, multicam/templates/auto cut, proxies, interchange | NOT RUN in this pass |
+| 9 Interchange | PARTIAL (bundle with media exported and read back PASS; one defect fixed, PR #87; bundle import, tags/notes, library, EDL/FCPXML NOT RUN) |
+| 2, 7, 8 Keyframes, multicam/templates/auto cut, proxies | NOT RUN in this pass |
 
 ## Setup
 
@@ -124,3 +125,38 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
   (timecode 5:03 after about 4 s), force-stop and reopen (the project is listed with its 0:10 length and the reopen offer shows),
   `am crash` and the Java crash report in About. All PASS: no JNI lookup failure, no serialization failure.
 - Not possible on a release build: `run-as ... kill -SEGV` (not debuggable), so the native crash report was verified on the debug build only.
+
+## 9. Interchange
+
+- Hub card menu: Rename, Duplicate, Export project file, Export bundle (names and sizes), Export bundle with media files, Delete.
+  (This build predates the single "Export bundle for another phone..." dialog of PR #83.)
+- **Export bundle with media files** saved through the system dialog as `New project.uvbundle` (no extra `.zip`; the earlier extension
+  problem is fixed). Pulled with adb: 8.9 MB, `unzip -t` clean, entries `bundle.json`, `project.json`, `thumbnails/project.jpg` and six
+  files under `media/` (clip_a, clip_b_new, anim.gif, anim.webp, click120.m4a, shaky.mp4). PASS.
+  - **D2 (fixed, PR #87)**: the entry for `shaky.mp4` was named `asset-...-raw_3A_2Fstorage_2Femulated_2F0_2FDownload_2Fqa-b_2Fshaky.mp4`.
+    The file had been imported through the picker's search, whose document id is the percent-encoded raw path and gives no display
+    name, so the fallback label came from the undecoded URI. The last segment is now decoded (regression test with that URI). The name
+    also feeds relink by name and size on the receiving phone. Not re-run on the device.
+- Not run: importing the bundle, tags and notes, find in timeline/library, remove unused, EDL and FCPXML export.
+
+## Defects found in this pass
+
+| Id | Area | Description | Status |
+|---|---|---|---|
+| D1 | Native exit report | Tombstone symbols carried stray protobuf tag/length characters | Fixed, PR #84 |
+| D2 | Bundle | Media file name taken from the undecoded document URI | Fixed, PR #87 |
+
+## Not verified in this pass
+
+Keyframes (diamonds, lane, export parity), tracking and attaching a title, auto cut, reframe helper, project templates wizard, filter and
+transition packs, voice effects UI, multicam, proxies (sheet, badges, 4K long-GOP scrub), VTT import, the eight caption styles, title
+presets, photos and EXIF, stickers, HEIC, smooth slow motion, denoise and deflicker, speed export frame by frame, cut to beat, marker
+note indicator, recover from `.bak`, importing a bundle, library and EDL/FCPXML. The OPPO CPH2841 was not used.
+
+## Notes for the next pass
+
+- The Pixel is shared: Android hands the foreground to whichever test app was last started, and the system picker belongs to the app that
+  opened it. Run each multi-step flow in one locked session and check the focus first.
+- Files pushed with adb are not offered by the picker until a media scan:
+  `adb shell content call --uri content://media/external_primary --method scan_volume --arg external_primary`.
+- While the inspector is open it covers the timeline and ruler; close it (toolbar tune button) before seeking.
