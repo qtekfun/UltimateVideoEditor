@@ -149,3 +149,9 @@ add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
 add_test(NAME uv_dsp_host_tests COMMAND uv_dsp_host_tests)
 add_test(NAME uv_voice_host_tests COMMAND uv_voice_host_tests)
 add_test(NAME uv_thumbnail_host_tests COMMAND uv_thumbnail_host_tests)
+
+# Decoder open ladder: reader configurations and software fallback order for vendor decoders (Huawei hisi).
+add_executable(uv_decoder_ladder_host_tests decoder_ladder_host_tests.cpp)
+target_include_directories(uv_decoder_ladder_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_decoder_ladder_host_tests PRIVATE -Wall -Wextra -Werror)
+add_test(NAME uv_decoder_ladder_host_tests COMMAND uv_decoder_ladder_host_tests)
