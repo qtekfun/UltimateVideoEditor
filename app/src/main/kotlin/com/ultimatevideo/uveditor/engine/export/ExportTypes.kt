@@ -92,6 +92,12 @@ data class VideoClipSpec(
     val reverse: Boolean = false,
     /** Effects, blend mode and mask, applied exactly as in the preview. */
     val fx: ClipFx = ClipFx.NONE,
+    /**
+     * Set when an effect value is keyframed: the effects of each project frame of the clip (index =
+     * frame - [startFrame], size [durationFrames]), evaluated by `domain/ParamTracks.kt` as the preview does.
+     * Null means [fx] holds for the whole clip.
+     */
+    val fxFrames: List<ClipFx>? = null,
 )
 
 /**

@@ -17,3 +17,8 @@ data class SetBeatMarkers(
 ) : EditCommand {
     override fun apply(timeline: Timeline) = MarkerOps.setBeats(timeline, beats, from, until)
 }
+
+/** Sets the note and colour of a marker in one undo step. */
+data class AnnotateMarker(val markerId: String, val note: String?, val color: MarkerColor?) : EditCommand {
+    override fun apply(timeline: Timeline) = MarkerOps.annotate(timeline, markerId, note, color)
+}

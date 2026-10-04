@@ -4,6 +4,7 @@ import com.ultimatevideo.uveditor.data.MediaProblem
 import com.ultimatevideo.uveditor.data.MissingAsset
 import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.BezierHandle
 import com.ultimatevideo.uveditor.domain.BlendMode
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipAudio
@@ -22,6 +23,8 @@ import com.ultimatevideo.uveditor.domain.Interpolation
 import com.ultimatevideo.uveditor.domain.Keyframe
 import com.ultimatevideo.uveditor.domain.Keyframes
 import com.ultimatevideo.uveditor.domain.MotionPreset
+import com.ultimatevideo.uveditor.domain.ParamKey
+import com.ultimatevideo.uveditor.domain.displayedAt
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -37,6 +40,9 @@ import com.ultimatevideo.uveditor.mvi.UiState
 data class NoiseRegion(val clipId: String, val startFrame: Long?, val endFrame: Long?) {
     val isComplete: Boolean get() = startFrame != null && endFrame != null && endFrame > startFrame
 }
+
+/** Keys copied from the track of [paramId], with frames relative to the first key; pasted at the playhead. */
+data class ParamClipboard(val paramId: String, val keys: List<ParamKey>)
 
 data class EditorState(
     val isLoading: Boolean = true,
@@ -91,6 +97,8 @@ data class EditorState(
     val snapToMarkers: Boolean = true,
     /** Beat detection is running for the selected clip. */
     val isAnalyzingBeats: Boolean = false,
+    /** The stabiliser's status for the selected clip (see [StabUiState]). */
+    val stab: StabUiState = StabUiState(),
     /** Select mode: a tap toggles clips in the selection and dragging empty space draws a marquee. */
     val selectMode: Boolean = false,
     /** The selected clips when more than one is selected (includes [selectedClipId]); read them through [selection]. */
@@ -105,6 +113,14 @@ data class EditorState(
     val noiseRegion: NoiseRegion? = null,
     /** The track mixer sheet (volume, mute, solo, role, compressor, ducking) is open. */
     val mixerOpen: Boolean = false,
+    /** The media library sheet (tags, notes, usage, cleanup, exports to other tools). */
+    val library: LibraryUiState = LibraryUiState(),
+    /** The note and colour dialog of a marker, or null when closed. */
+    val markerEdit: MarkerEditDraft? = null,
+    /** Keys copied from a parameter's track (frames relative to the first key), ready to paste at the playhead. */
+    val paramClipboard: ParamClipboard? = null,
+    /** The key of the keyframe lane whose curve controls are shown: parameter and clip frame. */
+    val selectedParamKey: Pair<String, Long>? = null,
 ) : UiState {
     /** The timeline the mixer plays: the committed one, or the live audio edit while a slider is dragged. */
     val audioSource: Timeline get() = if (audioSessionActive) visibleTimeline else timeline
@@ -156,6 +172,19 @@ data class EditorState(
 
     /** The selected clip as currently shown, whatever its track type. */
     val selectedClip: Clip? get() = selectedClipId?.let { visibleTimeline.trackOfClip(it)?.clip(it) }
+
+    /** Like [selectedClipFrame] for any selected clip (audio clips too): its own frame under the playhead, or null outside it. */
+    val selectedFrame: Long?
+        get() {
+            val clip = selectedClip ?: return null
+            return if (playhead >= clip.timelineStart && playhead < clip.timelineEnd) playhead - clip.timelineStart else null
+        }
+
+    /**
+     * The selected clip as its controls show it: keyframed effect values, volume, pan and EQ gains evaluated at the
+     * playhead. Edits made from this view write keys at the playhead for the keyframed ones (see `ParamOps.setFxAt`).
+     */
+    val displayedClip: Clip? get() = selectedClip?.displayedAt(selectedFrame)
 
     /** The selected clip if it is something drawn on the canvas: a video clip or a title. */
     val selectedVisualClip: Clip?
@@ -401,6 +430,32 @@ sealed interface EditorIntent : UiIntent {
     data object ClearKeyframes : EditorIntent
 
     /**
+     * Keyframes of single parameters of the selected clip (effect values, volume, pan, EQ gains, pose
+     * components; ids in `domain/ParamIds`). The diamond next to a control toggles a key at the playhead;
+     * the keyframe lane drags keys (provisionally, then [EndParamKeyEdit]), changes their curve and copies
+     * and pastes them.
+     */
+    data class ToggleParamKey(val paramId: String) : EditorIntent
+    data class JumpToParamKey(val paramId: String, val forward: Boolean) : EditorIntent
+    data class ClearParamTrack(val paramId: String) : EditorIntent
+    data class CopyParamKeys(val paramId: String) : EditorIntent
+    data class PasteParamKeys(val paramId: String) : EditorIntent
+    data class SetParamKeyShape(
+        val paramId: String,
+        val frame: Long,
+        val interpolation: Interpolation,
+        val out: BezierHandle? = null,
+        val inn: BezierHandle? = null,
+    ) : EditorIntent
+
+    /** Moves the key at [fromFrame] to [toFrame] with [value]; shown live until [EndParamKeyEdit]. */
+    data class UpdateParamKey(val paramId: String, val fromFrame: Long, val toFrame: Long, val value: Double) : EditorIntent
+    data class EndParamKeyEdit(val commit: Boolean) : EditorIntent
+
+    /** Which parameter row of the keyframe lane has the key whose curve is being shaped. */
+    data class SelectParamKey(val paramId: String?, val frame: Long?) : EditorIntent
+
+    /**
      * Plays the selected clip at [num]/[den] times normal speed (0.1x to 8x). The clip keeps its source
      * range and changes length; later clips on its track follow (slowing down pushes them later,
      * speeding up pulls them earlier).
@@ -435,6 +490,16 @@ sealed interface EditorIntent : UiIntent {
     /** Reads the selected video clip's source as this colour space; null goes back to what its file says. */
     data class SetClipColor(val space: com.ultimatevideo.uveditor.domain.SourceColorSpace?) : EditorIntent
     data class UpdateMask(val mask: ClipMask?) : EditorIntent
+
+    /** Turns the stabiliser on the selected video clip on with these settings, or off with null; one undo step. */
+    data class SetStabilise(val stabilise: com.ultimatevideo.uveditor.domain.Stabilise?) : EditorIntent
+
+    /** Analyses the selected clip's camera motion (background, cancellable); needed once per file. */
+    data object AnalyseStabilise : EditorIntent
+    data object CancelStabilise : EditorIntent
+
+    /** The inspector shows a video clip: reads its analysis status and makes its correction table available. */
+    data object RefreshStabilise : EditorIntent
     data class EndFxEdit(val commit: Boolean) : EditorIntent
     data object ClearFx : EditorIntent
 
@@ -498,4 +563,17 @@ sealed interface EditorEffect : UiEffect {
 
     /** Open the document picker to choose a replacement for [assetId]. */
     data class LaunchRelinkPicker(val assetId: String) : EditorEffect
+
+    /** Open the "create document" picker to choose where the [kind] export is written; the answer is [LibraryIntent.ExportTo]. */
+    data class LaunchInterchangePicker(val kind: InterchangeKind, val suggestedFileName: String, val mime: String) : EditorEffect
 }
+
+/**
+ * The stabiliser's state for the selected clip: whether its file has been analysed ([status]) and, while the
+ * analysis runs, how far it is ([progress], 0..1; null when nothing runs).
+ */
+data class StabUiState(
+    val clipId: String? = null,
+    val status: com.ultimatevideo.uveditor.engine.stabilise.StabStatus = com.ultimatevideo.uveditor.engine.stabilise.StabStatus.Off,
+    val progress: Float? = null,
+)

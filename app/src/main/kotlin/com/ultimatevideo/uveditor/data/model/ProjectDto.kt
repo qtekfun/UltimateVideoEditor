@@ -86,12 +86,17 @@ data class BusCompressorDto(
     val makeupDb: Double = 0.0,
 )
 
-/** A ruler marker at [frame] project frames; [kind] is `manual` or `beat` (see `domain/Marker`). */
+/**
+ * A ruler marker at [frame] project frames; [kind] is `manual` or `beat` (see `domain/Marker`).
+ * [note] and [color] (`red`, `orange`, `yellow`, `green`, `blue` or `purple`) are optional labels.
+ */
 @Serializable
 data class MarkerDto(
     val id: String,
     val frame: Long,
     val kind: String = "manual",
+    val note: String? = null,
+    val color: String? = null,
 )
 
 @Serializable
@@ -125,6 +130,10 @@ data class MediaAssetDto(
      * recognised when relinking (the URI of a lost file says nothing). Absent in older projects.
      */
     val displayName: String? = null,
+    /** Free-form labels the user gave the file in the media library; absent in older projects. */
+    val tags: List<String> = emptyList(),
+    /** A short note about the file, shown in the media library; absent in older projects. */
+    val note: String? = null,
 )
 
 @Serializable
@@ -171,7 +180,39 @@ data class ClipDto(
     val still: String? = null,
     /** Pan, fade handles, EQ, noise suppression and loudness normalisation; absent when unused. */
     val audio: ClipAudioDto? = null,
+    /** Camera-shake correction; absent when off. The analysis it needs is a cache file, never part of the project. */
+    val stabilise: StabiliseDto? = null,
+    /** Keyframes of single parameters (effect values, volume, pan, EQ gains); absent when nothing is animated. */
+    val params: List<ParamTrackDto> = emptyList(),
 )
+
+/** Settings of the stabiliser: [strength] 0..1 and [crop] (`tight`, `medium` or `full`). */
+@Serializable
+data class StabiliseDto(
+    val strength: Double = 0.3,
+    val crop: String = "medium",
+)
+
+/** Keyframes of one parameter; [paramId] is `fx.<effectId>.<index>`, `audio.gainDb`, `audio.pan` or `audio.eq.<band>.gainDb`. */
+@Serializable
+data class ParamTrackDto(
+    val paramId: String,
+    val keys: List<ParamKeyDto> = emptyList(),
+)
+
+/** [value] at [frame] clip frames; [interpolation] is `linear`, `ease`, `hold` or `bezier` (with optional handles). */
+@Serializable
+data class ParamKeyDto(
+    val frame: Long,
+    val value: Double,
+    val interpolation: String = "linear",
+    val out: HandleDto? = null,
+    val inn: HandleDto? = null,
+)
+
+/** A Bezier handle in the unit square of a segment; see `domain/BezierHandle`. */
+@Serializable
+data class HandleDto(val x: Double, val y: Double)
 
 /** Relative speed ([weightPermille], 1000 = the clip's average) at [frame] clip frames; linear between keys. */
 @Serializable
@@ -223,6 +264,9 @@ data class KeyframeDto(
     val frame: Long,
     val transform: TransformDto = TransformDto(),
     val interpolation: String = "linear",
+    /** Bezier handles of the segment leaving / arriving at this key; absent unless [interpolation] is `bezier`. */
+    val out: HandleDto? = null,
+    val inn: HandleDto? = null,
 )
 
 /**

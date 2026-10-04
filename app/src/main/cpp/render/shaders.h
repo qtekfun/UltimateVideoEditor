@@ -263,6 +263,20 @@ vec3 applyGrade(vec3 c) {
 void main() {
     vec2 uv = vPos * 0.5 + 0.5;
     vec4 c = texture(uTex, uv);
+    if (uType == 15) {
+        // Stabiliser (mirrors stabilise/stab_warp.h): uP = key, edge mode, dx, dy, theta, scale. Positions are in
+        // height units, centred, +y down; the texture's row 0 is the image bottom, hence the y flips.
+        float aspect = uTexel.y / uTexel.x;
+        vec2 o = vec2((uv.x - 0.5) * aspect, 0.5 - uv.y) - vec2(uP[2], uP[3]);
+        float cs = cos(uP[4]);
+        float sn = sin(uP[4]);
+        vec2 src = vec2(cs * o.x + sn * o.y, -sn * o.x + cs * o.y) / max(uP[5], 0.0001);
+        vec2 suv = vec2(src.x / aspect + 0.5, 0.5 - src.y);
+        bool inside = suv.x >= 0.0 && suv.x <= 1.0 && suv.y >= 0.0 && suv.y <= 1.0;
+        vec4 warped = texture(uTex, clamp(suv, vec2(0.0), vec2(1.0)));
+        outColor = (uP[1] > 0.5 || inside) ? warped : vec4(0.0);
+        return;
+    }
     if (uType == 7) {
         vec4 acc = vec4(0.0);
         float wsum = 0.0;

@@ -85,7 +85,7 @@ object TimelineOps {
             is EditResult.Success -> {
                 val next = change(target.value.fx)
                 next.problem()?.let { return failure(EditError.InvalidEffect(it)) }
-                return updateClip(timeline, clipId) { it.copy(fx = next) }
+                return updateClip(timeline, clipId) { it.copy(fx = next).withoutDanglingParams() }
             }
         }
     }
@@ -163,6 +163,21 @@ object TimelineOps {
             return failure(EditError.InvalidClip("only a video clip has a source colour space"))
         }
         return updateClip(timeline, clipId) { it.copy(colorOverride = space) }
+    }
+
+    /**
+     * Turns the stabiliser on with [stabilise] (strength rounded to a percent, so equal settings share one table), or
+     * off when null. Only clips that play a video file can be stabilised.
+     */
+    fun setStabilise(timeline: Timeline, clipId: String, stabilise: Stabilise?): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (stabilise == null) return updateClip(timeline, clipId) { it.copy(stabilise = null) }
+        stabilise.problem()?.let { return failure(EditError.InvalidClip(it)) }
+        if (!clip.hasMedia || timeline.trackOfClip(clipId)?.type != TrackType.VIDEO) {
+            return failure(EditError.InvalidClip("only a video clip can be stabilised"))
+        }
+        val normalised = stabilise.copy(strength = Math.round(stabilise.strength * 100) / 100.0)
+        return updateClip(timeline, clipId) { it.copy(stabilise = normalised) }
     }
 
     fun setBlendMode(timeline: Timeline, clipId: String, mode: BlendMode): EditResult<Timeline> =
@@ -274,6 +289,7 @@ object TimelineOps {
         val updated = clip.copy(
             retimedFrames = newDuration.takeIf { it != span },
             keyframes = Keyframes.scaled(clip.keyframes, clip.durationFrames, newDuration),
+            params = ParamTracks.scaledTracks(clip.params, clip.durationFrames, newDuration),
             speedRamp = SpeedRamps.scaled(clip.speedRamp, clip.durationFrames, newDuration),
         )
         val others = track.clips.filter { it.id != clipId }

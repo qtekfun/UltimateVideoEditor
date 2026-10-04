@@ -46,6 +46,18 @@ class LoudnessCacheTest {
     }
 
     @Test
+    fun `the app cache lives in one file shared by projects and survives a restart`() {
+        val first = loudnessCacheIn(folder.root)
+        first.put(LoudnessCache.keyOf(asset(), 0, 300), -18.5)
+
+        // A new instance, as after a restart or in another project, finds it in files/loudness/cache.json.
+        val second = loudnessCacheIn(folder.root)
+        assertEquals(-18.5, second.get(LoudnessCache.keyOf(asset(), 0, 300))!!, 0.0)
+        assertEquals(true, File(folder.root, LOUDNESS_CACHE_PATH).isFile)
+        assertNull(second.get(LoudnessCache.keyOf(asset(), 0, 301)))
+    }
+
+    @Test
     fun `a damaged file is treated as empty and repaired by the next write`() {
         val file = File(folder.root, "cache.json")
         file.writeText("{ this is not json")
