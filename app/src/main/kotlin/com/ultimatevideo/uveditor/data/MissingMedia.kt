@@ -62,8 +62,36 @@ object MissingMedia {
     /** Best label for a file: the stored name, else the last piece of its URI, else its id. */
     fun nameOf(asset: MediaAssetDto): String =
         asset.displayName?.takeIf { it.isNotBlank() }
-            ?: asset.uri.substringAfterLast('/').substringAfterLast(':').takeIf { it.isNotBlank() }
+            ?: leafOfUri(asset.uri).takeIf { it.isNotBlank() }
             ?: asset.id
+
+    /**
+     * The file name at the end of a content URI. Document URIs percent-encode their id
+     * (`.../document/raw%3A%2Fstorage%2F...%2Fclip.mp4`), so the last segment is decoded before the
+     * name is taken; a plain URI behaves as before.
+     */
+    internal fun leafOfUri(uri: String): String {
+        val decoded = percentDecode(uri.substringAfterLast('/'))
+        return decoded.substringAfterLast('/').substringAfterLast(':')
+    }
+
+    private fun percentDecode(text: String): String {
+        if ('%' !in text) return text
+        val out = java.io.ByteArrayOutputStream(text.length)
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            val hex = if (c == '%' && i + 2 < text.length) text.substring(i + 1, i + 3).toIntOrNull(16) else null
+            if (hex != null) {
+                out.write(hex)
+                i += 3
+            } else {
+                out.write(c.toString().toByteArray(Charsets.UTF_8))
+                i++
+            }
+        }
+        return String(out.toByteArray(), Charsets.UTF_8)
+    }
 
     /** The furthest source position, in microseconds, that any clip of [assetId] reads up to. */
     fun requiredSourceMicros(timeline: Timeline, assetId: String, fps: FrameRate): Long {
