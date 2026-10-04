@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "decode/decoder_selection.h"
 #include "decode/ffmpeg/software_policy.h"
 #include "decode/ffmpeg/software_reader.h"
 #include "decode/video_decoder_api.h"
