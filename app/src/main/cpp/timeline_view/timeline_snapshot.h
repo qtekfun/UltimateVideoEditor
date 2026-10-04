@@ -64,6 +64,8 @@ struct RetimeSnapshot {
 struct MarkerSnapshot {
     int64_t frame;
     int32_t flags;
+    // Colour code and note bit, see marker_style.h; 0 in snapshots written before markers were coloured.
+    int32_t extra = 0;
 
     bool beat() const { return (flags & 1) != 0; }
 };
@@ -122,7 +124,8 @@ struct TimelineSnapshot {
 //   keyframes (v3): i32 keyframeCount, then per keyframe: i64 clipKey, i64 frame           (16 bytes each)
 //   retimes (v4): i32 retimeCount, then per retimed clip:
 //           i64 clipKey, i64 sourceSpanFrames, i32 flags(bit0=reverse, bit1=freeze), i32 reserved   (24 bytes each)
-//   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 reserved   (16 bytes each)
+//   markers (v5): i32 markerCount, then per marker: i64 frame, i32 flags(bit0=beat), i32 extra
+//           (bits0..2 colour code 0..6, bit3 has note; was reserved zero, see marker_style.h)   (16 bytes each)
 //   labels (v7): i32 labelCount, then per label: i64 clipKey, i32 length (0..24), then the ASCII bytes padded with
 //           zeros to a multiple of 4
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
