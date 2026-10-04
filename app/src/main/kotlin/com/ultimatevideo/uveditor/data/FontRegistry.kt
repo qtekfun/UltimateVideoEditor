@@ -121,6 +121,42 @@ class FontRegistry(private val dir: File) {
         return FontEntry(id, meta.family, target)
     }
 
+    /** How [install] treated a font: stored now, already there, or refused because the id is taken by different bytes. */
+    enum class InstallStatus { ADDED, ALREADY_PRESENT, CONFLICT }
+
+    class FontInstall(val entry: FontEntry, val status: InstallStatus)
+
+    /**
+     * Like [import], and says whether the font was new. A font whose id is already stored with different
+     * bytes (a 64-bit hash clash, which is not expected to happen) is [InstallStatus.CONFLICT] and is not stored.
+     * @throws FontException for a bad font, @throws IOException when it cannot be written.
+     */
+    fun install(bytes: ByteArray): FontInstall {
+        val meta = FontMetaParser.parse(bytes)
+        val id = idOf(bytes)
+        val existing = file(id)
+        if (existing != null) {
+            val same = try {
+                existing.readBytes().contentEquals(bytes)
+            } catch (e: IOException) {
+                false
+            }
+            return FontInstall(FontEntry(id, meta.family, existing), if (same) InstallStatus.ALREADY_PRESENT else InstallStatus.CONFLICT)
+        }
+        return FontInstall(import(bytes), InstallStatus.ADDED)
+    }
+
+    /** The family name of font [id], or null when it is not imported or not readable. */
+    fun family(id: String): String? = file(id)?.let { f ->
+        try {
+            FontMetaParser.parse(f.readBytes()).family
+        } catch (e: FontException) {
+            null
+        } catch (e: IOException) {
+            null
+        }
+    }
+
     /** All fonts that are still readable, sorted by family name. A damaged file is skipped, not an error. */
     fun list(): List<FontEntry> = dir.listFiles { f -> f.isFile && (f.name.endsWith(".ttf") || f.name.endsWith(".otf")) }.orEmpty()
         .mapNotNull { file ->

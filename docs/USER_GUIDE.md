@@ -34,8 +34,8 @@ format line ("1080p · 30 fps · SDR"), the length and the last change. Tap a ca
 - **⋮ in the top bar**: **New from a template…** (see [Templates](#project-templates)) and **Import project file or
   bundle**, which brings in a `project.json` or a `.uvbundle` exported from another device (see
   [Sharing a project](#sharing-a-project-with-other-devices-and-tools)).
-- **⋮ on a card**: rename, duplicate, export the project file, export a bundle (names and sizes, or with the
-  media files), delete.
+- **⋮ on a card**: rename, duplicate, export the project file, export a bundle for another phone (a dialog asks
+  whether to include the media files, LUTs and fonts), delete.
 - With more than six projects a **search field** and **Sort by** (Recent or Name) appear.
 - Projects that cannot be read are listed with **Recover** (from the `.bak` of the last good save) and
   **Delete**. After a crash the hub offers to reopen the project you had open.
@@ -542,15 +542,28 @@ With a clip selected it opens on that clip's file, so it also works as **find in
 
 Everything goes through the system file picker and stays on your device: nothing is uploaded.
 
-- **Project bundle (`.uvbundle`)**, from the library's export menu (**Export…**) or from a project card in the hub. It is a zip
-  with the project file, a card picture and a list of the media (name and size). Choose **with media files**
-  to copy the media into it (it can be large); files the app cannot read are named and left out.
+- **Project bundle (`.uvbundle`)**, to move a project to another phone: from a project card in the hub
+  (**⋮ → Export bundle for another phone…**) or from the library's export menu (**Export…**). A dialog asks what
+  goes in, with the size it would have:
+  - **Media files**: copies your videos, photos and audio into the bundle (it can be large). Off by default;
+    without it the bundle carries only their names and sizes and the other phone relinks them. Files the app
+    cannot read are named and left out.
+  - **Colour LUTs**: the 3D LUTs the project uses. On by default, they are small.
+  - **Fonts**: the imported fonts the project uses. Off until you tick it, because many font licences do not allow
+    giving the font file to others; check yours first.
+  Whatever the project uses but you leave out (or this phone does not have) is still named in the bundle, so the
+  other phone can tell you which LUT or font to get. The project file and a card picture are always included.
 - **Importing a bundle** (hub, top-right ⋮): the project is unpacked next to your other projects, renamed if the
   name is taken ("Name (2)"), and its media is set up for you: files that came inside the bundle are used from
   the project's own folder; for the others the app looks among the files your other projects already use for one
   with **the same name and size** and relinks it; whatever is left is listed, and you can relink it in the
-  editor ([Missing media and recovery](#missing-media-and-recovery)). A damaged or unsafe bundle is refused with a
-  message and leaves nothing behind.
+  editor ([Missing media and recovery](#missing-media-and-recovery)). LUTs and fonts that came inside are
+  installed into the app's libraries (one that is already there is not copied again; a LUT that clashes with a
+  different one gets a new library key and the project is updated to match). If any could not be installed, or the
+  project needs one that is neither in the bundle nor on this phone, a list stays on screen until you dismiss it,
+  and the project shows them as missing. A damaged or unsafe bundle is refused with a message and leaves nothing
+  behind. Bundles made by an older version open here as before, and a bundle made here opens in an older version
+  (it simply does not install the LUTs and fonts).
 - **EDL (CMX3600)**: one file per video or audio track (`-V1` is the base, `-V2` the overlay above it, `-A1`
   the first audio track), saved as a single `.edl` when there is one track and as a `.zip` when there are
   several. 29.97 and 59.94 are written in drop frame, other rates in non-drop frame. Titles, stickers, photos,

@@ -4,10 +4,16 @@ import com.ultimatevideo.uveditor.data.MatchedClip
 import com.ultimatevideo.uveditor.data.ProjectNames
 import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.data.UnreadableProject
+import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
 import com.ultimatevideo.uveditor.mvi.UiState
+import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
+import com.ultimatevideo.uveditor.ui.library.ImportReportNotes
 import java.util.Locale
+
+/** The bundle dialog of one project: what could go in and what is ticked. */
+data class HubBundleExport(val project: ProjectSummary, val draft: BundleExportDraft)
 
 /**
  * The New project sheet. The picture size is [aspect] x [tier] (or typed pixels for a custom aspect, or a
@@ -80,6 +86,10 @@ data class HubState(
     val sort: ProjectSort = ProjectSort.RECENT,
     val engineVersion: String? = null,
     val engineError: String? = null,
+    /** The dialog that asks what a bundle of [HubBundleExport.project] should contain, or null when closed. */
+    val bundleExport: HubBundleExport? = null,
+    /** What an imported bundle could not install (LUTs and fonts), listed until dismissed; null when nothing went wrong. */
+    val importNotes: ImportReportNotes? = null,
 ) : UiState {
     val unreadableCount: Int get() = unreadable.size
 
@@ -148,9 +158,16 @@ sealed interface HubIntent : UiIntent {
     data class ExportTo(val projectId: String, val uri: String) : HubIntent
     data class ImportFrom(val uri: String) : HubIntent
 
-    /** A `.uvbundle` of the project: with [includeMedia] the media files are copied in, else only their names and sizes. */
-    data class RequestExportBundle(val project: ProjectSummary, val includeMedia: Boolean) : HubIntent
-    data class ExportBundleTo(val projectId: String, val uri: String, val includeMedia: Boolean) : HubIntent
+    /**
+     * A `.uvbundle` of the project. Opens the dialog that asks what goes in (media files, LUTs, fonts), with
+     * [includeMedia] as the starting position of the media switch.
+     */
+    data class RequestExportBundle(val project: ProjectSummary, val includeMedia: Boolean = false) : HubIntent
+    data class BundleChoiceChanged(val choice: BundleChoice) : HubIntent
+    data object ConfirmBundleExport : HubIntent
+    data object DismissBundleExport : HubIntent
+    data class ExportBundleTo(val projectId: String, val uri: String, val choice: BundleChoice) : HubIntent
+    data object DismissImportNotes : HubIntent
 
     data class RecoverProject(val projectId: String) : HubIntent
     data class DeleteUnreadable(val projectId: String) : HubIntent
@@ -163,6 +180,6 @@ sealed interface HubIntent : UiIntent {
 sealed interface HubEffect : UiEffect {
     data class ShowMessage(val text: String) : HubEffect
     data class LaunchExportPicker(val projectId: String, val suggestedFileName: String) : HubEffect
-    data class LaunchBundleExportPicker(val projectId: String, val suggestedFileName: String, val includeMedia: Boolean) : HubEffect
+    data class LaunchBundleExportPicker(val projectId: String, val suggestedFileName: String, val choice: BundleChoice) : HubEffect
     data class OpenEditor(val projectId: String) : HubEffect
 }
