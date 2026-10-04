@@ -179,7 +179,7 @@ private fun TemplateRow(template: ProjectTemplate, user: Boolean, onOpen: () -> 
         Text(template.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val fps = template.fpsNum.toDouble() / template.fpsDen
         Text(
-            "${template.placeholders.size} slots · ${template.width} x ${template.height} · ${"%.4g".format(fps)} fps",
+            "${slotCountLabel(template.placeholders.size)} ·${template.width} x ${template.height} · ${"%.4g".format(fps)} fps",
             style = MaterialTheme.typography.labelSmall,
         )
         if (user) {
