@@ -11,6 +11,7 @@ import com.ultimatevideo.uveditor.data.FontRegistry
 import com.ultimatevideo.uveditor.data.PresetFormatException
 import com.ultimatevideo.uveditor.data.TitlePresetCodec
 import com.ultimatevideo.uveditor.data.TitlePresetStore
+import com.ultimatevideo.uveditor.data.readAtMost
 import com.ultimatevideo.uveditor.domain.MotionPreset
 import com.ultimatevideo.uveditor.domain.TextTemplate
 import com.ultimatevideo.uveditor.domain.TitleContent
@@ -38,7 +39,7 @@ class ContentResolverBytesReader(private val context: Context) : BytesReader {
     override fun read(uri: String, maxBytes: Int): ByteArray {
         val input = context.contentResolver.openInputStream(Uri.parse(uri)) ?: throw IOException("The file cannot be opened")
         return input.use { stream ->
-            val bytes = stream.readNBytes(maxBytes + 1)
+            val bytes = stream.readAtMost(maxBytes + 1)
             if (bytes.size > maxBytes) throw IOException("The file is too large")
             bytes
         }
