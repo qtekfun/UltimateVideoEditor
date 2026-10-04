@@ -270,9 +270,13 @@ Select a clip and tap the sliders icon. Sections depend on the clip:
   it, drag it in time or value, then use copy / paste, jump to previous / next, or clear the track. Keyframes
   follow the clip when you split, trim, move or change its speed.
 - **Effects**: add up to 8 effects (colour grade, brightness, contrast, saturation, exposure, temperature,
-  tint, blur, sharpen, vignette, grayscale, sepia, chroma key, LUT), reorder them, plus a **blend mode** and a
-  **mask** (rectangle or ellipse, feather, invert). The **colour grade** has its own editor, see
-  [Colour grading and scopes](#colour-grading-and-scopes).
+  tint, blur, sharpen, vignette, grayscale, sepia, chroma key, LUT, HSL qualifier), reorder them, plus a **blend
+  mode** and a **mask** (rectangle or ellipse, feather, invert). The **colour grade** has its own editor, see
+  [Colour grading and scopes](#colour-grading-and-scopes). The **HSL qualifier** is a secondary correction: it keys a
+  range of hue (centre and half width on the colour wheel), saturation and luma, each with a softness, and the hue
+  shift, saturation gain and lightness apply only there. Set **Show matte** to 1 to see the selection as a grey
+  picture while you adjust the key (white = selected), **Invert** to 1 to correct everything else, then set Show
+  matte back to 0. It is a plain effect with sliders for now: there is no eyedropper yet.
 - **Title text**: for title clips, the text, size, colour, alignment and bold.
 - **Transition**: its length at the cut and its **look**. Pick from Crossfade, Slide, Push, Zoom, Spin, Glitch, Wipe,
   Whip pan and Light leak; Slide, Push, Spin, Wipe and Whip pan also ask for a direction (the way the new picture
