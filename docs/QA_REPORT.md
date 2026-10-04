@@ -198,3 +198,31 @@ Remaining risks, not fixed (no evidence of a failure, listed so they can be chec
   each engine is used from one thread (the audio engine's measurements are now the only exception, guarded).
 - ThreadSanitizer has never run on the render, decode and export threads; `scripts/run-sanitizer-tests.sh` covers
   only the audio core. Extending it needs fakes for MediaCodec and EGL.
+
+## Verification pass A (Pixel 8, Android 17, build of master at 45f2a2d with `-Puveditor.appIdSuffix=qa`)
+
+Driven by adb with a uiautomator helper (taps by text or description, one atomic session per command under the
+shared device lock, with a focus check so that another agent's app on top is never tapped). The phone is a debug
+device, not the reference OPPO. Sound cannot be heard through adb: audio is judged by AudioFlinger and the media
+framework only. Test media was generated with ffmpeg (1080p30 H.264 + 440 Hz tone, 4K60, long-GOP, JPEG, M4A).
+
+| Area | Step | Result | Evidence |
+|---|---|---|---|
+| Hub | First-run tips: 3 cards, Next/Back/Skip, not shown again after a restart | PASS | UI dump and screenshots |
+| Hub | Welcome (empty) screen | PASS | |
+| Hub | New project sheet: name, quick-start chips, aspect/resolution/frame-rate/colour dropdowns, exact-pixel caption, summary | PASS | TikTok chip sets 9:16, 1080 x 1920; aspect list has 7 entries |
+| Hub | Custom size validation | PASS | 1081 shows "Width and height must be even numbers" |
+| Hub | Create from the YouTube 1080p30 chip; card shows "1080p · 30 fps · SDR" and a placeholder thumbnail for an empty project | PASS | |
+| Editing | Import two clips (4K60 and 1080p30) through the system picker (multi-select) | PASS | both land on V1 back to back, waveforms drawn; the heavy-video proxy suggestion appears and is dismissible |
+| Playback | Play: playhead and picture move, level meter shows, Pause button replaces Play | PASS | AudioFlinger lists a 13.7 s session for the app (the stream stopped when another app took the foreground) |
+| Editing | Split at playhead, Delete (base closes the gap), Undo | PASS | screenshots before and after each step |
+| Export | Dialog: upload presets, resolution, frame rate, codec, bitrate | PASS | |
+| Export | H.264 1080p30 8 Mbps | PASS | ffprobe: h264 1920x1080 30 fps, 840 frames, 28.000 s, aac 28.053 s |
+| Export | HEVC 1080p30 | PASS | ffprobe: hevc 1920x1080 30 fps, 840 frames, 28.000 s, aac |
+| Export | Progress, elapsed time, time left, throughput | PASS | "5 s elapsed · About 12 s left · 46 frames/s · 1,5x real time" |
+| Export | Cancel mid-way | PASS | no partial file left in Downloads |
+| Export | Share | PASS | the system chooser opens ("Compartir 1 archivo") |
+
+### Defects and observations (pass A)
+
+- **A1, cosmetic, open:** after an export the dialog says "Saved New project.mp4." even when the file was saved under another name in the picker (it showed the suggested name, the file on disk had the chosen one).
