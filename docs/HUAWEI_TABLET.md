@@ -67,3 +67,13 @@ awake while it is on USB (Developer options, "Stay awake") and do not send KEYCO
 
 Exit codes: 0 installed, 1 `adb install` failed (message printed), 2 usage or no device, 3 timed out (`HW_TIMEOUT`, default
 240 s), 4 screen locked. Spanish and English labels are handled.
+
+## Black preview and "could not generate thumbnails (CODEC_ERROR)" with files that keep SPS/PPS only in the track header
+
+The decoder ladder above gets `OMX.hisi.video.decoder.avc` started, but the preview stayed black and thumbnails failed for
+ordinary MP4s (SPS/PPS only in `avcC`, which MediaExtractor hands over as `csd-0`/`csd-1`). The log shows `decode/s: rendered 0`
+and, from the codec process, a stream of `PPS or SPS of this slice not valid` / `pps is null ppsid = 0 havn't decode`. The
+hisi decoder forgets its parameter sets on `AMediaCodec_flush`, and we always flush on the first seek. `VideoDecoder` now keeps
+`csd-0..2` and queues them again with `BUFFER_FLAG_CODEC_CONFIG` right after every flush (`resubmitCodecConfig`), which the
+MediaCodec documentation asks for and other decoders ignore. Verified on the MatePad with a 1080p30 and a 4K60 H.264 file: preview,
+filmstrip thumbnails and playback with audio work. The thumbnail extractor goes through the same decoder, so it is fixed too.
