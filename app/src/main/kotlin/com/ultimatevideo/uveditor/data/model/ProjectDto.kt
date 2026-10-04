@@ -80,6 +80,15 @@ data class ClipAudioDto(
     val denoise: DenoiseDto? = null,
     val normalizeDb: Double = 0.0,
     val targetLufs: Double? = null,
+    /** A voice effect: its preset and slider values; absent for a clip without one. */
+    val voice: VoiceFxDto? = null,
+)
+
+/** A voice effect (`domain/VoiceFx`): [preset] is the lower-case preset name, [values] one value per slider. */
+@Serializable
+data class VoiceFxDto(
+    val preset: String,
+    val values: List<Double> = emptyList(),
 )
 
 @Serializable
@@ -172,6 +181,12 @@ data class MediaAssetDto(
     val tags: List<String> = emptyList(),
     /** A short note about the file, shown in the media library; absent in older projects. */
     val note: String? = null,
+    /**
+     * Animated GIF or WebP: how long each frame is shown, in milliseconds, already normalised (see
+     * `AnimationTiming.effectiveDelay`). Absent for photos and for every older project. Only set on an
+     * [isImage] asset with at least two frames.
+     */
+    val animationDelaysMs: List<Int>? = null,
 )
 
 @Serializable

@@ -9,6 +9,7 @@ import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.data.interchange.Edl
 import com.ultimatevideo.uveditor.data.interchange.Fcpxml
 import com.ultimatevideo.uveditor.data.interchange.InterchangeExporter
+import com.ultimatevideo.uveditor.domain.AnimationTiming
 import com.ultimatevideo.uveditor.domain.AnnotateMarker
 import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
 import com.ultimatevideo.uveditor.ui.library.Library
@@ -2847,13 +2848,17 @@ class EditorViewModel(
             val image = MediaAssetDto(
                 id = "asset-${idGenerator()}",
                 uri = uri,
-                durationFrames = project.microsToFrames(PHOTO_DEFAULT_MICROS).coerceAtLeast(1),
+                // An animated picture starts at one pass of its animation; a photo at the default still length.
+                durationFrames = project.microsToFrames(
+                    probed.animationDelaysMs?.let { AnimationTiming(it).periodMicros } ?: PHOTO_DEFAULT_MICROS,
+                ).coerceAtLeast(1),
                 nativeFpsNum = project.num,
                 nativeFpsDen = project.den,
                 colorSpace = probed.colorSpace,
                 hasVideo = false,
                 hasAudio = false,
                 isImage = true,
+                animationDelaysMs = probed.animationDelaysMs,
             )
             reduce { copy(assets = assets + image) }
             scheduleSave()

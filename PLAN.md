@@ -84,7 +84,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] HDR end to end: HLG project space, 10-bit compositing, HLG preview, HEVC Main10 export
 - [x] Stabiliser and motion tracking (classical tracker), auto cut by silence, manual reframe helper
 - [x] Project templates (`.uvtemplate`), starter set, "New from a template" wizard
-- [ ] Voice effects (WP-V3, classical DSP): not built
+- [x] Voice effects (WP-V3, classical DSP): pitch/formant shift and 9 presets (SPECS 9.17). _Status:_ host-verified only (native DSP tests: pitch within 0.1 cent, level within 1 dB, formant moves the envelope, whisper removes the pitch, ring-mod spectrum, impulse responses, chunk invariance, tails, no NaN/denormals; core tests: realtime = offline within 1e-6, retimed path, tail past the media end; JVM tests for the model, JSON, snapshot v6, mapping and view model). Not yet heard on a device; the inspector subsection was not seen on a screen.
 - [x] Vulkan renderer evaluation (`docs/vulkan-evaluation.md`): not worth migrating now (~0.85 ms of a 16.6 ms frame at 4K60)
 
 ## Phase 8 — Gaps against LumaFusion and CapCut (all packages of `SPECS.md` 9 are in)
@@ -117,6 +117,9 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - Frame blending option for slow motion, pitch-preserving time stretch, animated GIF/WebP (first frame only), dragging lane headers,
   dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, viewer thumbnails in motion for multicam.
   (HSL qualifier: the effect, its grouped editor and the eyedropper are done, see DECISIONS.md "HSL qualifier"; host-tested only.)
+
+- Frame blending option for slow motion, pitch-preserving time stretch, animated WebP pictures frame by frame (GIF is done:
+  `engine/still/Gif.kt`; WebP delays are read but its frames show the first picture), dragging markers on the ruler, spectral beat detection, `.lrc`/`.ass` subtitles, HSL qualifiers, viewer thumbnails in motion for multicam.
 
 ## Verification debt
 

@@ -6,6 +6,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.RenderKind
 import com.ultimatevideo.uveditor.domain.SourceColorSpace
 import com.ultimatevideo.uveditor.proxy.ResolvedSource
+import com.ultimatevideo.uveditor.data.animationTiming
 import com.ultimatevideo.uveditor.domain.StillKind
 import com.ultimatevideo.uveditor.engine.still.StillRef
 import com.ultimatevideo.uveditor.domain.Timeline
@@ -89,6 +90,15 @@ internal fun previewRequestsOnCanvas(
                 clip.assetId?.let { id ->
                     // A photo is drawn from its file, a sticker from its built-in art; neither has a decoder.
                     val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: return@let null else id)
+                        // An animated GIF or WebP shows the animation frame of this project frame, looping.
+                        .let { base ->
+                            val timing = assetsById[id]?.animationTiming()
+                            if (clip.still == StillKind.PHOTO && timing != null) {
+                                base.copy(frame = timing.frameIndexAt(playhead.value - clip.keyframeOriginFrame, fps))
+                            } else {
+                                base
+                            }
+                        }
                     PreviewRequest(
                         assetKey = 0,
                         uri = "",

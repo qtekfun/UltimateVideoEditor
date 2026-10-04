@@ -23,6 +23,7 @@ files=(
     "$src/audio/resampler.cpp"
     "$src/audio/retime_source.cpp"
     "$src/audio/spectral_denoise.cpp"
+    "$src/audio/voice_fx.cpp"
 )
 
 status=0

@@ -32,6 +32,7 @@ add_executable(uv_audio_host_tests
     ${ENGINE_DIR}/audio/resampler.cpp
     ${ENGINE_DIR}/audio/retime_source.cpp
     ${ENGINE_DIR}/audio/spectral_denoise.cpp
+    ${ENGINE_DIR}/audio/voice_fx.cpp
 )
 target_include_directories(uv_audio_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
@@ -48,6 +49,15 @@ add_executable(uv_dsp_host_tests
 )
 target_include_directories(uv_dsp_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_dsp_host_tests PRIVATE -Wall -Wextra -Werror)
+
+# Voice effects: pitch/formant shift, whisper, ring mod, band/drive, echo, reverb, chunk invariance, tails.
+add_executable(uv_voice_host_tests
+    voice_host_tests.cpp
+    ${ENGINE_DIR}/audio/voice_fx.cpp
+    ${ENGINE_DIR}/audio/dsp.cpp
+)
+target_include_directories(uv_voice_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_voice_host_tests PRIVATE -Wall -Wextra -Werror)
 
 # Export maths (PTS, audio sample tiling, progress, clip selection).
 add_executable(uv_export_host_tests export_host_tests.cpp)
@@ -137,4 +147,5 @@ add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
 add_test(NAME uv_dsp_host_tests COMMAND uv_dsp_host_tests)
+add_test(NAME uv_voice_host_tests COMMAND uv_voice_host_tests)
 add_test(NAME uv_thumbnail_host_tests COMMAND uv_thumbnail_host_tests)

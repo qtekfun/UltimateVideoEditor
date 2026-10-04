@@ -1008,6 +1008,30 @@ Known cost: chroma PSNR falls (39 to 32 dB on the noisy test clip) while luma ri
 **Why:** every edit rule stays in one place and is already tested; sharing structure only keeps `.uvtemplate` files tiny and private. A separate wizard needs the media importer and creates the project in one step, which does not fit the sheet's format selectors.
 **Alternative:** a Template start mode inside the New project sheet (one flow, but entangled with the selectors and the match-first-clip probing), or placeholder clips with retained stand-in media references (they would break when the media is missing).
 
+## Voice effects (WP-V3)
+
+**Decision:** the effects run in the decode worker, per clip, after the noise suppressor, as an input-aligned streaming processor (`audio/voice_fx.h`), not in the realtime mixer.
+**Why:** it reuses the proven pattern of the denoiser (alignment by priming, flush, source identity by hash), keeps the audio thread free of FFTs, makes realtime, offline and export identical by construction, and needs no look-ahead reads in the mixer to hide the 32 ms latency of the vocoder.
+**Alternative:** processing in the mixer would allow live slider changes without re-decoding, but needs the clip buffer to be read ahead by the latency, per-block FFT work on the audio thread and chunk-exact hop scheduling there.
+
+**Decision:** the sliders are not keyframable and a change restarts the clip's decode (the slider applies on release).
+**Why:** a changed effect is a new source (like a changed noise profile); live keyframing would need parameter interpolation inside the vocoder.
+**Alternative:** apply the effect in the mixer (see above) and reuse `Clip.params` lanes.
+
+**Decision:** pitch shifting by moving spectral peaks rigidly with identity phase locking, formants by a cepstral envelope split (lifter 1.6 ms), instead of time-stretch plus resampling.
+**Why:** it is streaming with a fixed hop and no resampler, keeps latency and CPU bounded (about 16x real time for the whole chain on the dev machine), and keeps the level of sinusoids (the simple bin-scatter variant lost up to 8 dB).
+**Alternative:** WSOLA or phase-vocoder time stretch plus a resampler: better on extreme shifts, but variable output length per frame and more state.
+
+**Decision:** Whisper uses the cepstral envelope with random phases (a noise vocoder), not the harmonic spectrum with random phases.
+**Why:** the harmonic version kept a clearly periodic structure (autocorrelation 0.71 at the pitch lag); the envelope version has none.
+**Alternative:** a separate noise generator filtered by an LPC envelope.
+
+**Decision:** presets define 1 to 3 sliders and resolve to a flat set of native settings in Kotlin; the native side knows no presets. Echo and reverb tails are fed progressively after the media ends, up to the clip's end or 8 s.
+**Why:** presets can change without an engine release or snapshot change; the tail must not be appended at once because the clip buffer is a 1.5 s window.
+**Alternative:** presets in C++ (smaller JSON, more engine coupling); a hard cut at the end of the media.
+
+**Decision:** no text to speech, no vocal isolation and no speaker-aware captions (privacy rule); Android's system TextToSpeech can use network voices.
+
 ## Audio callback crash (SIGSEGV in `adoptStateFrom`) and native-exit diagnostics
 
 **Evidence:** Pixel 8 crash buffer, `com.ultimatevideo.uveditor.mt2`, 2026-10-04 11:29:05, process uptime 6019 s: `SIGSEGV, SEGV_MAPERR, fault addr 0x440`, thread `AAudio_4`, symbolised frames `PreparedSnapshot::adoptStateFrom(PreparedSnapshot const&) const+448` <- `AudioCore::renderBlock(float*, int)+108` <- `AudioCore::render` <- `AudioEngine::onAudioReady` <- Oboe. The previous AAudio stream (`s#3`) had been closed 31 s earlier (the idle stop after a pause), the new stream (`s#4`) was opened and the crash came in its first callback, 1 ms after `requestStart`.
@@ -1100,3 +1124,10 @@ null-object test doubles `NoLayoutStore` and `InMemoryProxyPrefs`. All helper sc
 
 **Update (qualifier editor and eyedropper):** the qualifier now has its own editor (`ui/editor/QualifierControls.kt`): Pick colour, Show matte and Invert chips, a Hue group with a wheel strip marking the selected hues (wrapping around red) and sliders for centre, width and softness, From/To ranges for saturation and luma (`Qualifier.withBound` keeps the minimum below the maximum) with softness, and the correction group with a reset. The eyedropper arms on the effect (`QualifierIntent.Arm`), the preview shows the existing `TrackTargetLayer` for the tap, and the view model maps the tap to the clip's picture with `TrackMath.fromCanvas` (so it honours the clip's position, scale and rotation), reads the colour at the playhead's source time through a `FrameSampler` injected like the stabiliser (`engine/sample/FrameSampler.kt`: `MediaMetadataRetriever.getFrameAtTime` for video, `ImageDecoder` for photos, 5x5 patch mean so one noisy pixel does not set the key), and applies `Qualifier.keyedOn` as one `SetEffectValues` undo step. A tap beside the picture keeps the eyedropper armed; every other failure ends it with a message.
 **Limits:** the colour is read from the picture as the platform shows it, before the clip's effects, stabiliser and colour override: exact for SDR clips in SDR projects, approximate for HLG sources (the matte is built on the working-space signal). A drag instead of a tap uses the middle of the gesture. Not seen on a device: the platform sampler and the Compose editor were compiled but never run; the logic, the patch maths and the key mapping are covered by JVM tests with a fake sampler.
+
+## Animated GIF clips (leftovers)
+
+**Decision:** an animated GIF is an image asset with `animationDelaysMs` (optional JSON, normalised delays; null for photos and old projects). A clip of it loops the animation from the clip's first frame; `AnimationTiming.frameIndexAt` maps a project frame to an animation frame with exact integer microsecond maths (the frame whose interval contains the time; edges belong to the later frame), delays of 10 ms or less count as 100 ms (browser rule). `StillRef` gained `frame`, so the preview's existing picture cache and upload path key each animation frame separately, and the export plan splits the clip into one spec per stretch of the same frame (like animated captions, merging the looped repeats into one rasterised picture), so preview and export pick the same frame at every project frame. GIF frames are decoded by our own pure-Kotlin decoder (`engine/still/Gif.kt`: colour tables, transparency, interlacing, disposal 0..3, LZW) because the platform cannot be asked for "frame N"; frame 0 still goes through `ImageDecoder` like any photo. Import reads the headers only (delays), capped at 48 MB. Default clip length is one pass of the animation.
+**Why:** export needs an exact frame per project frame; `AnimatedImageDrawable` only plays against the wall clock. A decoder written for the JVM can also be tested on the host with a real LZW encoder (table growth, clear codes, interlace, disposal).
+**Not done:** animated WebP frames (the file's delays are read, but decoding needs a VP8/VP8L decoder: it shows the first frame), the GIF loop count (always loops), thumbnails for later frames (first frame), frame blending. Export keeps every distinct animation frame as a canvas-sized picture in memory (existing limit for stills): a GIF with hundreds of frames on a 4K canvas can run out of memory. Not seen on a device: the Android parts (`AndroidStillRasterizer.decodeAnimatedFrame`, import probe) are compiled but never run; the decoder, timing, plan and scene logic are covered by host tests.
+**Alternative:** `AnimatedImageDrawable` + `Choreographer`-free stepping (not deterministic), or FFmpeg (deferred), or converting GIFs to video at import (large files, lossy).

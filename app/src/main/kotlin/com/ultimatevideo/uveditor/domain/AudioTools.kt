@@ -77,6 +77,106 @@ data class Denoise(val strength: Double, val profile: List<Float>) {
     }
 }
 
+/** One slider a [VoicePreset] exposes: [name], its range, default and unit label (shown after the value). */
+data class VoiceSlider(val name: String, val min: Double, val max: Double, val default: Double, val unit: String = "")
+
+/**
+ * The voice effects of a clip. A preset is a named bundle of the classical DSP blocks of the engine
+ * (`audio/voice_fx.h`: phase vocoder pitch and formant shift, whisper, ring modulation, band limit and drive,
+ * echo, reverb); each exposes one to three [sliders] so the user never sees the raw DSP settings.
+ */
+enum class VoicePreset(val label: String, val sliders: List<VoiceSlider>) {
+    /** Pitch moves with the voice's timbre kept (formant 0); the formant slider moves the timbre on its own. */
+    PITCH_FORMANT("Pitch and formant", listOf(VoiceSlider("Pitch", -12.0, 12.0, 3.0, "st"), VoiceSlider("Formant", -12.0, 12.0, 0.0, "st"))),
+    CHIPMUNK("Chipmunk", listOf(VoiceSlider("Pitch", 2.0, 12.0, 6.0, "st"))),
+    DEEP("Deep", listOf(VoiceSlider("Pitch", -12.0, -2.0, -5.0, "st"))),
+    ROBOT("Robot", listOf(VoiceSlider("Metal", 0.0, 1.0, 0.6), VoiceSlider("Buzz", 30.0, 200.0, 60.0, "Hz"))),
+    WHISPER("Whisper", listOf(VoiceSlider("Amount", 0.0, 1.0, 1.0))),
+    RADIO("Radio", listOf(VoiceSlider("Drive", 0.0, 24.0, 6.0, "dB"), VoiceSlider("Narrow", 0.0, 1.0, 0.5))),
+    ECHO("Echo", listOf(VoiceSlider("Delay", 60.0, 800.0, 280.0, "ms"), VoiceSlider("Repeats", 0.0, 0.85, 0.45), VoiceSlider("Mix", 0.0, 1.0, 0.4))),
+    REVERB("Reverb", listOf(VoiceSlider("Size", 0.0, 1.0, 0.5), VoiceSlider("Damping", 0.0, 1.0, 0.5), VoiceSlider("Mix", 0.0, 1.0, 0.3))),
+    MEGAPHONE("Megaphone", listOf(VoiceSlider("Drive", 0.0, 30.0, 14.0, "dB"), VoiceSlider("Tone", 0.0, 1.0, 0.5))),
+    ;
+
+    /** The settings with every slider at its default. */
+    fun defaults(): VoiceFx = VoiceFx(this, sliders.map { it.default })
+}
+
+/**
+ * What the engine's voice chain is given: every value in the units documented in `audio/voice_fx.h`.
+ * Plain data derived from a [VoiceFx]; the mixer never sees presets.
+ */
+data class VoiceParams(
+    val pitchSemitones: Double = 0.0,
+    val formantSemitones: Double = 0.0,
+    val whisperMix: Double = 0.0,
+    val ringHz: Double = 0.0,
+    val ringMix: Double = 0.0,
+    val bandLowHz: Double = 0.0,
+    val bandHighHz: Double = 0.0,
+    val driveDb: Double = 0.0,
+    val echoMs: Double = 0.0,
+    val echoFeedback: Double = 0.0,
+    val echoMix: Double = 0.0,
+    val reverbSize: Double = 0.0,
+    val reverbDamping: Double = 0.5,
+    val reverbMix: Double = 0.0,
+) {
+    val isNeutral: Boolean get() = this == NONE
+
+    companion object {
+        val NONE = VoiceParams()
+        const val MAX_SHIFT_SEMITONES = 12.0
+    }
+}
+
+/** A voice effect: a [preset] and the value of each of its sliders, in the order of [VoicePreset.sliders]. */
+data class VoiceFx(val preset: VoicePreset, val values: List<Double>) {
+    fun problem(): String? {
+        if (values.size != preset.sliders.size) return "the ${preset.label} voice effect has ${preset.sliders.size} settings"
+        for ((slider, value) in preset.sliders.zip(values)) {
+            if (!value.isFinite() || value < slider.min || value > slider.max) return "${slider.name} of the ${preset.label} voice effect must be between ${slider.min} and ${slider.max}"
+        }
+        return null
+    }
+
+    /** The same effect with slider [index] set to [value] (clamped to its range). */
+    fun with(index: Int, value: Double): VoiceFx {
+        val slider = preset.sliders[index]
+        return copy(values = values.mapIndexed { i, v -> if (i == index) value.coerceIn(slider.min, slider.max) else v })
+    }
+
+    /** The engine settings this effect stands for. */
+    fun params(): VoiceParams = when (preset) {
+        VoicePreset.PITCH_FORMANT -> VoiceParams(pitchSemitones = values[0], formantSemitones = values[1])
+        // Chipmunk shifts the voice and its vocal tract together; a deep voice moves its formants a little less so it stays intelligible.
+        VoicePreset.CHIPMUNK -> VoiceParams(pitchSemitones = values[0], formantSemitones = values[0])
+        VoicePreset.DEEP -> VoiceParams(pitchSemitones = values[0], formantSemitones = values[0] * DEEP_FORMANT_SHARE)
+        // Ring modulation plus a very short feedback delay (a comb) gives the metallic, robotic ring.
+        VoicePreset.ROBOT -> VoiceParams(ringHz = values[1], ringMix = values[0], echoMs = ROBOT_COMB_MS, echoFeedback = ROBOT_COMB_FEEDBACK, echoMix = ROBOT_COMB_MIX)
+        VoicePreset.WHISPER -> VoiceParams(whisperMix = values[0])
+        VoicePreset.RADIO -> VoiceParams(bandLowHz = RADIO_LOW_BASE + RADIO_LOW_SPAN * values[1], bandHighHz = RADIO_HIGH_BASE - RADIO_HIGH_SPAN * values[1], driveDb = values[0])
+        VoicePreset.ECHO -> VoiceParams(echoMs = values[0], echoFeedback = values[1], echoMix = values[2])
+        VoicePreset.REVERB -> VoiceParams(reverbSize = values[0], reverbDamping = values[1], reverbMix = values[2])
+        VoicePreset.MEGAPHONE -> VoiceParams(bandLowHz = MEGA_LOW_BASE + MEGA_LOW_SPAN * values[1], bandHighHz = MEGA_HIGH_BASE - MEGA_HIGH_SPAN * values[1], driveDb = values[0])
+    }
+
+    companion object {
+        private const val DEEP_FORMANT_SHARE = 0.8
+        private const val ROBOT_COMB_MS = 9.0
+        private const val ROBOT_COMB_FEEDBACK = 0.55
+        private const val ROBOT_COMB_MIX = 0.5
+        private const val RADIO_LOW_BASE = 300.0
+        private const val RADIO_LOW_SPAN = 300.0
+        private const val RADIO_HIGH_BASE = 4500.0
+        private const val RADIO_HIGH_SPAN = 1700.0
+        private const val MEGA_LOW_BASE = 400.0
+        private const val MEGA_LOW_SPAN = 200.0
+        private const val MEGA_HIGH_BASE = 4000.0
+        private const val MEGA_HIGH_SPAN = 1000.0
+    }
+}
+
 /** The audio settings of one clip, on top of its [Clip.gainDb] volume. */
 data class ClipAudio(
     /** Balance: -1 hard left, 0 untouched, 1 hard right. */
@@ -90,6 +190,11 @@ data class ClipAudio(
     val normalizeDb: Double = 0.0,
     /** The loudness target (LUFS) [normalizeDb] was computed for, for display; null when not normalised. */
     val targetLufs: Double? = null,
+    /**
+     * A voice effect (pitch, whisper, robot, echo, reverb, ...) applied after the noise suppressor and before the
+     * EQ. Its sliders are not keyframable: changing one makes the engine decode the clip again.
+     */
+    val voice: VoiceFx? = null,
 ) {
     val isNeutral: Boolean get() = this == NONE
 
@@ -99,7 +204,7 @@ data class ClipAudio(
         fadeOutFrames < 0 || fadeOutFrames > durationFrames -> "the fade-out must fit inside the clip"
         !normalizeDb.isFinite() || normalizeDb !in -MAX_NORMALIZE_DB..MAX_NORMALIZE_DB -> "normalise gain must be within $MAX_NORMALIZE_DB dB"
         targetLufs != null && (!targetLufs.isFinite() || targetLufs !in -60.0..0.0) -> "the loudness target must be between -60 and 0 LUFS"
-        else -> eq.problem() ?: denoise?.problem()
+        else -> eq.problem() ?: denoise?.problem() ?: voice?.problem()
     }
 
     /**

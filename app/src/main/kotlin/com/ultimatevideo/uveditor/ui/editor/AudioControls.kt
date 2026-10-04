@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +49,9 @@ import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackAudio
 import com.ultimatevideo.uveditor.domain.TrackType
+import com.ultimatevideo.uveditor.domain.VoiceFx
+import com.ultimatevideo.uveditor.domain.VoicePreset
+import com.ultimatevideo.uveditor.domain.VoiceSlider
 import com.ultimatevideo.uveditor.engine.audio.PeakLevels
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -105,6 +109,9 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
 
     // Noise suppression.
     NoiseControls(state, clip, onIntent)
+
+    // Voice effects (pitch, whisper, robot, echo, reverb, ...).
+    VoiceControls(clip, onIntent)
 
     // Loudness.
     LoudnessControls(state, audio, onIntent)
@@ -195,6 +202,76 @@ private fun NoiseControls(state: EditorState, clip: Clip, onIntent: (EditorInten
     }
 }
 
+/**
+ * Voice effects of the selected clip: a preset (pitch, whisper, robot, echo, reverb, ...) and the one to three
+ * sliders it exposes. The engine reads the clip again when an effect changes, so a slider applies when it is
+ * released (one undo step) instead of re-reading the clip on every tick of the drag.
+ */
+@Composable
+private fun VoiceControls(clip: Clip, onIntent: (EditorIntent) -> Unit) {
+    val audio = clip.audio
+    val voice = audio.voice
+    val end = EditorIntent.EndAudioEdit(commit = true)
+    fun commit(next: ClipAudio) {
+        onIntent(EditorIntent.UpdateClipAudio(next))
+        onIntent(end)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text("Voice effects", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { commit(audio.copy(voice = null)) }, enabled = voice != null) { Text("Off") }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        for (preset in VoicePreset.entries) {
+            FilterChip(
+                selected = voice?.preset == preset,
+                onClick = { commit(audio.copy(voice = preset.defaults())) },
+                label = { Text(preset.label) },
+                modifier = Modifier.semantics { contentDescription = "Voice effect ${preset.label}" },
+            )
+        }
+    }
+    if (voice == null) {
+        Text(
+            "Change how this clip's voice sounds. Pick a preset, then adjust its sliders.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    voice.preset.sliders.forEachIndexed { index, slider ->
+        VoiceSliderRow(clip.id, voice, index, slider) { commit(audio.copy(voice = it)) }
+    }
+    Text(
+        "The clip is read again when you release a slider; a long echo or reverb keeps sounding after the clip's own sound ends.",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun VoiceSliderRow(clipId: String, voice: VoiceFx, index: Int, slider: VoiceSlider, onCommit: (VoiceFx) -> Unit) {
+    var local by remember(clipId, voice.preset, voice.values[index]) { mutableFloatStateOf(voice.values[index].toFloat()) }
+    val readout = voiceReadout(slider, local.toDouble())
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(slider.name, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+        Slider(
+            value = local.coerceIn(slider.min.toFloat(), slider.max.toFloat()),
+            onValueChange = { local = it },
+            onValueChangeFinished = { onCommit(voice.with(index, local.toDouble())) },
+            valueRange = slider.min.toFloat()..slider.max.toFloat(),
+            modifier = Modifier.weight(1f).semantics { contentDescription = "${slider.name} $readout" },
+        )
+        Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+    }
+}
+
+/** "+3.0 st", "280 ms", "60%": a slider's value with its unit; fractions of 1 read as percent. */
+internal fun voiceReadout(slider: VoiceSlider, value: Double): String = when {
+    slider.unit.isEmpty() -> "${(value * PERCENT).roundToInt()}%"
+    slider.unit == "st" || slider.unit == "dB" -> "${signedDb(value)} ${slider.unit}"
+    else -> "${value.roundToInt()} ${slider.unit}"
+}
+
 @Composable
 private fun LoudnessControls(state: EditorState, audio: ClipAudio, onIntent: (EditorIntent) -> Unit) {
     val busy = state.audioBusy != null
@@ -235,6 +312,7 @@ private fun summaryOf(audio: ClipAudio): String = buildList {
     if (audio.fadeInFrames > 0 || audio.fadeOutFrames > 0) add("fades")
     if (!audio.eq.isFlat) add("EQ")
     if (audio.denoise != null) add("noise suppression")
+    audio.voice?.let { add("voice: ${it.preset.label}") }
     if (audio.targetLufs != null) add("normalised")
 }.joinToString(" · ")
 
