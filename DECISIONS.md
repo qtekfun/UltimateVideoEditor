@@ -765,4 +765,8 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 **Why:** the format reserves `thumbnails/` so a viewer without the media can show something; per-asset pictures would grow the bundle for little use.
 **Alternative:** include a picture per asset and use them as fallbacks for missing media.
 
+**Decision:** the pickers that ask where to write a bundle, an FCPXML or a single EDL use the generic type `application/octet-stream`; only the zip of several EDLs uses `application/zip`.
+**Why:** seen on the Pixel 8: with a specific type the system file picker appends its own extension to the suggested name (`.uvbundle.zip`, `.fcpxml.xml`), which other tools do not recognise.
+**Alternative:** keep the specific types and strip the doubled extension afterwards (not possible through the picker).
+
 **Not verified:** nothing of this has been imported into Final Cut Pro, DaVinci Resolve or another editor; the sheet and the exports through the system picker are covered by view model tests and golden files (see PLAN.md for what was seen on the Pixel).

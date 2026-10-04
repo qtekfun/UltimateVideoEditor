@@ -359,7 +359,7 @@ With a clip selected it opens on that clip's file, so it also works as **find in
 
 Everything goes through the system file picker and stays on your device: nothing is uploaded.
 
-- **Project bundle (`.uvbundle`)**, from the library's export menu or from a project card in the hub. It is a zip
+- **Project bundle (`.uvbundle`)**, from the library's export menu (**Export…**) or from a project card in the hub. It is a zip
   with the project file, a card picture and a list of the media (name and size). Choose **with media files**
   to copy the media into it (it can be large); files the app cannot read are named and left out.
 - **Importing a bundle** (hub, top-right ⋮): the project is unpacked next to your other projects, renamed if the

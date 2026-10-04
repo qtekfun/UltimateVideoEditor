@@ -255,8 +255,11 @@ object Fcpxml {
             }
             if (clips.any { !it.transform.isIdentity }) notes += "Transform positions are written as a percentage of the frame height (unchecked in an editor)."
             if (clips.any { it.retimedFrames != null || it.reverse || it.isFreeze }) notes += "Retimed clips use a timeMap (unchecked in an editor)."
-            if (timeline.markers.isNotEmpty()) notes += "Marker colours are written as a text prefix."
-            notes += "Connected clips are placed as if the clip they hang on played at normal speed."
+            if (timeline.markers.any { it.color != null }) notes += "Marker colours are written as a text prefix."
+            val base = ClipDeletion.baseTrack(timeline)
+            if (timeline.tracks.any { it.id != base?.id && it.clips.isNotEmpty() }) {
+                notes += "Connected clips are placed as if the clip they hang on played at normal speed."
+            }
         }
 
         private fun markerText(marker: Marker): String {

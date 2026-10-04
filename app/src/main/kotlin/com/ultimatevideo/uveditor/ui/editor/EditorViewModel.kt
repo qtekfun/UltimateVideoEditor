@@ -2393,7 +2393,7 @@ class EditorViewModel(
                     emit(EditorEffect.ShowMessage("There are no video or audio clips to put in an EDL"))
                     return
                 }
-                if (files.size == 1) "edl" to "text/plain" else "zip" to "application/zip"
+                if (files.size == 1) "edl" to INTERCHANGE_MIME else "zip" to ZIP_MIME
             }
             else -> kind.extension to kind.mime
         }

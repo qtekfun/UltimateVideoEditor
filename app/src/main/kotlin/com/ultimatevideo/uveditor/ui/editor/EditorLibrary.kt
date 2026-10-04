@@ -26,11 +26,19 @@ data class MarkerEditDraft(val markerId: String, val frame: Long, val note: Stri
 
 /** The ways a project can leave the app besides the movie export. */
 enum class InterchangeKind(val label: String, val mime: String, val extension: String) {
-    BUNDLE("Project bundle (names and sizes)", "application/zip", "uvbundle"),
-    BUNDLE_WITH_MEDIA("Project bundle with media files", "application/zip", "uvbundle"),
-    EDL("EDL (CMX3600, one file per track)", "text/plain", "edl"),
-    FCPXML("Final Cut Pro XML (FCPXML 1.9)", "application/xml", "fcpxml"),
+    // A generic type keeps the name as suggested: with a specific one Android appends its own extension
+    // (".uvbundle.zip", ".fcpxml.xml"), which other tools would not recognise.
+    BUNDLE("Project bundle (names and sizes)", INTERCHANGE_MIME, "uvbundle"),
+    BUNDLE_WITH_MEDIA("Project bundle with media files", INTERCHANGE_MIME, "uvbundle"),
+    EDL("EDL (CMX3600, one file per track)", INTERCHANGE_MIME, "edl"),
+    FCPXML("Final Cut Pro XML (FCPXML 1.9)", INTERCHANGE_MIME, "fcpxml"),
 }
+
+/** The type used when asking for a file to write, so the picker keeps the suggested name. */
+const val INTERCHANGE_MIME = "application/octet-stream"
+
+/** An EDL of several tracks is a zip of the files, and a zip is named as such. */
+const val ZIP_MIME = "application/zip"
 
 /** The media library (tags, notes, usage, cleanup), marker notes, and exports to other tools. */
 sealed interface LibraryIntent : EditorIntent {
