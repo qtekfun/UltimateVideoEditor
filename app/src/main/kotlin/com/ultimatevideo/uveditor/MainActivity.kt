@@ -44,6 +44,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.ultimatevideo.uveditor.engine.stabilise.ContentResolverFdOpener
 import com.ultimatevideo.uveditor.engine.stabilise.FileStabiliser
+import com.ultimatevideo.uveditor.engine.track.FileMotionTracker
+import com.ultimatevideo.uveditor.engine.track.MediaMetadataAspectProbe
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -108,6 +110,11 @@ class MainActivity : ComponentActivity() {
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                     stabiliser = FileStabiliser(File(filesDir, "projects/$projectId/stab"), ContentResolverFdOpener(contentResolver)),
                                     loudnessCache = loudnessCacheIn(filesDir),
+                                    motionTracker = FileMotionTracker(
+                                        File(filesDir, "projects/$projectId/track"),
+                                        ContentResolverFdOpener(contentResolver),
+                                        MediaMetadataAspectProbe(applicationContext),
+                                    ),
                                 )
                             }
                         },

@@ -171,6 +171,20 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setDucking(timeline, ducking)
     }
 
+    /** Remembers a tracking target on a video clip (SPECS.md 9.15); the analysis itself is not an edit. */
+    data class AddMotionTrack(val track: MotionTrack) : EditCommand {
+        override fun apply(timeline: Timeline) = MotionTrackOps.add(timeline, track)
+    }
+
+    data class RemoveMotionTrack(val trackId: String) : EditCommand {
+        override fun apply(timeline: Timeline) = MotionTrackOps.remove(timeline, trackId)
+    }
+
+    /** Makes a clip follow a tracked path: replaces its keyframes with position keys built from the path; one undo step. */
+    data class AttachToMotionTrack(val clipId: String, val keyframes: List<Keyframe>) : EditCommand {
+        override fun apply(timeline: Timeline) = MotionTrackOps.attach(timeline, clipId, keyframes)
+    }
+
     /** Turns the stabiliser on (or off with null) for a clip; one undo step. */
     data class SetStabilise(val clipId: String, val stabilise: Stabilise?) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setStabilise(timeline, clipId, stabilise)
