@@ -100,6 +100,47 @@ class FileStabiliserTest {
     private fun stabiliser(native: FakeNative, fd: Int? = 77, dir: File = File(folder.root, "stab")) =
         FileStabiliser(dir, { fd }, native, pollMillis = 1L)
 
+    /** Fails the way the real library crashes: a call on a service that was already deleted. */
+    private class StrictNative(private val inner: FakeNative) : StabNative by inner {
+        val gone = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+        val usedAfterDestroy = java.util.concurrent.atomic.AtomicInteger()
+
+        override fun destroy(handle: Long) {
+            gone += handle
+            inner.destroy(handle)
+        }
+
+        override fun cancel(handle: Long) {
+            if (handle in gone) usedAfterDestroy.incrementAndGet()
+            inner.cancel(handle)
+        }
+
+        override fun poll(handle: Long): Long {
+            if (handle in gone) usedAfterDestroy.incrementAndGet()
+            return inner.poll(handle)
+        }
+    }
+
+    // A cancel from the UI racing with the end of the analysis must never reach a native service that was just
+    // destroyed (a crash of the real library: the handle was read under the lock but used after releasing it).
+    @Test
+    fun `cancel never touches a service the analysis has already destroyed`() {
+        val native = StrictNative(FakeNative())
+        val stabiliser = FileStabiliser(File(folder.root, "stab"), { 77 }, native, pollMillis = 1L)
+        val c = clip(0, 90)
+        repeat(300) {
+            val running = java.util.concurrent.atomic.AtomicBoolean(true)
+            val canceller = Thread {
+                while (running.get()) stabiliser.cancel()
+            }
+            canceller.start()
+            runBlocking { stabiliser.analyse(asset, c, fps) { } }
+            running.set(false)
+            canceller.join()
+        }
+        assertEquals(0, native.usedAfterDestroy.get())
+    }
+
     /** Writes a structurally valid cache file as the native code lays it out (the checksum is native's business). */
     private fun writeCache(file: File, startUs: Long, endUs: Long, samples: Int = 100, version: Int = StabCacheFile.ANALYSIS_VERSION) {
         file.parentFile?.mkdirs()

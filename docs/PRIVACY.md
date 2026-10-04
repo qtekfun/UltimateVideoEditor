@@ -28,7 +28,7 @@ All of it is on your device, in the app's private storage unless you export it y
 | Waveform and thumbnail caches | App-private cache folders | Speed; safe to delete |
 | 3D LUT library | App-private storage | LUT files you imported |
 | Preferences (layout, last choices, whether the first-run tips were shown) | App-private preferences | Remember your settings |
-| Last crash report (`files/crash/last-crash.txt`, at most 64 KB) | App-private storage | Lets you share a bug report if you choose; deletable in About |
+| Last crash report (`files/crash/last-crash.txt`, at most 64 KB) | App-private storage | Lets you share a bug report if you choose (it also summarises a native crash or ANR the system recorded for the app: no media or project names); deletable in About |
 | Your media | **Not copied**: projects keep a `content://` reference | Saves space; you stay in control |
 
 Exports are written only where you choose with the system file picker.

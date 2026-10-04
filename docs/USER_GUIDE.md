@@ -615,7 +615,10 @@ Open the **⋮ menu** in the project list and choose **About, privacy and help**
   those in the proxy sheet).
 - **Last crash report**: if the app ever crashed, a short text report was saved on your phone. It has the app version,
   phone model, Android version and the technical stack, with file paths and names removed. **Copy** it or **Share** it
-  (only when you tap Share does it leave the phone) to attach it to a bug report, or **Delete** it.
+  (only when you tap Share does it leave the phone) to attach it to a bug report, or **Delete** it. It also covers
+  crashes the app cannot catch itself (a native crash, or the system closing the app because it stopped responding):
+  at the next start the app asks the system what happened to the previous run and adds a short summary with the
+  function names the system recorded. This all stays on the phone.
 - **Show tips again**: three short tips (import, cut and arrange, export and help) appear on first launch and can be
   brought back here.
 
