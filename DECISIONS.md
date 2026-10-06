@@ -1368,3 +1368,30 @@ p95 and p99 are within 5 % of baseline. **Unverified:** the test project's media
 **Alternatives:** unpacking into app-private storage (rejected by the user: they want to see and manage the files, and 8 GB hidden in app data is hostile); reading the zip with `ZipInputStream` (rejected: no central directory, no size check before copying, stored entries with data descriptors fail); guessing speed, reverse, transitions, markers and keyframes from LumaFusion field names (rejected: no sample has them, a wrong mapping is worse than a reported omission); mapping vertical position with a guessed sign (rejected: the samples cannot tell up from down).
 **Update (device run on a Pixel 8):** `ZipFile` on `/proc/self/fd/N` failed with EACCES for a file in Downloads (FUSE), so the package is read by an own `ZipReader` on positional reads of the open descriptor; and importing LumaFusion's rotation (pi for a clip whose file has a 180 degree tag) turned the picture upside down because the decoder applies the tag, so no rotation is imported.
 **Open:** scale/position units, opacity/volume/pan scales, title placement and alignment values are inferred, not compared with a LumaFusion render. Titles lose fonts and shadows. The `/proc/self/fd` route needs a seekable document: a provider that serves a pipe fails with a clear message.
+
+## 2026-10-06 · Exports survive leaving the app: keep the screen on and run them in a foreground service
+**Context:** the export ran in the dialog's `viewModelScope` and was cancelled when the editor was left; once the app was in the
+background Android could freeze or kill the process, and a screen timeout during a long export suspended it. Rotation was already safe
+(`configChanges`, a retained view model).
+**Chosen:** both (a) `FLAG_KEEP_SCREEN_ON` on the window while a job runs and the activity is visible, and (b) a foreground service,
+`ExportService`, with a progress notification and a Cancel action. The job moved out of the view model into a process-wide
+`ExportExecutor` (pure Kotlin, unit tested) that publishes a `StateFlow`; the dialog is just a view of it, so it reconnects after the
+editor or the activity is recreated and Cancel works from both places. The service only keeps the process alive and mirrors the state
+into a notification; it holds no export logic, so the work does not depend on the service starting (if Android refuses to start it, for
+example when the app is no longer in the foreground, the export still runs and the failure is logged under `UVExport`).
+**Permissions (four, all about running the task, none about data or network):** `FOREGROUND_SERVICE`,
+`FOREGROUND_SERVICE_MEDIA_PROCESSING`, `FOREGROUND_SERVICE_DATA_SYNC`, `POST_NOTIFICATIONS` (runtime, asked when Export is pressed,
+optional). The service type is `mediaProcessing` on Android 15+ (API 35); that type does not exist on Android 12 to 14, where a
+foreground service of an unknown type is rejected for apps targeting 34+, so the manifest declares `mediaProcessing|dataSync` and
+`startForeground` passes `dataSync` below API 35 (which is why its permission is needed). `dataSync` here is only the label for "long
+task"; nothing is synchronised. `OfflineGuaranteeTest` now allows exactly these four and a new test proves INTERNET and the other
+network permissions are still rejected, and that the manifest has one non-exported service and no receivers or providers.
+**Alternatives:** (1) wake lock only: keeps the CPU on but does not stop Android freezing or killing a background process and does not
+help when the user leaves the app. (2) WorkManager: made for deferrable, constraint-based work; an export is started by the user and
+has to start now, show live progress and be cancelled, and it would still run as a foreground service underneath. (3) No service, keep
+screen on only: leaving the app or locking by hand still stops it.
+**Limits:** the system gives a media processing service 6 hours per 24; at the limit `onTimeout` stops the service (the export would
+then run unprotected). A killed process (low memory, swipe-away from Recents while the service is stopped) ends the export with no
+resume, and the partly written SAF file is not removed because nothing is running to remove it (same as a crash before this change);
+the next start has no job so the dialog never claims one is running. Only one export at a time (a second is refused).
+**Not verified on a device:** see the pull request (the device checks could not be run in this session).

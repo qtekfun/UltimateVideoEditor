@@ -6,8 +6,6 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
 import com.ultimatevideo.uveditor.engine.export.ExportErrorCode
 import com.ultimatevideo.uveditor.engine.export.ExportException
-import com.ultimatevideo.uveditor.engine.export.ExportHandle
-import com.ultimatevideo.uveditor.engine.export.ExportListener
 import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
 import com.ultimatevideo.uveditor.engine.export.ExportSettings
@@ -26,9 +24,10 @@ import com.ultimatevideo.uveditor.engine.title.TitleRasterizer
 import com.ultimatevideo.uveditor.mvi.MviViewModel
 import com.ultimatevideo.uveditor.ui.hub.aspectLabelOf
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /**
@@ -49,13 +48,20 @@ class ExportViewModel(
     private val clock: () -> Long = System::currentTimeMillis,
     /** Reads a LUT of the library by key; null when it is missing (its effect then leaves the clip ungraded). */
     private val lutLoader: (Int) -> CubeLut? = { null },
+    /**
+     * Runs the export and outlives this view model (the app passes the process-wide one, see [ExportCenter]). The default
+     * is a private executor on [runner], which is what the unit tests use.
+     */
+    private val executor: ExportExecutor = ExportExecutor(io, runner, CoroutineScope(SupervisorJob() + ioDispatcher), ioDispatcher, clock),
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
 
     private var input: ExportInput? = null
-    private var outputUri: String? = null
-    private var handle: ExportHandle? = null
-    private val lock = Any()
-    private var estimator: ExportEstimator? = null
+
+    init {
+        // The dialog is only a view of the executor: a new view model (after the editor was left and entered again, or
+        // the activity was recreated) picks up an export that is already running or has just finished.
+        viewModelScope.launch { executor.state.collect(::onJobState) }
+    }
 
     override fun onIntent(intent: ExportIntent) {
         when (intent) {
@@ -70,13 +76,14 @@ class ExportViewModel(
             is ExportIntent.SelectPreset -> selectPreset(intent.preset)
             ExportIntent.ChooseLocation -> chooseLocation()
             is ExportIntent.LocationChosen -> intent.uri?.let(::start)
-            ExportIntent.Cancel -> synchronized(lock) { handle?.cancel() }
+            ExportIntent.Cancel -> executor.cancel()
             ExportIntent.Share -> share()
         }
     }
 
     private fun open(newInput: ExportInput) {
         if (state.value.isRunning) return
+        executor.acknowledge()
         input = newInput
         val resolutions = resolutionOptions(newInput.projectWidth, newInput.projectHeight)
         val rates = frameRateOptions(newInput.fps)
@@ -124,7 +131,30 @@ class ExportViewModel(
     }
 
     private fun dismiss() {
-        if (!state.value.isRunning) reduce { copy(visible = false, phase = ExportPhase.Configuring) }
+        if (state.value.isRunning) return
+        executor.acknowledge()
+        reduce { copy(visible = false, phase = ExportPhase.Configuring) }
+    }
+
+    /** Mirrors the executor into the dialog. [ExportJobState.Idle] changes nothing: the dialog may hold its own failure. */
+    private fun onJobState(job: ExportJobState) {
+        when (job) {
+            ExportJobState.Idle -> Unit
+            is ExportJobState.Running -> reduce {
+                copy(
+                    visible = true,
+                    projectName = if (visible) projectName else job.projectName,
+                    phase = ExportPhase.Running(job.progressPermille, job.startedAtMs, job.estimate),
+                )
+            }
+            is ExportJobState.Done -> reduce { copy(visible = true, phase = ExportPhase.Done(job.uri, job.fileName)) }
+            is ExportJobState.Failed -> reduce { copy(visible = true, phase = ExportPhase.Failed(describeExportFailure(job.error, hdr) + job.leftoverNote)) }
+            is ExportJobState.Cancelled -> {
+                // Back to the settings; a view model that never opened the dialog has none to go back to.
+                reduce { copy(visible = resolutions.isNotEmpty(), phase = ExportPhase.Configuring) }
+                executor.acknowledge()
+            }
+        }
     }
 
     /** Changing the size, rate or codec re-suggests a bitrate for the new settings. */
@@ -196,28 +226,18 @@ class ExportViewModel(
             return
         }
         reduce { copy(phase = ExportPhase.Running(0, startedAtMs = clock())) }
-        outputUri = uri
-        viewModelScope.launch {
-            val failure = try {
-                withContext(ioDispatcher) { launchExport(source, uri, resolution, rate, current) }
-                null
-            } catch (e: ExportException) {
-                e
-            } catch (e: IllegalArgumentException) {
-                ExportException(ExportErrorCode.INVALID_ARGUMENT, "Invalid export settings: ${e.message}")
-            }
-            if (failure != null) withContext(ioDispatcher) { finish(failure) }
-        }
+        val job = ExportJob(current.projectName, uri) { buildRequest(source, uri, resolution, rate, current) }
+        if (!executor.start(job)) reduce { copy(phase = ExportPhase.Failed("Another export is already running.")) }
     }
 
-    /** Opens every descriptor, then hands them to the engine. Runs on [ioDispatcher]. */
-    private fun launchExport(
+    /** Opens every descriptor and builds what the engine needs. Runs on the executor's IO dispatcher. */
+    private fun buildRequest(
         source: ExportInput,
         outputUri: String,
         resolution: ResolutionOption,
         rate: FrameRate,
         current: ExportState,
-    ) {
+    ): ExportRequest {
         val plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight)
             ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.")
         val titleImages = plan.titles.map { (key, content) ->
@@ -279,68 +299,13 @@ class ExportViewModel(
             pictureProvider = pictures.takeIf { stillByKey.isNotEmpty() },
             luts = source.timeline.lutKeys().mapNotNull { key -> lutLoader(key)?.let { ExportLut(key, it.size, it.toDirectBuffer()) } },
         )
-        val totalFrames = request.totalFrames
-        synchronized(lock) {
-            estimator = ExportEstimator(
-                totalFrames = totalFrames,
-                movieSeconds = totalFrames * rate.den.toDouble() / rate.num,
-                startedAtMs = (state.value.phase as? ExportPhase.Running)?.startedAtMs ?: clock(),
-            )
-        }
-        val started = runner.start(
-            request,
-            object : ExportListener {
-                override fun onProgress(permille: Int) {
-                    val now = clock()
-                    val estimate = synchronized(lock) { estimator?.onProgress(permille, now) } ?: ExportEstimate()
-                    reduce {
-                        val running = phase as? ExportPhase.Running
-                        if (running != null) copy(phase = running.copy(progressPermille = permille, estimate = estimate)) else this
-                    }
-                }
-
-                override fun onFinished(error: ExportException?) {
-                    viewModelScope.launch(ioDispatcher) { finish(error) }
-                }
-            },
-        )
-        synchronized(lock) { handle = started }
-    }
-
-    /** Releases the engine (joins its thread), then publishes the outcome and cleans up on failure. */
-    private fun finish(error: ExportException?) {
-        val finished = synchronized(lock) {
-            estimator = null
-            handle.also { handle = null }
-        }
-        finished?.close()
-        val uri = outputUri
-        if (error == null && uri != null) {
-            reduce { copy(phase = ExportPhase.Done(uri, io.displayName(uri) ?: suggestedFileName(projectName))) }
-            return
-        }
-        // A failed export never leaves a half-written file unmentioned: when the provider refuses to delete it, say so.
-        val leftover = if (uri != null && !io.deleteOutput(uri)) " A partly written file could not be removed: ${io.displayName(uri) ?: "the chosen file"}. It is incomplete; delete it." else ""
-        outputUri = null
-        reduce {
-            if (error?.code == ExportErrorCode.CANCELLED) copy(phase = ExportPhase.Configuring) else copy(phase = ExportPhase.Failed(describe(error) + leftover))
-        }
-    }
-
-    private fun describe(error: ExportException?): String = when (error?.code) {
-        null -> "The export failed"
-        ExportErrorCode.UNSUPPORTED_FORMAT ->
-            "This device cannot encode with these settings: ${error.message}." +
-                if (state.value.hdr) " Export as SDR instead." else ""
-        ExportErrorCode.IO_ERROR -> "A file error stopped the export: ${error.message}"
-        else -> "The export failed: ${error.message}"
+        return request
     }
 
     override fun onCleared() {
-        // Leaving the screen aborts a running export; the engine joins its thread in close().
-        val running = synchronized(lock) { handle.also { handle = null } }
-        running?.cancel()
-        running?.close()
+        // A running export is not ours to stop: it goes on in the executor, kept alive by the foreground service. A
+        // finished one that nobody looked at is dropped so that the next editor does not open on a stale result.
+        executor.acknowledge()
     }
 
     private companion object {

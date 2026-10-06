@@ -1,6 +1,11 @@
 package com.ultimatevideo.uveditor
 
 import android.os.Bundle
+import android.view.WindowManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -76,8 +81,22 @@ import com.ultimatevideo.uveditor.engine.track.MediaMetadataAspectProbe
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    /** The screen stays on while an export runs and this activity is visible; the flag is cleared as soon as it ends. */
+    private fun keepScreenOnWhileExporting() {
+        val executor = com.ultimatevideo.uveditor.ui.export.ExportCenter.executor(this)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                executor.state.map { it.isRunning }.distinctUntilChanged().collect { running ->
+                    if (running) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        keepScreenOnWhileExporting()
         // Dark only: light system-bar icons on a transparent bar whatever the system theme says.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),

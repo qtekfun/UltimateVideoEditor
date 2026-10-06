@@ -566,6 +566,14 @@ Tap the export icon, choose resolution, frame rate, codec (H.264 or HEVC), bitra
 shown while it renders; you can cancel (the partial file is removed) and share the file when it finishes.
 Export is refused, with the clips named, if some media is missing.
 
+**Leaving the app during an export.** The export keeps running if you press Home, switch to another app, rotate the
+screen, go back to the project list or the screen turns off. While it runs, a quiet notification "Exporting <project>" shows the
+percentage and the time left, with a **Cancel** button; cancelling there removes the partial file just like the dialog's Cancel. When
+the movie is ready the notification changes to "Export finished" (tap it to open the app). While the export runs and the app is on
+screen, the screen stays awake. The first time you press Export, Android asks whether the app may show notifications; if you say no
+the export still runs in the background, you just see no notification (look in the Recent apps list to find your way back). Only
+one export runs at a time. If Android has to close the app because the phone is out of memory, the export stops; start it again.
+
 ## Media library
 
 The **library icon** in the toolbar (a stack of clips with a play triangle) opens the project's media library.

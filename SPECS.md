@@ -356,6 +356,19 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   integer grid values. The AAC encoder delay (2048 samples) is compensated, so the first 42.7 ms of the mix are
   not heard. Progress, cancel and share through the export ViewModel; a failed or cancelled export deletes
   the partial file. Output is written through SAF (`CreateDocument`).
+- **Export runs outside the screen** (`ui/export/ExportExecutor`, `ExportCenter`, `ExportService`). One process-wide `ExportExecutor`
+  owns the job, the `ExportRunner` handle, the time-left estimator and the cleanup (close the engine, delete the output unless it
+  succeeded) and publishes `StateFlow<ExportJobState>` (`Idle`, `Running(permille, startedAtMs, estimate)`, `Done`, `Failed`, `Cancelled`;
+  a finished one stays until `acknowledge()`). `ExportViewModel` only builds an `ExportJob` (the lambda that opens descriptors and builds
+  the `ExportRequest`, run off the main thread) and mirrors the state into `ExportPhase`; a new view model (editor re-entered, activity
+  recreated) reconnects to a running export, Cancel works from the dialog and the notification, and `onCleared` no longer cancels. Starting
+  a job starts `ExportService`, a foreground service (`mediaProcessing` on API 35+, `dataSync` on 31 to 34; permissions
+  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROCESSING`, `FOREGROUND_SERVICE_DATA_SYNC`) that shows a low-importance, silent,
+  ongoing "Exporting <project>" notification with a determinate bar (whole percent, `exportNotificationFor`) and a Cancel action, then
+  a dismissible finished/failed notification that opens the app. `POST_NOTIFICATIONS` is asked when the user presses Export and is
+  optional. `MainActivity` keeps the screen on (`FLAG_KEEP_SCREEN_ON`) while a job runs and the activity is started. Only one export
+  at a time. If the system kills the process the export is gone (no native resume): the next start has no job, so nothing claims one is
+  running; the partly written file is not tidied then (the output is a SAF document the user chose; see DECISIONS.md).
 - HDR export: for an HLG project on a device whose encoder lists HEVC Main10 with HLG, the export dialog
   offers HDR (default on). The job renders into a ten-bit recordable encoder surface tagged BT.2020 HLG and
   configures HEVC Main10 with `COLOR_STANDARD_BT2020`, `COLOR_TRANSFER_HLG` and limited range. Without
