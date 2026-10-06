@@ -51,6 +51,7 @@ struct SimParams {
     // Frames the stream really has, as timeline frame numbers (sorted). Empty: every frame 0..frames-1. A 30 fps clip on a
     // 60 fps timeline has the even ones; `gop` then counts stream frames.
     std::vector<int64_t> streamFrames;
+    int64_t startAt = 0;   // first frame the consumer asks for
     bool markGaps = true;  // VideoDecoder::pump marking the frames between two consecutive outputs as unavailable
 };
 
@@ -64,6 +65,7 @@ struct SimResult {
     int64_t substituted = 0;       // timeline frames the consumer showed with an earlier picture
     int64_t wrongSubstitutes = 0;  // ... that was not the latest frame the stream has at or before it
     int64_t lateSubstitutes = 0;   // shown with a later picture, the earlier one having been recycled (two lacking frames in a row)
+    std::map<int64_t, int64_t> shown;  // substituted frame -> the frame that stood in
     double elapsedMs = 0;
     bool timedOut = false;
     double fps() const { return elapsedMs > 0 ? 1000.0 * static_cast<double>(consumed) / elapsedMs : 0; }
@@ -83,11 +85,11 @@ public:
 
     SimResult run() {
         double tDecoder = 0, tConsumer = 0;
-        int64_t next = 0;           // output frame being fetched
+        int64_t next = p_.startAt;  // output frame being fetched
         bool drawing = false;       // consumer is in its draw phase
         bool jumped = false;
         int64_t consumerSource = 0;
-        target_ = 0;
+        target_ = next;
         while (next < p_.frames && now_ < 120000.0) {
             if (tDecoder <= tConsumer) {
                 now_ = std::max(now_, tDecoder);
@@ -120,6 +122,7 @@ public:
                         const int64_t shown = earlier ? *std::prev(later) : *later;
                         auto have = std::upper_bound(p_.streamFrames.begin(), p_.streamFrames.end(), consumerSource);
                         ++result_.substituted;
+                        result_.shown[consumerSource] = shown;
                         if (!earlier) ++result_.lateSubstitutes;
                         if (earlier && (have == p_.streamFrames.begin() || shown != *std::prev(have))) ++result_.wrongSubstitutes;
                         drawing = true;
@@ -201,6 +204,20 @@ private:
                 *missing = f;
                 return true;
             }
+        }
+        if (!p_.markGaps) return false;
+        // VideoDecoder::findMissing: the whole window is absent from the stream, so fetch the next real frame beyond it.
+        for (int64_t f = clamped; f <= hi; ++f) {
+            if (unavailable_.count(f) == 0) return false;
+        }
+        const int64_t reach = std::min<int64_t>(lastFrame_, hi + 8);
+        for (int64_t f = hi + 1; f <= reach; ++f) {
+            if (unavailable_.count(f) != 0) continue;
+            if (needsFrame(f)) {
+                *missing = f;
+                return true;
+            }
+            break;
         }
         return false;
     }
@@ -439,6 +456,46 @@ void lowRateClipJumpSeeksOnce() {
     CHECK(r.wrongSubstitutes == 0);
 }
 
+// The stall of the failed 4K export: a stretch of seven frames the stream cannot produce after a seek (open GOP: the pictures before a
+// key frame in display order are dropped), every frame of the window known to be absent and nothing in the consumer's cache. The
+// decoder used to idle and the consumer to wait for ever (the recovery found nothing missing); now the decoder fetches the next
+// real frame and the consumer shows it.
+SimParams holeAt(int64_t holeFrom, int64_t holeTo, int64_t startAt, bool fixed) {
+    SimParams p;
+    p.frames = holeTo + 40;
+    p.gop = 48;
+    p.decodeMs = 8.0;
+    p.seekMs = 60.0;
+    p.startAt = startAt;
+    p.markGaps = fixed;
+    for (int64_t f = 0; f < p.frames; ++f) {
+        if (f < holeFrom || f > holeTo) p.streamFrames.push_back(f);
+    }
+    return p;
+}
+
+void windowOfAbsentFramesDoesNotStall() {
+    // Asked in order from just before the hole, the previous frame (3367) stands in for 3368.
+    SimParams a = holeAt(3368, 3374, 3366, true);
+    const SimResult ra = simulate(a);
+    report("hole 3368..3374, from 3366", a, ra);
+    CHECK(!ra.timedOut);
+    CHECK(ra.shown.count(3368) != 0 && ra.shown.at(3368) == 3367);
+    CHECK(ra.wrongSubstitutes == 0);
+    // Cut into the hole with nothing held: the next real frame (3375, 7 away) stands in; nothing waits for 3368.
+    SimParams b = holeAt(3368, 3374, 3368, true);
+    const SimResult rb = simulate(b);
+    report("hole 3368..3374, cut at 3368", b, rb);
+    CHECK(!rb.timedOut);
+    CHECK(rb.shown.count(3368) != 0 && rb.shown.at(3368) == 3375);
+    CHECK(rb.consumed == b.frames - 3368);
+    // Without the fix this deadlocks (the decoder idles with the window all absent).
+    SimParams c = holeAt(3368, 3374, 3368, false);
+    const SimResult rc = simulate(c);
+    report("hole 3368..3374, before", c, rc);
+    CHECK(rc.timedOut);
+}
+
 }  // namespace
 
 int main() {
@@ -450,6 +507,7 @@ int main() {
     jumpForwardBeyondOneGopSeeksOnce();
     lowRateClipsDoNotSeekPerMissingFrame();
     lowRateClipJumpSeeksOnce();
+    windowOfAbsentFramesDoesNotStall();
     if (g_failures == 0) std::puts("all decode simulation tests passed");
     return g_failures == 0 ? 0 : 1;
 }
