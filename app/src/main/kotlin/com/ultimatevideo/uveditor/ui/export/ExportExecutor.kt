@@ -38,6 +38,7 @@ class ExportExecutor(
     private var estimator: ExportEstimator? = null
     private var job: ExportJob? = null
     private var cancelRequested = false
+    private var finishNote = "" // set by the engine just before it finishes: frames that had to be repeated
     private var completed = false
 
     /** Starts [next]; false when an export is already running (nothing is touched then). */
@@ -90,6 +91,10 @@ class ExportExecutor(
                 object : ExportListener {
                     override fun onProgress(permille: Int) = publishProgress(permille)
 
+                    override fun onNote(note: String) {
+                        synchronized(lock) { finishNote = note }
+                    }
+
                     override fun onFinished(error: ExportException?) {
                         scope.launch(ioDispatcher) { finish(error) }
                     }
@@ -124,9 +129,12 @@ class ExportExecutor(
     private fun finish(error: ExportException?) {
         val finished: ExportHandle?
         val source: ExportJob
+        val note: String
         synchronized(lock) {
             if (completed) return
             completed = true
+            note = finishNote
+            finishNote = ""
             estimator = null
             finished = handle
             handle = null
@@ -136,7 +144,7 @@ class ExportExecutor(
         finished?.close()
         if (error == null) {
             val name = io.displayName(source.outputUri) ?: suggestedFileName(source.projectName)
-            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name)
+            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name, note)
             return
         }
         val removed = io.deleteOutput(source.outputUri)
