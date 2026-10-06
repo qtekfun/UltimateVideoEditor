@@ -252,7 +252,7 @@ private fun HubOverflowMenu(onImport: () -> Unit, onOpenAbout: () -> Unit, onTem
         IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             if (onTemplates != null) DropdownMenuItem(text = { Text("New from a template…") }, onClick = { open = false; onTemplates() })
-            DropdownMenuItem(text = { Text("Import project file or bundle") }, onClick = { open = false; onImport() })
+            DropdownMenuItem(text = { Text("Import project, bundle or LumaFusion package") }, onClick = { open = false; onImport() })
             DropdownMenuItem(text = { Text("About, privacy and help") }, onClick = { open = false; onOpenAbout() })
         }
     }

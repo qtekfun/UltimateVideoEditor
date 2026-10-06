@@ -194,7 +194,8 @@ struct ThumbDecoder::Impl {
                 f.v = uv + 1;
                 f.uvRowStride = stride;
                 f.uvPixelStride = 2;
-                needed = static_cast<size_t>(stride) * sliceHeight * 3 / 2;
+                // Some decoders (Tensor on a Pixel 8) leave the last chroma row unpadded: it needs only the visible width.
+                needed = static_cast<size_t>(stride) * sliceHeight + static_cast<size_t>(stride) * (sliceHeight / 2 - 1) + static_cast<size_t>(width);
                 break;
             }
             case kColorFormatYuv420Planar: {
@@ -215,7 +216,7 @@ struct ThumbDecoder::Impl {
                 f.uvRowStride = stride;
                 f.uvPixelStride = 4;
                 f.sampleBytes = 2;
-                needed = static_cast<size_t>(stride) * sliceHeight * 3 / 2;
+                needed = static_cast<size_t>(stride) * sliceHeight + static_cast<size_t>(stride) * (sliceHeight / 2 - 1) + static_cast<size_t>(width) * 2;
                 break;
             }
             default:
@@ -335,7 +336,14 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
     // No output surface: frames come back as linear YUV in CPU memory, which also avoids the
     // vendor-compressed buffer formats a surface path can hand out.
     Status result = Status::Ok;
-    impl->codec = AMediaCodec_createDecoderByType(mime);
+    // iPhone Dolby Vision (profile 8) is an HEVC stream with an enhancement layer the decoder may ignore; most devices have no
+    // "video/dolby-vision" decoder (Pixel 8: "no decoder"), so the HEVC base layer is decoded instead.
+    std::string decoderMime = mime;
+    if (decoderMime == "video/dolby-vision") {
+        decoderMime = "video/hevc";
+        AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, decoderMime.c_str());
+    }
+    impl->codec = AMediaCodec_createDecoderByType(decoderMime.c_str());
     if (impl->codec == nullptr) {
         LOGE("no decoder for %s", mime);
         result = Status::CodecError;
