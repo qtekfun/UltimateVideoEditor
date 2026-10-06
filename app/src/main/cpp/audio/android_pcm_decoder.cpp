@@ -1,5 +1,6 @@
 #include "audio/android_pcm_decoder.h"
 #include "core/fd_util.h"
+#include "core/file_lock.h"
 
 #include <android/log.h>
 #include <media/NdkMediaFormat.h>
@@ -57,6 +58,9 @@ Status AndroidPcmDecoder::init(int fd) {
     }
     fd_ = core::openIndependent(fd);
     if (fd_ < 0) return Status::IoError;
+    // Readers of one file that share a file offset must not interleave (core/file_lock.h); held while opening.
+    fileLock_ = core::fileLockFor(fd_);
+    std::unique_lock<std::mutex> ioLock(*fileLock_);
 
     extractor_ = AMediaExtractor_new();
     if (extractor_ == nullptr) return Status::CodecError;
@@ -105,7 +109,12 @@ Status AndroidPcmDecoder::init(int fd) {
 }
 
 Status AndroidPcmDecoder::seekToMicros(int64_t micros) {
-    if (AMediaExtractor_seekTo(extractor_, micros, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC) != AMEDIA_OK) {
+    media_status_t sought;
+    {
+        std::lock_guard<std::mutex> io(*fileLock_);
+        sought = AMediaExtractor_seekTo(extractor_, micros, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+    }
+    if (sought != AMEDIA_OK) {
         LOGE("extractor seek failed");
         return Status::IoError;
     }
@@ -157,15 +166,23 @@ Status AndroidPcmDecoder::pump() {
         if (idx < 0) break;
         size_t cap = 0;
         uint8_t* buf = AMediaCodec_getInputBuffer(codec_, static_cast<size_t>(idx), &cap);
-        const ssize_t n = buf != nullptr ? AMediaExtractor_readSampleData(extractor_, buf, cap) : -1;
+        ssize_t n = -1;
+        int64_t sampleTime = 0;
+        if (buf != nullptr) {
+            std::lock_guard<std::mutex> io(*fileLock_);
+            n = AMediaExtractor_readSampleData(extractor_, buf, cap);
+            if (n >= 0) {
+                sampleTime = AMediaExtractor_getSampleTime(extractor_);
+                AMediaExtractor_advance(extractor_);
+            }
+        }
         if (n < 0) {
             AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(idx), 0, 0, 0,
                                          AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
             inputDone_ = true;
         } else {
             AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(idx), 0, static_cast<size_t>(n),
-                                         static_cast<uint64_t>(AMediaExtractor_getSampleTime(extractor_)), 0);
-            AMediaExtractor_advance(extractor_);
+                                         static_cast<uint64_t>(sampleTime), 0);
         }
         queued = true;
     }

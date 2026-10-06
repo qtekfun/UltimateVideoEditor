@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstring>
 
+#include "core/file_lock.h"
 #include "stabilise/luma.h"
 #include "thumbnail/yuv_tile.h"
 
@@ -50,6 +51,7 @@ int32_t intOr(AMediaFormat* f, const char* key, int32_t fallback) {
 }  // namespace
 
 struct LumaDecoder::Impl {
+    core::FileLock fileLock;  // held around extractor calls that read the file (core/file_lock.h)
     AMediaExtractor* extractor = nullptr;
     AMediaCodec* codec = nullptr;
     int rotation = 0;
@@ -72,14 +74,22 @@ struct LumaDecoder::Impl {
         if (idx < 0) return;
         size_t cap = 0;
         uint8_t* buf = AMediaCodec_getInputBuffer(codec, static_cast<size_t>(idx), &cap);
-        const ssize_t n = buf != nullptr ? AMediaExtractor_readSampleData(extractor, buf, cap) : -1;
+        ssize_t n = -1;
+        int64_t sampleTime = 0;
+        if (buf != nullptr) {
+            std::lock_guard<std::mutex> io(*fileLock);
+            n = AMediaExtractor_readSampleData(extractor, buf, cap);
+            if (n >= 0) {
+                sampleTime = AMediaExtractor_getSampleTime(extractor);
+                AMediaExtractor_advance(extractor);
+            }
+        }
         if (n < 0) {
             AMediaCodec_queueInputBuffer(codec, static_cast<size_t>(idx), 0, 0, 0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
             inputEos = true;
         } else {
             AMediaCodec_queueInputBuffer(codec, static_cast<size_t>(idx), 0, static_cast<size_t>(n),
-                                         static_cast<uint64_t>(AMediaExtractor_getSampleTime(extractor)), 0);
-            AMediaExtractor_advance(extractor);
+                                         static_cast<uint64_t>(sampleTime), 0);
         }
     }
 
@@ -156,6 +166,9 @@ std::unique_ptr<LumaDecoder> LumaDecoder::open(int fd, Status* status) {
     if (fd < 0 || ::fstat(fd, &st) != 0 || st.st_size <= 0) return fail(Status::IoError);
 
     auto impl = std::make_unique<Impl>();
+    // Readers of one file that share a file offset must not interleave (core/file_lock.h); held while opening.
+    impl->fileLock = core::fileLockFor(fd);
+    std::unique_lock<std::mutex> openLock(*impl->fileLock);
     impl->extractor = AMediaExtractor_new();
     if (impl->extractor == nullptr) return fail(Status::CodecError);
     if (AMediaExtractor_setDataSourceFd(impl->extractor, fd, 0, static_cast<off64_t>(st.st_size)) != AMEDIA_OK) {
@@ -186,6 +199,7 @@ std::unique_ptr<LumaDecoder> LumaDecoder::open(int fd, Status* status) {
     impl->durationUs = durationUs;
     // The preview decoder numbers frames from the first sample's time, so time zero here is the same instant.
     impl->firstPtsUs = std::max<int64_t>(AMediaExtractor_getSampleTime(impl->extractor), 0);
+    openLock.unlock();
 
     Status result = Status::Ok;
     impl->codec = AMediaCodec_createDecoderByType(mime);
@@ -208,7 +222,10 @@ std::unique_ptr<LumaDecoder> LumaDecoder::open(int fd, Status* status) {
 Status LumaDecoder::run(int64_t startUs, int64_t endUs, int maxDimension, const std::atomic<bool>& cancel, const FrameFn& onFrame) {
     Impl& d = *impl_;
     startUs = std::max<int64_t>(0, startUs);
-    AMediaExtractor_seekTo(d.extractor, d.firstPtsUs + startUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+    {
+        std::lock_guard<std::mutex> io(*d.fileLock);
+        AMediaExtractor_seekTo(d.extractor, d.firstPtsUs + startUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+    }
     AMediaCodec_flush(d.codec);
     d.inputEos = false;
 

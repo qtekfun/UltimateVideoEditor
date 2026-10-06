@@ -1,6 +1,7 @@
 #include "audio/waveform_extractor.h"
 
 #include "audio/pcm_decoder.h"
+#include "core/file_lock.h"
 #include "audio/ffmpeg_pcm.h"
 #include "decode/ffmpeg/ffmpeg_api.h"
 
@@ -49,6 +50,9 @@ static core::Status extractWaveformPlatform(int fd, const std::atomic<bool>& can
         return Status::IoError;
     }
 
+    // Readers of one file that share a file offset must not interleave (core/file_lock.h).
+    const core::FileLock fileLock = core::fileLockFor(fd);
+    std::unique_lock<std::mutex> openLock(*fileLock);
     std::unique_ptr<AMediaExtractor, ExtractorDeleter> extractor(AMediaExtractor_new());
     if (!extractor) return Status::CodecError;
     if (AMediaExtractor_setDataSourceFd(extractor.get(), fd, 0, static_cast<off64_t>(st.st_size)) != AMEDIA_OK) {
@@ -70,6 +74,7 @@ static core::Status extractWaveformPlatform(int fd, const std::atomic<bool>& can
             break;
         }
     }
+    openLock.unlock();
     if (!trackFormat) {
         LOGE("no audio track");
         return Status::UnsupportedFormat;
@@ -103,15 +108,23 @@ static core::Status extractWaveformPlatform(int fd, const std::atomic<bool>& can
             if (idx >= 0) {
                 size_t cap = 0;
                 uint8_t* buf = AMediaCodec_getInputBuffer(codec.get(), static_cast<size_t>(idx), &cap);
-                const ssize_t n = buf ? AMediaExtractor_readSampleData(extractor.get(), buf, cap) : -1;
+                ssize_t n = -1;
+                int64_t sampleTime = 0;
+                if (buf) {
+                    std::lock_guard<std::mutex> io(*fileLock);
+                    n = AMediaExtractor_readSampleData(extractor.get(), buf, cap);
+                    if (n >= 0) {
+                        sampleTime = AMediaExtractor_getSampleTime(extractor.get());
+                        AMediaExtractor_advance(extractor.get());
+                    }
+                }
                 if (n < 0) {
                     AMediaCodec_queueInputBuffer(codec.get(), static_cast<size_t>(idx), 0, 0, 0,
                                                  AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
                     inputDone = true;
                 } else {
                     AMediaCodec_queueInputBuffer(codec.get(), static_cast<size_t>(idx), 0, static_cast<size_t>(n),
-                                                 static_cast<uint64_t>(AMediaExtractor_getSampleTime(extractor.get())), 0);
-                    AMediaExtractor_advance(extractor.get());
+                                                 static_cast<uint64_t>(sampleTime), 0);
                 }
             }
         }

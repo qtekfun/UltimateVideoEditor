@@ -3,7 +3,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 namespace uv::core {
 
@@ -22,6 +26,11 @@ inline int openIndependent(int fd) {
     std::snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
     const int fresh = ::open(path, O_RDONLY | O_CLOEXEC);
     if (fresh >= 0) return fresh;
+#ifdef __ANDROID__
+    // Files a document provider serves through FUSE refuse this re-open (EACCES): the descriptors then share one offset, so
+    // media are read with pread (core/fd_source.h) and never rely on it.
+    __android_log_print(ANDROID_LOG_INFO, "uv_fd", "re-open of descriptor %d refused (errno %d), using dup()", fd, errno);
+#endif
     return ::dup(fd);
 }
 
