@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -17,6 +18,7 @@
 
 #include "core/codec_config.h"
 #include "core/file_lock.h"
+#include "thumbnail/open_failure.h"
 #include "thumbnail/rgba_tile.h"
 #include "thumbnail/yuv_tile.h"
 
@@ -60,10 +62,14 @@ constexpr int64_t kMaxStillPixels = 64LL * 1000 * 1000;  // refuse to decode mor
 // Decodes the photo behind `fd` (not owned) into one tile. Large photos are decoded already scaled down
 // (twice the tile size, so the averaging has something to work with) when the codec can scale; EXIF
 // orientation is applied by the decoder.
-Status decodeStillTile(int fd, std::vector<uint16_t>* tile) {
-    if (::lseek(fd, 0, SEEK_SET) < 0) return Status::IoError;
+Status decodeStillTile(int fd, std::vector<uint16_t>* tile, int* imageResult) {
+    if (::lseek(fd, 0, SEEK_SET) < 0) {
+        *imageResult = -errno;
+        return Status::IoError;
+    }
     AImageDecoder* decoder = nullptr;
-    if (AImageDecoder_createFromFd(fd, &decoder) != ANDROID_IMAGE_DECODER_SUCCESS || decoder == nullptr) {
+    *imageResult = AImageDecoder_createFromFd(fd, &decoder);
+    if (*imageResult != ANDROID_IMAGE_DECODER_SUCCESS || decoder == nullptr) {
         return Status::UnsupportedFormat;
     }
     struct Guard {
@@ -89,7 +95,8 @@ Status decodeStillTile(int fd, std::vector<uint16_t>* tile) {
     if (static_cast<int64_t>(width) * height > kMaxStillPixels) return Status::UnsupportedFormat;
     const size_t stride = AImageDecoder_getMinimumStride(decoder);
     std::vector<uint8_t> pixels(stride * static_cast<size_t>(height));
-    if (AImageDecoder_decodeImage(decoder, pixels.data(), stride, pixels.size()) != ANDROID_IMAGE_DECODER_SUCCESS) {
+    *imageResult = AImageDecoder_decodeImage(decoder, pixels.data(), stride, pixels.size());
+    if (*imageResult != ANDROID_IMAGE_DECODER_SUCCESS) {
         return Status::CodecError;
     }
     tile->assign(kTilePixels, 0);
@@ -295,22 +302,37 @@ ThumbDecoder::~ThumbDecoder() = default;
 
 int64_t ThumbDecoder::durationUs() const { return impl_->durationUs; }
 
-std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
-    const auto fail = [&](Status s) {
+std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status, std::string* detail) {
+    const auto fail = [&](Status s, const std::string& why) {
         if (status != nullptr) *status = s;
+        if (detail != nullptr) *detail = why;
+        LOGE("thumbnail open failed: %s", why.c_str());
         return std::unique_ptr<ThumbDecoder>();
     };
     struct stat st {};
-    if (fd < 0 || ::fstat(fd, &st) != 0 || st.st_size <= 0) return fail(Status::IoError);
+    if (fd < 0 || ::fstat(fd, &st) != 0) return fail(Status::IoError, describeFailure("fstat failed, errno", errno, 0));
+    if (st.st_size <= 0) return fail(Status::IoError, "empty file (0 bytes)");
+    const int64_t fileSize = static_cast<int64_t>(st.st_size);
 
     auto impl = std::make_unique<Impl>();
     // Readers of one file that share a file offset must not interleave (core/file_lock.h); held while opening.
     impl->fileLock = core::fileLockFor(fd);
     std::unique_lock<std::mutex> openLock(*impl->fileLock);
     impl->extractor = AMediaExtractor_new();
-    if (impl->extractor == nullptr) return fail(Status::CodecError);
-    if (AMediaExtractor_setDataSourceFd(impl->extractor, fd, 0, static_cast<off64_t>(st.st_size)) != AMEDIA_OK) {
-        return fail(Status::IoError);
+    if (impl->extractor == nullptr) return fail(Status::CodecError, "AMediaExtractor_new returned null");
+    const media_status_t sourceStatus =
+        AMediaExtractor_setDataSourceFd(impl->extractor, fd, 0, static_cast<off64_t>(st.st_size));
+    if (sourceStatus != AMEDIA_OK) {
+        // No extractor knows a JPEG/PNG/WebP photo, so it is refused here: the image decoder gets the file next.
+        int imageResult = 0;
+        if (mayBePhoto(sourceStatus) && decodeStillTile(fd, &impl->stillTile, &imageResult) == Status::Ok) {
+            impl->still = true;
+            if (status != nullptr) *status = Status::Ok;
+            return std::unique_ptr<ThumbDecoder>(new ThumbDecoder(std::move(impl)));
+        }
+        return fail(statusForExtractorError(sourceStatus),
+                    describeFailure("media extractor refused the file, status", sourceStatus, fileSize) +
+                        (mayBePhoto(sourceStatus) ? "; image decoder result " + std::to_string(imageResult) : ""));
     }
 
     AMediaFormat* format = nullptr;
@@ -331,7 +353,12 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
     openLock.unlock();
     if (format == nullptr) {
         // No video track: a photo has one picture whatever the time, so its tile is decoded once here.
-        if (decodeStillTile(fd, &impl->stillTile) != Status::Ok) return fail(Status::UnsupportedFormat);
+        int imageResult = 0;
+        // The image decoder reads through the shared file offset too.
+        std::unique_lock<std::mutex> stillLock(*impl->fileLock);
+        if (decodeStillTile(fd, &impl->stillTile, &imageResult) != Status::Ok) {
+            return fail(Status::UnsupportedFormat, describeFailure("no video track and image decoder result", imageResult, fileSize));
+        }
         impl->still = true;
         if (status != nullptr) *status = Status::Ok;
         return std::unique_ptr<ThumbDecoder>(new ThumbDecoder(std::move(impl)));
@@ -373,7 +400,10 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
     }
     if (result == Status::Ok) impl->codecConfig = core::captureCodecConfig(format);
     AMediaFormat_delete(format);
-    if (result != Status::Ok) return fail(result);
+    if (result != Status::Ok) {
+        return fail(result, std::string(impl->codec == nullptr ? "no usable decoder for " : "decoder could not start for ") +
+                                decoderMime + " " + std::to_string(fileSize) + " bytes");
+    }
 
     if (status != nullptr) *status = Status::Ok;
     return std::unique_ptr<ThumbDecoder>(new ThumbDecoder(std::move(impl)));

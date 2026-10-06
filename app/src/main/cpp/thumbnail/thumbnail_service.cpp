@@ -139,33 +139,36 @@ void ThumbnailService::run() {
 
         std::vector<uint16_t> pixels(kTilePixels);
         Status status = Status::Ok;
+        std::string detail;
         if (asset->store->read(key.level, key.index, pixels.data()) != Status::Ok) {
             if (decoder == nullptr || decoderAsset != key.asset) {
                 decoder.reset();  // one hardware decoder at a time
-                decoder = ThumbDecoder::open(fd, &status);
+                decoder = ThumbDecoder::open(fd, &status, &detail);
                 decoderAsset = decoder != nullptr ? key.asset : -1;
             }
             if (decoder != nullptr) {
                 status = decoder->decodeTile(tileTimeUs(key.level, key.index), stop_, pixels.data());
+                if (status != Status::Ok && status != Status::Cancelled) detail = "decoding the tile at level " + std::to_string(key.level) + " #" + std::to_string(key.index) + " failed";
                 if (status == Status::Ok && asset->store->append(key.level, key.index, pixels.data()) != Status::Ok) {
-                    LOGW("could not cache thumbnail tile L%d #%lld", key.level, static_cast<long long>(key.index));
+                    LOGW("could not cache thumbnail tile L%d #%lld (asset %lld)", key.level, static_cast<long long>(key.index), static_cast<long long>(key.asset));
                 }
                 lastDecode = Clock::now();
             }
         }
 
         bool reportError = false;
+        int retryFailures = 0;
         {
             std::lock_guard<std::mutex> lock(mu_);
             if (status == Status::Ok) {
                 asset->consecutiveFailures = 0;
-                asset->errorReported = false;
                 ready_.push_back({key, std::move(pixels)});
             } else if (status != Status::Cancelled) {
                 pending_.erase(key);
                 for (const TileKey& k : asset->wanted) pending_.erase(k);
                 asset->wanted.clear();
                 ++asset->consecutiveFailures;
+                retryFailures = asset->consecutiveFailures;
                 asset->retryAt = Clock::now() + backoffFor(asset->consecutiveFailures);
                 reportError = !asset->errorReported;
                 asset->errorReported = true;
@@ -176,7 +179,9 @@ void ThumbnailService::run() {
         if (status != Status::Ok && status != Status::Cancelled) {
             decoder.reset();  // a failed decoder is not reused
             decoderAsset = -1;
-            if (reportError && listener_.onError) listener_.onError(key.asset, status);
+            LOGW("asset %lld: %s: %s (retry in %d s)", static_cast<long long>(key.asset), core::statusName(status), detail.c_str(),
+                 static_cast<int>(backoffFor(retryFailures).count()));
+            if (reportError && listener_.onError) listener_.onError(key.asset, status, detail);
         }
         if (status == Status::Ok && listener_.onTilesReady) listener_.onTilesReady();
     }

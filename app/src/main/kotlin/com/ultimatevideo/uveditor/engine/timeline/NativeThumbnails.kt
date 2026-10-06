@@ -2,7 +2,8 @@ package com.ultimatevideo.uveditor.engine.timeline
 
 /** Receives thumbnail failures from the native worker thread (not the main thread). */
 interface ThumbnailListener {
-    fun onThumbnailError(assetKey: Long, statusCode: Int)
+    /** [detail] says what failed and the underlying code (also in logcat, tag uv_thumb); it may be empty. */
+    fun onThumbnailError(assetKey: Long, statusCode: Int, detail: String)
 }
 
 /** JNI bindings only. Use [TimelineEngine]. */
