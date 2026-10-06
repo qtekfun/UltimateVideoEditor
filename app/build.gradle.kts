@@ -84,7 +84,8 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++20"
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                // The hub footer and About show the engine version: it follows the app version (gradle/version.properties).
+                arguments += listOf("-DANDROID_STL=c++_shared", "-DUV_ENGINE_VERSION=$appVersionName")
                 // Optional software-decoding fallback: a directory with include/ and lib/ (libavformat.a,
                 // libavcodec.a, libswscale.a, libswresample.a, libavutil.a) built by scripts/build-ffmpeg-android.sh.
                 // Off by default, so default builds and CI never need FFmpeg. See docs/ffmpeg-fallback.md.
