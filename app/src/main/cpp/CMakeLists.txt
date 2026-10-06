@@ -12,6 +12,9 @@ add_library(uveditor_engine SHARED
 )
 
 target_include_directories(uveditor_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(UV_ENGINE_VERSION)
+    target_compile_definitions(uveditor_engine PRIVATE UV_ENGINE_VERSION="${UV_ENGINE_VERSION}")
+endif()
 
 target_compile_options(uveditor_engine PRIVATE -Wall -Wextra -Werror)
 
