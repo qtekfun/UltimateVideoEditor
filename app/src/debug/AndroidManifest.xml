@@ -24,6 +24,11 @@
             android:name=".debug.StabiliseDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.UVEditor" />
+        <!-- Debug-only harness for "Save frame as image" and the matching export; see FrameDemoActivity. -->
+        <activity
+            android:name=".debug.FrameDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
     </application>
 
 </manifest>

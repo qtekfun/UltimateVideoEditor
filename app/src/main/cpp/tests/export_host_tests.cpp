@@ -8,6 +8,7 @@
 
 #include "encode/export_math.h"
 #include "encode/picture_residency.h"
+#include "encode/still_math.h"
 
 namespace {
 
@@ -469,7 +470,60 @@ static void sequentialExportOfAHugeAnimationStaysWithinBudget() {
     CHECK(reloads > 0);
 }
 
+void stillCropIsValidatedAgainstTheSurface() {
+    CHECK(validStillCrop({0, 0, 1280, 720}, 1280, 720));
+    CHECK(validStillCrop({1166, 0, 1080, 1920}, 4246, 1920));
+    CHECK(!validStillCrop({0, 0, 0, 720}, 1280, 720));               // empty
+    CHECK(!validStillCrop({-1, 0, 100, 100}, 1280, 720));            // negative origin
+    CHECK(!validStillCrop({1, 0, 1280, 720}, 1280, 720));            // sticks out on the right
+    CHECK(!validStillCrop({0, 1, 1280, 720}, 1280, 720));            // sticks out at the bottom
+    CHECK(!validStillCrop({0, 0, 10, 10}, kMaxStillSide + 1, 100));  // surface too large
+    CHECK(!validStillCrop({0, 0, 10, 10}, 0, 100));
+    CHECK(!validStillCrop({2147483647, 0, 2, 2}, 100, 100));         // no overflow
+}
+
+void stillReadbackUsesTheLowerLeftOrigin() {
+    const StillCrop square{420, 0, 1080, 1080};  // the centred square of a 1920 x 1080 surface
+    CHECK_EQ(glReadY(square, 1080), 0);
+    const StillCrop top{0, 0, 10, 4};
+    CHECK_EQ(glReadY(top, 100), 96);  // the top rows are the last ones GL stores
+    const StillCrop bottom{0, 96, 10, 4};
+    CHECK_EQ(glReadY(bottom, 100), 0);
+    CHECK_EQ(stillBytes({0, 0, 1920, 1080}), 1920LL * 1080 * 4);
+}
+
+void stillRowsAreFlippedTopFirst() {
+    // Three rows of two RGBA pixels; the first byte of every row tells which row it is.
+    uint8_t gl[3 * 8];
+    for (int r = 0; r < 3; ++r) {
+        for (int i = 0; i < 8; ++i) gl[r * 8 + i] = static_cast<uint8_t>(r * 10 + i);
+    }
+    uint8_t out[3 * 8] = {};
+    flipRows(gl, 8, 3, out);
+    CHECK_EQ(out[0], 20);  // the picture's top row is the last row GL returned
+    CHECK_EQ(out[8], 10);
+    CHECK_EQ(out[16], 0);
+    CHECK_EQ(out[23], 7);  // rows stay intact
+    uint8_t one[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    uint8_t copy[8] = {};
+    flipRows(one, 8, 1, copy);
+    CHECK_EQ(copy[7], 8);
+}
+
+void stillAlphaIsForcedOpaque() {
+    uint8_t px[8] = {10, 20, 30, 0, 40, 50, 60, 128};
+    forceOpaque(px, 2);
+    CHECK_EQ(px[3], 255);
+    CHECK_EQ(px[7], 255);
+    CHECK_EQ(px[0], 10);  // colour untouched
+    CHECK_EQ(px[6], 60);
+}
+
 int main() {
+    stillAlphaIsForcedOpaque();
+    stillCropIsValidatedAgainstTheSurface();
+    stillReadbackUsesTheLowerLeftOrigin();
+    stillRowsAreFlippedTopFirst();
     lateFramesAreWaitedForAndMissingOnesSubstituted();
     keyframesMatchTheKotlinVectors();
     poseCountsFromTheClipOriginNotTheTransitionStart();

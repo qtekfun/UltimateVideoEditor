@@ -54,6 +54,12 @@ internal object NativeExport {
         audioSnapshot: ByteBuffer?,
         outputFd: Int,
         pictureBudget: Long,
+        stillFrame: Long,
+        cropX: Int,
+        cropY: Int,
+        cropWidth: Int,
+        cropHeight: Int,
+        stillPixels: ByteBuffer?,
     ): Long
 
     external fun nativeCancel(handle: Long)
@@ -169,16 +175,19 @@ class NativeExportRunner : ExportRunner {
                 keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
                 fxFrameClips, fxFrameData, sourceClips, sourceTable, titleMeta, titlePixels, lutMeta, lutData, request.audioSnapshot, request.outputFd,
                 request.pictureBudgetBytes,
+                request.still?.frame ?: 0L, request.still?.cropX ?: 0, request.still?.cropY ?: 0,
+                request.still?.cropWidth ?: 0, request.still?.cropHeight ?: 0, request.still?.pixels,
             )
         } catch (e: UnsatisfiedLinkError) {
             throw ExportException(ExportErrorCode.NOT_INITIALIZED, "The native engine is not available: ${e.message}")
         }
-        return NativeHandle(handle, native)
+        return NativeHandle(handle, native, request.still)
     }
 
     private class NativeHandle(
         private var handle: Long,
         @Suppress("unused") private val listener: NativeExportListener, // keeps the callback reachable
+        @Suppress("unused") private val still: StillFrameTarget?, // keeps the picture buffer alive while the native thread writes to it
     ) : ExportHandle {
         @Synchronized
         override fun cancel() {
