@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "thumbnail/open_failure.h"
 #include "thumbnail/rgba_tile.h"
 #include "thumbnail/slot_lru.h"
 #include "thumbnail/thumb_store.h"
@@ -661,7 +662,22 @@ static void testRgbaTile() {
     CHECK(!rgbaToTile(one, 1, 1, 4, nullptr));
 }
 
+// A photo is refused by the media extractor as "unsupported"; that must neither be reported as an I/O error nor skip the image decoder.
+static void testOpenFailurePolicy() {
+    CHECK(statusForExtractorError(kMediaErrorUnsupported) == core::Status::UnsupportedFormat);
+    CHECK(statusForExtractorError(kMediaErrorMalformed) == core::Status::UnsupportedFormat);
+    CHECK(statusForExtractorError(kMediaErrorIo) == core::Status::IoError);
+    CHECK(statusForExtractorError(-10000) == core::Status::CodecError);
+    CHECK(mayBePhoto(kMediaErrorUnsupported));
+    CHECK(mayBePhoto(kMediaErrorMalformed));
+    CHECK(!mayBePhoto(kMediaErrorIo));
+    const std::string text = describeFailure("refused, status", -10002, 1349359);
+    CHECK(text.find("-10002") != std::string::npos);
+    CHECK(text.find("1349359 bytes") != std::string::npos);
+}
+
 int main() {
+    testOpenFailurePolicy();
     testGrid();
     testPlanCells();
     testPlanCellsOfRetimedClips();

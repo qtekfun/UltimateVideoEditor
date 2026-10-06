@@ -36,7 +36,7 @@ data class TimelineHit(val kind: HitKind, val trackIndex: Int, val clipKey: Long
  */
 class TimelineEngine(
     density: Float,
-    private val onThumbnailError: (assetKey: Long, status: EngineStatus) -> Unit = { _, _ -> },
+    private val onThumbnailError: (assetKey: Long, status: EngineStatus, detail: String) -> Unit = { _, _, _ -> },
     private val onWaveform: (assetKey: Long, status: EngineStatus) -> Unit,
 ) : AutoCloseable {
 
@@ -47,8 +47,8 @@ class TimelineEngine(
     }
 
     private val thumbnailListener = object : ThumbnailListener {
-        override fun onThumbnailError(assetKey: Long, statusCode: Int) {
-            onThumbnailError(assetKey, EngineStatus.fromCode(statusCode))
+        override fun onThumbnailError(assetKey: Long, statusCode: Int, detail: String) {
+            onThumbnailError(assetKey, EngineStatus.fromCode(statusCode), detail)
         }
     }
 

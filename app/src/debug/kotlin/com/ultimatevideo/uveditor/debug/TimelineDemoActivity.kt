@@ -46,7 +46,7 @@ class TimelineDemoActivity : ComponentActivity() {
         enableEdgeToEdge()
         engine = TimelineEngine(
             resources.displayMetrics.density,
-            onThumbnailError = { assetKey, result -> status = "thumbnails asset=$assetKey -> $result" },
+            onThumbnailError = { assetKey, result, detail -> status = "thumbnails asset=$assetKey -> $result ($detail)" },
         ) { assetKey, result ->
             status = "waveform asset=$assetKey -> $result"
         }
