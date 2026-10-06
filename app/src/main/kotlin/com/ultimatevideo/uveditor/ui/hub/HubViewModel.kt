@@ -33,6 +33,7 @@ class HubViewModel(
     private val session: SessionStore? = null,
     private val defaults: NewProjectDefaults? = null,
     private val peeker: ClipPeeker? = null,
+    private val mediaFolders: com.ultimatevideo.uveditor.data.interchange.MediaFolderSettings? = null,
 ) : MviViewModel<HubState, HubIntent, HubEffect>(HubState()) {
 
     /** Read once, before this process marks anything: what the previous run left open. */
@@ -40,6 +41,12 @@ class HubViewModel(
 
     /** Set once the user has opened a project or dismissed the offer, so a refresh never offers it again. */
     private var resumeHandled = false
+
+    /** The running import, so Cancel can stop a long copy. */
+    private var importJob: kotlinx.coroutines.Job? = null
+
+    /** The package waiting for the user to pick a media folder. */
+    private var pendingImportUri: String? = null
 
     init {
         onIntent(HubIntent.LoadEngineInfo)
@@ -105,11 +112,50 @@ class HubViewModel(
                 projects.exportTo(intent.projectId, intent.uri)
                 emit(HubEffect.ShowMessage("Project exported"))
             }
-            is HubIntent.ImportFrom -> launchProjectOp {
-                val report = projects.importWithReport(intent.uri)
-                refreshNow()
-                emit(HubEffect.ShowMessage(importMessage(report)))
-                importNotesOf(report)?.let { notes -> reduce { copy(importNotes = notes) } }
+            is HubIntent.ImportFrom -> {
+                importJob = launchProjectOp {
+                    try {
+                        val report = projects.importWithReport(intent.uri) { progress -> reduce { copy(importProgress = progress) } }
+                        refreshNow()
+                        emit(HubEffect.ShowMessage(importMessage(report)))
+                        importNotesOf(report)?.let { notes -> reduce { copy(importNotes = notes) } }
+                    } catch (e: ProjectError.MediaFolderRequired) {
+                        // A package holds footage that has to go somewhere the user knows about: ask for the folder, then continue.
+                        pendingImportUri = intent.uri
+                        reduce { copy(mediaFolderPrompt = true) }
+                    } finally {
+                        reduce { copy(importProgress = null) }
+                    }
+                }
+            }
+            HubIntent.ChooseMediaFolder -> {
+                reduce { copy(mediaFolderPrompt = false) }
+                emit(HubEffect.LaunchMediaFolderPicker)
+            }
+            is HubIntent.MediaFolderPicked -> {
+                val settings = mediaFolders
+                val retry = pendingImportUri
+                pendingImportUri = null
+                if (settings == null) {
+                    emit(HubEffect.ShowMessage("Choosing a media folder is not available"))
+                } else {
+                    try {
+                        settings.set(intent.uri)
+                        emit(HubEffect.ShowMessage("Media folder set"))
+                        if (retry != null) onIntent(HubIntent.ImportFrom(retry))
+                    } catch (e: SecurityException) {
+                        emit(HubEffect.ShowMessage("Could not keep access to that folder: ${e.message}"))
+                    }
+                }
+            }
+            HubIntent.DismissMediaFolderPrompt -> {
+                pendingImportUri = null
+                reduce { copy(mediaFolderPrompt = false) }
+            }
+            HubIntent.CancelImport -> {
+                importJob?.cancel()
+                reduce { copy(importProgress = null) }
+                emit(HubEffect.ShowMessage("Import cancelled"))
             }
             is HubIntent.RequestExportBundle -> openBundleDialog(intent.project, intent.includeMedia)
             is HubIntent.BundleChoiceChanged ->
@@ -292,6 +338,13 @@ class HubViewModel(
     /** What an import did: the project's name and, for a bundle, what became of its media. */
     internal fun importMessage(report: ImportReport): String {
         val name = report.project.name
+        report.lumaFusion?.let { lf ->
+            val omitted = lf.report.notImported.size
+            return "Imported \"$name\" from LumaFusion" +
+                (if (lf.mediaCopied > 0) ". ${lf.mediaCopied} media file${if (lf.mediaCopied == 1) "" else "s"} came with it" else "") +
+                (if (lf.missing.isNotEmpty()) ". Missing (relink in the editor): ${lf.missing.take(3).joinToString()}" else "") +
+                (if (omitted > 0) ". $omitted kind${if (omitted == 1) "" else "s"} of settings not imported" else "")
+        }
         val bundle = report.bundle ?: return "Imported \"$name\""
         return buildString {
             append("Imported \"$name\"")
@@ -310,6 +363,15 @@ class HubViewModel(
 
     /** The list of LUTs and fonts an import could not install, or null when it went fully through. */
     internal fun importNotesOf(report: ImportReport): ImportReportNotes? {
+        report.lumaFusion?.let { lf ->
+            val notImported = lf.report.notImported.map { "$it" }
+            return ImportReportNotes(
+                report.project.name,
+                notImported,
+                lf.report.imported,
+                problemsHeading = if (notImported.isEmpty()) null else "Not imported from LumaFusion (what each line says is used instead):",
+            ).let { if (notImported.isEmpty()) it.copy(notes = it.notes + "Nothing was left out.") else it }
+        }
         val resources = report.bundle?.resources ?: return null
         val problems = BundleExportText.importProblems(resources)
         if (problems.isEmpty()) return null
@@ -331,8 +393,8 @@ class HubViewModel(
         }
     }
 
-    private fun launchProjectOp(block: suspend () -> Unit) {
-        viewModelScope.launch {
+    private fun launchProjectOp(block: suspend () -> Unit): kotlinx.coroutines.Job {
+        return viewModelScope.launch {
             try {
                 block()
             } catch (e: ProjectError) {

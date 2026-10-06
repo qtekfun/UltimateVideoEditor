@@ -60,6 +60,7 @@ import com.ultimatevideo.uveditor.data.ProjectThumbnails
 import com.ultimatevideo.uveditor.data.UnreadableProject
 import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.ui.library.BundleExportDialog
+import com.ultimatevideo.uveditor.ui.library.ImportProgressDialog
 import com.ultimatevideo.uveditor.ui.library.ImportReportDialog
 import com.ultimatevideo.uveditor.ui.templates.TemplateWizardSheet
 import com.ultimatevideo.uveditor.ui.templates.TemplateWizardViewModel
@@ -103,9 +104,14 @@ fun HubScreen(
         if (uri != null) viewModel.onIntent(HubIntent.MatchFromClip(uri.toString()))
     }
 
+    val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.onIntent(HubIntent.MediaFolderPicked(uri.toString())) else viewModel.onIntent(HubIntent.DismissMediaFolderPrompt)
+    }
+
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
+                HubEffect.LaunchMediaFolderPicker -> folderLauncher.launch(null)
                 is HubEffect.ShowMessage -> snackbar.showSnackbar(effect.text)
                 is HubEffect.LaunchExportPicker -> {
                     pendingExportId = effect.projectId
@@ -199,6 +205,22 @@ internal fun HubContent(
             onDismiss = { onIntent(HubIntent.DismissBundleExport) },
         )
     }
+    if (state.mediaFolderPrompt) {
+        AlertDialog(
+            onDismissRequest = { onIntent(HubIntent.DismissMediaFolderPrompt) },
+            title = { Text("Choose a folder for the media") },
+            text = {
+                Text(
+                    "This LumaFusion package contains the footage of the project. It is copied into a folder you choose, " +
+                        "on this device or on a USB drive or SD card, so you can see and manage the files. " +
+                        "Deleting the project later does not delete them. You can change the folder in About, under Media folder.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { onIntent(HubIntent.ChooseMediaFolder) }) { Text("Choose folder") } },
+            dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissMediaFolderPrompt) }) { Text("Cancel") } },
+        )
+    }
+    state.importProgress?.let { progress -> ImportProgressDialog(progress) { onIntent(HubIntent.CancelImport) } }
     state.importNotes?.let { notes -> ImportReportDialog(notes) { onIntent(HubIntent.DismissImportNotes) } }
     state.renameDraft?.let { draft ->
         TextDialog(

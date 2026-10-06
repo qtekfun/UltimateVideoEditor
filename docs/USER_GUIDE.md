@@ -611,6 +611,36 @@ Everything goes through the system file picker and stays on your device: nothing
   and the project shows them as missing. A damaged or unsafe bundle is refused with a message and leaves nothing
   behind. Bundles made by an older version open here as before, and a bundle made here opens in an older version
   (it simply does not install the LUTs and fonts).
+- **Importing a LumaFusion project** (hub, top-right ⋮, then pick the file): the app reads projects from
+  **LumaFusion for iOS**, as an **`.lfpackage`** (the project with its footage inside, one big file) or a
+  **`.lfarchive`** (only the project). Copy the file to the phone first (USB, cloud or a card). It is recognised by
+  what is inside, not by its name. Nothing is sent anywhere.
+  - **Media folder.** The footage inside an `.lfpackage` has to be copied out of the package. It goes into a folder
+    **you** choose, not into the app's private storage, so you can see and manage the files, and it can be on a USB
+    drive or an SD card. The first time, the app explains this and asks for the folder; afterwards you can see and
+    change it in **About → Media folder**. A progress dialog shows the copy, with **Cancel** (nothing is left behind
+    when you cancel or when it fails). The app checks that there is room and says so if not; if the folder is
+    unplugged or access was removed, it says that too, and you choose it again. Files already in the folder are never
+    replaced: a file with the same name is saved as "Name (2).MOV". **Deleting a project never deletes the files in
+    your folder**, they are yours.
+  - **A `.lfarchive` without footage** imports with the media shown as missing. Open the project and use **Relink**
+    ([Missing media and recovery](#missing-media-and-recovery)) to point each file at the original video.
+  - **What comes across:** the canvas size and frame rate; the cuts and every track (the main track as the base
+    track, the other video tracks as layers above it, audio tracks); where each clip starts and which part of the
+    footage it plays; photos as photo clips; titles with their text, size, colour, position and the rectangle behind
+    them; clip opacity, clip and track volume, pan; rotation by half a turn (and the rotation LumaFusion stores for
+    portrait clips); and the size and horizontal position of clips in split-screen layouts.
+  - **What does not:** a dialog lists, with a count and where, everything that was **not imported**. It currently
+    covers reversed clips and speed changes (they play at normal speed in the same place), transitions (hard cuts),
+    effects (named), animated (keyframed) values, flips, crops and blend modes, a vertical offset or other rotations,
+    title shadows and fonts (the default font is used), ducking, markers, hidden/locked track states, notes, master
+    volume, a different colour space, and clips of kinds this app does not have (generators, blank clips). Features
+    that only exist in LumaFusion for iOS are not replicated.
+  - **How sure we are:** the cuts, tracks, times and footage matching were checked against two real projects
+    written by LumaFusion 5.5.2. Opacity, volume other than silence, pan, rotation, scale and position units and title
+    placement are **inferred** from those files (the dialog says "check split screens" when a position was converted):
+    compare the result with your original before relying on it. Speed, reverse, transitions, markers and keyframes
+    could not be checked because the sample projects do not use them, so they are reported rather than guessed.
 - **EDL (CMX3600)**: one file per video or audio track (`-V1` is the base, `-V2` the overlay above it, `-A1`
   the first audio track), saved as a single `.edl` when there is one track and as a `.zip` when there are
   several. 29.97 and 59.94 are written in drop frame, other rates in non-drop frame. Titles, stickers, photos,
