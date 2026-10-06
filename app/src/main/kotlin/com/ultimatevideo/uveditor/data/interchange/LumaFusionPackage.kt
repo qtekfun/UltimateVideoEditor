@@ -1,12 +1,8 @@
 package com.ultimatevideo.uveditor.data.interchange
 
-
-import java.io.OutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.util.concurrent.CancellationException
-import java.util.zip.ZipEntry
-import java.util.zip.ZipException
-import java.util.zip.ZipFile
 
 /** Progress of an import that copies big files: [doneBytes] of [totalBytes] of the footage, and [what] is being copied. */
 data class ImportProgress(val what: String, val doneBytes: Long, val totalBytes: Long) {
@@ -14,26 +10,29 @@ data class ImportProgress(val what: String, val doneBytes: Long, val totalBytes:
 }
 
 /**
- * An `.lfpackage` is a zip that holds the `.lfarchive` and the footage, stored without compression. It is read
- * through its central directory (random access, zip64 included) so that a multi-gigabyte file is never loaded in
- * memory and only the entries wanted are copied, one at a time, with progress and a cancel check.
+ * An `.lfpackage` is a zip that holds the `.lfarchive` and the footage, stored without compression. It is read through its
+ * central directory by position ([ZipReader], zip64 included) on the descriptor the system picker handed over, so a
+ * multi-gigabyte file is never loaded in memory, never re-opened by path, and only the entries wanted are copied, one at a
+ * time, with progress and a cancel check.
  */
 object LumaFusionPackage {
     /** The archive entry of an open package: the first file named `*.lfarchive` (any folder), or null. */
-    fun archiveEntry(zip: ZipFile): ZipEntry? =
-        zip.entries().asSequence().firstOrNull { !it.isDirectory && it.name.lowercase().endsWith(LumaFusionImport.ARCHIVE_EXTENSION) }
+    fun archiveEntry(zip: ZipReader): ZipEntryInfo? =
+        zip.entries.firstOrNull { !it.isDirectory && it.name.lowercase().endsWith(LumaFusionImport.ARCHIVE_EXTENSION) }
 
     /** Reads the archive text; bounded by [limit] bytes. */
     @Throws(IOException::class, BundleError::class)
-    fun readArchive(zip: ZipFile, entry: ZipEntry, limit: Long = BundleLimits().maxJsonBytes): String {
+    fun readArchive(zip: ZipReader, entry: ZipEntryInfo, limit: Long = BundleLimits().maxJsonBytes): String {
         if (entry.size > limit) throw BundleError.TooLarge("the project file is bigger than ${limit / (1024 * 1024)} MB")
-        return zip.getInputStream(entry).use { it.readBytes() }.toString(Charsets.UTF_8)
+        val bytes = zip.open(entry).use { it.readBytes() }
+        if (bytes.size.toLong() != entry.size) throw BundleError.Corrupt("the project file is ${bytes.size} bytes, expected ${entry.size}")
+        return bytes.toString(Charsets.UTF_8)
     }
 
     /** The footage entries by lower-case file name (the part after the last `/`); the first of equal names wins. */
-    fun mediaEntries(zip: ZipFile, archive: ZipEntry): Map<String, ZipEntry> {
-        val out = LinkedHashMap<String, ZipEntry>()
-        for (e in zip.entries()) {
+    fun mediaEntries(zip: ZipReader, archive: ZipEntryInfo): Map<String, ZipEntryInfo> {
+        val out = LinkedHashMap<String, ZipEntryInfo>()
+        for (e in zip.entries) {
             if (e.isDirectory || e.name == archive.name) continue
             val leaf = e.name.substringAfterLast('/')
             if (leaf.isEmpty() || leaf.startsWith(".")) continue
@@ -48,23 +47,19 @@ object LumaFusionPackage {
      * [BundleError.Corrupt]. The caller owns [out] and removes what was written when this throws.
      */
     @Throws(IOException::class, BundleError::class)
-    fun copyEntry(zip: ZipFile, entry: ZipEntry, out: OutputStream, onBytes: (Long) -> Unit, cancelled: () -> Boolean) {
-        try {
-            zip.getInputStream(entry).use { input ->
-                val buffer = ByteArray(STEP)
-                var total = 0L
-                while (true) {
-                    if (cancelled()) throw CancellationException("import cancelled")
-                    val n = input.read(buffer)
-                    if (n < 0) break
-                    out.write(buffer, 0, n)
-                    total += n
-                    onBytes(n.toLong())
-                }
-                if (entry.size >= 0 && total != entry.size) throw BundleError.Corrupt("${entry.name.takeLast(60)} ended after $total of ${entry.size} bytes")
+    fun copyEntry(zip: ZipReader, entry: ZipEntryInfo, out: OutputStream, onBytes: (Long) -> Unit, cancelled: () -> Boolean) {
+        zip.open(entry).use { input ->
+            val buffer = ByteArray(STEP)
+            var total = 0L
+            while (true) {
+                if (cancelled()) throw CancellationException("import cancelled")
+                val n = input.read(buffer)
+                if (n < 0) break
+                out.write(buffer, 0, n)
+                total += n
+                onBytes(n.toLong())
             }
-        } catch (e: ZipException) {
-            throw BundleError.Corrupt(e.message ?: "unreadable package", e)
+            if (total != entry.size) throw BundleError.Corrupt("${entry.name.takeLast(60)} ended after $total of ${entry.size} bytes")
         }
     }
 

@@ -210,7 +210,7 @@ class LumaFusionImportTest {
     }
 
     @Test
-    fun `half a turn is imported and quarter turns are reported`() {
+    fun `rotation values are not added because the app applies the file orientation itself`() {
         val json = LfFixture.archive(
             tracks = listOf(
                 LfFixture.track(
@@ -223,9 +223,10 @@ class LumaFusionImportTest {
             ),
         )
         val c = convert(json)
-        assertEquals(180.0, base(c).clips[0].transform.rotation, 0.0)
+        assertEquals(0.0, base(c).clips[0].transform.rotation, 0.0)
         assertEquals(0.0, base(c).clips[1].transform.rotation, 0.0)
-        assertTrue(c.report.notImported.has("rotation"))
+        assertTrue(c.report.imported.has("rotation value"))
+        assertTrue(c.report.notImported.isEmpty())
     }
 
     @Test

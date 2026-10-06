@@ -986,8 +986,11 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
 
 - *Reading.* The archive is parsed tolerantly (`kotlinx.serialization.json` elements; unknown keys ignored, missing keys defaulted,
   damaged input a typed `LumaFusionError` shown as `ProjectError.Bundle`). A package is opened through its central directory with
-  `java.util.zip.ZipFile` (random access, zip64 included; in the app through `ProjectTransferIO.openSeekable`, which hands the picked
-  document's file descriptor over as `/proc/self/fd/N`), so a multi-gigabyte package is never loaded in memory and only the wanted
+  `ZipReader` (own reader over `RandomAccess`: end record, zip64 record and locator, central directory, stored and deflated entries,
+  sizes from the directory so data descriptors work; in the app `ProjectTransferIO.openSeekable` gives positional reads on the picked
+  document's own descriptor via `FileInputStream(fd).channel`). Re-opening `/proc/self/fd/N` by path (what `java.util.zip.ZipFile` does)
+  fails with EACCES on a Downloads file served through FUSE (seen on a Pixel 8), so nothing is ever re-opened by path. A source that
+  cannot seek falls back to the stream reader. A multi-gigabyte package is never loaded in memory and only the wanted
   entries are copied, 1 MB at a time, with `ImportProgress` and a cancel check between steps. Entry names are matched to clips by file
   name (last path part, ignoring case); the file name is the leaf of `attributes.originalFilename`, or `attributes.title` when that
   has no extension (LumaFusion wrote `sioProviderRelink` for a picture).
@@ -1012,10 +1015,9 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
 - *Mapped.* Cuts, lanes and times; photos (`assetType` 2) as `photo` still clips of image assets; titles (`assetType` 4) as layered
   titles (text layer: text, size = `pointSize / frameHeight`, colour, alignment 0/1/2 = left/centre/right, `bold`/`italic` from the
   font name, opacity; rectangle layer: size, fill, opacity; offsets from the layer rectangle's centre in the title frame); clip
-  opacity (`videoAlpha`), volume (`audioVolume` as linear gain, 0 = -96 dB), pan, track volume; net rotation (`videoRotation` +
-  `videoOrientation`) when it is 0 or 180 degrees; constant scale and horizontal position (see the table). Not mapped, each with a count
+  opacity (`videoAlpha`), volume (`audioVolume` as linear gain, 0 = -96 dB), pan, track volume; constant scale and horizontal position (see the table). Not mapped, each with a count
   and up to three places in the report: reversed, speed, transitions, effects (named), keyframes, flips, crop, fit/blend mode, anchor,
-  other rotations, a vertical position, title shadows/fonts/rotation/other layers, ducking/fill, hidden/locked tracks, markers, project
+  a vertical position, title shadows/fonts/rotation/other layers, ducking/fill, hidden/locked tracks, markers, project
   notes, master volume, background colour, colour space other than 0, cloud media, blank and unknown clip kinds, connected clips (they
   are placed by their own time).
 
@@ -1026,7 +1028,7 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
 | Footage by file name | Both packages: every used name is a zip entry (60 of 61 by `originalFilename`, 61 with the `title` fallback) | Verified |
 | `audioVolume` 0 = silent | 20 overlay clips with 0 whose sound was removed | Verified for 0; the dB scale of other values is inferred (linear gain) |
 | `videoAlpha`, `audioPan` | Default values only in the samples | Inferred (0 to 1 and -1 to 1) |
-| Rotation: `videoRotation` in radians; net = rotation + `videoOrientation` | Values pi, -pi/2 and pi/2; every portrait clip has natural size 2160x3840, orientation +pi/2 and rotation -pi/2 | Inferred (sum 0 means no extra turn; 180 degrees is sign independent) |
+| Rotation (`videoRotation`, radians, and `videoOrientation`) | A clip whose file has a 180 degree rotation tag (ffprobe) has videoRotation = pi; portrait clips carry +90/-90. Importing pi as a 180 degree turn showed the picture upside down on a Pixel 8, because the decoder already applies the tag | LumaFusion stores the file orientation here: never imported (a turn added in LumaFusion is lost; a caution line says so) |
 | Scale relative to the fitted frame; x position = value x canvas width / 2 | Split-screen layouts (0.472, +-0.52 and +-0.55): only half-canvas units keep the 4K clips inside the 3840 canvas; values of 0 for y | Inferred. Left/right sign and the y direction are not verified, so a clip with a vertical offset is reported and keeps its default pose |
 | Title layer rectangle (origin top left, y down, in `frameSize` pixels), point size as a fraction of the frame height, `alignment` 1 = centre | Lower thirds sit at y 1600 to 2040 of 2160 and are centred; 178.125 pt on 2160 | Inferred |
 | Reversed, speed, transitions, markers, keyframes, effects values, ducking | Present in neither sample (no values to compare) | Reported, never guessed |

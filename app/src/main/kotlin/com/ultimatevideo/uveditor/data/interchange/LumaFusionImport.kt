@@ -20,7 +20,6 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import java.math.BigInteger
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.log10
 
@@ -524,23 +523,17 @@ object LumaFusionImport {
         /** Opacity, 180 degree rotation and a horizontal split-screen style placement; what is left over is reported. */
         fun transformOf(c: LfClip, where: String): TransformDto {
             val left = c.videoChanges.toMutableList()
-            var rotation = 0.0
+
             var scale = listOf(1.0, 1.0)
             var position = listOf(0.0, 0.0)
             if ("rotation" in left || "orientation" in left) {
-                // Portrait clips carry orientation +90 and rotation -90 (seen on every portrait clip of a sample): the sum is
-                // what is turned beyond the file's own orientation, which the decoder already applies.
-                val net = ((c.rotation + c.orientation) % (2 * PI) + 2 * PI) % (2 * PI)
-                val resolved = when {
-                    net < ROTATION_TOLERANCE || 2 * PI - net < ROTATION_TOLERANCE -> 0.0
-                    abs(net - PI) < ROTATION_TOLERANCE -> 180.0
-                    else -> null
-                }
-                if (resolved != null) {
-                    rotation = resolved
-                    left -= "rotation"
-                    left -= "orientation"
-                }
+                // LumaFusion records the file's own orientation here (a sample clip whose file carries a 180 degree rotation tag
+                // has videoRotation = pi; portrait clips carry +90 / -90). The decoder applies the file's orientation by itself,
+                // so adding it again turned the picture upside down on a device. A turn the user added in LumaFusion cannot be
+                // told apart from it, so no rotation is imported.
+                left -= "rotation"
+                left -= "orientation"
+                cautions.add("Clips with a rotation value (the app applies the file's own orientation; a turn added in LumaFusion is not imported)", where)
             }
             if (("scale" in left || "position" in left) && abs(c.translation[1]) < EPS && c.scale.all { it > 0.0 && it <= MAX_SCALE } && c.translation[0].let { abs(it) <= MAX_OFFSET_UNITS }) {
                 scale = c.scale
@@ -552,7 +545,7 @@ object LumaFusionImport {
             if (left.isNotEmpty()) notes.add("Picture settings: ${left.joinToString()} (left at default)", where)
             return TransformDto(
                 scale = scale,
-                rotation = rotation,
+                rotation = 0.0,
                 position = position,
                 opacity = c.opacity.coerceIn(0.0, 1.0),
             )
@@ -705,7 +698,6 @@ object LumaFusionImport {
     private fun rate(num: Int, den: Int): String = if (den == 1) "$num" else "%.3f".format(num.toDouble() / den).trimEnd('0').trimEnd('.')
 
     private const val SDR = "Rec709-SDR"
-    private const val ROTATION_TOLERANCE = 1e-4
     private const val MAX_SCALE = 20.0
     private const val MAX_OFFSET_UNITS = 4.0
     private const val MAX_OFFSET_TITLE = 2.0
