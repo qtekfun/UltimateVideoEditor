@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Process
 import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
+import com.ultimatevideo.uveditor.ui.export.ExportProxy
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -100,6 +101,23 @@ class ProxyManager(
     }
 
     fun hasUsableProxy(asset: MediaAssetDto): Boolean = statusOf(asset) is ProxyStatus.Ready
+
+    /**
+     * The ready proxies among [assets], by asset id, for the export's "Faster export" option (whatever the project's
+     * preview switch says: the export dialog asks for them explicitly). Only decoded video with a READY proxy whose
+     * file is present and whose source has not changed; an asset without one is simply absent and exports from the original.
+     */
+    fun readyForExport(assets: List<MediaAssetDto>): Map<String, ExportProxy> {
+        val result = LinkedHashMap<String, ExportProxy>()
+        for (asset in assets) {
+            if (!asset.canHaveProxy()) continue
+            val entry = index.get(ProxyKeys.of(jobOf(asset), prefs.targetShortSide)) ?: continue
+            if (entry.state != ProxyState.READY || entry.width <= 0 || entry.height <= 0) continue
+            val file = index.fileOf(entry) ?: continue
+            result[asset.id] = ExportProxy("file://${file.absolutePath}", entry.width, entry.height)
+        }
+        return result
+    }
 
     /** Queues proxies for the videos among [assets] that are not ready or already queued. */
     fun generate(assets: List<MediaAssetDto>) {

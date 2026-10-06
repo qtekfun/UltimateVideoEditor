@@ -696,8 +696,8 @@ Everything goes through the system file picker and stays on your device: nothing
 ## Proxy media
 
 Heavy video (4K, long-GOP, very high bitrate) can be slow to scrub. A **proxy** is a small copy of a video (720p or
-1080p) that the preview and the timeline thumbnails use while you edit. **Export always uses the original files**, and
-sound always comes from the original.
+1080p) that the preview and the timeline thumbnails use while you edit. **Export uses the original files** unless you turn
+on **Faster export** in the export dialog (below), and sound always comes from the original.
 
 - Tap the **lightning** button in the toolbar to open the proxy sheet.
 - **Use proxies for editing in this project** is a switch per project. Turning it on queues proxies for the videos that
@@ -713,7 +713,18 @@ sound always comes from the original.
 - When a project contains heavy video, or the preview keeps dropping frames, a banner offers proxies. Nothing is made
   unless you accept; **Not now** hides the offer for that project.
 - HDR videos get an SDR proxy, so the picture looks flatter while editing with proxies on; the exported movie is
-  unaffected.
+  unaffected unless **Faster export** is on (see below).
+
+### Faster export: use proxies for small layers
+
+In the export dialog, **Use proxies for small layers** (off by default, offered when at least one video of the project has
+a ready proxy) decodes a layer from its proxy instead of the 4K original when the layer is shown no larger than the proxy
+in the exported movie, for example a clip in a third of the screen in a split layout. Layers shown larger than their proxy,
+full-screen clips, titles and photos, clips with effects or stabilisation, smooth slow motion and clips whose colour space
+you overrode always use the original. In an HDR export, HDR videos always use the original (the proxy is SDR). Videos
+without a ready proxy use the original; nothing is made for you while exporting, so make proxies first (lightning button).
+The trade-off is a little sharpness and colour precision on those layers (a proxy is an H.264 copy); sound is unchanged.
+It helps most when several 4K clips play at once.
 
 ## Multicam
 
