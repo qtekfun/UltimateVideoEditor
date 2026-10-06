@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Deliberately no permissions: the app works entirely offline (see docs/PRIVACY.md). -->
+    <!--
+      The app works entirely offline and asks for no network permission (see docs/PRIVACY.md). The only permissions are
+      about running a long export in the foreground and showing its progress notification:
+      FOREGROUND_SERVICE plus the service type (media processing on Android 15+, data sync on Android 12 to 14; data sync
+      here means "long task", nothing is synced) and POST_NOTIFICATIONS, which is optional (the export runs without it).
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".UVEditorApp"
@@ -23,6 +32,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".ui.export.ExportService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProcessing|dataSync" />
     </application>
 
 </manifest>

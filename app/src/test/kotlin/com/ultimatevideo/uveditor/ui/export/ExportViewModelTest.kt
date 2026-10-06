@@ -14,7 +14,9 @@ import com.ultimatevideo.uveditor.engine.export.ExportListener
 import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
 import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -371,6 +373,84 @@ class ExportViewModelTest {
 
         assertEquals(ExportPhase.Configuring, vm.state.value.phase)
     }
+
+    // region Outliving the dialog
+
+    private fun sharedExecutor() = ExportExecutor(io, runner, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + dispatcher), dispatcher)
+
+    @Test
+    fun `clearing the view model does not stop a running export`() {
+        val executor = sharedExecutor()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor)
+        vm.openAndStart()
+
+        vm.javaClass.getDeclaredMethod("onCleared").apply { isAccessible = true }.invoke(vm)
+
+        assertFalse(runner.handle.cancelled)
+        assertTrue(executor.state.value.isRunning)
+    }
+
+    @Test
+    fun `a new view model reconnects to the export that is running and follows it to the end`() {
+        val executor = sharedExecutor()
+        ExportViewModel(io, runner, dispatcher, executor = executor).openAndStart()
+        runner.listener!!.onProgress(600)
+
+        val reborn = ExportViewModel(io, runner, dispatcher, executor = executor)
+
+        assertTrue(reborn.state.value.visible)
+        assertEquals("My movie", reborn.state.value.projectName)
+        assertEquals(600, (reborn.state.value.phase as ExportPhase.Running).progressPermille)
+
+        runner.listener!!.onFinished(null)
+        assertTrue(reborn.state.value.phase is ExportPhase.Done)
+    }
+
+    @Test
+    fun `cancel from the reconnected dialog stops the same export`() {
+        val executor = sharedExecutor()
+        val old = ExportViewModel(io, runner, dispatcher, executor = executor)
+        old.openAndStart()
+        old.viewModelScope.cancel() // the editor was left: its view model no longer observes
+        val reborn = ExportViewModel(io, runner, dispatcher, executor = executor)
+
+        reborn.onIntent(ExportIntent.Cancel)
+        runner.listener!!.onFinished(ExportException(ExportErrorCode.CANCELLED, "export cancelled"))
+
+        assertTrue(runner.handle.cancelled)
+        assertEquals(listOf("content://out/movie.mp4"), io.deleted)
+        assertFalse(reborn.state.value.visible) // nothing to go back to: this view model never showed the settings
+        assertEquals(ExportJobState.Idle, executor.state.value)
+    }
+
+    @Test
+    fun `cancel from outside the dialog (the notification) returns the open dialog to its settings`() {
+        val executor = sharedExecutor()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor)
+        vm.openAndStart()
+
+        executor.cancel()
+        runner.listener!!.onFinished(ExportException(ExportErrorCode.CANCELLED, "export cancelled"))
+
+        assertEquals(ExportPhase.Configuring, vm.state.value.phase)
+        assertTrue(vm.state.value.visible)
+    }
+
+    @Test
+    fun `closing a finished result clears it so the next dialog starts clean`() {
+        val executor = sharedExecutor()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor)
+        vm.openAndStart()
+        runner.listener!!.onFinished(null)
+
+        vm.onIntent(ExportIntent.Dismiss)
+
+        assertEquals(ExportJobState.Idle, executor.state.value)
+        assertFalse(vm.state.value.visible)
+        assertFalse(ExportViewModel(io, runner, dispatcher, executor = executor).state.value.visible)
+    }
+
+    // endregion
 
     // region HDR
 

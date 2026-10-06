@@ -5,7 +5,7 @@ app is collected. This is a hard rule of the project, not a setting.
 
 ## What the app does not do
 
-- **No network access.** The app declares no permissions (not even `INTERNET`), so Android itself prevents it
+- **No network access.** The app declares no network permission (not even `INTERNET`), so Android itself prevents it
   from connecting to anything. Cleartext traffic is disabled as well.
 - **No accounts, no sign-in, no cloud.** Projects live in the app's private storage.
 - **No analytics, no telemetry, no crash-reporting service, no advertising.** There is no SDK for any of these in the
@@ -35,19 +35,31 @@ Exports are written only where you choose with the system file picker.
 
 ## Permissions
 
-The app asks for **none**. It reads media through the Android system file picker (Storage Access Framework), which
-gives it access only to the files you pick. When you choose a file, Android may grant the app a persistent read
+The app declares exactly four permissions, and none of them is about data or the network. They exist so that an export
+can keep running when you leave the app, switch to another app or the screen turns off:
+
+| Permission | What it is for |
+|---|---|
+| `FOREGROUND_SERVICE` | Run the export as a foreground service, which Android keeps alive while its notification is shown |
+| `FOREGROUND_SERVICE_MEDIA_PROCESSING` | The service type for Android 15 and later: "this service is processing media" |
+| `FOREGROUND_SERVICE_DATA_SYNC` | The service type Android 12 to 14 offers for a long task. Nothing is synchronised and nothing is sent anywhere; it is only the closest label that exists before Android 15 |
+| `POST_NOTIFICATIONS` | Show the export's progress notification (Android 13 and later). It is asked for when you start an export, and it is optional: if you say no, the export still runs, you just see no notification |
+
+The app still has **no** network, location, contacts, camera, microphone or storage permission and no analytics: reading media
+goes through the Android system file picker (Storage Access Framework), which
+gives it access only to the files you pick. The export notification shows the project name and a percentage on your own
+device, and nothing else. When you choose a file, Android may grant the app a persistent read
 permission for that file so a project can reopen it; the app releases permissions that no project uses any more.
 
 ## How to verify it yourself
 
-1. Look at the manifest: `app/src/main/AndroidManifest.xml` declares no `uses-permission` entries. In the built APK,
-   `aapt2 dump permissions app-debug.apk` lists only `com.ultimatevideo.uveditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
+1. Look at the manifest: `app/src/main/AndroidManifest.xml` declares only the four `uses-permission` entries above. In the built APK,
+   `aapt2 dump permissions app-debug.apk` lists those four and `com.ultimatevideo.uveditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
    a private permission that AndroidX adds so the app's own broadcast receivers cannot be called from other apps; it
    grants access to nothing.
-2. On the phone: Settings > Apps > ultimateVE > Permissions shows none; in a firewall app or with
+2. On the phone: Settings > Apps > ultimateVE > Permissions shows at most Notifications; in a firewall app or with
    "Restrict mobile data and Wi-Fi", the app has no traffic because it never opens a connection.
-3. In the repository: `./gradlew :app:testDebugUnitTest --tests '*OfflineGuaranteeTest*'` fails if a network permission,
+3. In the repository: `./gradlew :app:testDebugUnitTest --tests '*OfflineGuaranteeTest*'` fails if any permission other than those four appears, or a network permission,
    a networking API (HTTP, sockets, WebView, download managers), an analytics, crash-reporting or advertising
    dependency, or cleartext traffic is ever introduced. CI runs it on every pull request.
 4. The source is open (GPL-3.0): read it.

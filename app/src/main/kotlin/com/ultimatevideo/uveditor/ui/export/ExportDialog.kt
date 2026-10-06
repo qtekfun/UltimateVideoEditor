@@ -1,6 +1,10 @@
 package com.ultimatevideo.uveditor.ui.export
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,10 +45,26 @@ fun ExportHost(viewModel: ExportViewModel) {
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("video/mp4")) { uri ->
         viewModel.onIntent(ExportIntent.LocationChosen(uri?.toString()))
     }
+    // Asked once the user has pressed Export, never at start-up. A refusal changes nothing but the notification: the
+    // export still runs in its foreground service.
+    var pendingName by remember { mutableStateOf<String?>(null) }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        pendingName?.let(createDocument::launch)
+        pendingName = null
+    }
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
-                is ExportEffect.LaunchCreateDocument -> createDocument.launch(effect.suggestedName)
+                is ExportEffect.LaunchCreateDocument -> {
+                    val needsAsk = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    if (needsAsk) {
+                        pendingName = effect.suggestedName
+                        askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        createDocument.launch(effect.suggestedName)
+                    }
+                }
                 is ExportEffect.ShareFile -> {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "video/mp4"

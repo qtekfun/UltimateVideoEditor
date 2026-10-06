@@ -144,7 +144,7 @@ text and the release checklist are in [docs/RELEASE.md](docs/RELEASE.md).
   Always pass `adb -s <serial>`, and for Gradle use `ANDROID_SERIAL=<serial> ./gradlew ...`; otherwise installs fail.
 - **Never run `connectedDebugAndroidTest` on a device whose app data you care about.** The instrumentation APK shares the
   app's package, and installing and uninstalling it **clears the app's data, including your projects**.
-- The app needs no network: it declares no permissions, and `OfflineGuaranteeTest` keeps it that way.
+- The app needs no network: it declares no network permission (only the foreground-service and notification ones for exports), and `OfflineGuaranteeTest` keeps it that way.
 - The screen must be unlocked to see the UI; check which app is in the foreground before sending `adb shell input`.
 
 ## Privacy

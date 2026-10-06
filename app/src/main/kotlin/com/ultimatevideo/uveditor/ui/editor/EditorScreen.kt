@@ -123,6 +123,7 @@ import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.engine.timeline.ThumbnailCache
 import com.ultimatevideo.uveditor.engine.timeline.WaveformCache
 import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
+import com.ultimatevideo.uveditor.ui.export.ExportCenter
 import com.ultimatevideo.uveditor.ui.export.ExportHost
 import com.ultimatevideo.uveditor.ui.export.ExportInput
 import com.ultimatevideo.uveditor.ui.export.ExportIntent
@@ -268,11 +269,12 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
             initializer {
                 ExportViewModel(
                     ContentResolverExportIO(context.applicationContext),
-                    NativeExportRunner(),
+                    NativeExportRunner(), // only the default executor of the tests uses this one; the app's runs in ExportCenter
                     titleRasterizer = titleRasterizer,
                     stillRasterizer = AndroidStillRasterizer(context.applicationContext),
                     hdrSupport = MediaCodecHdrExportSupport(),
                     lutLoader = lutStore::load,
+                    executor = ExportCenter.executor(context),
                 )
             }
         },
