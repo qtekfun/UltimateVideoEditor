@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -59,6 +60,7 @@ import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.data.ProjectThumbnails
 import com.ultimatevideo.uveditor.data.UnreadableProject
 import com.ultimatevideo.uveditor.data.interchange.BundleChoice
+import com.ultimatevideo.uveditor.ui.export.shareExportedMovie
 import com.ultimatevideo.uveditor.ui.library.BundleExportDialog
 import com.ultimatevideo.uveditor.ui.library.ImportProgressDialog
 import com.ultimatevideo.uveditor.ui.library.ImportReportDialog
@@ -74,7 +76,10 @@ fun HubScreen(
     thumbnails: ProjectThumbnails? = null,
     templates: TemplateWizardViewModel? = null,
     onOpenAbout: () -> Unit = {},
+    /** Open the editor of a project with its export dialog showing (the export bar was tapped). */
+    onOpenExport: (String) -> Unit = onOpenProject,
 ) {
+    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingExportId by remember { mutableStateOf<String?>(null) }
@@ -122,6 +127,8 @@ fun HubScreen(
                     bundleLauncher.launch(effect.suggestedFileName)
                 }
                 is HubEffect.OpenEditor -> onOpenProject(effect.projectId)
+                is HubEffect.OpenExport -> onOpenExport(effect.projectId)
+                is HubEffect.ShareExport -> shareExportedMovie(context, effect.uri)
             }
         }
     }
@@ -176,6 +183,8 @@ internal fun HubContent(
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        // The Scaffold puts the New project button above this bar.
+        bottomBar = { state.exportBar?.let { ExportBarView(it, onIntent) } },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             state.resumeProject?.let { ResumeBanner(it, onIntent) }

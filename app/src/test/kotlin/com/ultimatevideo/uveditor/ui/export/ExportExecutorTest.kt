@@ -76,7 +76,7 @@ class ExportExecutorTest {
         outputFd = 2,
     )
 
-    private fun job(name: String = "Holiday", prepare: () -> ExportRequest = ::request) = ExportJob(name, "content://out/$name.mp4", prepare)
+    private fun job(name: String = "Holiday", prepare: () -> ExportRequest = ::request) = ExportJob("p1", name, "content://out/$name.mp4", prepare)
 
     @Test
     fun `starting publishes a running state at zero and tells the service side once`() {
@@ -110,7 +110,7 @@ class ExportExecutorTest {
         assertEquals(420, (executor.state.value as ExportJobState.Running).progressPermille)
         runner.listener!!.onFinished(null)
 
-        assertEquals(ExportJobState.Done("Holiday", "content://out/Holiday.mp4", "Renamed.mp4"), executor.state.value)
+        assertEquals(ExportJobState.Done("p1", "Holiday", "content://out/Holiday.mp4", "Renamed.mp4"), executor.state.value)
         assertTrue(runner.handle.closed)
         assertTrue(io.deleted.isEmpty())
     }
@@ -147,7 +147,7 @@ class ExportExecutorTest {
         assertTrue(executor.state.value.isRunning) // still running until the engine confirms
         runner.listener!!.onFinished(ExportException(ExportErrorCode.CANCELLED, "export cancelled"))
 
-        assertEquals(ExportJobState.Cancelled("Holiday"), executor.state.value)
+        assertEquals(ExportJobState.Cancelled("p1", "Holiday"), executor.state.value)
         assertEquals(listOf("content://out/Holiday.mp4"), io.deleted)
         assertTrue(runner.handle.closed)
     }
@@ -187,7 +187,7 @@ class ExportExecutorTest {
 
         assertTrue(runner.handle.cancelled)
         runner.listener!!.onFinished(ExportException(ExportErrorCode.CANCELLED, "export cancelled"))
-        assertEquals(ExportJobState.Cancelled("Holiday"), executor.state.value)
+        assertEquals(ExportJobState.Cancelled("p1", "Holiday"), executor.state.value)
     }
 
     @Test

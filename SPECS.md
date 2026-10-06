@@ -365,7 +365,17 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   a job starts `ExportService`, a foreground service (`mediaProcessing` on API 35+, `dataSync` on 31 to 34; permissions
   `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROCESSING`, `FOREGROUND_SERVICE_DATA_SYNC`) that shows a low-importance, silent,
   ongoing "Exporting <project>" notification with a determinate bar (whole percent, `exportNotificationFor`) and a Cancel action, then
-  a dismissible finished/failed notification that opens the app. `POST_NOTIFICATIONS` is asked when the user presses Export and is
+  a dismissible finished/failed notification. `ExportJobState` and `ExportJob` carry the `projectId`; the notification's content intent is
+  an explicit `MainActivity` intent (`ExportLaunch.ACTION_SHOW`, extra `EXTRA_PROJECT_ID`, `NEW_TASK|SINGLE_TOP|CLEAR_TOP`, one request
+  code per project). `MainActivity` reads it in `onCreate` (first start only) and `onNewIntent`, checks that the project exists, and
+  `exportDestination()` (pure) picks the editor with the export dialog when the executor still holds an export of that project
+  (running, done, failed) or else the project list; a stale id never crashes or opens an empty dialog.
+  The project list (`HubViewModel(exportJobs: ExportJobHost)`) mirrors the executor state into `HubState.exportBar` (`exportBarFor()`:
+  running with percent and time left, finished with Share, failed; none for idle or cancelled) with intents `CancelExport`,
+  `DismissExportBar`, `ShareExport`, `OpenExportProject`. `ExportViewModel(projectId)` mirrors only its own project's export;
+  `exportAvailability()` refuses Export in other projects' editors with "Another export is running: <project>" (`ExportEffect.Message`)
+  and `acknowledge(onlyProject)` keeps one project's result from being cleared by another editor. Dismissing the running dialog only
+  hides it (`hiddenWhileRunning`). `POST_NOTIFICATIONS` is asked when the user presses Export and is
   optional. `MainActivity` keeps the screen on (`FLAG_KEEP_SCREEN_ON`) while a job runs and the activity is started. Only one export
   at a time. If the system kills the process the export is gone (no native resume): the next start has no job, so nothing claims one is
   running; the partly written file is not tidied then (the output is a SAF document the user chose; see DECISIONS.md).

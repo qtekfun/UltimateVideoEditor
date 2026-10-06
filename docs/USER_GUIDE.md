@@ -569,10 +569,19 @@ Export is refused, with the clips named, if some media is missing.
 **Leaving the app during an export.** The export keeps running if you press Home, switch to another app, rotate the
 screen, go back to the project list or the screen turns off. While it runs, a quiet notification "Exporting <project>" shows the
 percentage and the time left, with a **Cancel** button; cancelling there removes the partial file just like the dialog's Cancel. When
-the movie is ready the notification changes to "Export finished" (tap it to open the app). While the export runs and the app is on
+the movie is ready the notification changes to "Export finished". Tapping either notification opens the project that is exporting with
+its export dialog (progress and Cancel, or Share and Close, or the failure message); if that is no longer possible (the project was
+deleted, or the app was closed and the export is gone) it opens the project list instead. While the export runs and the app is on
 screen, the screen stays awake. The first time you press Export, Android asks whether the app may show notifications; if you say no
 the export still runs in the background, you just see no notification (look in the Recent apps list to find your way back). Only
 one export runs at a time. If Android has to close the app because the phone is out of memory, the export stops; start it again.
+
+**The export bar in the project list.** While an export runs, the project list shows a bar at the bottom with the project name, a
+progress bar, the percentage, the time left and **Cancel**; tap the bar to open that project with its export dialog. In the dialog,
+**Hide** closes it without stopping the export. When the export ends the bar stays as "Export finished: <file>" with **Share** and
+**Dismiss**, or shows why it failed with **Dismiss**; it never disappears by itself (a cancelled export just removes it). Because
+only one export runs at a time, the Export button of every other project explains "Another export is running: <project>" instead of
+opening the dialog until the first one is done.
 
 ## Media library
 

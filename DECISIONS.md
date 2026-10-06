@@ -1395,3 +1395,16 @@ then run unprotected). A killed process (low memory, swipe-away from Recents whi
 resume, and the partly written SAF file is not removed because nothing is running to remove it (same as a crash before this change);
 the next start has no job so the dialog never claims one is running. Only one export at a time (a second is refused).
 **Not verified on a device:** see the pull request (the device checks could not be run in this session).
+
+## 2026-10-06 · The export notification and the project list lead back to the exporting project
+**Context:** on a real device, tapping the export notification opened the app wherever it was, and nothing in the project list showed that
+an export was running, so a second one could be started from another project (and failed with a generic message). The editor's export
+dialog also could not be closed while running, so the project list could not be reached from it.
+**Chosen:** the job state carries the project id. The notification opens `MainActivity` with the id (works cold and through `onNewIntent`);
+the pure `exportDestination()` opens the editor with the dialog only when the project exists and the executor still holds an export of it,
+otherwise the project list, so a stale notification (project deleted, process restarted) never shows an empty dialog. The project list
+shows a bar from the same `StateFlow` (running, finished with Share, failed; dismissed by the user, never silently dropped; cancelled just
+goes). Other projects' Export buttons are refused with the running project's name. The running dialog gets a Hide button (dismiss hides it
+only), which is what makes "go back to the project list during an export" possible.
+**Alternatives:** carrying only the project name (rejected: names are not unique ids); reopening the dialog for any notification tap
+(rejected: after a restart nothing is exporting); disabling the toolbar button outright (rejected: a disabled button cannot say why).
