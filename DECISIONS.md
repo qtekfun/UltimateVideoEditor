@@ -1408,3 +1408,16 @@ goes). Other projects' Export buttons are refused with the running project's nam
 only), which is what makes "go back to the project list during an export" possible.
 **Alternatives:** carrying only the project name (rejected: names are not unique ids); reopening the dialog for any notification tap
 (rejected: after a restart nothing is exporting); disabling the toolbar button outright (rejected: a disabled button cannot say why).
+
+## 2026-10-06 · Uncompressed audio in QuickTime files is read by the engine, not by MediaExtractor
+**Context:** the full 4K export of an imported LumaFusion project had no sound on the base track. The base footage is an iPhone `.mov` whose
+soundtrack is linear PCM (`lpcm`, 48 kHz stereo 16-bit; `ffprobe`: `pcm_s16le`). Android's `MediaExtractor` does not list such a track, so the
+probe answered `hasAudio = false`, the editor wrote that into the library, and the exporter (like the preview) builds audio lanes only for assets
+with audio: the clips were silent without any error. LumaFusion's own data was right (audio stream present, volume 1 mapped to 0 dB, volume 0 to -96 dB).
+**Chosen:** `data/MovAudioScan.kt` finds a PCM sound track in the header boxes so the probe says `hasAudio = true` (and so a project opened later is
+repaired by `verifyAssets`), and `audio/mov_pcm.*` is a `PcmDecoder` that reads the samples through the sample tables (`stsz/stsc/stco`) and
+converts them to float. It sits between the platform decoder and the FFmpeg fallback in `AudioEngine::openAssetDecoder` and in the waveform extractor,
+so preview, export and waveforms all get it, and it needs no FFmpeg build. The LumaFusion report now lists the clips that are silent only because
+LumaFusion had volume 0. **Alternatives:** requiring the FFmpeg fallback (off by default, a 7.6 MB engine growth for a trivial format);
+transcoding the audio at import (copies and rewrites the user's media).
+**Not handled:** edit lists (the track here starts 745 samples = 15 ms late; ignored), non-interleaved or 24-in-32 aligned `lpcm`, more than two channels (the first two are used).
