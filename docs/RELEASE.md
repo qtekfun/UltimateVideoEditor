@@ -85,8 +85,12 @@ To publish: set `versionName` in `gradle/version.properties`, merge, then `git t
 1. `gradle/version.properties` bumped; `PLAN.md` and `docs/USER_GUIDE.md` match what ships.
 2. `./gradlew :app:testDebugUnitTest :app:lintRelease` is green (the unit tests include `OfflineGuaranteeTest`: no
    network permission, no networking APIs, no tracking dependencies).
-3. **Permissions review:** `aapt2 dump badging app-release.apk` lists no `uses-permission` other than the app's own
-   `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` (added by AndroidX; it only guards the app's own receivers).
+3. **Permissions review:** `aapt2 dump badging app-release.apk` lists exactly these `uses-permission` entries and nothing else:
+   `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROCESSING`, `FOREGROUND_SERVICE_DATA_SYNC` and `POST_NOTIFICATIONS`
+   (all for the export's foreground service and its notification, see `docs/PRIVACY.md`), plus the app's own
+   `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` (added by AndroidX; it only guards the app's own receivers). `INTERNET` or any
+   other permission appearing is a release blocker (`OfflineGuaranteeTest` checks the manifest source; this step checks the merged result,
+   which can gain entries from a library). The manifest declares one service, `ExportService` (not exported).
 4. **Size:** note the APK and AAB sizes below; investigate a jump of more than 10 %.
 5. `THIRD_PARTY_NOTICES.md` lists every bundled library and its licence (it is packed into the app and shown in About).
 6. `docs/PRIVACY.md` is accurate (it is packed into the app and shown in About).
@@ -143,7 +147,10 @@ Size log (R8-minified, arm64-v8a only):
 - **Is all of the user data collected by your app encrypted in transit?** Not applicable (no data collected, no network).
 - **Do you provide a way for users to request that their data be deleted?** Not applicable (no data leaves the device;
   users can delete projects and caches in the app, or uninstall).
-- **Permissions declared:** none.
+- **Permissions declared:** `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROCESSING`, `FOREGROUND_SERVICE_DATA_SYNC` (a foreground
+  service so an export keeps running when the user leaves the app) and `POST_NOTIFICATIONS` (its progress notification, optional).
+  No network, location, contacts, storage, camera or microphone permission. The foreground service types are declared as
+  `mediaProcessing` (media encoding); `dataSync` is only the type Android 12 to 14 offers and no data is synchronised.
 - **Data handling statement:** all projects, media references and caches stay in the app's private storage on the
   device. Media files are read through the system file picker. Crash reports are text files stored locally and only
   shared if the user taps Share.
