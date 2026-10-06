@@ -385,6 +385,15 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   support the project exports as SDR (HLG clips tone-mapped) with a notice; a native refusal
   (`UnsupportedFormat`, e.g. no ten-bit surface) is reported with a hint to export as SDR. The JNI codec
   argument carries the HDR flag as bit 0x100.
+- **Faster export** (`ui/export/ExportProxyAssist.kt`, off by default): `ExportInput.proxies` (ready proxies by asset id, filled by
+  `ProxyManager.readyForExport` when the dialog opens) and `ExportProxyAssist` let `buildExportPlan` give a clip the proxy's own asset
+  key (`ExportPlan.proxyAssets`; audio and other clips keep the original's key, so an asset may be open twice) when all of these hold:
+  decoded video; no effect, stabilisation or smooth slow motion; no colour override differing from the asset's; not an HDR asset in an
+  HDR export (a proxy is tone-mapped SDR and is read as SDR, `colorMode` 0); and `proxyCoversLayer`: with `fit = min(canvasW/pw, canvasH/ph)`
+  (the contain fit of `layout_math.h`) the layer covers `pw * fit * maxScaleX * outW / canvasW` by the like on y output pixels, which must
+  not exceed the proxy's pw x ph (1e-6 slack, so a layer exactly the proxy's size qualifies; a proxy is never enlarged). `maxScale` is the
+  largest scale over the clip's keyframes, transition moves included. Frame mapping is unchanged (a proxy has the source's frame rate and
+  length). A proxy that cannot be opened makes the job plan again from originals. Titles and stills never use proxies.
 - FFmpeg (static, NDK) is an optional fallback for formats not supported by MediaCodec: built behind
   `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`. The build includes libdav1d (BSD-2-Clause) for AV1; licence
   notices in `THIRD_PARTY_NOTICES.md`.
@@ -1243,7 +1252,7 @@ template as a file and imports one. All files come from the system picker; nothi
 
 ### 5.31 Proxy media (WP-P)
 
-Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in files; export never uses them.
+Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in files; export uses them only for the optional "Faster export" (5.10), never otherwise.
 
 - **Proxy file.** A one-clip movie made by the offline export engine (`ProxyGenerator` -> `NativeExportRunner`): the
   source's own frame rate and length (so every timeline frame maps to the same frame of the proxy), scaled so the
