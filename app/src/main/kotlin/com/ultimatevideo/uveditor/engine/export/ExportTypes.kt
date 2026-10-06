@@ -203,6 +203,9 @@ interface ExportListener {
 
     /** Called once, on a native thread: [error] is null on success. */
     fun onFinished(error: ExportException?)
+
+    /** Before [onFinished] with no error, when the movie was made but not exactly (frames repeated); [note] says so. */
+    fun onNote(note: String) {}
 }
 
 /** A running export. [close] blocks until the native thread has stopped: call it off the main thread. */

@@ -29,6 +29,11 @@
             android:name=".debug.FrameDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.UVEditor" />
+        <!-- Debug-only: lists the HEVC encoders and trial-configures HLG formats into files/hdr-probe.txt; see HdrProbeDemoActivity. -->
+        <activity
+            android:name=".debug.HdrProbeDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
     </application>
 
 </manifest>
