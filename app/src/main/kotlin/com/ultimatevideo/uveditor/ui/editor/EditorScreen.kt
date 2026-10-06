@@ -334,6 +334,7 @@ fun EditorScreen(
             CaptionsIntent.Open(live.fps, live.canvasHeight, live.playhead.value, live.timeline.captionCount()),
         )
     }
+    val proxyManager = remember(context) { ProxyManager.of(context.applicationContext) }
     val openExport = {
         // The dialog works from what the editor holds right now; the autosave is not involved.
         val live = holder.value
@@ -342,6 +343,7 @@ fun EditorScreen(
                 ExportInput(
                     projectId, live.projectName, live.canvasWidth, live.canvasHeight, live.fps, live.timeline, live.assets, live.colorSpace,
                     missingAssetIds = live.missingMedia.keys,
+                    proxies = proxyManager.readyForExport(live.assets),
                 ),
             ),
         )
@@ -367,8 +369,7 @@ fun EditorScreen(
     val palette = LocalPalette.current
     LaunchedEffect(engine, palette) { engine.setPalette(palette.nativeColours()) }
 
-    // Proxy media: small copies the preview and the thumbnails use while editing. Export never asks for them.
-    val proxyManager = remember(context) { ProxyManager.of(context.applicationContext) }
+    // Proxy media: small copies the preview and the thumbnails use while editing; export reads them only when "Faster export" is on.
     val proxyVm: ProxyViewModel = viewModel(
         key = "proxy-$projectId",
         factory = viewModelFactory { initializer { ProxyViewModel(proxyManager, projectId) } },
