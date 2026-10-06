@@ -143,7 +143,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     jlongArray keyClips, jlongArray keyFrames, jdoubleArray keyValues, jdoubleArray fx, jlongArray fxFrameClips,
     jdoubleArray fxFrameData, jlongArray sourceClips,
     jlongArray sourceTable, jintArray titleMeta, jobjectArray titlePixels, jintArray lutMeta, jobjectArray lutData, jobject audioSnapshot,
-    jint outputFd, jlong pictureBudget) {
+    jint outputFd, jlong pictureBudget, jlong stillFrame, jint cropX, jint cropY, jint cropW, jint cropH,
+    jobject stillPixels) {
     ExportParams params;
     params.width = width;
     params.height = height;
@@ -408,6 +409,24 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
             return 0;
         }
         params.audioSnapshot.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
+    }
+
+    // Save-frame mode: one frame is rendered into the direct buffer `stillPixels` (cropW x cropH x 4 bytes) instead of
+    // exporting a movie; the caller keeps the buffer alive until the job reports it has finished.
+    if (stillPixels != nullptr) {
+        void* data = env->GetDirectBufferAddress(stillPixels);
+        const jlong capacity = env->GetDirectBufferCapacity(stillPixels);
+        if (data == nullptr || capacity < 0) {
+            throwExport(env, Status::InvalidArgument, "the picture buffer must be a direct buffer");
+            closeAll(params.assetFds, outputFd);
+            return 0;
+        }
+        uv::encode::StillTarget target;
+        target.frame = stillFrame;
+        target.crop = {cropX, cropY, cropW, cropH};
+        target.out = static_cast<uint8_t*>(data);
+        target.capacity = capacity;
+        params.still = target;
     }
 
     auto handle = std::make_unique<Handle>();
