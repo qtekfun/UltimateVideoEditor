@@ -53,9 +53,14 @@ class ExportViewModel(
      * is a private executor on [runner], which is what the unit tests use.
      */
     private val executor: ExportExecutor = ExportExecutor(io, runner, CoroutineScope(SupervisorJob() + ioDispatcher), ioDispatcher, clock),
+    /** The project this dialog belongs to: it only mirrors an export of this project and refuses to start while another one runs. */
+    private val projectId: String = "",
 ) : MviViewModel<ExportState, ExportIntent, ExportEffect>(ExportState()) {
 
     private var input: ExportInput? = null
+
+    /** The last outcome of this project's export that the dialog shows; the project list clearing it (Idle) closes the dialog. */
+    private var mirrored: ExportJobState? = null
 
     init {
         // The dialog is only a view of the executor: a new view model (after the editor was left and entered again, or
@@ -66,6 +71,7 @@ class ExportViewModel(
     override fun onIntent(intent: ExportIntent) {
         when (intent) {
             is ExportIntent.Open -> open(intent.input)
+            ExportIntent.ShowProgress -> showProgress()
             ExportIntent.Dismiss -> dismiss()
             is ExportIntent.SelectResolution -> editSettings { copy(resolution = intent.option) }
             is ExportIntent.SelectFrameRate -> editSettings { copy(frameRate = intent.rate) }
@@ -82,8 +88,21 @@ class ExportViewModel(
     }
 
     private fun open(newInput: ExportInput) {
-        if (state.value.isRunning) return
-        executor.acknowledge()
+        val job = executor.state.value
+        when (val availability = exportAvailability(job, projectId)) {
+            is ExportAvailability.BlockedBy -> {
+                emit(ExportEffect.Message(availability.message))
+                return
+            }
+            ExportAvailability.RunningHere -> {
+                // The button of the exporting project shows its progress instead of new settings.
+                reduce { copy(visible = true, hiddenWhileRunning = false) }
+                return
+            }
+            ExportAvailability.Available -> Unit
+        }
+        mirrored = null
+        executor.acknowledge(projectId)
         input = newInput
         val resolutions = resolutionOptions(newInput.projectWidth, newInput.projectHeight)
         val rates = frameRateOptions(newInput.fps)
@@ -130,29 +149,70 @@ class ExportViewModel(
         }
     }
 
+    /** Closes the dialog. A running export goes on: only the dialog is hidden (the notification and the project list still show it). */
     private fun dismiss() {
-        if (state.value.isRunning) return
-        executor.acknowledge()
+        if (state.value.isRunning) {
+            reduce { copy(visible = false, hiddenWhileRunning = true) }
+            return
+        }
+        mirrored = null
+        executor.acknowledge(projectId)
         reduce { copy(visible = false, phase = ExportPhase.Configuring) }
     }
 
-    /** Mirrors the executor into the dialog. [ExportJobState.Idle] changes nothing: the dialog may hold its own failure. */
+    /** Opens the dialog on this project's export, whatever its state; nothing to show (or another project's export) changes nothing. */
+    private fun showProgress() {
+        val job = executor.state.value
+        if (job.projectId != projectId || job is ExportJobState.Cancelled) return
+        reduce { copy(hiddenWhileRunning = false) }
+        onJobState(job)
+    }
+
+    /**
+     * Mirrors the executor into the dialog, for this project's export only. [ExportJobState.Idle] changes nothing, except
+     * when the project list dismissed a result this dialog was showing: then it closes too (the dialog may otherwise hold
+     * its own failure, such as missing media).
+     */
     private fun onJobState(job: ExportJobState) {
+        if (job.projectId != projectId && job != ExportJobState.Idle) {
+            reduce { copy(blockedBy = (job as? ExportJobState.Running)?.projectName) }
+            return
+        }
         when (job) {
-            ExportJobState.Idle -> Unit
-            is ExportJobState.Running -> reduce {
-                copy(
-                    visible = true,
-                    projectName = if (visible) projectName else job.projectName,
-                    phase = ExportPhase.Running(job.progressPermille, job.startedAtMs, job.estimate),
-                )
+            ExportJobState.Idle -> {
+                val shown = mirrored
+                mirrored = null
+                reduce { copy(blockedBy = null) }
+                if (shown is ExportJobState.Done || shown is ExportJobState.Failed || shown is ExportJobState.Running) {
+                    reduce { copy(visible = false, phase = ExportPhase.Configuring, hiddenWhileRunning = false) }
+                }
             }
-            is ExportJobState.Done -> reduce { copy(visible = true, phase = ExportPhase.Done(job.uri, job.fileName)) }
-            is ExportJobState.Failed -> reduce { copy(visible = true, phase = ExportPhase.Failed(describeExportFailure(job.error, hdr) + job.leftoverNote)) }
+            is ExportJobState.Running -> {
+                mirrored = job
+                reduce {
+                    copy(
+                        visible = !hiddenWhileRunning,
+                        blockedBy = null,
+                        projectName = if (visible) projectName else job.projectName,
+                        phase = ExportPhase.Running(job.progressPermille, job.startedAtMs, job.estimate),
+                    )
+                }
+            }
+            is ExportJobState.Done -> {
+                mirrored = job
+                reduce { copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Done(job.uri, job.fileName)) }
+            }
+            is ExportJobState.Failed -> {
+                mirrored = job
+                reduce {
+                    copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Failed(describeExportFailure(job.error, hdr) + job.leftoverNote))
+                }
+            }
             is ExportJobState.Cancelled -> {
                 // Back to the settings; a view model that never opened the dialog has none to go back to.
-                reduce { copy(visible = resolutions.isNotEmpty(), phase = ExportPhase.Configuring) }
-                executor.acknowledge()
+                mirrored = null
+                reduce { copy(visible = resolutions.isNotEmpty(), hiddenWhileRunning = false, phase = ExportPhase.Configuring) }
+                executor.acknowledge(projectId)
             }
         }
     }
@@ -226,7 +286,7 @@ class ExportViewModel(
             return
         }
         reduce { copy(phase = ExportPhase.Running(0, startedAtMs = clock())) }
-        val job = ExportJob(current.projectName, uri) { buildRequest(source, uri, resolution, rate, current) }
+        val job = ExportJob(projectId, current.projectName, uri) { buildRequest(source, uri, resolution, rate, current) }
         if (!executor.start(job)) reduce { copy(phase = ExportPhase.Failed("Another export is already running.")) }
     }
 
@@ -305,7 +365,7 @@ class ExportViewModel(
     override fun onCleared() {
         // A running export is not ours to stop: it goes on in the executor, kept alive by the foreground service. A
         // finished one that nobody looked at is dropped so that the next editor does not open on a stale result.
-        executor.acknowledge()
+        executor.acknowledge(projectId)
     }
 
     private companion object {

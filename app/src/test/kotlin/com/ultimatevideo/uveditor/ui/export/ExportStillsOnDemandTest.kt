@@ -79,6 +79,7 @@ class ExportStillsOnDemandTest {
     )
 
     private fun input() = ExportInput(
+        projectId = "",
         projectName = "Gifs",
         projectWidth = 1920,
         projectHeight = 1080,

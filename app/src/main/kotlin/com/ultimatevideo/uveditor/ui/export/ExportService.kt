@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import com.ultimatevideo.uveditor.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,9 +99,7 @@ class ExportService : Service() {
     }
 
     private fun build(model: ExportNotificationModel): Notification {
-        val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
-            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        }
+        val open = openIntentFor(model.projectId)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(if (model.ongoing) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_upload_done)
             .setContentTitle(model.title)
@@ -111,7 +110,7 @@ class ExportService : Service() {
             .setAutoCancel(!model.ongoing)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-        if (open != null) builder.setContentIntent(open)
+        builder.setContentIntent(open)
         if (model.ongoing) {
             builder.setProgress(PROGRESS_MAX, model.progressPercent ?: 0, model.indeterminate)
         }
@@ -125,6 +124,19 @@ class ExportService : Service() {
             builder.addAction(0, "Cancel", cancel)
         }
         return builder.build()
+    }
+
+    /**
+     * Brings MainActivity forward (a running one gets onNewIntent, a killed one starts) with the project id, so the app can
+     * open that project's editor with the export dialog. Without a project (the placeholder) it is a plain launch.
+     */
+    private fun openIntentFor(projectId: String): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(ExportLaunch.ACTION_SHOW)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (projectId.isNotEmpty()) intent.putExtra(ExportLaunch.EXTRA_PROJECT_ID, projectId)
+        // One PendingIntent per project: UPDATE_CURRENT would otherwise rewrite the extras of an older notification's intent.
+        return PendingIntent.getActivity(this, projectId.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     companion object {

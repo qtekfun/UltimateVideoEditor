@@ -182,7 +182,14 @@ import java.io.File
 import java.io.FileNotFoundException
 
 @Composable
-fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> Unit) {
+fun EditorScreen(
+    viewModel: EditorViewModel,
+    projectId: String,
+    onClose: () -> Unit,
+    /** Set when a notification or the project list asked for this project's export dialog; [onShowExportHandled] clears it. */
+    showExport: Boolean = false,
+    onShowExportHandled: () -> Unit = {},
+) {
     // The playhead changes every 16 ms while playing. It is kept out of what the chrome (toolbar,
     // banners, dialogs, inspector shell) reads, so those recompose only when something they show changes;
     // the effects below and the timecode read the live state through [holder] instead.
@@ -275,11 +282,24 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                     hdrSupport = MediaCodecHdrExportSupport(),
                     lutLoader = lutStore::load,
                     executor = ExportCenter.executor(context),
+                    projectId = projectId,
                 )
             }
         },
     )
-    ExportHost(exportViewModel)
+    ExportHost(exportViewModel) { text ->
+        snackbar.currentSnackbarData?.dismiss()
+        scope.launch { snackbar.showSnackbar(text) }
+    }
+    val exportHolder = exportViewModel.state.collectAsStateWithLifecycle()
+    // Only the name is read, so the editor does not recompose on every progress report of an export.
+    val exportBlockedBy by remember(exportHolder) { derivedStateOf { exportHolder.value.blockedBy } }
+    LaunchedEffect(showExport) {
+        if (showExport) {
+            exportViewModel.onIntent(ExportIntent.ShowProgress)
+            onShowExportHandled()
+        }
+    }
     if (state.lutPickerOpen) {
         LutPickerDialog(
             state = lutState,
@@ -320,7 +340,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
         exportViewModel.onIntent(
             ExportIntent.Open(
                 ExportInput(
-                    live.projectName, live.canvasWidth, live.canvasHeight, live.fps, live.timeline, live.assets, live.colorSpace,
+                    projectId, live.projectName, live.canvasWidth, live.canvasHeight, live.fps, live.timeline, live.assets, live.colorSpace,
                     missingAssetIds = live.missingMedia.keys,
                 ),
             ),
@@ -755,6 +775,7 @@ fun EditorScreen(viewModel: EditorViewModel, projectId: String, onClose: () -> U
                 ) {
                     EditorMain(
                         state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, dropTarget, launchImport, openExport, openCaptions,
+                        exportBlockedBy = exportBlockedBy,
                         layout = layout,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
                         onOpenLayout = { layoutSheetOpen = true },
@@ -806,6 +827,8 @@ private fun EditorMain(
     modifier: Modifier = Modifier,
     /** Output peaks since the previous call, for the level meter next to the timecode. */
     takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
+    /** Another project is exporting: the Export button explains that instead of opening the dialog. */
+    exportBlockedBy: String? = null,
 ) {
     val hasSelection = state.selectedClipId != null
     val selecting = remember(holder, viewModel) {
@@ -846,7 +869,12 @@ private fun EditorMain(
             ToolButton(EditorIcons.LayoutPanes, "Layout: presets, panels, track height and dividers", onClick = onOpenLayout)
             ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
-            ToolButton(EditorIcons.Export, "Export movie", enabled = !state.isPlaying, onClick = onExport)
+            ToolButton(
+                EditorIcons.Export,
+                if (exportBlockedBy != null) "Export unavailable: another export is running ($exportBlockedBy)" else "Export movie",
+                enabled = !state.isPlaying,
+                onClick = onExport,
+            )
         }
         if (!fullscreen.active) {
             MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }

@@ -8,6 +8,7 @@ import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
 import com.ultimatevideo.uveditor.mvi.UiState
+import com.ultimatevideo.uveditor.ui.export.ExportBar
 import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.ImportReportNotes
 import java.util.Locale
@@ -94,6 +95,8 @@ data class HubState(
     val importProgress: com.ultimatevideo.uveditor.data.interchange.ImportProgress? = null,
     /** A package needs somewhere to put its footage and no media folder is chosen: the dialog that asks for one. */
     val mediaFolderPrompt: Boolean = false,
+    /** The export that is running, or that ended and was not dismissed yet (bar above the New project button); null when none. */
+    val exportBar: ExportBar? = null,
 ) : UiState {
     val unreadableCount: Int get() = unreadable.size
 
@@ -185,6 +188,12 @@ sealed interface HubIntent : UiIntent {
     data object DismissResume : HubIntent
 
     data object DismissDialogs : HubIntent
+
+    /** The bar's buttons: stop the running export, forget a finished or failed one, share the file, open the project's editor on its export. */
+    data object CancelExport : HubIntent
+    data object DismissExportBar : HubIntent
+    data object ShareExport : HubIntent
+    data object OpenExportProject : HubIntent
 }
 
 sealed interface HubEffect : UiEffect {
@@ -193,4 +202,8 @@ sealed interface HubEffect : UiEffect {
     data class LaunchBundleExportPicker(val projectId: String, val suggestedFileName: String, val choice: BundleChoice) : HubEffect
     data class OpenEditor(val projectId: String) : HubEffect
     data object LaunchMediaFolderPicker : HubEffect
+    data class ShareExport(val uri: String) : HubEffect
+
+    /** Open the editor of [projectId] with its export dialog showing. */
+    data class OpenExport(val projectId: String) : HubEffect
 }

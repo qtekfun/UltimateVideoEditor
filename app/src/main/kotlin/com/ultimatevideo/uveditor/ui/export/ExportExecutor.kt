@@ -29,9 +29,9 @@ class ExportExecutor(
     private val ioDispatcher: CoroutineDispatcher,
     private val clock: () -> Long = System::currentTimeMillis,
     private val onStarted: () -> Unit = {},
-) {
+) : ExportJobHost {
     private val mutableState = MutableStateFlow<ExportJobState>(ExportJobState.Idle)
-    val state: StateFlow<ExportJobState> = mutableState.asStateFlow()
+    override val state: StateFlow<ExportJobState> = mutableState.asStateFlow()
 
     private val lock = Any()
     private var handle: ExportHandle? = null
@@ -42,7 +42,7 @@ class ExportExecutor(
 
     /** Starts [next]; false when an export is already running (nothing is touched then). */
     fun start(next: ExportJob): Boolean {
-        val running = ExportJobState.Running(next.projectName, 0, clock())
+        val running = ExportJobState.Running(next.projectId, next.projectName, 0, clock())
         synchronized(lock) {
             if (mutableState.value.isRunning) return false
             job = next
@@ -57,7 +57,7 @@ class ExportExecutor(
     }
 
     /** Asks the running export to stop. Also works while the files are still being opened: it stops right after. */
-    fun cancel() {
+    override fun cancel() {
         val running = synchronized(lock) {
             if (!mutableState.value.isRunning) return
             cancelRequested = true
@@ -66,9 +66,13 @@ class ExportExecutor(
         running?.cancel()
     }
 
-    /** The user has seen a finished, failed or cancelled export: go back to [ExportJobState.Idle]. Never touches a running one. */
-    fun acknowledge() {
-        mutableState.update { if (it.isRunning) it else ExportJobState.Idle }
+    /**
+     * The user has seen a finished, failed or cancelled export: go back to [ExportJobState.Idle]. Never touches a running
+     * one. With [onlyProject] it only clears the result of that project, so an editor that is left does not wipe the
+     * result another project's export is showing in the project list.
+     */
+    override fun acknowledge(onlyProject: String?) {
+        mutableState.update { if (it.isRunning || (onlyProject != null && it.projectId != onlyProject)) it else ExportJobState.Idle }
     }
 
     private fun launchJob(next: ExportJob, startedAtMs: Long) {
@@ -132,7 +136,7 @@ class ExportExecutor(
         finished?.close()
         if (error == null) {
             val name = io.displayName(source.outputUri) ?: suggestedFileName(source.projectName)
-            mutableState.value = ExportJobState.Done(source.projectName, source.outputUri, name)
+            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name)
             return
         }
         val removed = io.deleteOutput(source.outputUri)
@@ -140,7 +144,7 @@ class ExportExecutor(
         val leftover = if (removed) "" else
             " A partly written file could not be removed: ${io.displayName(source.outputUri) ?: "the chosen file"}. It is incomplete; delete it."
         mutableState.value =
-            if (error.code == ExportErrorCode.CANCELLED) ExportJobState.Cancelled(source.projectName)
-            else ExportJobState.Failed(source.projectName, error, leftover)
+            if (error.code == ExportErrorCode.CANCELLED) ExportJobState.Cancelled(source.projectId, source.projectName)
+            else ExportJobState.Failed(source.projectId, source.projectName, error, leftover)
     }
 }
