@@ -155,3 +155,10 @@ add_executable(uv_decoder_ladder_host_tests decoder_ladder_host_tests.cpp)
 target_include_directories(uv_decoder_ladder_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_decoder_ladder_host_tests PRIVATE -Wall -Wextra -Werror)
 add_test(NAME uv_decoder_ladder_host_tests COMMAND uv_decoder_ladder_host_tests)
+
+# Reading media files by position (pread on a shared descriptor) and when a stream counts as cut short.
+add_executable(uv_media_read_host_tests media_read_host_tests.cpp)
+target_include_directories(uv_media_read_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_media_read_host_tests PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(uv_media_read_host_tests PRIVATE Threads::Threads)
+add_test(NAME uv_media_read_host_tests COMMAND uv_media_read_host_tests)

@@ -62,6 +62,10 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     std::unique_ptr<VideoDecoder> d(new VideoDecoder());
     d->fd_ = fd;  // from here on the destructor closes it, including on every error path
     d->callbacks_ = std::move(callbacks);
+    // Every extractor call that reads the file holds the file's lock (core/file_lock.h): readers sharing a file offset
+    // must not interleave.
+    d->fileLock_ = core::fileLockFor(fd);
+    std::unique_lock<std::mutex> ioLock(*d->fileLock_);
 
     const off_t length = lseek(fd, 0, SEEK_END);
     if (length <= 0 || lseek(fd, 0, SEEK_SET) < 0) return Error{Status::IoError, "cannot determine media size"};
@@ -139,6 +143,7 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     d->info_.durationFrames = hasDuration ? ptsUsToFrame(durationUs, d->info_.fps) : kUnknownDuration;
     d->lastFrame_ = d->info_.durationFrames > 0 ? d->info_.durationFrames - 1 : 0;
     d->sharedLastFrame_.store(d->lastFrame_);
+    ioLock.unlock();
 
     // Opening walks the ladder in decode/decoder_ladder.h: the first configuration whose codec starts wins and every
     // failed rung is logged with its reason, so an unknown device degrades to a working decoder instead of showing a
@@ -387,7 +392,12 @@ void VideoDecoder::seekTo(int64_t frame) {
     ++diag_.seeks;
     inputEos_ = false;
     const int64_t ptsUs = startPtsUs_ + frameToPtsUs(frame, info_.fps);
-    if (AMediaExtractor_seekTo(extractor_, ptsUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC) != AMEDIA_OK) {
+    media_status_t sought;
+    {
+        std::lock_guard<std::mutex> io(*fileLock_);
+        sought = AMediaExtractor_seekTo(extractor_, ptsUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+    }
+    if (sought != AMEDIA_OK) {
         failed_ = true;
         sharedFailed_.store(true);
         reportError(Status::IoError, "AMediaExtractor_seekTo failed");
@@ -420,7 +430,16 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
         if (index < 0) break;
         size_t capacity = 0;
         uint8_t* buffer = AMediaCodec_getInputBuffer(codec_, static_cast<size_t>(index), &capacity);
-        const ssize_t size = buffer != nullptr ? AMediaExtractor_readSampleData(extractor_, buffer, capacity) : -1;
+        ssize_t size = -1;
+        int64_t sampleTime = 0;
+        if (buffer != nullptr) {
+            std::lock_guard<std::mutex> io(*fileLock_);
+            size = AMediaExtractor_readSampleData(extractor_, buffer, capacity);
+            if (size >= 0) {
+                sampleTime = AMediaExtractor_getSampleTime(extractor_);
+                AMediaExtractor_advance(extractor_);
+            }
+        }
         if (size < 0) {
             AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(index), 0, 0, 0,
                                          AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
@@ -428,7 +447,6 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
             sharedInputEos_.store(true);
             break;
         }
-        const int64_t sampleTime = AMediaExtractor_getSampleTime(extractor_);
         if (AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(index), 0, static_cast<size_t>(size),
                                          static_cast<uint64_t>(std::max<int64_t>(sampleTime, 0)), 0) != AMEDIA_OK) {
             failed_ = true;
@@ -436,7 +454,6 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
             reportError(Status::CodecError, "AMediaCodec_queueInputBuffer failed (" + describe() + ")");
             return;
         }
-        AMediaExtractor_advance(extractor_);
     }
 
     if (inFlightCount() >= kMaxInFlight) {  // backpressure: let the render thread catch up
@@ -503,8 +520,32 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
     if ((info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0) {
         decoderPrimed_ = false;  // next work needs a flush + seek
         sharedPrimed_.store(false);
+        const int64_t declaredLast = lastFrame_;
         if (decodePos_ > 0) lastFrame_ = std::min(lastFrame_, decodePos_ - 1);
         sharedLastFrame_.store(lastFrame_);
+        if (seekGoal_ >= 0) {
+            // The stream ended before the frame the last seek was after: it will never come. Without this the same frame
+            // stays "missing" and every call seeks to it again (one seek per frame past the end of a clip).
+            {
+                std::lock_guard<std::mutex> lock(unavailableMu_);
+                unavailable_.insert(seekGoal_);
+            }
+            sharedMarkedUnavailable_.fetch_add(1);
+            UV_LOGW("frame %lld is past the end of the stream (last frame %lld)", static_cast<long long>(seekGoal_),
+                    static_cast<long long>(lastFrame_));
+            seekGoal_ = -1;
+            sharedSeekGoal_.store(-1);
+        }
+        // A stream that ends well before the length its container declares was cut short by a read error, not by the end
+        // of the file (MP4 reader errors end the stream like a real end). Say so: playing on with the last frame would make
+        // an export silently wrong.
+        const int64_t shortBy = declaredLast - lastFrame_ - 1;
+        if (info_.durationFrames > 0 && shortBy > earlyEndToleranceFrames(info_.fps, declaredLast + 1) && !earlyEndReported_) {
+            earlyEndReported_ = true;
+            sharedEarlyEnd_.store(true);
+            reportError(Status::IoError, "the video stream ends at frame " + std::to_string(lastFrame_ + 1) + " of " +
+                                             std::to_string(declaredLast + 1) + ": the file could not be read to its end");
+        }
     }
 }
 

@@ -135,8 +135,12 @@ class ExportExecutor(
             mutableState.value = ExportJobState.Done(source.projectName, source.outputUri, name)
             return
         }
-        io.deleteOutput(source.outputUri)
+        val removed = io.deleteOutput(source.outputUri)
+        // A failed export never leaves a half-written file unmentioned: when the provider refuses to delete it, say so.
+        val leftover = if (removed) "" else
+            " A partly written file could not be removed: ${io.displayName(source.outputUri) ?: "the chosen file"}. It is incomplete; delete it."
         mutableState.value =
-            if (error.code == ExportErrorCode.CANCELLED) ExportJobState.Cancelled(source.projectName) else ExportJobState.Failed(source.projectName, error)
+            if (error.code == ExportErrorCode.CANCELLED) ExportJobState.Cancelled(source.projectName)
+            else ExportJobState.Failed(source.projectName, error, leftover)
     }
 }

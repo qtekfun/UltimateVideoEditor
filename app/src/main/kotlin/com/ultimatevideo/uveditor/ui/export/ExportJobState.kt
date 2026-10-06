@@ -22,7 +22,7 @@ sealed interface ExportJobState {
     data class Done(val projectName: String, val uri: String, val fileName: String) : ExportJobState
 
     /** [error] is null only when the engine reported a failure without a reason. */
-    data class Failed(val projectName: String, val error: ExportException?) : ExportJobState
+    data class Failed(val projectName: String, val error: ExportException?, val leftoverNote: String = "") : ExportJobState
 
     /** The user cancelled; the partial file is already removed. */
     data class Cancelled(val projectName: String) : ExportJobState

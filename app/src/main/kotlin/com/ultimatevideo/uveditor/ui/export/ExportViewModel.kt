@@ -148,7 +148,7 @@ class ExportViewModel(
                 )
             }
             is ExportJobState.Done -> reduce { copy(visible = true, phase = ExportPhase.Done(job.uri, job.fileName)) }
-            is ExportJobState.Failed -> reduce { copy(visible = true, phase = ExportPhase.Failed(describeExportFailure(job.error, hdr))) }
+            is ExportJobState.Failed -> reduce { copy(visible = true, phase = ExportPhase.Failed(describeExportFailure(job.error, hdr) + job.leftoverNote)) }
             is ExportJobState.Cancelled -> {
                 // Back to the settings; a view model that never opened the dialog has none to go back to.
                 reduce { copy(visible = resolutions.isNotEmpty(), phase = ExportPhase.Configuring) }
