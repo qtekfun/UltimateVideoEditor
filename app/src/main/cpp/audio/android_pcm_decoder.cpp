@@ -111,7 +111,7 @@ Status AndroidPcmDecoder::init(int fd) {
 Status AndroidPcmDecoder::seekToMicros(int64_t micros) {
     media_status_t sought;
     {
-        std::lock_guard<std::mutex> io(*fileLock_);
+        core::FileGuard io(*fileLock_);
         sought = AMediaExtractor_seekTo(extractor_, micros, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
     }
     if (sought != AMEDIA_OK) {
@@ -169,7 +169,7 @@ Status AndroidPcmDecoder::pump() {
         ssize_t n = -1;
         int64_t sampleTime = 0;
         if (buf != nullptr) {
-            std::lock_guard<std::mutex> io(*fileLock_);
+            core::FileGuard io(*fileLock_);
             n = AMediaExtractor_readSampleData(extractor_, buf, cap);
             if (n >= 0) {
                 sampleTime = AMediaExtractor_getSampleTime(extractor_);

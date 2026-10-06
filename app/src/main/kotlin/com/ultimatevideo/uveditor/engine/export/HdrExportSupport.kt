@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.util.Log
 import java.io.IOException
 import kotlin.math.roundToInt
 
@@ -33,9 +34,18 @@ class MediaCodecHdrExportSupport : HdrExportSupport {
             setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020)
             setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_HLG)
             setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
+            // The exporter always sets these two (encode/export_engine.cpp setVideoFormat). Leaving them out is not neutral: the
+            // Pixel 8's c2.exynos.hevc.encoder rejects a format without a key-frame interval with an empty IllegalArgumentException
+            // at every size, which made this probe say "no HDR" on a device that encodes 4K60 HLG.
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
         }
         val list = MediaCodecList(MediaCodecList.REGULAR_CODECS)
-        val name = list.findEncoderForFormat(format) ?: return false
+        val name = list.findEncoderForFormat(format)
+        if (name == null) {
+            Log.w(TAG, "No HEVC encoder accepts ${width}x$height at $fpsNum/$fpsDen fps in Main10 HLG; format $format")
+            return false
+        }
         val info = list.codecInfos.firstOrNull { it.name == name } ?: return false
         val capabilities = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC)
         if (capabilities.profileLevels.none { it.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 }) return false
@@ -57,10 +67,13 @@ class MediaCodecHdrExportSupport : HdrExportSupport {
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             true
         } catch (e: MediaCodec.CodecException) {
+            Log.w(TAG, "HLG trial configure of $codecName rejected: ${e.diagnosticInfo} $e; format $format")
             false
         } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "HLG trial configure of $codecName rejected: $e; format $format")
             false
         } catch (e: IllegalStateException) {
+            Log.w(TAG, "HLG trial configure of $codecName rejected: $e; format $format")
             false
         } finally {
             codec.release()
@@ -69,5 +82,6 @@ class MediaCodecHdrExportSupport : HdrExportSupport {
 
     private companion object {
         const val HINT_BITRATE = 20_000_000
+        const val TAG = "UVExport"
     }
 }

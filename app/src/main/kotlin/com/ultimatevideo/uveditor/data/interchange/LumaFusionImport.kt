@@ -454,6 +454,7 @@ object LumaFusionImport {
     fun convert(lf: LfProject, available: Set<String> = emptySet()): LumaFusionConversion {
         val notes = Notes()
         val cautions = Notes()
+        val silenced = Notes()
         val imported = ArrayList<String>()
         var (fpsNum, fpsDen) = frameRate(lf.step) ?: (0 to 0)
         if (fpsNum == 0) {
@@ -620,6 +621,8 @@ object LumaFusionImport {
                 if (p.kind == Kind.PHOTO) photoAssets += assetId
                 val gain = if (p.kind == Kind.PHOTO || !c.hasAudio) 0.0 else dbOf(c.volume)
                 val pan = if (p.kind == Kind.PHOTO || !c.hasAudio) 0.0 else c.pan.coerceIn(-1.0, 1.0)
+                // A clip that is silent here only because LumaFusion had it at volume 0 (its own or its track's) is listed, so it is not mistaken for lost audio.
+                if (p.kind != Kind.PHOTO && c.hasAudio && (c.volume <= 0.0 || track.volume <= 0.0)) silenced.add("Clips silent because their LumaFusion volume was 0", where)
                 return ClipDto(
                     id = "clip-$clipCounter",
                     assetId = assetId,
@@ -692,6 +695,7 @@ object LumaFusionImport {
             mediaLibrary = assets,
             tracks = trackDtos,
         )
+        imported += silenced.lines()
         imported += cautions.lines().map { "Caution: $it" }
         return LumaFusionConversion(project, assetNames, LumaFusionReport(imported, notes.lines()))
     }
