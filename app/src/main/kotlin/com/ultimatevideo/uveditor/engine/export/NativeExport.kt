@@ -70,6 +70,7 @@ class NativeExportRunner : ExportRunner {
                 // A picture that could not be made is reported with the reason, not the engine's generic text.
                 val reason = request.pictureProvider?.lastError
                 val text = if (code != 0 && reason != null) "A picture could not be drawn: $reason" else message
+                if (code == 0 && message.isNotBlank()) listener.onNote(message)
                 listener.onFinished(if (code == 0) null else ExportException(code, text))
             }
 

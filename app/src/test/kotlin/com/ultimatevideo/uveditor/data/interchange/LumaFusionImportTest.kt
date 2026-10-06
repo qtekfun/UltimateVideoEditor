@@ -223,6 +223,31 @@ class LumaFusionImportTest {
     }
 
     @Test
+    fun `volume 1 clips keep 0 dB and the report lists the clips silent because LumaFusion had volume 0`() {
+        val json = LfFixture.archive(
+            tracks = listOf(
+                LfFixture.track(
+                    0, 0, anchor = true,
+                    clips = listOf(
+                        ClipSpec("a", "clip1.MOV", 0, 600),
+                        ClipSpec("b", "clip1.MOV", 600, 600, volume = 0.0),
+                        ClipSpec("c", "clip1.MOV", 1200, 600),
+                    ),
+                ),
+                LfFixture.track(0, 1, clips = listOf(ClipSpec("d", "clip2.MOV", 0, 600)), volume = 0.0),
+            ),
+        )
+        val c = convert(json)
+        assertEquals(listOf(0.0, -96.0, 0.0), base(c).clips.map { it.gainDb })
+        val line = c.report.imported.single { it.startsWith("Clips silent because their LumaFusion volume was 0") }
+        assertTrue(line, line.contains(": 2 ("))
+        assertTrue(line, line.contains("V1 at 0:01"))
+        assertTrue(line, line.contains("V2 at 0:00"))
+        // Nothing is said when no clip is muted.
+        assertFalse(convert(fourCuts).report.imported.has("silent because"))
+    }
+
+    @Test
     fun `rotation values are not added because the app applies the file orientation itself`() {
         val json = LfFixture.archive(
             tracks = listOf(
