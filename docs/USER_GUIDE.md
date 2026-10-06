@@ -627,14 +627,14 @@ Everything goes through the system file picker and stays on your device: nothing
     ([Missing media and recovery](#missing-media-and-recovery)) to point each file at the original video.
   - **What comes across:** the canvas size and frame rate; the cuts and every track (the main track as the base
     track, the other video tracks as layers above it, audio tracks); where each clip starts and which part of the
-    footage it plays; photos as photo clips; titles with their text, size, colour, position and the rectangle behind
+    footage it plays; the project colour space (LumaFusion's HDR becomes HDR Rec.2020 HLG, otherwise SDR; you can switch it in the editor's canvas settings); photos as photo clips; titles with their text, size, colour, position and the rectangle behind
     them; clip opacity, clip and track volume, pan; and the size and horizontal position of clips in split-screen layouts. (Rotation values are not carried:
     LumaFusion stores the file's own orientation there and the app applies that itself.)
   - **What does not:** a dialog lists, with a count and where, everything that was **not imported**. It currently
     covers reversed clips and speed changes (they play at normal speed in the same place), transitions (hard cuts),
     effects (named), animated (keyframed) values, flips, crops and blend modes, a vertical offset, a turn you added yourself,
     title shadows and fonts (the default font is used), ducking, markers, hidden/locked track states, notes, master
-    volume, a different colour space, and clips of kinds this app does not have (generators, blank clips). Features
+    volume, colour spaces other than the two LumaFusion offers, and clips of kinds this app does not have (generators, blank clips). Features
     that only exist in LumaFusion for iOS are not replicated.
   - **How sure we are:** the cuts, tracks, times and footage matching were checked against two real projects
     written by LumaFusion 5.5.2. Opacity, volume other than silence, pan, rotation, scale and position units and title

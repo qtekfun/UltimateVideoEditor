@@ -93,7 +93,8 @@ object LfFixture {
         resolution: String = "[1920,1080]",
         extra: String = "",
         markers: String = "[]",
+        colorspace: Int = 0,
     ) = """{"attributes":{"appVersion":"5.5.2.0","compositionMarkers":$markers,"trackMarkers":{},"assetMarkers":{},"notes":""},
         "backgroundColor":"0.0 0.0 0.0 1.0","primaryVolume":1,"resolution":$resolution,"stepTime":${time(stepValue, stepScale)},
-        "title":"$title","videoColorspace":0,"needsCloudMedia":false,"tracks":[${tracks.joinToString(",")}]$extra}"""
+        "title":"$title","videoColorspace":$colorspace,"needsCloudMedia":false,"tracks":[${tracks.joinToString(",")}]$extra}"""
 }
