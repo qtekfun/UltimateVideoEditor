@@ -2,6 +2,7 @@
 #include "core/fd_util.h"
 
 #include <android/native_window.h>
+#include <sys/system_properties.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
 #include <media/NdkMediaMuxer.h>
@@ -11,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -732,6 +734,13 @@ void setVideoFormat(AMediaFormat* format, const ExportParams& p) {
                           static_cast<int32_t>(std::lround(static_cast<double>(p.fps.num) / p.fps.den)));
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BITRATE_MODE, 1);  // VBR
+    // An export is not real time, so say so: the codec may then clock itself up. Measured on the reference device (Tensor G3, 4K HEVC
+    // 35 Mbps): 32 fps without, 125 fps with; the bitstream is byte-identical. `setprop debug.uveditor.export_enc_flags 0` turns it off.
+    char flags[PROP_VALUE_MAX] = {};
+    if (!(__system_property_get("debug.uveditor.export_enc_flags", flags) > 0 && flags[0] == '0')) {
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_PRIORITY, 1);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_OPERATING_RATE, std::numeric_limits<int16_t>::max());
+    }
     if (p.hdr) {
         // HEVC Main10, BT.2020 primaries, HLG transfer, limited range: what the compositor outputs in an HLG project.
         AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_PROFILE, kHevcProfileMain10);

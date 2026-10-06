@@ -1408,3 +1408,15 @@ goes). Other projects' Export buttons are refused with the running project's nam
 only), which is what makes "go back to the project list during an export" possible.
 **Alternatives:** carrying only the project name (rejected: names are not unique ids); reopening the dialog for any notification tap
 (rejected: after a restart nothing is exporting); disabling the toolbar button outright (rejected: a disabled button cannot say why).
+
+## 2026-10-06 · Export encoder runs at priority 1 and maximum operating rate
+
+**Context.** Profiling a 4K export showed the render thread waiting about 20 ms per frame for decoded frames even when the decoders were trivially
+light (one 1280x720 proxy layer on a 4K canvas still gave 32 fps), while the same layer at 720p output ran 65 fps. The wait follows the encoder's load.
+**Decision.** `setVideoFormat` sets `KEY_PRIORITY` 1 (non real time) and `KEY_OPERATING_RATE` max, which an offline export may do. `setprop debug.uveditor.export_enc_flags 0`
+turns it off for comparisons.
+**Measured (Pixel 8, 4K HEVC 35 Mbps output, `ExportDemoActivity`):** one 4K H.264 30 fps layer, 600 frames: 17.9 s (33.5 fps) to 9.3 s (64 fps; decode bound);
+one 720p layer upscaled to 4K, 360 frames: 11.5 s to 3.45 s (104 fps); a 4K canvas with a third-size proxy layer: 31.7 to 124 fps; three such layers 37 to 95 fps; three 4K H.264
+layers (decode bound) 30 to 35 fps. The decoded frames are identical with and without (framemd5 equal for both A/B pairs; the files differ only in the container tail),
+so quality and bitrate control are unchanged. Setting the same two keys on the decoders changed nothing (35.4 vs 35.3 fps with three 4K layers).
+**Not measured.** Power and temperature over a full 40 minute project (status stayed 0 over the 10 s runs).
