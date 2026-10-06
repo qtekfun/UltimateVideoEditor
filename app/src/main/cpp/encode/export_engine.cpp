@@ -1,6 +1,7 @@
 #include "encode/export_engine.h"
 #include "core/fd_util.h"
 
+#include <android/data_space.h>
 #include <android/native_window.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
@@ -361,6 +362,12 @@ public:
             fail(Status::UnsupportedFormat, "the encoder surface cannot be tagged BT.2020 HLG on this device");
         }
         if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
+        if (params.hdr) {
+            // ADATASPACE_BT2020_HLG (what the EGL colour-space attribute sets) is full range: the Pixel 8's encoder converts the RGB
+            // frames with that range and tags the stream "pc" although the compositor writes limited-range-compatible HLG and the
+            // format asks for limited. The ITU variant is the same primaries and transfer with limited range.
+            ANativeWindow_setBuffersDataSpace(window, ADATASPACE_BT2020_ITU_HLG);
+        }
         pipeline_ = std::make_unique<render::GlPipeline>(egl_);
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
         space_ = params.hdr ? render::OutputSpace::Hlg2020 : render::OutputSpace::Sdr709;
