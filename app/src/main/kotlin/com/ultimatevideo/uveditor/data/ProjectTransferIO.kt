@@ -9,9 +9,9 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
-/** A document opened for random access (a zip's central directory needs it): [file] reads it until [close]. */
+/** A document opened for random access (a zip's central directory needs it): [access] reads it by position until [close]. */
 interface SeekableDocument : java.io.Closeable {
-    val file: java.io.File
+    val access: com.ultimatevideo.uveditor.data.interchange.RandomAccess
 }
 
 /** Reads and writes whole documents addressed by URI (SAF in the app, in-memory in tests). */
@@ -65,9 +65,11 @@ class ContentResolverTransferIO(private val resolver: ContentResolver) : Project
 
     override fun openSeekable(uri: String): SeekableDocument? {
         val pfd = resolver.openFileDescriptor(Uri.parse(uri), "r") ?: return null
-        // The descriptor stays open while the importer reads; /proc/self/fd/N lets java.util.zip.ZipFile seek in it.
+        // Positional reads on the descriptor itself: re-opening /proc/self/fd/N by path is refused (EACCES) for files that
+        // the provider serves through FUSE (Downloads), so nothing may be opened again by path.
+        val channel = java.io.FileInputStream(pfd.fileDescriptor).channel
         return object : SeekableDocument {
-            override val file = java.io.File("/proc/self/fd/${pfd.fd}")
+            override val access = com.ultimatevideo.uveditor.data.interchange.FileRandomAccess(channel)
             override fun close() = pfd.close()
         }
     }

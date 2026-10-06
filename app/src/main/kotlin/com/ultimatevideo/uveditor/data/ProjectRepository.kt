@@ -17,6 +17,8 @@ import com.ultimatevideo.uveditor.data.interchange.MediaFileNames
 import com.ultimatevideo.uveditor.data.interchange.MediaFolder
 import com.ultimatevideo.uveditor.data.interchange.MediaTarget
 import com.ultimatevideo.uveditor.data.interchange.ProjectBundle
+import com.ultimatevideo.uveditor.data.interchange.ZipEntryInfo
+import com.ultimatevideo.uveditor.data.interchange.ZipReader
 import com.ultimatevideo.uveditor.data.interchange.RelinkCandidate
 import com.ultimatevideo.uveditor.data.interchange.ResourceImportReport
 import com.ultimatevideo.uveditor.data.interchange.ResourceKind
@@ -94,6 +96,8 @@ class ProjectRepository(
     private val mediaFolder: (() -> MediaFolder?)? = null,
     /** Reads a media file's real duration, rate and colour space (footage extracted from a LumaFusion package); null keeps the archive's estimate. */
     private val probeMedia: ((String) -> ProbedMedia?)? = null,
+    /** Where unexpected failures are logged (the app passes `Log.w`), so a message shown to the user always has a trace. */
+    private val log: (String, Throwable) -> Unit = { _, _ -> },
 ) : ProjectStore {
     private val mutex = Mutex()
 
@@ -217,31 +221,37 @@ class ProjectRepository(
                     }
                 }
             } catch (e: IOException) {
-                throw ProjectError.Io("import from $uri", e)
+                log("import from $uri failed", e)
+                throw ProjectError.Io("import from $uri: ${e.javaClass.simpleName}: ${e.message}", e)
             }
         }
     }
 
-    /** The import of an `.lfpackage` at [uri], or null when the zip is not one (or cannot be read at random, so it is tried as a bundle). */
+    /**
+     * The import of an `.lfpackage` at [uri], or null when the zip is not one or the document cannot be read at random
+     * (then it is read as a stream and tried as a bundle).
+     */
     private fun lumaFusionPackage(uri: String, onProgress: ((ImportProgress) -> Unit)?, cancelled: () -> Boolean): ImportReport? {
-        val document = transferIO.openSeekable(uri) ?: return null
+        val document = try {
+            transferIO.openSeekable(uri)
+        } catch (e: IOException) {
+            log("no random access to $uri, reading it as a stream", e)
+            null
+        } ?: return null
         document.use {
             val zip = try {
-                java.util.zip.ZipFile(it.file)
-            } catch (e: java.util.zip.ZipException) {
-                // Not readable as a zip: the bundle reader names the problem.
-                return null
+                ZipReader(it.access)
+            } catch (e: BundleError) {
+                throw ProjectError.Bundle(e.message ?: "The file is not a readable zip", e)
             }
-            zip.use { z ->
-                val archive = LumaFusionPackage.archiveEntry(z) ?: return null
-                if (z.getEntry(ProjectBundle.MANIFEST) != null) return null
-                val text = try {
-                    LumaFusionPackage.readArchive(z, archive)
-                } catch (e: BundleError) {
-                    throw ProjectError.Bundle(e.message ?: "The package could not be read", e)
-                }
-                return importLumaFusion(text, z, archive, onProgress, cancelled)
+            val archive = LumaFusionPackage.archiveEntry(zip) ?: return null
+            if (zip.find(ProjectBundle.MANIFEST) != null) return null
+            val text = try {
+                LumaFusionPackage.readArchive(zip, archive)
+            } catch (e: BundleError) {
+                throw ProjectError.Bundle(e.message ?: "The package could not be read", e)
             }
+            return importLumaFusion(text, zip, archive, onProgress, cancelled)
         }
     }
 
@@ -251,8 +261,8 @@ class ProjectRepository(
      */
     private fun importLumaFusion(
         text: String,
-        zip: java.util.zip.ZipFile?,
-        archive: java.util.zip.ZipEntry?,
+        zip: ZipReader?,
+        archive: ZipEntryInfo?,
         onProgress: ((ImportProgress) -> Unit)?,
         cancelled: () -> Boolean,
     ): ImportReport {
@@ -322,7 +332,10 @@ class ProjectRepository(
                         }
                     } catch (e: BundleError) {
                         throw ProjectError.Bundle(e.message ?: "The footage could not be copied", e)
+                    } catch (e: java.util.zip.ZipException) {
+                        throw ProjectError.Bundle("The package is damaged near $file (${e.message}). Nothing was kept.", e)
                     } catch (e: IOException) {
+                        log("copy of $fileName failed", e)
                         throw ProjectError.Bundle("Could not write $fileName to the media folder (${e.message}). The folder may be full or unplugged; nothing was kept.", e)
                     }
                     uris[assetId] = target.uri

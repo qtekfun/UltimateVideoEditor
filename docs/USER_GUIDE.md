@@ -628,11 +628,11 @@ Everything goes through the system file picker and stays on your device: nothing
   - **What comes across:** the canvas size and frame rate; the cuts and every track (the main track as the base
     track, the other video tracks as layers above it, audio tracks); where each clip starts and which part of the
     footage it plays; photos as photo clips; titles with their text, size, colour, position and the rectangle behind
-    them; clip opacity, clip and track volume, pan; rotation by half a turn (and the rotation LumaFusion stores for
-    portrait clips); and the size and horizontal position of clips in split-screen layouts.
+    them; clip opacity, clip and track volume, pan; and the size and horizontal position of clips in split-screen layouts. (Rotation values are not carried:
+    LumaFusion stores the file's own orientation there and the app applies that itself.)
   - **What does not:** a dialog lists, with a count and where, everything that was **not imported**. It currently
     covers reversed clips and speed changes (they play at normal speed in the same place), transitions (hard cuts),
-    effects (named), animated (keyframed) values, flips, crops and blend modes, a vertical offset or other rotations,
+    effects (named), animated (keyframed) values, flips, crops and blend modes, a vertical offset, a turn you added yourself,
     title shadows and fonts (the default font is used), ducking, markers, hidden/locked track states, notes, master
     volume, a different colour space, and clips of kinds this app does not have (generators, blank clips). Features
     that only exist in LumaFusion for iOS are not replicated.

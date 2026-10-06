@@ -94,6 +94,7 @@ class MainActivity : ComponentActivity() {
             resourceLibrary = StoreResourceLibrary(LutStore(File(filesDir, "luts")), FontRegistry(File(filesDir, "fonts"))),
             // Footage of a LumaFusion package goes into the folder the user chose in About (read each time it is needed).
             mediaFolder = { mediaFolderSettings.folder() },
+            log = { message, error -> Log.w("UVImport", message, error) },
             // Footage unpacked from a LumaFusion package is read once for its real length, frame rate and colour space.
             probeMedia = { uri ->
                 try {

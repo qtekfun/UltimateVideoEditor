@@ -123,6 +123,13 @@ class HubViewModel(
                         // A package holds footage that has to go somewhere the user knows about: ask for the folder, then continue.
                         pendingImportUri = intent.uri
                         reduce { copy(mediaFolderPrompt = true) }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: ProjectError) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Whatever went wrong is shown with its cause: an import never fails silently.
+                        emit(HubEffect.ShowMessage("Import failed: ${e.javaClass.simpleName}: ${e.message}"))
                     } finally {
                         reduce { copy(importProgress = null) }
                     }

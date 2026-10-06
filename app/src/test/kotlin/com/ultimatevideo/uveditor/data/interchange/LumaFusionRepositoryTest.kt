@@ -46,7 +46,7 @@ class LumaFusionRepositoryTest {
         override fun openSeekable(uri: String): SeekableDocument? {
             val file = docs[uri] ?: return null
             return object : SeekableDocument {
-                override val file = file
+                override val access = FileRandomAccess(java.io.RandomAccessFile(file, "r").channel)
                 override fun close() = Unit
             }
         }
