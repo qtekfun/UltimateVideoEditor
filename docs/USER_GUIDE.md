@@ -31,8 +31,8 @@ The first screen lists your projects as cards: the first frame of the first clip
 format line ("1080p · 30 fps · SDR"), the length and the last change. Tap a card to open it.
 
 - **New project** (the one button at the bottom right): opens the sheet described below.
-- **⋮ in the top bar**: **New from a template…** (see [Templates](#project-templates)) and **Import project file or
-  bundle**, which brings in a `project.json` or a `.uvbundle` exported from another device (see
+- **⋮ in the top bar**: **New from a template…** (see [Templates](#project-templates)) and **Import project, bundle or LumaFusion package**,
+  which brings in a `project.json`, a `.uvbundle` exported from another device or a LumaFusion `.lfpackage` / `.lfarchive` (see
   [Sharing a project](#sharing-a-project-with-other-devices-and-tools)).
 - **⋮ on a card**: rename, duplicate, export the project file, export a bundle for another phone (a dialog asks
   whether to include the media files, LUTs and fonts), delete.
@@ -627,7 +627,7 @@ Everything goes through the system file picker and stays on your device: nothing
     ([Missing media and recovery](#missing-media-and-recovery)) to point each file at the original video.
   - **What comes across:** the canvas size and frame rate; the cuts and every track (the main track as the base
     track, the other video tracks as layers above it, audio tracks); where each clip starts and which part of the
-    footage it plays; the project colour space (LumaFusion's HDR becomes HDR Rec.2020 HLG, otherwise SDR; you can switch it in the editor's canvas settings); photos as photo clips; titles with their text, size, colour, position and the rectangle behind
+    footage it plays; the project colour space (LumaFusion's HDR becomes HDR Rec.2020 HLG, otherwise SDR; you can switch it any time: in the editor, the canvas button in the top bar > Colour space); photos as photo clips; titles with their text, size, colour, position and the rectangle behind
     them; clip opacity, clip and track volume, pan; and the size and horizontal position of clips in split-screen layouts. (Rotation values are not carried:
     LumaFusion stores the file's own orientation there and the app applies that itself.)
   - **What does not:** a dialog lists, with a count and where, everything that was **not imported**. It currently
