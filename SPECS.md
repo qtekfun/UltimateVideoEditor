@@ -1360,6 +1360,53 @@ A double tap on the preview makes it fill the window; a double tap again, the on
   its letterboxing and the HDR/SDR output-space logic (`wantedOutputSpace`, `DisplayHdr`) is untouched.
 - **Tests.** `PreviewFullscreenTest` (reducer, timer epochs, double-tap tracker). The gesture integration and the layout are verified on a device.
 
+### 5.35 Save frame as image
+
+The frame under the playhead can be saved as a PNG or JPEG (thumbnails, covers, stills). The picture is drawn by the exporter's own
+engine, so it is what an export would contain at that frame.
+
+- **Entry.** The "Save frame as image" button in the editor's transport row (next to Fit). Playback is paused first, the frame is the
+  playhead's integer `FrameIndex`. Refused with a message while an export runs (`exportAvailability()` of the same `ExportJobHost`); the
+  dialog is modal, so an export cannot be started meanwhile.
+- **Settings** (`ui/frame/StillFrameContract.kt`, pure `StillFrameState.edited()` reducer; MVI like the export dialog).
+  *Source*: Whole picture (all layers, titles, stills and transitions, planned by `buildExportPlan()`/`renderClips()`, the same plan as the
+  export) or Selected clip only (`timelineOfClip()`: a timeline holding just that clip, no transitions, so its effects, pose and retiming
+  apply but nothing around it; disabled with a reason unless the selected clip is a video, photo or title clip under the playhead).
+  *Size*: Project size, YouTube thumbnail 1280 x 720, Full HD 1920 x 1080, Vertical cover 1080 x 1920, Square 1080 x 1080, or a custom
+  width (16 to 4096) with the project's shape and the height rounded to the nearest pixel. No side exceeds `MAX_FRAME_SIDE` = 4096 (a larger
+  project size is scaled down and the dialog says so). Images have no even-size rule, so odd project sizes are kept.
+  *Shape*: when the chosen shape differs from the project's, `FrameFit.LETTERBOX` (default: the whole project picture, black bars, what an
+  export to that shape does) or `FILL` (the picture is enlarged to cover the shape and the overflow is cropped around the centre).
+  *Format*: PNG, or JPEG with a quality 1..100 (default 92). The YouTube preset switches the format to JPEG and caps the file at
+  `YOUTUBE_THUMBNAIL_MAX_BYTES` = 2,000,000 bytes: `chooseJpegQuality()` keeps the requested quality if the file fits, otherwise bisects
+  for the highest quality that does (about eight encodes at most, never above the requested quality); when even quality 1 is over, it saves
+  that and says so. A PNG over the limit is flagged, not altered.
+- **Rendering** (`planFrameRender`, `encode/export_engine.cpp`). "Export one frame" is a mode of the existing `ExportJob`: `ExportParams::still`
+  (`StillTarget`: frame, crop rectangle, output buffer) replaces the encoders, muxer and audio. The same `Renderer` is used with an offscreen
+  RGBA8 framebuffer instead of the encoder window: the same clip list (`VideoClip`, retime tables, keyframes, effects), the same decoders
+  (`openVideoDecoder`, `setTarget`/`fetch` with its exact seeks, substitution only for frames the stream never produces), titles, stills,
+  LUTs and `GlPipeline::drawScene`; the framebuffer is bound again before drawing because converting a decoded frame leaves the default
+  one bound. The output rate equals the project rate, so the output frame is the project frame. The result is read with `glReadPixels`
+  (`encode/still_math.h`: validated crop rectangle, lower-left origin, rows flipped to top first, alpha forced to 255) into a direct
+  `ByteBuffer` that Kotlin allocates and keeps until the job ends. With `FILL` the surface is the project's shape scaled up until it covers
+  the output (grown by a pixel or two where the compositor's integer letterbox would leave a sliver) and only the centre rectangle is read
+  back; if that surface would exceed 8192 px the output is made smaller. Runs on the job's own thread and EGL context, not on the UI, preview
+  or render threads; one frame took about one second on the Pixel 8 (decoder start included).
+- **Colour.** The still is always rendered in the SDR Rec.709 output space: an HLG or PQ source goes through exactly the tone mapping an SDR
+  export uses (`colorModeFor(source, Sdr709)`); no separate conversion exists. The bitmap is tagged `ColorSpace.Named.SRGB`; the PNG carries an
+  sRGB chunk and the JPEG an ICC profile. An SDR project is not converted. HDR output is out of scope. The dialog says so for HDR projects.
+- **Encoding and saving** (`ui/frame/FrameEncoding.kt`). `Bitmap.compress` from an ARGB_8888 sRGB bitmap, off the main thread, no third
+  party library. The file goes to the document the user chose (`CreateDocument`, `<project> frame <timecode>.png|jpg`, timecode with dashes),
+  then Share (`ACTION_SEND`) and Done. A failed or cancelled save deletes the new empty document. No new permission.
+- **Edge frames.** Frame 0 and the last frame of a clip are drawn like any other. A frame in a gap, after the end, or in a project with no
+  picture gives a black image and the dialog says so first (`frameContent()`: `PICTURE`, `GAP`, `PAST_END`, `EMPTY`); an empty project is refused.
+- **Tests.** `StillFrameTest` (sizes, fit/fill coverage over many shapes, JPEG search, names, frame content, selected-clip status),
+  `FramePlanTest` (only the clips and media that cover the frame are opened, gap, boundaries, layers), `StillFrameViewModelTest` (flow,
+  refusal during an export, cancel, failures, cleanup); native `uv_export_host_tests` (`still_math.h`). Device harness:
+  `debug/FrameDemoActivity` (`--es mode frames|export`) renders frames of a three-clip project (plain from mid-GOP, reversed, 2x) of the
+  frame-numbered source from `scripts/check-retime-export.py gen`, reads each frame's number back from the PNG, and exports the same
+  project for an ffmpeg comparison.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

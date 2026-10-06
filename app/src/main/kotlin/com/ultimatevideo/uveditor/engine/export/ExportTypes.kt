@@ -43,10 +43,13 @@ data class ExportSettings(
     val audioBitrate: Int = DEFAULT_AUDIO_BITRATE,
     /** HDR (HLG, BT.2020) HEVC Main10 output; false is SDR Rec.709. Requires [ExportCodec.HEVC]. */
     val hdr: Boolean = false,
+    /** The settings of a saved picture ([ExportRequest.still]): the surface to draw, which need not have even sides. */
+    val picture: Boolean = false,
 ) {
     init {
         require(!hdr || codec == ExportCodec.HEVC) { "HDR export needs HEVC" }
-        require(width > 0 && height > 0 && width % 2 == 0 && height % 2 == 0) { "size must be positive and even: ${width}x$height" }
+        require(!picture || !hdr) { "a saved picture is always SDR" }
+        require(width > 0 && height > 0 && (picture || (width % 2 == 0 && height % 2 == 0))) { "size must be positive and even: ${width}x$height" }
         require(fpsNum > 0 && fpsDen > 0) { "fps must be positive: $fpsNum/$fpsDen" }
         require(videoBitrate > 0 && audioBitrate > 0) { "bitrates must be positive" }
     }
@@ -143,6 +146,29 @@ interface ExportPictureProvider {
 class ExportLut(val key: Int, val size: Int, val rgb: ByteBuffer)
 
 /**
+ * "Save frame as image": render project frame [frame] once and copy the [cropWidth] x [cropHeight] rectangle at
+ * ([cropX], [cropY]) of the rendered surface into [pixels] (a direct buffer of `cropWidth * cropHeight * 4` bytes: RGBA8,
+ * top row first). The caller keeps [pixels] until the listener reports the end.
+ */
+class StillFrameTarget(
+    val frame: Long,
+    val cropX: Int,
+    val cropY: Int,
+    val cropWidth: Int,
+    val cropHeight: Int,
+    val pixels: ByteBuffer,
+) {
+    init {
+        require(frame >= 0 && cropX >= 0 && cropY >= 0 && cropWidth > 0 && cropHeight > 0) { "invalid crop" }
+        require(pixels.isDirect && pixels.capacity().toLong() >= cropWidth.toLong() * cropHeight * BYTES_PER_PIXEL) { "the buffer is too small" }
+    }
+
+    private companion object {
+        const val BYTES_PER_PIXEL = 4
+    }
+}
+
+/**
  * Everything the native exporter needs. Descriptors are raw (already detached) and are owned by
  * the exporter from the moment [ExportRunner.start] is called, even if it throws.
  *
@@ -167,6 +193,8 @@ class ExportRequest(
     val pictureBudgetBytes: Long = PictureBudget.DEFAULT_BYTES,
     /** The LUTs the clips' LUT effects refer to; a LUT that is absent leaves its clip ungraded. */
     val luts: List<ExportLut> = emptyList(),
+    /** Set: render one frame to memory instead of a movie (then [outputFd] is -1, [totalFrames] 1 and there is no audio). */
+    val still: StillFrameTarget? = null,
 )
 
 interface ExportListener {

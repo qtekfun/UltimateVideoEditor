@@ -18,7 +18,7 @@ automated tests so far; see [Known limits](#known-limits).
 10. [Stabilising shaky footage](#stabilising-shaky-footage)
 11. [Colour grading and scopes](#colour-grading-and-scopes)
 12. [Colour spaces and HDR](#colour-spaces-and-hdr)
-13. [Exporting](#exporting) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
+13. [Exporting](#exporting), [Saving a frame as an image](#saving-a-frame-as-an-image) and [Sharing a project with other devices and tools](#sharing-a-project-with-other-devices-and-tools)
 14. [Proxy media](#proxy-media)
 15. [Multicam](#multicam)
 16. [Missing media and recovery](#missing-media-and-recovery)
@@ -140,6 +140,7 @@ Every icon has a text description: long press it to see its name, or use a scree
 | ↶ / ↷ | Undo / Redo | Steps through every edit. Each drag, drop and inspector change is one step. |
 | ⬆ | Export movie | Opens the export dialog. |
 | ⏮ / ▶ / ⏭ | Previous boundary, Play / Pause, Next boundary | Boundaries are clip starts and ends. Play follows the audio clock. |
+| 🖼 (picture) | Save frame as image | Saves the picture under the playhead as a PNG or JPEG, see [Saving a frame as an image](#saving-a-frame-as-an-image). |
 | ⤢ | Fit the whole project and all lanes | Zooms the time axis so the whole project fits, and the lane heights to the largest size at which every lane is visible (never taller than 3x or shorter than half the default; with very many lanes as many as fit, and the rest scroll). Both keep following the panel (rotation) and the lanes you add until you zoom that axis by hand. |
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
@@ -582,6 +583,27 @@ progress bar, the percentage, the time left and **Cancel**; tap the bar to open 
 **Dismiss**, or shows why it failed with **Dismiss**; it never disappears by itself (a cancelled export just removes it). Because
 only one export runs at a time, the Export button of every other project explains "Another export is running: <project>" instead of
 opening the dialog until the first one is done.
+
+## Saving a frame as an image
+
+To make a thumbnail or a cover, move the playhead to the frame you want and tap the **picture icon** next to Fit (playback stops
+first). The dialog shows the frame's timecode and asks:
+
+- **Source.** *Whole picture* is everything an export would show at that frame: all layers, titles, stickers and transitions.
+  *Selected clip only* is just the selected clip (with its effects, position and speed) without anything around it; it is available
+  only when the selected clip is under the playhead.
+- **Size.** *Project size*, *YouTube thumbnail* (1280 x 720), *Full HD*, *Vertical cover* (1080 x 1920, for TikTok, Reels and
+  Shorts), *Square* (1080 x 1080), or a *custom width* (the height follows your project's shape). Nothing is saved larger than 4096 px on
+  its longest side.
+- **Different shape.** If the size is not the shape of your project, choose **Fit** (the whole picture with black bars, as an export
+  to that shape would do) or **Fill** (the picture is enlarged to cover the shape and the edges are cropped, around the centre).
+- **Format.** *PNG* (lossless) or *JPEG* with a quality slider (92 by default). Choosing the YouTube thumbnail size selects JPEG and
+  keeps the file under 2 MB, YouTube's limit, by lowering the quality when the picture needs it; the result says which quality it used.
+
+Press **Save…**, choose where to save the file (it is named "<project> frame <timecode>"), then **Share** it or press **Done**. A frame
+in a gap of the timeline, or after the end of the project, is saved as a black image and the dialog warns you first. With an HDR (HLG)
+project the picture is converted to SDR with the same tone mapping as an SDR export, so it does not look washed out. The image is tagged
+sRGB. Saving is refused while an export is running; the app asks for no new permission.
 
 ## Media library
 
