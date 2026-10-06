@@ -44,8 +44,10 @@ class ExportService : Service() {
         createChannel()
         notificationManager().cancel(RESULT_NOTIFICATION_ID) // the result of an earlier export is history now
         // The system gives a few seconds after startForegroundService() to call this, so it comes before anything else.
+        // Platform call, not ServiceCompat: with androidx.core 1.19.1 on Android 17 the compat path started the service with type none,
+        // which the system rejects (InvalidForegroundServiceTypeException). minSdk 31 has the three-argument form.
         val first = exportNotificationFor(executor.state.value) ?: PLACEHOLDER
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, build(first), foregroundType())
+        startForeground(NOTIFICATION_ID, build(first), foregroundType())
         if (watching == null) watching = scope.launch { watch(executor) }
         return START_NOT_STICKY
     }
@@ -55,7 +57,7 @@ class ExportService : Service() {
             .collect { (model, state) ->
                 if (state.isRunning && model != null) {
                     // Also re-enters the foreground when a second export starts before the service has stopped.
-                    ServiceCompat.startForeground(this, NOTIFICATION_ID, build(model), foregroundType())
+                    startForeground(NOTIFICATION_ID, build(model), foregroundType())
                 } else if (!state.isRunning) {
                     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     if (model != null) notificationManager().notify(RESULT_NOTIFICATION_ID, build(model))

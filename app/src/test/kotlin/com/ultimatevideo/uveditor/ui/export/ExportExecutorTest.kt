@@ -28,8 +28,9 @@ class ExportExecutorTest {
         override fun openOutput(uri: String) = 2
         override fun close(fd: Int) = Unit
         override fun displayName(uri: String): String? = name
-        override fun deleteOutput(uri: String) {
+        override fun deleteOutput(uri: String): Boolean {
             deleted += uri
+            return true
         }
     }
 
