@@ -1021,7 +1021,7 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
 
 | Mapping | Evidence | Status |
 |---|---|---|
-| Tracks, clip times, source ranges, anchor track, `stepTime` = frame step, `trackOffset` order | Both samples: clips on the anchor are gap free, the sum of durations is the track `duration`, overlay `trackStart` is absolute | Verified (Honor sample: 4 cuts, 7:54.6; Review sample: 95 clips over 5 lanes, base ends at 11:54.9 = the project `duration`) |
+| Tracks, clip times, source ranges, anchor track, `stepTime` = frame step, `trackOffset` order | Both samples: clips on the anchor are gap free, the sum of durations is the track `duration`, overlay `trackStart` is absolute | Verified (simple sample: 4 cuts, 7:54.6; complex sample: 95 clips over 5 lanes, base ends at 11:54.9 = the project `duration`) |
 | `assetType` 0 video, 2 photo, 4 title | Review sample: stream `mediaType` 0/2/3, JPG/PNG entries, `runtimeTitle` only on type 4 | Verified |
 | Footage by file name | Both packages: every used name is a zip entry (60 of 61 by `originalFilename`, 61 with the `title` fallback) | Verified |
 | `audioVolume` 0 = silent | 20 overlay clips with 0 whose sound was removed | Verified for 0; the dB scale of other values is inferred (linear gain) |
