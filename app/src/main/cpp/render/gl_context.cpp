@@ -4,6 +4,8 @@
 
 #include <string>
 
+#include "decode/log.h"
+
 namespace uv::render {
 
 using decode::Error;
@@ -41,19 +43,23 @@ Status EglContext::init(Error* error, bool recordable, bool tenBit) {
     if (display_ == EGL_NO_DISPLAY) return fail(error, Status::EglError, "eglGetDisplay");
     if (!eglInitialize(display_, nullptr, nullptr)) return fail(error, Status::EglError, "eglInitialize");
 
-    auto chooseConfig = [&](int rgbBits, int alphaBits) {
+    auto chooseConfig = [&](int rgbBits, int alphaBits, bool wantRecordable) {
         const EGLint configAttribs[] = {
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
             EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
             EGL_RED_SIZE, rgbBits, EGL_GREEN_SIZE, rgbBits, EGL_BLUE_SIZE, rgbBits, EGL_ALPHA_SIZE, alphaBits,
-            recordable ? EGL_RECORDABLE_ANDROID : EGL_NONE, recordable ? 1 : EGL_NONE,
+            wantRecordable ? EGL_RECORDABLE_ANDROID : EGL_NONE, wantRecordable ? 1 : EGL_NONE,
             EGL_NONE,
         };
         EGLint numConfigs = 0;
         return eglChooseConfig(display_, configAttribs, &config_, 1, &numConfigs) && numConfigs >= 1;
     };
-    tenBit_ = tenBit && chooseConfig(10, 2);
-    if (!tenBit_ && !chooseConfig(8, 8)) return fail(error, Status::EglError, "eglChooseConfig");
+    // A ten-bit RGBA1010102 config that is also flagged EGL_RECORDABLE_ANDROID is not offered by every GPU driver (the Pixel 8's
+    // Mali has 1010102 window configs without the flag), yet a MediaCodec input surface takes them: the flag is a hint for older
+    // YUV-conversion paths, so a ten-bit config without it is the second choice before giving up on HDR.
+    tenBit_ = tenBit && (chooseConfig(10, 2, recordable) || (recordable && chooseConfig(10, 2, false)));
+    if (tenBit && !tenBit_) UV_LOGE("no RGBA1010102 EGL config (window+pbuffer, ES3): HDR output unavailable");
+    if (!tenBit_ && !chooseConfig(8, 8, recordable)) return fail(error, Status::EglError, "eglChooseConfig");
 
     const EGLint contextAttribs[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 2, EGL_NONE};
     context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, contextAttribs);

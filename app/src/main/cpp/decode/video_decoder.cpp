@@ -1,6 +1,7 @@
 #include "decode/video_decoder.h"
 
 #include <media/NdkMediaFormat.h>
+#include <sys/system_properties.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -24,7 +25,17 @@ namespace {
 constexpr int64_t kPendingTimeoutMs = 400;       // a frame still missing this long after a drain that followed its release is retried
 constexpr int64_t kPendingHardTimeoutMs = 5000;  // and one nobody drained for this long is retried anyway
 constexpr size_t kMaxInFlight = kMaxInFlightFrames;  // see decode/pending_policy.h
+constexpr int64_t kMaxGapFrames = 8;  // a larger jump is not a frame-rate difference: leave it to the seek logic
 constexpr int64_t kUnknownDuration = INT64_MAX / 4;
+
+// Debug switch for A/B runs: `adb shell setprop debug.uveditor.decode_gap 0` turns the gap marking below off for new decoders.
+bool gapMarking() {
+    static const bool on = [] {
+        char value[PROP_VALUE_MAX] = {};
+        return !(__system_property_get("debug.uveditor.decode_gap", value) > 0 && value[0] == '0');
+    }();
+    return on;
+}
 
 int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -357,6 +368,13 @@ bool VideoDecoder::needsFrame(int64_t frame) {
     return false;
 }
 
+bool VideoDecoder::nothingNeededBefore(int64_t target, int64_t frame) {
+    for (int64_t f = std::clamp<int64_t>(target, 0, lastFrame_); f < frame; ++f) {
+        if (needsFrame(f)) return false;
+    }
+    return true;
+}
+
 bool VideoDecoder::findMissing(int64_t target, int64_t* missing) {
     const int64_t clamped = std::clamp<int64_t>(target, 0, lastFrame_);
     const int64_t lo = std::max<int64_t>(0, clamped - lookBehind_.load());
@@ -372,6 +390,27 @@ bool VideoDecoder::findMissing(int64_t target, int64_t* missing) {
             *missing = f;
             return true;
         }
+    }
+    // Every frame of the window is known to be absent from the stream (a seek landed just before an open GOP, or the clip's
+    // rate is lower than the timeline's): the consumer then has nothing to show but a neighbour. Fetch the next real frame
+    // beyond the window, or the consumer waits for ever while this thread idles (the stall of the failed 4K export).
+    {
+        std::lock_guard<std::mutex> lock(unavailableMu_);
+        for (int64_t f = clamped; f <= hi; ++f) {
+            if (unavailable_.count(f) == 0) return false;
+        }
+    }
+    const int64_t reach = std::min<int64_t>(lastFrame_, hi + kMaxGapFrames);
+    for (int64_t f = hi + 1; f <= reach; ++f) {
+        {
+            std::lock_guard<std::mutex> lock(unavailableMu_);
+            if (unavailable_.count(f) != 0) continue;
+        }
+        if (needsFrame(f)) {
+            *missing = f;
+            return true;
+        }
+        break;
     }
     return false;
 }
@@ -394,7 +433,7 @@ void VideoDecoder::seekTo(int64_t frame) {
     const int64_t ptsUs = startPtsUs_ + frameToPtsUs(frame, info_.fps);
     media_status_t sought;
     {
-        std::lock_guard<std::mutex> io(*fileLock_);
+        core::FileGuard io(*fileLock_);
         sought = AMediaExtractor_seekTo(extractor_, ptsUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
     }
     if (sought != AMEDIA_OK) {
@@ -433,7 +472,7 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
         ssize_t size = -1;
         int64_t sampleTime = 0;
         if (buffer != nullptr) {
-            std::lock_guard<std::mutex> io(*fileLock_);
+            core::FileGuard io(*fileLock_);
             size = AMediaExtractor_readSampleData(extractor_, buffer, capacity);
             if (size >= 0) {
                 sampleTime = AMediaExtractor_getSampleTime(extractor_);
@@ -499,11 +538,23 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
             seekGoal_ = -1;
             sharedSeekGoal_.store(-1);
         }
+        // Outputs come in presentation order, so within one decode run a jump in frame numbers names frames the stream does not
+        // have (a 30 fps clip on a 60 fps grid skips every other one). Say so now: waiting for such a frame would otherwise end
+        // in a seek back to the previous key frame (needsSeek: the decoder is already past it).
+        if (gapMarking() && !awaitingFirstOutput_ && decodePos_ > 0 && frame > decodePos_ && frame - decodePos_ <= kMaxGapFrames) {
+            std::lock_guard<std::mutex> lock(unavailableMu_);
+            for (int64_t gap = decodePos_; gap < frame; ++gap) unavailable_.insert(gap);
+        }
         awaitingFirstOutput_ = false;
         decodePos_ = frame + 1;
         sharedDecodePos_.store(decodePos_);
         sharedLastOutFrame_.store(frame);
-        if (frame >= lo && frame <= hi && needsFrame(frame)) {
+        // The window counts timeline frames, so over a stretch the stream lacks (a 27 fps clip on a 60 fps grid has gaps of up to
+        // three) the first real frame can lie just beyond it. Dropping it would mean a seek back to the key frame to get it, so it
+        // is kept when nothing nearer is still needed.
+        bool inWindow = frame >= lo && frame <= hi;
+        if (!inWindow && frame > hi && frame - hi <= kMaxGapFrames && nothingNeededBefore(target_.load(), frame)) inWindow = true;
+        if (inWindow && needsFrame(frame)) {
             render = true;
             std::lock_guard<std::mutex> lock(pendingMu_);
             pending_[frame] = nowMs();

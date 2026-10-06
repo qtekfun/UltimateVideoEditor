@@ -33,7 +33,7 @@ sealed interface ExportPhase {
         val startedAtMs: Long = 0,
         val estimate: ExportEstimate = ExportEstimate(),
     ) : ExportPhase
-    data class Done(val uri: String, val fileName: String) : ExportPhase
+    data class Done(val uri: String, val fileName: String, val note: String = "") : ExportPhase
     data class Failed(val message: String) : ExportPhase
 }
 
