@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio/pcm_decoder.h"
+#include "core/file_lock.h"
 
 namespace uv::audio {
 
@@ -36,6 +37,7 @@ private:
     size_t pendingFrames() const { return (pending_.size() - pendingPos_) / 2; }
 
     int fd_ = -1;
+    core::FileLock fileLock_;  // held around extractor calls that read the file (core/file_lock.h)
     AMediaExtractor* extractor_ = nullptr;
     AMediaCodec* codec_ = nullptr;
     int32_t sampleRate_ = 0;

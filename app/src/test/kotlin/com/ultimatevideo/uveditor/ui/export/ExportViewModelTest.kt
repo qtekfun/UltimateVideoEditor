@@ -69,8 +69,9 @@ class ExportViewModelTest {
             closed += fd
         }
 
-        override fun deleteOutput(uri: String) {
+        override fun deleteOutput(uri: String): Boolean {
             deleted += uri
+            return true
         }
     }
 
