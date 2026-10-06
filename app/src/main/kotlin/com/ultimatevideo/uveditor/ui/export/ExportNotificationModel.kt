@@ -14,6 +14,8 @@ data class ExportNotificationModel(
     /** Running: cannot be swiped away and the service is in the foreground. */
     val ongoing: Boolean,
     val showCancel: Boolean,
+    /** The project the export belongs to: tapping the notification opens its editor. Empty for the placeholder before the job is known. */
+    val projectId: String = "",
 )
 
 /** The notification for [state], or null when there is nothing to show (idle, or the user cancelled). */
@@ -29,6 +31,7 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
             indeterminate = state.progressPermille <= 0,
             ongoing = true,
             showCancel = true,
+            projectId = state.projectId,
         )
     }
     is ExportJobState.Done -> ExportNotificationModel(
@@ -38,6 +41,7 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
         indeterminate = false,
         ongoing = false,
         showCancel = false,
+        projectId = state.projectId,
     )
     is ExportJobState.Failed -> ExportNotificationModel(
         title = "Export failed",
@@ -46,5 +50,6 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
         indeterminate = false,
         ongoing = false,
         showCancel = false,
+        projectId = state.projectId,
     )
 }

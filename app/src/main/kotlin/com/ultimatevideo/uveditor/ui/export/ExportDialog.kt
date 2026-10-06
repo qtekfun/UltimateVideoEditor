@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.ui.export
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -38,7 +39,7 @@ import kotlinx.coroutines.delay
 
 /** Hosts the export flow: the document picker, the share sheet and the settings/progress dialog. */
 @Composable
-fun ExportHost(viewModel: ExportViewModel) {
+fun ExportHost(viewModel: ExportViewModel, onMessage: (String) -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -65,19 +66,23 @@ fun ExportHost(viewModel: ExportViewModel) {
                         createDocument.launch(effect.suggestedName)
                     }
                 }
-                is ExportEffect.ShareFile -> {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "video/mp4"
-                        putExtra(Intent.EXTRA_STREAM, Uri.parse(effect.uri))
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(send, null))
-                }
+                is ExportEffect.ShareFile -> shareExportedMovie(context, effect.uri)
+                is ExportEffect.Message -> onMessage(effect.text)
             }
         }
     }
 
     if (state.visible) ExportDialog(state, viewModel::onIntent)
+}
+
+/** Opens the system share sheet for a finished export (the editor's dialog and the project list's bar use the same one). */
+fun shareExportedMovie(context: Context, uri: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "video/mp4"
+        putExtra(Intent.EXTRA_STREAM, Uri.parse(uri))
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, null))
 }
 
 @Composable
@@ -101,7 +106,8 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
                     enabled = state.resolution != null && state.frameRate != null,
                 ) { Text("Export…") }
 
-                is ExportPhase.Running -> Unit
+                // The export goes on; the notification and the project list keep showing it.
+                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Hide") }
                 is ExportPhase.Done -> TextButton(onClick = { onIntent(ExportIntent.Share) }) { Text("Share") }
                 is ExportPhase.Failed -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Close") }
             }

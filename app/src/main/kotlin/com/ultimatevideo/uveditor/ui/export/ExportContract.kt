@@ -11,6 +11,7 @@ import com.ultimatevideo.uveditor.mvi.UiState
 
 /** A frozen copy of what the editor holds when the user opens the export dialog. */
 data class ExportInput(
+    val projectId: String,
     val projectName: String,
     val projectWidth: Int,
     val projectHeight: Int,
@@ -54,12 +55,19 @@ data class ExportState(
     val hdr: Boolean = false,
     /** The project is HDR but this device cannot export it as HDR, so it goes out as SDR. */
     val hdrUnsupportedNotice: Boolean = false,
+    /** The user hid the dialog of this project's running export; progress updates then leave it hidden until it ends. */
+    val hiddenWhileRunning: Boolean = false,
+    /** The project that is exporting while this editor's project is not: the Export button is refused with its name. */
+    val blockedBy: String? = null,
 ) : UiState {
     val isRunning: Boolean get() = phase is ExportPhase.Running
 }
 
 sealed interface ExportIntent : UiIntent {
     data class Open(val input: ExportInput) : ExportIntent
+
+    /** Show this project's export (running, finished or failed) in the dialog: from the notification or the project list. */
+    data object ShowProgress : ExportIntent
     data object Dismiss : ExportIntent
     data class SelectResolution(val option: ResolutionOption) : ExportIntent
     data class SelectFrameRate(val rate: FrameRate) : ExportIntent
@@ -84,4 +92,7 @@ sealed interface ExportIntent : UiIntent {
 sealed interface ExportEffect : UiEffect {
     data class LaunchCreateDocument(val suggestedName: String) : ExportEffect
     data class ShareFile(val uri: String) : ExportEffect
+
+    /** Shown in the editor, for example "Another export is running: Holiday". */
+    data class Message(val text: String) : ExportEffect
 }

@@ -18,6 +18,9 @@ import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.engine.EngineClient
 import com.ultimatevideo.uveditor.engine.EngineException
 import com.ultimatevideo.uveditor.mvi.MviViewModel
+import com.ultimatevideo.uveditor.ui.export.ExportBar
+import com.ultimatevideo.uveditor.ui.export.ExportJobHost
+import com.ultimatevideo.uveditor.ui.export.exportBarFor
 import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.BundleExportText
 import com.ultimatevideo.uveditor.ui.library.ImportReportNotes
@@ -34,6 +37,8 @@ class HubViewModel(
     private val defaults: NewProjectDefaults? = null,
     private val peeker: ClipPeeker? = null,
     private val mediaFolders: com.ultimatevideo.uveditor.data.interchange.MediaFolderSettings? = null,
+    /** The process-wide export (see ExportCenter); the bar at the bottom mirrors it. Null in tests that do not need it. */
+    private val exportJobs: ExportJobHost? = null,
 ) : MviViewModel<HubState, HubIntent, HubEffect>(HubState()) {
 
     /** Read once, before this process marks anything: what the previous run left open. */
@@ -49,6 +54,9 @@ class HubViewModel(
     private var pendingImportUri: String? = null
 
     init {
+        // Read from the process-wide state, not from anything this screen did: the bar is right after the screen is left and
+        // entered again, after rotation, and when the export was started from an editor.
+        exportJobs?.let { jobs -> viewModelScope.launch { jobs.state.collect { job -> reduce { copy(exportBar = exportBarFor(job)) } } } }
         onIntent(HubIntent.LoadEngineInfo)
         onIntent(HubIntent.Refresh)
     }
@@ -202,6 +210,10 @@ class HubViewModel(
                 reduce { copy(resumeProject = null) }
             }
 
+            HubIntent.CancelExport -> exportJobs?.cancel()
+            HubIntent.DismissExportBar -> exportJobs?.acknowledge()
+            HubIntent.ShareExport -> (state.value.exportBar as? ExportBar.Finished)?.let { emit(HubEffect.ShareExport(it.uri)) }
+            HubIntent.OpenExportProject -> state.value.exportBar?.let { emit(HubEffect.OpenExport(it.projectId)) }
             HubIntent.DismissDialogs ->
                 reduce { copy(newProjectDraft = null, renameDraft = null, deleteTarget = null, bundleExport = null) }
         }
