@@ -3,6 +3,7 @@
 #include "audio/pcm_decoder.h"
 #include "core/file_lock.h"
 #include "audio/ffmpeg_pcm.h"
+#include "audio/mov_pcm.h"
 #include "decode/ffmpeg/ffmpeg_api.h"
 
 #include <android/log.h>
@@ -197,11 +198,8 @@ static core::Status extractWaveformPlatform(int fd, const std::atomic<bool>& can
     return Status::Ok;
 }
 
-// The same pyramid from the software audio decoder (FFmpeg fallback), for audio the platform cannot decode.
-static core::Status extractWaveformSoftware(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
-    Status st = Status::Ok;
-    std::unique_ptr<PcmDecoder> decoder = openSoftwarePcmDecoder(fd, &st);
-    if (!decoder) return st == Status::Ok ? Status::UnsupportedFormat : st;
+// The same pyramid from a software PcmDecoder, for audio the platform cannot decode.
+static core::Status extractWaveformDecoded(std::unique_ptr<PcmDecoder> decoder, const std::atomic<bool>& cancel, PeakPyramid* out) {
     constexpr int32_t kChunk = 4096;
     PeakBuilder builder(static_cast<uint32_t>(decoder->sampleRate()), 2);
     std::vector<float> samples(static_cast<size_t>(kChunk) * 2);
@@ -221,9 +219,28 @@ static core::Status extractWaveformSoftware(int fd, const std::atomic<bool>& can
     return Status::Ok;
 }
 
+static core::Status extractWaveformSoftware(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
+    Status st = Status::Ok;
+    std::unique_ptr<PcmDecoder> decoder = openSoftwarePcmDecoder(fd, &st);
+    if (!decoder) return st == Status::Ok ? Status::UnsupportedFormat : st;
+    return extractWaveformDecoded(std::move(decoder), cancel, out);
+}
+
+// Uncompressed audio in a QuickTime file, which the platform's extractor does not list (see audio/mov_pcm.h).
+static core::Status extractWaveformMovPcm(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
+    Status st = Status::Ok;
+    std::unique_ptr<PcmDecoder> decoder = openMovPcmDecoderFd(fd, &st);
+    if (!decoder) return st == Status::Ok ? Status::UnsupportedFormat : st;
+    return extractWaveformDecoded(std::move(decoder), cancel, out);
+}
+
 core::Status extractWaveform(int fd, const std::atomic<bool>& cancel, PeakPyramid* out) {
     const Status platform = extractWaveformPlatform(fd, cancel, out);
     const bool fixable = platform == Status::UnsupportedFormat || platform == Status::CodecError || platform == Status::IoError;
+    if (fixable) {
+        const Status raw = extractWaveformMovPcm(fd, cancel, out);
+        if (raw == Status::Ok || raw == Status::Cancelled) return raw;
+    }
     if (!fixable || !decode::ffmpeg::available()) return platform;
     LOGE("platform could not decode the audio (status %d); trying the software decoder", static_cast<int>(platform));
     return extractWaveformSoftware(fd, cancel, out) == Status::Ok ? Status::Ok : platform;

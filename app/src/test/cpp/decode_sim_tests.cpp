@@ -48,6 +48,11 @@ struct SimParams {
     // A jump back in the consumer's position (interactive scrub): after `jumpAt` frames target moves to jumpTo.
     int64_t jumpAt = -1;
     int64_t jumpTo = 0;
+    // Frames the stream really has, as timeline frame numbers (sorted). Empty: every frame 0..frames-1. A 30 fps clip on a
+    // 60 fps timeline has the even ones; `gop` then counts stream frames.
+    std::vector<int64_t> streamFrames;
+    int64_t startAt = 0;   // first frame the consumer asks for
+    bool markGaps = true;  // VideoDecoder::pump marking the frames between two consecutive outputs as unavailable
 };
 
 struct SimResult {
@@ -57,6 +62,10 @@ struct SimResult {
     int64_t dropped = 0;    // produced and discarded without rendering
     int64_t lost = 0;       // rendered but replaced in the reader before the consumer took them
     int64_t consumed = 0;
+    int64_t substituted = 0;       // timeline frames the consumer showed with an earlier picture
+    int64_t wrongSubstitutes = 0;  // ... that was not the latest frame the stream has at or before it
+    int64_t lateSubstitutes = 0;   // shown with a later picture, the earlier one having been recycled (two lacking frames in a row)
+    std::map<int64_t, int64_t> shown;  // substituted frame -> the frame that stood in
     double elapsedMs = 0;
     bool timedOut = false;
     double fps() const { return elapsedMs > 0 ? 1000.0 * static_cast<double>(consumed) / elapsedMs : 0; }
@@ -67,15 +76,20 @@ constexpr int64_t kPendingHardTimeoutMs = 5000;
 
 class Sim {
 public:
-    explicit Sim(const SimParams& p) : p_(p) { lastFrame_ = p.frames - 1; }
+    explicit Sim(const SimParams& p) : p_(p) {
+        if (p_.streamFrames.empty()) {
+            for (int64_t f = 0; f < p_.frames; ++f) p_.streamFrames.push_back(f);
+        }
+        lastFrame_ = p_.streamFrames.back();
+    }
 
     SimResult run() {
         double tDecoder = 0, tConsumer = 0;
-        int64_t next = 0;           // output frame being fetched
+        int64_t next = p_.startAt;  // output frame being fetched
         bool drawing = false;       // consumer is in its draw phase
         bool jumped = false;
         int64_t consumerSource = 0;
-        target_ = 0;
+        target_ = next;
         while (next < p_.frames && now_ < 120000.0) {
             if (tDecoder <= tConsumer) {
                 now_ = std::max(now_, tDecoder);
@@ -98,6 +112,24 @@ public:
                 consumerSource = next;
                 target_ = consumerSource;  // setTarget
                 drain();
+                if (cache_.count(consumerSource) == 0 && (unavailable_.count(consumerSource) != 0 || consumerSource > lastFrame_)) {
+                    // export_engine fetch(): the stream never produces this frame, so the latest earlier one stands in.
+                    // pickSourceFrame: the nearest earlier decoded frame, else (the frames before it were already recycled) the
+                    // nearest later one.
+                    auto later = cache_.upper_bound(consumerSource);
+                    if (later != cache_.begin() || later != cache_.end()) {
+                        const bool earlier = later != cache_.begin();
+                        const int64_t shown = earlier ? *std::prev(later) : *later;
+                        auto have = std::upper_bound(p_.streamFrames.begin(), p_.streamFrames.end(), consumerSource);
+                        ++result_.substituted;
+                        result_.shown[consumerSource] = shown;
+                        if (!earlier) ++result_.lateSubstitutes;
+                        if (earlier && (have == p_.streamFrames.begin() || shown != *std::prev(have))) ++result_.wrongSubstitutes;
+                        drawing = true;
+                        tConsumer = now_ + p_.drawMs;
+                        continue;
+                    }
+                }
                 if (cache_.count(consumerSource) != 0) {
                     drawing = true;
                     tConsumer = now_ + p_.drawMs;
@@ -139,6 +171,7 @@ private:
     }
 
     bool needsFrame(int64_t frame) {
+        if (unavailable_.count(frame) != 0) return false;
         if (cache_.count(frame) != 0) return false;
         auto it = pending_.find(frame);
         if (it == pending_.end()) return true;
@@ -172,6 +205,20 @@ private:
                 return true;
             }
         }
+        if (!p_.markGaps) return false;
+        // VideoDecoder::findMissing: the whole window is absent from the stream, so fetch the next real frame beyond it.
+        for (int64_t f = clamped; f <= hi; ++f) {
+            if (unavailable_.count(f) == 0) return false;
+        }
+        const int64_t reach = std::min<int64_t>(lastFrame_, hi + 8);
+        for (int64_t f = hi + 1; f <= reach; ++f) {
+            if (unavailable_.count(f) != 0) continue;
+            if (needsFrame(f)) {
+                *missing = f;
+                return true;
+            }
+            break;
+        }
         return false;
     }
 
@@ -187,7 +234,8 @@ private:
         forceSeek_ = false;
         if (uv::decode::needsSeek(forced, primed_, awaiting_, decodePos_, missing, seekGoal_)) {
             ++result_.seeks;
-            cursor_ = (missing / p_.gop) * p_.gop;  // previous sync frame
+            const int64_t at = std::lower_bound(p_.streamFrames.begin(), p_.streamFrames.end(), missing) - p_.streamFrames.begin();
+            cursor_ = (at / p_.gop) * p_.gop;  // index of the previous sync frame
             primed_ = true;
             awaiting_ = true;
             seekGoal_ = missing;
@@ -195,17 +243,33 @@ private:
         }
         // pump
         if (inFlightCount() >= p_.inFlight) return cost + 2.0;  // backpressure
-        if (cursor_ > lastFrame_) {                              // end of stream
+        if (cursor_ >= static_cast<int64_t>(p_.streamFrames.size())) {  // end of stream
             primed_ = false;
             return cost + 1.0;
         }
-        const int64_t frame = cursor_++;
+        const int64_t frame = p_.streamFrames[static_cast<size_t>(cursor_++)];
         ++result_.outputs;
         cost += p_.decodeMs;
-        if (seekGoal_ >= 0 && frame >= seekGoal_) seekGoal_ = -1;
+        if (seekGoal_ >= 0 && frame >= seekGoal_) {
+            if (frame > seekGoal_) unavailable_.insert(seekGoal_);  // "frame N never produced"
+            seekGoal_ = -1;
+        }
+        if (p_.markGaps && !awaiting_ && decodePos_ > 0 && frame > decodePos_ && frame - decodePos_ <= 8) {
+            for (int64_t gap = decodePos_; gap < frame; ++gap) unavailable_.insert(gap);  // VideoDecoder::pump
+        }
         awaiting_ = false;
         decodePos_ = frame + 1;
-        if (frame >= lo && frame <= hi && needsFrame(frame)) {
+        bool inWindow = frame >= lo && frame <= hi;
+        if (p_.markGaps && !inWindow && frame > hi && frame - hi <= 8) {  // VideoDecoder::nothingNeededBefore
+            inWindow = true;
+            for (int64_t f = std::clamp<int64_t>(target_, 0, lastFrame_); f < frame; ++f) {
+                if (needsFrame(f)) {
+                    inWindow = false;
+                    break;
+                }
+            }
+        }
+        if (inWindow && needsFrame(frame)) {
             ++result_.rendered;
             pending_[frame] = static_cast<int64_t>(now_ + cost);
             if (p_.readerKeepsNewestOnly && !reader_.empty()) {
@@ -236,6 +300,7 @@ private:
     std::deque<Image> reader_;
     // shared with the consumer
     std::set<int64_t> cache_;
+    std::set<int64_t> unavailable_;
     int64_t lastDrainMs_ = 0;
     double lastProgress_ = 0;
 };
@@ -342,6 +407,95 @@ void jumpForwardBeyondOneGopSeeksOnce() {
     CHECK(r.seeks == 2);
 }
 
+// A 30 fps clip and a 27 fps clip on a 60 fps timeline, fetched frame by frame as the exporter does (the log of the failed 4K
+// export: a seek for nearly every frame the stream lacks, each one a flush and a re-decode from the key frame). The codec
+// outputs in presentation order, so the B-frame reordering inside it does not change what the worker sees.
+SimParams lowRateClip(int64_t rateNum, bool markGaps) {
+    SimParams p;
+    p.frames = 600;
+    p.gop = 60;  // stream frames (about 2 s)
+    p.decodeMs = 8.0;
+    p.seekMs = 60.0;  // a 4K hardware flush
+    p.markGaps = markGaps;
+    for (int64_t i = 0; (i * 60 + rateNum / 2) / rateNum < p.frames; ++i) p.streamFrames.push_back((i * 60 + rateNum / 2) / rateNum);
+    return p;
+}
+
+void lowRateClipsDoNotSeekPerMissingFrame() {
+    for (const int64_t rate : {30, 27}) {
+        char name[64];
+        const SimResult fixed = simulate(lowRateClip(rate, true));
+        std::snprintf(name, sizeof(name), "%lld fps on 60, gaps marked", static_cast<long long>(rate));
+        report(name, lowRateClip(rate, true), fixed);
+        CHECK(!fixed.timedOut);
+        CHECK(fixed.consumed == 600);
+        CHECK(fixed.seeks == 1);               // only the first one: no real jump in this run
+        CHECK(fixed.substituted > 200);        // the lacking frames were shown with the previous picture ...
+        CHECK(fixed.wrongSubstitutes == 0);    // ... which is the latest one the stream has
+        if (rate == 30) CHECK(fixed.lateSubstitutes == 0);
+        CHECK(fixed.lost == 0);
+
+        const SimResult old = simulate(lowRateClip(rate, false));
+        std::snprintf(name, sizeof(name), "%lld fps on 60, before", static_cast<long long>(rate));
+        report(name, lowRateClip(rate, false), old);
+        CHECK(old.seeks > 100);  // the seek-per-frame thrash this guards against
+        CHECK(old.fps() < 0.5 * fixed.fps());
+        CHECK(old.wrongSubstitutes == 0);
+    }
+}
+
+// Real jumps still seek: a cut to another part of a 30 fps clip costs one seek, not one per missing frame afterwards.
+void lowRateClipJumpSeeksOnce() {
+    SimParams p = lowRateClip(30, true);
+    p.jumpAt = 100;
+    p.jumpTo = 480;
+    const SimResult r = simulate(p);
+    report("30 fps on 60, jump 100 -> 480", p, r);
+    CHECK(!r.timedOut);
+    CHECK(r.seeks == 2);
+    CHECK(r.wrongSubstitutes == 0);
+}
+
+// The stall of the failed 4K export: a stretch of seven frames the stream cannot produce after a seek (open GOP: the pictures before a
+// key frame in display order are dropped), every frame of the window known to be absent and nothing in the consumer's cache. The
+// decoder used to idle and the consumer to wait for ever (the recovery found nothing missing); now the decoder fetches the next
+// real frame and the consumer shows it.
+SimParams holeAt(int64_t holeFrom, int64_t holeTo, int64_t startAt, bool fixed) {
+    SimParams p;
+    p.frames = holeTo + 40;
+    p.gop = 48;
+    p.decodeMs = 8.0;
+    p.seekMs = 60.0;
+    p.startAt = startAt;
+    p.markGaps = fixed;
+    for (int64_t f = 0; f < p.frames; ++f) {
+        if (f < holeFrom || f > holeTo) p.streamFrames.push_back(f);
+    }
+    return p;
+}
+
+void windowOfAbsentFramesDoesNotStall() {
+    // Asked in order from just before the hole, the previous frame (3367) stands in for 3368.
+    SimParams a = holeAt(3368, 3374, 3366, true);
+    const SimResult ra = simulate(a);
+    report("hole 3368..3374, from 3366", a, ra);
+    CHECK(!ra.timedOut);
+    CHECK(ra.shown.count(3368) != 0 && ra.shown.at(3368) == 3367);
+    CHECK(ra.wrongSubstitutes == 0);
+    // Cut into the hole with nothing held: the next real frame (3375, 7 away) stands in; nothing waits for 3368.
+    SimParams b = holeAt(3368, 3374, 3368, true);
+    const SimResult rb = simulate(b);
+    report("hole 3368..3374, cut at 3368", b, rb);
+    CHECK(!rb.timedOut);
+    CHECK(rb.shown.count(3368) != 0 && rb.shown.at(3368) == 3375);
+    CHECK(rb.consumed == b.frames - 3368);
+    // Without the fix this deadlocks (the decoder idles with the window all absent).
+    SimParams c = holeAt(3368, 3374, 3368, false);
+    const SimResult rc = simulate(c);
+    report("hole 3368..3374, before", c, rc);
+    CHECK(rc.timedOut);
+}
+
 }  // namespace
 
 int main() {
@@ -351,6 +505,9 @@ int main() {
     manyInFlightReproducesTheSlowdown();
     scrubBackSeeksOnce();
     jumpForwardBeyondOneGopSeeksOnce();
+    lowRateClipsDoNotSeekPerMissingFrame();
+    lowRateClipJumpSeeksOnce();
+    windowOfAbsentFramesDoesNotStall();
     if (g_failures == 0) std::puts("all decode simulation tests passed");
     return g_failures == 0 ? 0 : 1;
 }
