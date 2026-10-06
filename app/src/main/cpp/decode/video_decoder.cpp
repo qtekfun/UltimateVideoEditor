@@ -391,6 +391,27 @@ bool VideoDecoder::findMissing(int64_t target, int64_t* missing) {
             return true;
         }
     }
+    // Every frame of the window is known to be absent from the stream (a seek landed just before an open GOP, or the clip's
+    // rate is lower than the timeline's): the consumer then has nothing to show but a neighbour. Fetch the next real frame
+    // beyond the window, or the consumer waits for ever while this thread idles (the stall of the failed 4K export).
+    {
+        std::lock_guard<std::mutex> lock(unavailableMu_);
+        for (int64_t f = clamped; f <= hi; ++f) {
+            if (unavailable_.count(f) == 0) return false;
+        }
+    }
+    const int64_t reach = std::min<int64_t>(lastFrame_, hi + kMaxGapFrames);
+    for (int64_t f = hi + 1; f <= reach; ++f) {
+        {
+            std::lock_guard<std::mutex> lock(unavailableMu_);
+            if (unavailable_.count(f) != 0) continue;
+        }
+        if (needsFrame(f)) {
+            *missing = f;
+            return true;
+        }
+        break;
+    }
     return false;
 }
 
