@@ -53,6 +53,9 @@ constexpr int64_t kIdleCheckFrames = 30;
 constexpr int32_t kDecodeAhead = 4;  // frames the decoder may run ahead of the frame being drawn
 constexpr auto kDecodeStall = std::chrono::seconds(15);
 constexpr auto kDecodeRecoverAfter = std::chrono::seconds(3);  // a frame this late makes the decoder seek afresh
+constexpr auto kDegradedStall = std::chrono::milliseconds(1500);        // after a repeated frame: give up on the next sooner
+constexpr auto kDegradedRecoverAfter = std::chrono::milliseconds(500);
+constexpr int64_t kMaxRepeatSeconds = 5;  // a layer that yields nothing for this long fails the export
 constexpr int64_t kSlowFetchMs = 500;  // a frame this late is logged with the decoder's state
 
 struct ExportFailure {
@@ -332,11 +335,15 @@ private:
 struct AssetState {
     std::unique_ptr<decode::IVideoDecoder> decoder;
     int64_t lastUsedFrame = 0;  // output frame that last needed this decoder
+    std::shared_ptr<decode::GpuFrame> lastDelivered;  // the picture this layer last showed, repeated when a frame cannot be had
+    bool degraded = false;                             // the last frame had to be repeated: give up on the next one sooner
+    int64_t repeatedRun = 0;                           // frames repeated in a row
     decode::AssetInfo info;
     int turns = 0;
     bool reverse = false;  // the clip being drawn plays backwards: the decoder window is behind the frame
     std::mutex mu;
     std::map<int64_t, std::shared_ptr<decode::GpuFrame>> frames;
+    int64_t mediaKey = 0;
 };
 
 class Renderer {
@@ -509,6 +516,8 @@ public:
         if (egl_.swap(&e) != decode::Status::Ok) failDecode(e, "presenting a frame to the encoder failed");
     }
 
+    int64_t repeatedFrames() const { return repeatedFrames_; }
+
     void checkDecoderError() {
         std::lock_guard<std::mutex> lock(errorMu_);
         if (decoderError_) {
@@ -536,6 +545,7 @@ private:
 
         auto state = std::make_unique<AssetState>();
         AssetState* raw = state.get();
+        state->mediaKey = key;
         decode::DecoderCallbacks callbacks;
         callbacks.onImageAvailable = [this] { wake(); };
         callbacks.isCached = [raw](int64_t frame) {
@@ -583,18 +593,22 @@ private:
                         UV_LOGW("frame %lld is not in the stream: showing %lld instead", static_cast<long long>(source),
                                 static_cast<long long>(pick.frame));
                     }
-                    return asset.frames.at(pick.frame);
+                    asset.lastDelivered = asset.frames.at(pick.frame);
+                    asset.degraded = false;
+                    asset.repeatedRun = 0;
+                    return asset.lastDelivered;
                 }
                 if (asset.frames.size() != seen) {
                     seen = asset.frames.size();
                     lastProgress = Clock::now();
                 }
             }
-            if (Clock::now() - lastProgress > kDecodeRecoverAfter && Clock::now() - lastRecover > kDecodeRecoverAfter) {
+            const auto recoverAfter = asset.degraded ? kDegradedRecoverAfter : kDecodeRecoverAfter;
+            if (Clock::now() - lastProgress > recoverAfter && Clock::now() - lastRecover > recoverAfter) {
                 lastRecover = Clock::now();
                 asset.decoder->recover(source);
             }
-            if (Clock::now() - lastProgress > kDecodeStall) {
+            if (Clock::now() - lastProgress > (asset.degraded ? kDegradedStall : kDecodeStall)) {
                 std::string have;
                 {
                     std::lock_guard<std::mutex> lock(asset.mu);
@@ -605,6 +619,31 @@ private:
                 }
                 const std::string state = asset.decoder->describe();
                 UV_LOGE("decoder stalled: wanted %lld;%s; %s", static_cast<long long>(source), have.c_str(), state.c_str());
+                // Do not lose the whole export for one picture: show the one this layer showed last (or the nearest held one),
+                // count it, and report it at the end. A clip that yields nothing for more than kMaxRepeatSeconds of movie is
+                // really broken and still fails.
+                std::shared_ptr<decode::GpuFrame> stand = asset.lastDelivered;
+                if (!stand) {
+                    std::lock_guard<std::mutex> lock(asset.mu);
+                    if (!asset.frames.empty()) {
+                        auto nearest = asset.frames.lower_bound(source);
+                        if (nearest == asset.frames.end()) --nearest;
+                        stand = nearest->second;
+                    }
+                }
+                const int64_t maxRun = kMaxRepeatSeconds * params_.fps.num / params_.fps.den;
+                if (stand && asset.repeatedRun < maxRun) {
+                    ++asset.repeatedRun;
+                    ++repeatedFrames_;
+                    asset.degraded = true;
+                    if (repeatedFrames_ <= 20) {
+                        UV_LOGW("frame %lld of media %lld could not be decoded: repeating the previous picture (%lld so far)",
+                                static_cast<long long>(source), static_cast<long long>(asset.mediaKey),
+                                static_cast<long long>(repeatedFrames_));
+                    }
+                    asset.lastDelivered = stand;
+                    return stand;
+                }
                 fail(Status::CodecError, "the decoder stalled at source frame " + std::to_string(source) + " (" + state + ")");
             }
             std::unique_lock<std::mutex> lock(wakeMu_);
@@ -724,6 +763,7 @@ private:
     std::mutex wakeMu_;
     std::condition_variable wakeCv_;
     std::mutex errorMu_;
+    int64_t repeatedFrames_ = 0;  // frames shown again because the decoder could not deliver them
     int64_t outputFrame_ = 0;  // render thread: the output frame being made, for error messages
     std::optional<decode::Error> decoderError_;
 };
@@ -783,7 +823,7 @@ void ExportJob::run() {
     Status status = Status::Ok;
     std::string message;
     try {
-        execute();
+        message = execute();
     } catch (const ExportFailure& f) {
         status = f.status;
         message = f.message;
@@ -796,7 +836,7 @@ void ExportJob::run() {
     done_(status, message);
 }
 
-void ExportJob::execute() {
+std::string ExportJob::execute() {
     if (params_.width <= 0 || params_.height <= 0 || params_.fps.num <= 0 || params_.fps.den <= 0 ||
         params_.projectFps.num <= 0 || params_.projectFps.den <= 0 || params_.totalFrames <= 0 ||
         params_.videoBitrate <= 0) {
@@ -835,6 +875,7 @@ void ExportJob::execute() {
         audioPump->start(params_.assetFds);
     }
 
+    int64_t repeated = 0;
     {
         Renderer renderer(params_, surface);
 
@@ -857,6 +898,7 @@ void ExportJob::execute() {
             }
         }
         renderer.checkDecoderError();
+        repeated = renderer.repeatedFrames();
         if (AMediaCodec_signalEndOfInputStream(video.codec()) != AMEDIA_OK) {
             fail(Status::CodecError, "cannot end the video stream");
         }
@@ -870,6 +912,10 @@ void ExportJob::execute() {
     muxer.finish();
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
     UV_LOGI("export done: %lld frames in %lld ms", static_cast<long long>(params_.totalFrames), static_cast<long long>(ms));
+    if (repeated > 0) {
+        return std::to_string(repeated) + " frames could not be decoded and were repeated";
+    }
+    return {};
 }
 
 }  // namespace uv::encode

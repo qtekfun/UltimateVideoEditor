@@ -75,6 +75,7 @@ private:
     void threadMain();
     // Returns true when the window has no missing frames (or nothing more can be decoded).
     bool step(int64_t target);
+    bool nothingNeededBefore(int64_t target, int64_t frame);
     bool findMissing(int64_t target, int64_t* missing);
     void seekTo(int64_t frame);
     void resubmitCodecConfig();
