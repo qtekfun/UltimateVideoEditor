@@ -15,3 +15,8 @@ g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
 g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
     "$root/app/src/test/cpp/ffmpeg_selection_tests.cpp" -o "$out/ffmpeg_selection_tests"
 "$out/ffmpeg_selection_tests"
+# Uncompressed (iPhone 'lpcm') audio in QuickTime files: sample tables, sample formats, seeking.
+g++ -std=c++20 -Wall -Wextra -Werror -O1 -I"$root/app/src/main/cpp" \
+    "$root/app/src/main/cpp/tests/mov_pcm_host_tests.cpp" "$root/app/src/main/cpp/audio/mov_pcm.cpp" "$root/app/src/main/cpp/core/error.cpp" \
+    -o "$out/mov_pcm_host_tests"
+"$out/mov_pcm_host_tests"

@@ -1,6 +1,8 @@
 #include "encode/export_engine.h"
 #include "core/fd_util.h"
 
+#include <GLES3/gl3.h>
+#include <android/data_space.h>
 #include <android/native_window.h>
 #include <sys/system_properties.h>
 #include <media/NdkMediaCodec.h>
@@ -20,6 +22,7 @@
 #include <unordered_set>
 
 #include "audio/audio_engine.h"
+#include "core/file_lock.h"
 #include "decode/gpu_frame.h"
 #include "decode/log.h"
 #include "decode/open_decoder.h"
@@ -54,6 +57,9 @@ constexpr int64_t kIdleCheckFrames = 30;
 constexpr int32_t kDecodeAhead = 4;  // frames the decoder may run ahead of the frame being drawn
 constexpr auto kDecodeStall = std::chrono::seconds(15);
 constexpr auto kDecodeRecoverAfter = std::chrono::seconds(3);  // a frame this late makes the decoder seek afresh
+constexpr auto kDegradedStall = std::chrono::milliseconds(1500);        // after a repeated frame: give up on the next sooner
+constexpr auto kDegradedRecoverAfter = std::chrono::milliseconds(500);
+constexpr int64_t kMaxRepeatSeconds = 5;  // a layer that yields nothing for this long fails the export
 constexpr int64_t kSlowFetchMs = 500;  // a frame this late is logged with the decoder's state
 
 struct ExportFailure {
@@ -329,20 +335,81 @@ private:
     int64_t written_ = 0;
 };
 
+// Per-frame timing of the export, logged under tag UVExportPerf when `adb shell setprop debug.uveditor.export_perf 1` was set
+// before the export started (2 also waits for the GPU after each frame's draw, so `draw` includes GPU time and the swap wait
+// is the encoder's alone; it slows the export a little). Disabled it costs one branch per measured span and logs nothing.
+struct Perf {
+    enum Span { Fetch, FetchWait, Blit, Draw, GpuSync, Swap, VideoDrain, Audio, Spans };
+    bool on = false;
+    bool sync = false;
+    int64_t ns[Spans] = {};
+    int64_t frames = 0;
+    int64_t layers = 0;
+    int64_t windowFrames = 0;
+    Clock::time_point windowStart = Clock::now();
+    core::FileLockStats* lockStats = &core::fileLockStats();
+    int64_t lockContended0 = 0, lockWaitNs0 = 0, lockAcquired0 = 0;
+
+    void init() {
+        char value[PROP_VALUE_MAX] = {};
+        if (__system_property_get("debug.uveditor.export_perf", value) > 0 && value[0] != '0') {
+            on = true;
+            sync = value[0] == '2';
+        }
+    }
+    void add(Span span, Clock::time_point since) {
+        if (on) ns[span] += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - since).count();
+    }
+    Clock::time_point now() const { return on ? Clock::now() : Clock::time_point{}; }
+
+    void frameDone(int64_t layerCount, bool force) {
+        if (!on) return;
+        ++frames;
+        ++windowFrames;
+        layers += layerCount;
+        if (windowFrames < 120 && !force) return;
+        if (windowFrames == 0) return;
+        const double wallMs = std::chrono::duration<double, std::milli>(Clock::now() - windowStart).count();
+        const double n = static_cast<double>(windowFrames);
+        auto ms = [&](Span s) { return static_cast<double>(ns[s]) / 1e6 / n; };
+        const int64_t contended = lockStats->contended.load() - lockContended0;
+        const int64_t waitNs = lockStats->waitNs.load() - lockWaitNs0;
+        const int64_t acquired = lockStats->acquired.load() - lockAcquired0;
+        UV_LOGI("UVExportPerf frames=%lld window=%lld fps=%.1f wall=%.2f layers=%.2f | per frame ms: fetch=%.2f (wait=%.2f) blit=%.2f draw=%.2f "
+                "gpusync=%.2f swap=%.2f vdrain=%.2f audio=%.2f | filelock: %lld/%lld contended, %.1f ms waited%s",
+                static_cast<long long>(frames), static_cast<long long>(windowFrames), n * 1000.0 / wallMs, wallMs / n,
+                static_cast<double>(layers) / n, ms(Fetch), ms(FetchWait), ms(Blit), ms(Draw), ms(GpuSync), ms(Swap), ms(VideoDrain),
+                ms(Audio), static_cast<long long>(contended), static_cast<long long>(acquired), static_cast<double>(waitNs) / 1e6,
+                sync ? " [gpu-sync]" : "");
+        for (int64_t& v : ns) v = 0;
+        layers = 0;
+        windowFrames = 0;
+        windowStart = Clock::now();
+        lockContended0 = lockStats->contended.load();
+        lockWaitNs0 = lockStats->waitNs.load();
+        lockAcquired0 = lockStats->acquired.load();
+    }
+};
+
 // Decoded frames of one asset, shared between the decoder thread (isCached) and the export thread.
 struct AssetState {
     std::unique_ptr<decode::IVideoDecoder> decoder;
     int64_t lastUsedFrame = 0;  // output frame that last needed this decoder
+    std::shared_ptr<decode::GpuFrame> lastDelivered;  // the picture this layer last showed, repeated when a frame cannot be had
+    bool degraded = false;                             // the last frame had to be repeated: give up on the next one sooner
+    int64_t repeatedRun = 0;                           // frames repeated in a row
     decode::AssetInfo info;
     int turns = 0;
     bool reverse = false;  // the clip being drawn plays backwards: the decoder window is behind the frame
     std::mutex mu;
     std::map<int64_t, std::shared_ptr<decode::GpuFrame>> frames;
+    int64_t mediaKey = 0;
 };
 
 class Renderer {
 public:
-    Renderer(const ExportParams& params, ANativeWindow* window) : params_(params), residency_(params.pictureBudgetBytes) {
+    Renderer(const ExportParams& params, ANativeWindow* window, Perf& perf)
+        : params_(params), residency_(params.pictureBudgetBytes), perf_(perf) {
         decode::Error e{decode::Status::Ok, ""};
         if (egl_.init(&e, true, params.hdr) != decode::Status::Ok) failDecode(e, "EGL setup failed");
         if (params.hdr && !egl_.tenBit()) {
@@ -356,6 +423,12 @@ public:
             fail(Status::UnsupportedFormat, "the encoder surface cannot be tagged BT.2020 HLG on this device");
         }
         if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
+        if (params.hdr) {
+            // ADATASPACE_BT2020_HLG (what the EGL colour-space attribute sets) is full range: the Pixel 8's encoder converts the RGB
+            // frames with that range and tags the stream "pc" although the compositor writes limited-range-compatible HLG and the
+            // format asks for limited. The ITU variant is the same primaries and transfer with limited range.
+            ANativeWindow_setBuffersDataSpace(window, ADATASPACE_BT2020_ITU_HLG);
+        }
         pipeline_ = std::make_unique<render::GlPipeline>(egl_);
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
         space_ = params.hdr ? render::OutputSpace::Hlg2020 : render::OutputSpace::Sdr709;
@@ -442,7 +515,9 @@ public:
             asset.lastUsedFrame = frame;
             setDirection(asset, clip->reverse);
             const int64_t source = sourceFrameFor(*clip, projectFrame, asset.info.durationFrames);
+            const auto fetchStart = perf_.now();
             held.push_back(fetch(asset, source));
+            perf_.add(Perf::Fetch, fetchStart);
             render::LayerDraw layer;
             layer.frame = held.back().get();
             const int64_t direction = clip->reverse ? -1 : 1;
@@ -488,9 +563,17 @@ public:
             used.push_back({&asset, source, clip->reverse, keepBehind});
         }
         // No layers draws black: a gap in the timeline.
+        const auto drawStart = perf_.now();
         if (pipeline_->drawScene(layers, params_.canvasWidth, params_.canvasHeight, w, h, &e) != decode::Status::Ok) {
             failDecode(e, "drawing a frame failed");
         }
+        perf_.add(Perf::Draw, drawStart);
+        if (perf_.sync) {
+            const auto syncStart = perf_.now();
+            glFinish();
+            perf_.add(Perf::GpuSync, syncStart);
+        }
+        lastLayerCount_ = static_cast<int64_t>(layers.size());
         for (const Used& u : used) {
             if (u.reverse) {
                 evictAfter(*u.asset, u.source + u.keepBehind);
@@ -501,8 +584,13 @@ public:
         if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
 
         egl_.setPresentationTimeExact(frameToNs(frame, params_.fps));
+        const auto swapStart = perf_.now();
         if (egl_.swap(&e) != decode::Status::Ok) failDecode(e, "presenting a frame to the encoder failed");
+        perf_.add(Perf::Swap, swapStart);
     }
+
+    int64_t lastLayerCount() const { return lastLayerCount_; }
+    int64_t repeatedFrames() const { return repeatedFrames_; }
 
     void checkDecoderError() {
         std::lock_guard<std::mutex> lock(errorMu_);
@@ -531,6 +619,7 @@ private:
 
         auto state = std::make_unique<AssetState>();
         AssetState* raw = state.get();
+        state->mediaKey = key;
         decode::DecoderCallbacks callbacks;
         callbacks.onImageAvailable = [this] { wake(); };
         callbacks.isCached = [raw](int64_t frame) {
@@ -578,18 +667,22 @@ private:
                         UV_LOGW("frame %lld is not in the stream: showing %lld instead", static_cast<long long>(source),
                                 static_cast<long long>(pick.frame));
                     }
-                    return asset.frames.at(pick.frame);
+                    asset.lastDelivered = asset.frames.at(pick.frame);
+                    asset.degraded = false;
+                    asset.repeatedRun = 0;
+                    return asset.lastDelivered;
                 }
                 if (asset.frames.size() != seen) {
                     seen = asset.frames.size();
                     lastProgress = Clock::now();
                 }
             }
-            if (Clock::now() - lastProgress > kDecodeRecoverAfter && Clock::now() - lastRecover > kDecodeRecoverAfter) {
+            const auto recoverAfter = asset.degraded ? kDegradedRecoverAfter : kDecodeRecoverAfter;
+            if (Clock::now() - lastProgress > recoverAfter && Clock::now() - lastRecover > recoverAfter) {
                 lastRecover = Clock::now();
                 asset.decoder->recover(source);
             }
-            if (Clock::now() - lastProgress > kDecodeStall) {
+            if (Clock::now() - lastProgress > (asset.degraded ? kDegradedStall : kDecodeStall)) {
                 std::string have;
                 {
                     std::lock_guard<std::mutex> lock(asset.mu);
@@ -600,14 +693,47 @@ private:
                 }
                 const std::string state = asset.decoder->describe();
                 UV_LOGE("decoder stalled: wanted %lld;%s; %s", static_cast<long long>(source), have.c_str(), state.c_str());
+                // Do not lose the whole export for one picture: show the one this layer showed last (or the nearest held one),
+                // count it, and report it at the end. A clip that yields nothing for more than kMaxRepeatSeconds of movie is
+                // really broken and still fails.
+                std::shared_ptr<decode::GpuFrame> stand = asset.lastDelivered;
+                if (!stand) {
+                    std::lock_guard<std::mutex> lock(asset.mu);
+                    if (!asset.frames.empty()) {
+                        auto nearest = asset.frames.lower_bound(source);
+                        if (nearest == asset.frames.end()) --nearest;
+                        stand = nearest->second;
+                    }
+                }
+                const int64_t maxRun = kMaxRepeatSeconds * params_.fps.num / params_.fps.den;
+                if (stand && asset.repeatedRun < maxRun) {
+                    ++asset.repeatedRun;
+                    ++repeatedFrames_;
+                    asset.degraded = true;
+                    if (repeatedFrames_ <= 20) {
+                        UV_LOGW("frame %lld of media %lld could not be decoded: repeating the previous picture (%lld so far)",
+                                static_cast<long long>(source), static_cast<long long>(asset.mediaKey),
+                                static_cast<long long>(repeatedFrames_));
+                    }
+                    asset.lastDelivered = stand;
+                    return stand;
+                }
                 fail(Status::CodecError, "the decoder stalled at source frame " + std::to_string(source) + " (" + state + ")");
             }
+            const auto waitStart = perf_.now();
             std::unique_lock<std::mutex> lock(wakeMu_);
             wakeCv_.wait_for(lock, std::chrono::milliseconds(20));
+            perf_.add(Perf::FetchWait, waitStart);
         }
     }
 
     void drain(AssetState& asset) {
+        const auto drainStart = perf_.now();
+        struct Account {
+            Perf& p;
+            Clock::time_point t;
+            ~Account() { p.add(Perf::Blit, t); }
+        } account{perf_, drainStart};
         asset.decoder->drainImages([&](int64_t frame, AHardwareBuffer* buffer) -> int {
             {
                 std::lock_guard<std::mutex> lock(asset.mu);
@@ -719,6 +845,9 @@ private:
     std::mutex wakeMu_;
     std::condition_variable wakeCv_;
     std::mutex errorMu_;
+    Perf& perf_;
+    int64_t lastLayerCount_ = 0;
+    int64_t repeatedFrames_ = 0;  // frames shown again because the decoder could not deliver them
     int64_t outputFrame_ = 0;  // render thread: the output frame being made, for error messages
     std::optional<decode::Error> decoderError_;
 };
@@ -785,7 +914,7 @@ void ExportJob::run() {
     Status status = Status::Ok;
     std::string message;
     try {
-        execute();
+        message = execute();
     } catch (const ExportFailure& f) {
         status = f.status;
         message = f.message;
@@ -798,7 +927,7 @@ void ExportJob::run() {
     done_(status, message);
 }
 
-void ExportJob::execute() {
+std::string ExportJob::execute() {
     if (params_.width <= 0 || params_.height <= 0 || params_.fps.num <= 0 || params_.fps.den <= 0 ||
         params_.projectFps.num <= 0 || params_.projectFps.den <= 0 || params_.totalFrames <= 0 ||
         params_.videoBitrate <= 0) {
@@ -837,21 +966,29 @@ void ExportJob::execute() {
         audioPump->start(params_.assetFds);
     }
 
+    int64_t repeated = 0;
     {
-        Renderer renderer(params_, surface);
+        Perf perf;
+        perf.init();
+        Renderer renderer(params_, surface, perf);
 
         int64_t lastReport = -1;
         for (int64_t frame = 0; frame < params_.totalFrames; ++frame) {
             if (cancelled_.load()) fail(Status::Cancelled, "export cancelled");
             renderer.renderFrame(frame);
+            const auto drainStart = perf.now();
             video.drain(false);
+            perf.add(Perf::VideoDrain, drainStart);
             if (audioPump) {
+                const auto audioStart = perf.now();
                 audioPump->pumpTo(framesToSamples(frame + 1, params_.fps, kAudioSampleRate));
                 audioPump->drain();
+                perf.add(Perf::Audio, audioStart);
                 // Every frame: a clip whose audio never becomes ready blocks each render for 30 s, so a check every 30
                 // frames would let such an export run for the better part of an hour before failing.
                 audioPump->checkFaults();
             }
+            perf.frameDone(renderer.lastLayerCount(), frame + 1 == params_.totalFrames);
             const int32_t permille = progressPermille(frame + 1, params_.totalFrames);
             if (permille != lastReport) {
                 lastReport = permille;
@@ -859,6 +996,7 @@ void ExportJob::execute() {
             }
         }
         renderer.checkDecoderError();
+        repeated = renderer.repeatedFrames();
         if (AMediaCodec_signalEndOfInputStream(video.codec()) != AMEDIA_OK) {
             fail(Status::CodecError, "cannot end the video stream");
         }
@@ -872,6 +1010,10 @@ void ExportJob::execute() {
     muxer.finish();
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
     UV_LOGI("export done: %lld frames in %lld ms", static_cast<long long>(params_.totalFrames), static_cast<long long>(ms));
+    if (repeated > 0) {
+        return std::to_string(repeated) + " frames could not be decoded and were repeated";
+    }
+    return {};
 }
 
 }  // namespace uv::encode

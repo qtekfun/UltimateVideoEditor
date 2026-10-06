@@ -20,7 +20,8 @@ sealed interface ExportJobState {
         val estimate: ExportEstimate = ExportEstimate(),
     ) : ExportJobState
 
-    data class Done(override val projectId: String, val projectName: String, val uri: String, val fileName: String) : ExportJobState
+    /** [note] is empty unless the movie was not exact (some frames repeated). */
+    data class Done(override val projectId: String, val projectName: String, val uri: String, val fileName: String, val note: String = "") : ExportJobState
 
     /** [error] is null only when the engine reported a failure without a reason. */
     data class Failed(override val projectId: String, val projectName: String, val error: ExportException?, val leftoverNote: String = "") : ExportJobState
