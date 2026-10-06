@@ -214,7 +214,6 @@ class MainActivity : ComponentActivity() {
                 val tap = exportTap
                 LaunchedEffect(tap) {
                     if (tap == null) return@LaunchedEffect
-                    exportTap = null
                     val id = tap.projectId
                     // A project that was deleted since the notification was posted must not be opened.
                     val exists = id != null && withContext(Dispatchers.IO) {
@@ -239,6 +238,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    // Last, because changing the key restarts this effect: clearing it first would cancel the work above.
+                    exportTap = null
                 }
                 val projectId = openProjectId
                 if (projectId == null && showAbout) {
