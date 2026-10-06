@@ -109,7 +109,7 @@ public:
 
 private:
     void run();
-    void execute();  // throws ExportFailure
+    std::string execute();  // throws ExportFailure; returns a note for the user ("" when everything was exact)
     void executeStill();  // throws ExportFailure
     void closeDescriptors();
 

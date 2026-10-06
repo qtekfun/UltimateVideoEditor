@@ -24,6 +24,8 @@ import java.util.concurrent.CountDownLatch
  *     --es out /sdcard/Android/data/com.ultimatevideo.uveditor/files/out.mp4 \
  *     --es codec hevc --ei w 1280 --ei h 720 --ei fps 30 --es layout split
  *
+ * `--ez hdr true` exports HLG (HEVC Main10, BT.2020); pair it with `--ei color 1` so the source is read as HLG.
+ *
  * Layouts: `single` exports the first `frames` frames; `split` exports 60 frames, a 30 frame gap and
  * 60 more frames from further into the file; `layers` stacks a transformed clip over a full-frame one. The outcome is written to `<out>.result.txt`.
  */
@@ -79,7 +81,7 @@ class ExportDemoActivity : Activity() {
                     ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
                 ).detachFd()
                 val request = ExportRequest(
-                    settings = ExportSettings(width, height, fps, 1, codec, bitrate),
+                    settings = ExportSettings(width, height, fps, 1, codec, bitrate, hdr = intent.getBooleanExtra("hdr", false)),
                     projectFpsNum = fps,
                     projectFpsDen = 1,
                     canvasWidth = intent.getIntExtra("cw", width),
