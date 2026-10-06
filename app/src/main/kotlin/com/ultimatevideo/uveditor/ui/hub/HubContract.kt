@@ -90,6 +90,10 @@ data class HubState(
     val bundleExport: HubBundleExport? = null,
     /** What an imported bundle could not install (LUTs and fonts), listed until dismissed; null when nothing went wrong. */
     val importNotes: ImportReportNotes? = null,
+    /** Footage being unpacked from a LumaFusion package; null otherwise. */
+    val importProgress: com.ultimatevideo.uveditor.data.interchange.ImportProgress? = null,
+    /** A package needs somewhere to put its footage and no media folder is chosen: the dialog that asks for one. */
+    val mediaFolderPrompt: Boolean = false,
 ) : UiState {
     val unreadableCount: Int get() = unreadable.size
 
@@ -168,6 +172,12 @@ sealed interface HubIntent : UiIntent {
     data object DismissBundleExport : HubIntent
     data class ExportBundleTo(val projectId: String, val uri: String, val choice: BundleChoice) : HubIntent
     data object DismissImportNotes : HubIntent
+    data object CancelImport : HubIntent
+
+    /** The package needs a media folder: the user agreed to pick one, picked [uri], or declined. */
+    data object ChooseMediaFolder : HubIntent
+    data class MediaFolderPicked(val uri: String) : HubIntent
+    data object DismissMediaFolderPrompt : HubIntent
 
     data class RecoverProject(val projectId: String) : HubIntent
     data class DeleteUnreadable(val projectId: String) : HubIntent
@@ -182,4 +192,5 @@ sealed interface HubEffect : UiEffect {
     data class LaunchExportPicker(val projectId: String, val suggestedFileName: String) : HubEffect
     data class LaunchBundleExportPicker(val projectId: String, val suggestedFileName: String, val choice: BundleChoice) : HubEffect
     data class OpenEditor(val projectId: String) : HubEffect
+    data object LaunchMediaFolderPicker : HubEffect
 }

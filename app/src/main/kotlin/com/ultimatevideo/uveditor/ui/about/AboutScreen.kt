@@ -40,7 +40,12 @@ import androidx.compose.ui.unit.dp
 /** Version, licence, privacy, third-party notices, storage and the local crash report. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(controller: AboutController, appearance: AppearanceStore, onBack: () -> Unit) {
+fun AboutScreen(
+    controller: AboutController,
+    appearance: AppearanceStore,
+    mediaFolder: com.ultimatevideo.uveditor.data.interchange.MediaFolderSettings,
+    onBack: () -> Unit,
+) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     var snapshot by remember { mutableStateOf(controller.snapshot()) }
@@ -83,6 +88,37 @@ fun AboutScreen(controller: AboutController, appearance: AppearanceStore, onBack
                     }
                     Switch(checked = appearance.amoled, onCheckedChange = { appearance.amoled = it })
                 }
+            }
+            Section("Media folder") {
+                var folderLabel by remember { mutableStateOf(mediaFolder.label()) }
+                var hasFolder by remember { mutableStateOf(mediaFolder.treeUri() != null) }
+                var folderError by remember { mutableStateOf<String?>(null) }
+                val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+                    if (uri != null) {
+                        try {
+                            mediaFolder.set(uri.toString())
+                            folderLabel = mediaFolder.label()
+                            hasFolder = true
+                            folderError = null
+                        } catch (e: SecurityException) {
+                            folderError = "Could not keep access to that folder: ${e.message}"
+                        }
+                    }
+                }
+                Text("Media folder for imported packages")
+                Text(
+                    "Footage that comes inside a LumaFusion package is copied here, so you can see and manage the files (a USB drive or SD card works too). Deleting a project never deletes these files.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    when {
+                        !hasFolder -> "No folder chosen yet: you are asked when you import a package."
+                        folderLabel != null -> "Folder: $folderLabel"
+                        else -> "A folder is set but cannot be read now (drive unplugged or access removed). Choose it again."
+                    },
+                )
+                folderError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                OutlinedButton(onClick = { picker.launch(null) }) { Text(if (hasFolder) "Change" else "Choose folder") }
             }
             Section("Version") {
                 Text("ultimateVE ${snapshot.version.display}")

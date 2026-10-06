@@ -980,6 +980,59 @@ before the next marker (cut at the next marker's tick; nothing when under 24 dp 
 UTF-8 and drawn from a text bitmap (section 5.33); before that it was ASCII in the built-in 3x5 font. The label section already
 carries arbitrary keys and an old canvas simply ignores keys it does not know. The EDL has no markers (a CMX3600 list has no place for them); FCPXML uses the name, then the note.
 
+**LumaFusion import (`LumaFusionImport`, `LumaFusionPackage`, `MediaFolder`).** The hub's Import project reads LumaFusion for iOS
+projects by content: a zip with a `*.lfarchive` entry is an `.lfpackage` (a `bundle.json` entry makes it a `.uvbundle` instead), and JSON
+with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. Nothing is sent anywhere.
+
+- *Reading.* The archive is parsed tolerantly (`kotlinx.serialization.json` elements; unknown keys ignored, missing keys defaulted,
+  damaged input a typed `LumaFusionError` shown as `ProjectError.Bundle`). A package is opened through its central directory with
+  `ZipReader` (own reader over `RandomAccess`: end record, zip64 record and locator, central directory, stored and deflated entries,
+  sizes from the directory so data descriptors work; in the app `ProjectTransferIO.openSeekable` gives positional reads on the picked
+  document's own descriptor via `FileInputStream(fd).channel`). Re-opening `/proc/self/fd/N` by path (what `java.util.zip.ZipFile` does)
+  fails with EACCES on a Downloads file served through FUSE (seen on a Pixel 8), so nothing is ever re-opened by path. A source that
+  cannot seek falls back to the stream reader. A multi-gigabyte package is never loaded in memory and only the wanted
+  entries are copied, 1 MB at a time, with `ImportProgress` and a cancel check between steps. Entry names are matched to clips by file
+  name (last path part, ignoring case); the file name is the leaf of `attributes.originalFilename`, or `attributes.title` when that
+  has no extension (LumaFusion wrote `sioProviderRelink` for a picture).
+- *Footage goes to a folder the user chose, not to app storage.* Settings (About, "Media folder") holds a Storage Access Framework
+  tree (`MediaFolderSettings`, `PreferencesMediaFolderSettings`, `OpenDocumentTree`, persisted read and write permission, kept
+  out of the permission trim). `TreeMediaFolder` lists names, creates documents through `DocumentsContract`, writes by stream and
+  reads free space with `fstatvfs` on the new file's descriptor (unknown free space does not block; a failing write is reported).
+  Files get their own names, and a taken name (ignoring case) gets " (2)", " (3)" before the extension (`MediaFileNames`), so
+  nothing in the folder is replaced. The project references them by their `content://` document URIs like any imported media. With
+  no folder chosen, `ProjectError.MediaFolderRequired` makes the hub explain why and ask for one, then continue the import. A folder
+  that cannot be read or written, a full volume and a cancel remove the files this import created and leave no project; deleting a
+  project never deletes files in the folder. A standalone `.lfarchive` needs no folder: its media are missing (their address points at a
+  file that does not exist) and the normal Relink flow links them. After each file is copied the optional `probeMedia` hook reads its
+  real duration, frame rate, colour space and streams into the asset.
+- *Conversion* (`LumaFusionImport.convert`, pure). Canvas = `resolution` (made even); frame rate = `stepTime` as the reduced rational
+  `timescale/value` (60/1 for 10/600, 30000/1001), 1 to 240 fps, else 30 with a line in the report. CMTime to frames is exact integer
+  math (`BigInteger`) and rounds half up; positions are rounded, not durations (`end = round(start + duration)`), so clips that touch in
+  time touch in frames, a start inside the previous clip trims the previous one and a clip that would start before the previous one
+  started is left out. Source in = `round(sourceRange.start)`, source out = in + timeline length (1x). Lanes: the anchor track is the base
+  (last video track); other video tracks are overlays above it ordered by `trackOffset` (highest on top); audio tracks follow ordered by
+  offset; title clips go to title tracks above all video. Clip ids are `clip-N`, assets `asset-N` per distinct `assetID`.
+- *Mapped.* Cuts, lanes and times; photos (`assetType` 2) as `photo` still clips of image assets; titles (`assetType` 4) as layered
+  titles (text layer: text, size = `pointSize / frameHeight`, colour, alignment 0/1/2 = left/centre/right, `bold`/`italic` from the
+  font name, opacity; rectangle layer: size, fill, opacity; offsets from the layer rectangle's centre in the title frame); clip
+  opacity (`videoAlpha`), volume (`audioVolume` as linear gain, 0 = -96 dB), pan, track volume; constant scale and horizontal position (see the table). Not mapped, each with a count
+  and up to three places in the report: reversed, speed, transitions, effects (named), keyframes, flips, crop, fit/blend mode, anchor,
+  a vertical position, title shadows/fonts/rotation/other layers, ducking/fill, hidden/locked tracks, markers, project
+  notes, master volume, background colour, colour space other than 0 and 1 (1 is imported as HDR HLG, inferred), cloud media, blank and unknown clip kinds, connected clips (they
+  are placed by their own time).
+
+| Mapping | Evidence | Status |
+|---|---|---|
+| Tracks, clip times, source ranges, anchor track, `stepTime` = frame step, `trackOffset` order | Both samples: clips on the anchor are gap free, the sum of durations is the track `duration`, overlay `trackStart` is absolute | Verified (simple sample: 4 cuts, 7:54.6; complex sample: 95 clips over 5 lanes, base ends at 11:54.9 = the project `duration`) |
+| `assetType` 0 video, 2 photo, 4 title | Review sample: stream `mediaType` 0/2/3, JPG/PNG entries, `runtimeTitle` only on type 4 | Verified |
+| Footage by file name | Both packages: every used name is a zip entry (60 of 61 by `originalFilename`, 61 with the `title` fallback) | Verified |
+| `audioVolume` 0 = silent | 20 overlay clips with 0 whose sound was removed | Verified for 0; the dB scale of other values is inferred (linear gain) |
+| `videoAlpha`, `audioPan` | Default values only in the samples | Inferred (0 to 1 and -1 to 1) |
+| Rotation (`videoRotation`, radians, and `videoOrientation`) | A clip whose file has a 180 degree rotation tag (ffprobe) has videoRotation = pi; portrait clips carry +90/-90. Importing pi as a 180 degree turn showed the picture upside down on a Pixel 8, because the decoder already applies the tag | LumaFusion stores the file orientation here: never imported (a turn added in LumaFusion is lost; a caution line says so) |
+| Scale relative to the fitted frame; x position = value x canvas width / 2 | Split-screen layouts (0.472, +-0.52 and +-0.55): only half-canvas units keep the 4K clips inside the 3840 canvas; values of 0 for y | Inferred. Left/right sign and the y direction are not verified, so a clip with a vertical offset is reported and keeps its default pose |
+| Title layer rectangle (origin top left, y down, in `frameSize` pixels), point size as a fraction of the frame height, `alignment` 1 = centre | Lower thirds sit at y 1600 to 2040 of 2160 and are centred; 178.125 pt on 2160 | Inferred |
+| Reversed, speed, transitions, markers, keyframes, effects values, ducking | Present in neither sample (no values to compare) | Reported, never guessed |
+
 ### 5.25 Silence auto cut and manual reframe (WP-V2, no AI)
 
 Both work from data the app already has and send nothing anywhere.

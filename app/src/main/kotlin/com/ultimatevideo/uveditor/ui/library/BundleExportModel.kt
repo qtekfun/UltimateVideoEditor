@@ -102,4 +102,10 @@ object BundleExportText {
 }
 
 /** The report of an import with problems: what could not be installed, shown until dismissed. */
-data class ImportReportNotes(val projectName: String, val problems: List<String>, val notes: List<String>)
+data class ImportReportNotes(
+    val projectName: String,
+    val problems: List<String>,
+    val notes: List<String>,
+    /** The sentence above the problems; null for the LUT and font wording. */
+    val problemsHeading: String? = null,
+)
