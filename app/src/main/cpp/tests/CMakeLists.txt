@@ -39,6 +39,15 @@ target_compile_options(uv_audio_host_tests PRIVATE -Wall -Wextra -Werror)
 find_package(Threads REQUIRED)
 target_link_libraries(uv_audio_host_tests PRIVATE Threads::Threads)
 
+# Uncompressed audio in QuickTime files ('lpcm' from iPhones): sample tables, formats, seeking.
+add_executable(uv_mov_pcm_host_tests
+    mov_pcm_host_tests.cpp
+    ${ENGINE_DIR}/core/error.cpp
+    ${ENGINE_DIR}/audio/mov_pcm.cpp
+)
+target_include_directories(uv_mov_pcm_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_mov_pcm_host_tests PRIVATE -Wall -Wextra -Werror)
+
 # Classical audio DSP: biquad EQ, pan, compressor, ducker, limiter, BS.1770 loudness, spectral denoise.
 add_executable(uv_dsp_host_tests
     dsp_host_tests.cpp
@@ -147,6 +156,7 @@ add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
 add_test(NAME uv_dsp_host_tests COMMAND uv_dsp_host_tests)
+add_test(NAME uv_mov_pcm_host_tests COMMAND uv_mov_pcm_host_tests)
 add_test(NAME uv_voice_host_tests COMMAND uv_voice_host_tests)
 add_test(NAME uv_thumbnail_host_tests COMMAND uv_thumbnail_host_tests)
 

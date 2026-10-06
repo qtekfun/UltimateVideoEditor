@@ -15,7 +15,9 @@ import com.ultimatevideo.uveditor.engine.still.WebpAnimationScan
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.FileInputStream
 import java.io.IOException
+import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -256,10 +258,39 @@ class AndroidMediaImporter(
                 mime.startsWith("audio/") -> hasAudio = true
             }
         }
+        if (!hasAudio) {
+            // The platform's extractor does not list uncompressed audio in a QuickTime file (iPhone 'lpcm'); the engine decodes it itself.
+            pcmSoundTrack(uri)?.let { hasAudio = true; durationMicros = maxOf(durationMicros, it.durationMicros) }
+        }
         if (!hasVideo && !hasAudio) throw MediaImportException("The file has no audio or video track", problem = MediaProblem.UNSUPPORTED)
         if (durationMicros <= 0) throw MediaImportException("The file has no readable duration", problem = MediaProblem.UNSUPPORTED)
         val (num, den) = FpsRational.fromFloat(fps ?: captureFrameRate(uri) ?: FpsRational.DEFAULT_FPS.toDouble())
         return ProbedMedia(durationMicros, num, den, ColorSpaceNames.detect(transfer, hdrStaticInfo), hasVideo, hasAudio)
+    }
+
+    private fun pcmSoundTrack(uri: Uri): PcmSoundTrack? = try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+            FileInputStream(pfd.fileDescriptor).use { stream ->
+                val channel = stream.channel
+                MovAudioScan.find(object : ByteSource {
+                    override val size: Long = channel.size()
+                    override fun read(offset: Long, length: Int): ByteArray? {
+                        val buffer = ByteBuffer.allocate(length)
+                        while (buffer.hasRemaining()) {
+                            if (channel.read(buffer, offset + buffer.position()) <= 0) return null
+                        }
+                        return buffer.array()
+                    }
+                })
+            }
+        }
+    } catch (e: IOException) {
+        // Only a hint that a soundtrack exists: when the file cannot be read this way, the file is reported as it was.
+        Log.w(TAG, "Cannot scan $uri for uncompressed audio: ${e.message}")
+        null
+    } catch (e: SecurityException) {
+        Log.w(TAG, "Cannot scan $uri for uncompressed audio: ${e.message}")
+        null
     }
 
     private fun captureFrameRate(uri: Uri): Double? {
