@@ -1423,3 +1423,39 @@ originals 30 fps (10.8 s); with proxies 37 fps (8.2 s). Parity of the two output
 HLG 10-bit HEVC source exported to SDR PSNR 41.3 dB (min 40.9), SSIM 0.997 (the HLG vs SDR source outputs differ by only 31.9 dB, so tone mapping
 of the proxy is consistent). The synthetic content is `testsrc2`, a worst case for compression.
 **Not done.** Preparation phase with progress; a real-project run.
+
+## 2026-10-06 · Export encoder runs at priority 1 and maximum operating rate
+
+**Context.** Profiling a 4K export showed the render thread waiting about 20 ms per frame for decoded frames even when the decoders were trivially
+light (one 1280x720 proxy layer on a 4K canvas still gave 32 fps), while the same layer at 720p output ran 65 fps. The wait follows the encoder's load.
+**Decision.** `setVideoFormat` sets `KEY_PRIORITY` 1 (non real time) and `KEY_OPERATING_RATE` max, which an offline export may do. `setprop debug.uveditor.export_enc_flags 0`
+turns it off for comparisons.
+**Measured (Pixel 8, 4K HEVC 35 Mbps output, `ExportDemoActivity`):** one 4K H.264 30 fps layer, 600 frames: 17.9 s (33.5 fps) to 9.3 s (64 fps; decode bound);
+one 720p layer upscaled to 4K, 360 frames: 11.5 s to 3.45 s (104 fps); a 4K canvas with a third-size proxy layer: 31.7 to 124 fps; three such layers 37 to 95 fps; three 4K H.264
+layers (decode bound) 30 to 35 fps. The decoded frames are identical with and without (framemd5 equal for both A/B pairs; the files differ only in the container tail),
+so quality and bitrate control are unchanged. Setting the same two keys on the decoders changed nothing (35.4 vs 35.3 fps with three 4K layers).
+**Not measured.** Power and temperature over a full 40 minute project (status stayed 0 over the 10 s runs).
+
+## 2026-10-06 · HLG export on the Pixel 8: three causes behind "this device cannot encode HDR at this size"
+**Found on:** a 4K60 HLG project (iPhone footage) on the Pixel 8 (Tensor G3, `c2.exynos.hevc.encoder`), which can encode Main10 up to 7680x7680 and 960 fps.
+**Causes (all measured on the device with `debug.HdrProbeDemoActivity`):** (1) the probe's trial `configure` omitted `KEY_I_FRAME_INTERVAL` and the bitrate mode, which the exporter always sets;
+that encoder rejects such a format with an empty `IllegalArgumentException` at every size, so the HDR option was hidden (with the keys it configures at 1080p30, 2160p30 and 2160p60;
+`findEncoderForFormat` and `isFormatSupported` were true all along). The probe now builds the exporter's format and logs why a configure is rejected (tag `UVExport`). (2) With HDR offered, the exporter
+still failed "no ten-bit encoder surface": the Mali driver has no RGBA1010102 EGL config flagged `EGL_RECORDABLE_ANDROID`; the context now falls back to the unflagged one (the encoder surface accepts it).
+(3) The first HDR file was tagged and converted full range (`color_range=pc`, luma 0..1023): `ADATASPACE_BT2020_HLG` is full range and the encoder follows the buffer data space, not `KEY_COLOR_RANGE`.
+The exporter now sets `ADATASPACE_BT2020_ITU_HLG` (limited) on the encoder surface; luma then matches the source (18..960 against 29..958).
+**Not changed:** the Huawei MatePad's hisi encoder was rejected by the old probe, which also lacked the key-frame interval (OMX `-38` is what a missing one gives); the exporter's own configure failed there
+too, and the new probe uses the exporter's keys, so it is expected to keep rejecting it, but the tablet was not available to confirm.
+
+## 2026-10-06 · Uncompressed audio in QuickTime files is read by the engine, not by MediaExtractor
+**Context:** the full 4K export of an imported LumaFusion project had no sound on the base track. The base footage is an iPhone `.mov` whose
+soundtrack is linear PCM (`lpcm`, 48 kHz stereo 16-bit; `ffprobe`: `pcm_s16le`). Android's `MediaExtractor` does not list such a track, so the
+probe answered `hasAudio = false`, the editor wrote that into the library, and the exporter (like the preview) builds audio lanes only for assets
+with audio: the clips were silent without any error. LumaFusion's own data was right (audio stream present, volume 1 mapped to 0 dB, volume 0 to -96 dB).
+**Chosen:** `data/MovAudioScan.kt` finds a PCM sound track in the header boxes so the probe says `hasAudio = true` (and so a project opened later is
+repaired by `verifyAssets`), and `audio/mov_pcm.*` is a `PcmDecoder` that reads the samples through the sample tables (`stsz/stsc/stco`) and
+converts them to float. It sits between the platform decoder and the FFmpeg fallback in `AudioEngine::openAssetDecoder` and in the waveform extractor,
+so preview, export and waveforms all get it, and it needs no FFmpeg build. The LumaFusion report now lists the clips that are silent only because
+LumaFusion had volume 0. **Alternatives:** requiring the FFmpeg fallback (off by default, a 7.6 MB engine growth for a trivial format);
+transcoding the audio at import (copies and rewrites the user's media).
+**Not handled:** edit lists (the track here starts 745 samples = 15 ms late; ignored), non-interleaved or 24-in-32 aligned `lpcm`, more than two channels (the first two are used).

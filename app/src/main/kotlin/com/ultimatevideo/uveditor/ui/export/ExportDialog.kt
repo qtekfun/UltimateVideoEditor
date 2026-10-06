@@ -95,7 +95,7 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
             when (phase) {
                 ExportPhase.Configuring -> Settings(state, onIntent)
                 is ExportPhase.Running -> Progress(phase)
-                is ExportPhase.Done -> Text("Saved ${phase.fileName}.")
+                is ExportPhase.Done -> Text("Saved ${phase.fileName}." + if (phase.note.isNotEmpty()) " Note: ${phase.note}." else "")
                 is ExportPhase.Failed -> Text(phase.message, color = MaterialTheme.colorScheme.error)
             }
         },

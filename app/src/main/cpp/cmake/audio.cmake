@@ -13,6 +13,7 @@ target_sources(uveditor_engine PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../audio/clip_buffer.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/dsp.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/loudness.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../audio/mov_pcm.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/resampler.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/retime_source.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../audio/spectral_denoise.cpp
