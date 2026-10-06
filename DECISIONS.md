@@ -1408,3 +1408,14 @@ goes). Other projects' Export buttons are refused with the running project's nam
 only), which is what makes "go back to the project list during an export" possible.
 **Alternatives:** carrying only the project name (rejected: names are not unique ids); reopening the dialog for any notification tap
 (rejected: after a restart nothing is exporting); disabling the toolbar button outright (rejected: a disabled button cannot say why).
+
+## 2026-10-06 · HLG export on the Pixel 8: three causes behind "this device cannot encode HDR at this size"
+**Found on:** a 4K60 HLG project (iPhone footage) on the Pixel 8 (Tensor G3, `c2.exynos.hevc.encoder`), which can encode Main10 up to 7680x7680 and 960 fps.
+**Causes (all measured on the device with `debug.HdrProbeDemoActivity`):** (1) the probe's trial `configure` omitted `KEY_I_FRAME_INTERVAL` and the bitrate mode, which the exporter always sets;
+that encoder rejects such a format with an empty `IllegalArgumentException` at every size, so the HDR option was hidden (with the keys it configures at 1080p30, 2160p30 and 2160p60;
+`findEncoderForFormat` and `isFormatSupported` were true all along). The probe now builds the exporter's format and logs why a configure is rejected (tag `UVExport`). (2) With HDR offered, the exporter
+still failed "no ten-bit encoder surface": the Mali driver has no RGBA1010102 EGL config flagged `EGL_RECORDABLE_ANDROID`; the context now falls back to the unflagged one (the encoder surface accepts it).
+(3) The first HDR file was tagged and converted full range (`color_range=pc`, luma 0..1023): `ADATASPACE_BT2020_HLG` is full range and the encoder follows the buffer data space, not `KEY_COLOR_RANGE`.
+The exporter now sets `ADATASPACE_BT2020_ITU_HLG` (limited) on the encoder surface; luma then matches the source (18..960 against 29..958).
+**Not changed:** the Huawei MatePad's hisi encoder was rejected by the old probe, which also lacked the key-frame interval (OMX `-38` is what a missing one gives); the exporter's own configure failed there
+too, and the new probe uses the exporter's keys, so it is expected to keep rejecting it, but the tablet was not available to confirm.
