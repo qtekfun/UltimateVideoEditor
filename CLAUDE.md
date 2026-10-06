@@ -46,7 +46,7 @@ audio must keep using it; do not special-case transitions in native code. Titles
 
 ## Privacy rule (hard requirement)
 The app is offline by design: no AI or ML features, no network access, no third-party services, no analytics, no
-accounts. Never add the INTERNET permission, a networking API, a telemetry/crash-reporting/ads SDK or a model download;
+accounts. The only permissions are the export's foreground-service ones and POST_NOTIFICATIONS (docs/PRIVACY.md). Never add the INTERNET permission, a networking API, a telemetry/crash-reporting/ads SDK or a model download;
 `OfflineGuaranteeTest` fails the build if one appears. Anything that would need a server or a downloaded model is out of
 scope; use classical, on-device algorithms instead. Details: `docs/PRIVACY.md`.
 
