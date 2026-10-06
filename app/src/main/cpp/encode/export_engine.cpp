@@ -27,6 +27,7 @@
 #include "decode/log.h"
 #include "decode/open_decoder.h"
 #include "decode/video_decoder_api.h"
+#include "encode/occlusion_math.h"
 #include "encode/picture_residency.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
@@ -349,6 +350,14 @@ struct Perf {
     Clock::time_point windowStart = Clock::now();
     core::FileLockStats* lockStats = &core::fileLockStats();
     int64_t lockContended0 = 0, lockWaitNs0 = 0, lockAcquired0 = 0;
+    // Wall time per kind of frame (video layers drawn, pictures and titles drawn, layers skipped as hidden), summed over the whole
+    // export and printed once at the end: shows which stretches of a long project cost what.
+    struct Section {
+        int64_t frames = 0;
+        int64_t ns = 0;
+    };
+    std::map<int, Section> sections;
+    int64_t culledTotal = 0;
 
     void init() {
         char value[PROP_VALUE_MAX] = {};
@@ -361,6 +370,33 @@ struct Perf {
         if (on) ns[span] += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - since).count();
     }
     Clock::time_point now() const { return on ? Clock::now() : Clock::time_point{}; }
+
+    void section(int64_t videos, int64_t pictures, int64_t culled, Clock::time_point since) {
+        if (!on) return;
+        Section& s = sections[static_cast<int>(std::min<int64_t>(videos, 9) * 100 + std::min<int64_t>(pictures, 9) * 10 +
+                                               std::min<int64_t>(culled, 9))];
+        ++s.frames;
+        s.ns += std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - since).count();
+        culledTotal += culled;
+    }
+
+    void logSections(int64_t outputFrames, double fps) const {
+        if (!on) return;
+        double totalMs = 0;
+        for (const auto& e : sections) totalMs += static_cast<double>(e.second.ns) / 1e6;
+        for (const auto& e : sections) {
+            const double ms = static_cast<double>(e.second.ns) / 1e6;
+            UV_LOGI("UVExportPerf section video=%d pictures=%d culled=%d: %lld frames (%.1f%% of the movie), %.1f s (%.1f%% of the time), "
+                    "%.1f fps, %.2f ms per frame",
+                    e.first / 100, (e.first / 10) % 10, e.first % 10, static_cast<long long>(e.second.frames),
+                    100.0 * static_cast<double>(e.second.frames) / static_cast<double>(std::max<int64_t>(outputFrames, 1)), ms / 1000.0,
+                    100.0 * ms / std::max(totalMs, 1.0), 1000.0 * static_cast<double>(e.second.frames) / std::max(ms, 1.0),
+                    ms / static_cast<double>(std::max<int64_t>(e.second.frames, 1)));
+        }
+        UV_LOGI("UVExportPerf summary: %lld frames in %.1f s of frame time (%.1f fps), %lld layers skipped as hidden, output %.2f fps",
+                static_cast<long long>(outputFrames), totalMs / 1000.0, 1000.0 * static_cast<double>(outputFrames) / std::max(totalMs, 1.0),
+                static_cast<long long>(culledTotal), fps);
+    }
 
     void frameDone(int64_t layerCount, bool force) {
         if (!on) return;
@@ -458,6 +494,13 @@ public:
             }
         }
         for (const auto& entry : params.assetFds) fds_[entry.first] = entry.second;
+        // `setprop debug.uveditor.export_cull 0` draws every layer, for before/after measurements; it is read once per
+        // export and says so in the log, so a forgotten value cannot silently change results.
+        char cull[PROP_VALUE_MAX] = {};
+        if (__system_property_get("debug.uveditor.export_cull", cull) > 0 && cull[0] == '0') {
+            cull_ = false;
+            UV_LOGW("debug.uveditor.export_cull=0: layers hidden behind a full-canvas layer are NOT skipped in this export");
+        }
     }
 
     ~Renderer() {
@@ -510,7 +553,22 @@ public:
         std::vector<std::shared_ptr<decode::GpuFrame>> held;
         std::vector<render::LayerDraw> layers;
         std::vector<Used> used;
-        for (const VideoClip* clip : layersAt(params_.clips, projectFrame)) {
+        const std::vector<const VideoClip*> stack = layersAt(params_.clips, projectFrame);
+        // A layer that covers the whole canvas hides what is beneath it: those layers are neither fetched nor drawn.
+        const size_t firstDrawn = firstVisibleLayer(stack, projectFrame);
+        culledLayers_ += static_cast<int64_t>(firstDrawn);
+        lastCulled_ = static_cast<int64_t>(firstDrawn);
+        // Name every layer's frame to its decoder before waiting for the first one, so the decoders work side by side
+        // instead of one after the other (setTarget only records the wish; the fetch below repeats it).
+        for (size_t i = firstDrawn; i < stack.size(); ++i) {
+            const VideoClip* clip = stack[i];
+            if (clip->titleKey != 0) continue;
+            AssetState& asset = assetFor(clip->assetKey, clip->layer * 2 + clip->lane);
+            setDirection(asset, clip->reverse);
+            asset.decoder->setTarget(sourceFrameFor(*clip, projectFrame, asset.info.durationFrames));
+        }
+        for (size_t layerIndex = firstDrawn; layerIndex < stack.size(); ++layerIndex) {
+            const VideoClip* clip = stack[layerIndex];
             const core::Pose pose = poseAt(*clip, projectFrame);
             const float opacity = static_cast<float>(opacityAt(*clip, projectFrame));
             if (clip->titleKey != 0) {
@@ -589,6 +647,7 @@ public:
             perf_.add(Perf::GpuSync, syncStart);
         }
         lastLayerCount_ = static_cast<int64_t>(layers.size());
+        lastPictureLayers_ = static_cast<int64_t>(layers.size() - used.size());
         for (const Used& u : used) {
             if (u.reverse) {
                 evictAfter(*u.asset, u.source + u.keepBehind);
@@ -619,6 +678,9 @@ public:
     }
 
     int64_t lastLayerCount() const { return lastLayerCount_; }
+    int64_t lastPictureLayers() const { return lastPictureLayers_; }
+    int64_t lastCulled() const { return lastCulled_; }
+    int64_t culledLayers() const { return culledLayers_; }
     int64_t repeatedFrames() const { return repeatedFrames_; }
 
     void checkDecoderError() {
@@ -648,6 +710,31 @@ private:
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             fail(Status::GlError, "cannot create the offscreen picture target");
         }
+    }
+
+    // Index in `stack` (bottom first) of the first layer that has to be drawn: everything below the topmost layer that provably
+    // covers the whole canvas is hidden. 0 when nothing hides anything (the common case) or culling is off.
+    size_t firstVisibleLayer(const std::vector<const VideoClip*>& stack, int64_t projectFrame) {
+        if (!cull_) return 0;
+        const int64_t keep = minCullFrames(params_.projectFps.num, params_.projectFps.den);
+        for (size_t i = stack.size(); i-- > 1;) {
+            const VideoClip& clip = *stack[i];
+            // Pictures may carry alpha (a PNG frame with windows), so only video can hide a layer.
+            if (clip.titleKey != 0 || !opaqueLook(fxAt(clip, projectFrame))) continue;
+            // Cheap tests first: they decide before the decoder is opened for the size.
+            if (clip.startFrame + clip.durationFrames - projectFrame < keep) continue;
+            const core::Pose pose = poseAt(clip, projectFrame);
+            const float opacity = static_cast<float>(opacityAt(clip, projectFrame));
+            if (!(opacity >= 1.0f) || pose.rotationDeg != 0.0 || pose.scaleX < 1.0 || pose.scaleY < 1.0) continue;
+            AssetState& asset = assetFor(clip.assetKey, clip.layer * 2 + clip.lane);
+            int dispW = 0;
+            int dispH = 0;
+            render::displaySize(asset.info.width, asset.info.height, asset.turns, &dispW, &dispH);
+            const render::LayerTransform t{static_cast<float>(pose.posX),   static_cast<float>(pose.posY),        static_cast<float>(pose.scaleX),
+                                           static_cast<float>(pose.scaleY), static_cast<float>(pose.rotationDeg), opacity};
+            if (coversCanvas(params_.canvasWidth, params_.canvasHeight, dispW, dispH, t)) return i;
+        }
+        return 0;
     }
 
     // One decoder per (media, slot), the slot being layer * 2 + lane: two layers, or the two sides
@@ -900,6 +987,10 @@ private:
     std::mutex errorMu_;
     Perf& perf_;
     int64_t lastLayerCount_ = 0;
+    int64_t lastPictureLayers_ = 0;  // titles and pictures among the layers drawn last
+    int64_t lastCulled_ = 0;         // layers skipped last frame because a layer above covers the canvas
+    int64_t culledLayers_ = 0;       // the same, summed over the export
+    bool cull_ = true;
     int64_t repeatedFrames_ = 0;  // frames shown again because the decoder could not deliver them
     int64_t outputFrame_ = 0;  // render thread: the output frame being made, for error messages
     std::optional<decode::Error> decoderError_;
@@ -1030,6 +1121,7 @@ std::string ExportJob::execute() {
         int64_t lastReport = -1;
         for (int64_t frame = 0; frame < params_.totalFrames; ++frame) {
             if (cancelled_.load()) fail(Status::Cancelled, "export cancelled");
+            const auto frameStart = perf.now();
             renderer.renderFrame(frame);
             const auto drainStart = perf.now();
             video.drain(false);
@@ -1043,6 +1135,8 @@ std::string ExportJob::execute() {
                 // frames would let such an export run for the better part of an hour before failing.
                 audioPump->checkFaults();
             }
+            perf.section(renderer.lastLayerCount() - renderer.lastPictureLayers(), renderer.lastPictureLayers(), renderer.lastCulled(),
+                         frameStart);
             perf.frameDone(renderer.lastLayerCount(), frame + 1 == params_.totalFrames);
             const int32_t permille = progressPermille(frame + 1, params_.totalFrames);
             if (permille != lastReport) {
@@ -1051,6 +1145,7 @@ std::string ExportJob::execute() {
             }
         }
         renderer.checkDecoderError();
+        perf.logSections(params_.totalFrames, 0.0);
         repeated = renderer.repeatedFrames();
         if (AMediaCodec_signalEndOfInputStream(video.codec()) != AMEDIA_OK) {
             fail(Status::CodecError, "cannot end the video stream");
