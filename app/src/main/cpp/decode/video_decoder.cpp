@@ -1,7 +1,6 @@
 #include "decode/video_decoder.h"
 
 #include <media/NdkMediaFormat.h>
-#include <sys/system_properties.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -27,15 +26,6 @@ constexpr int64_t kPendingHardTimeoutMs = 5000;  // and one nobody drained for t
 constexpr size_t kMaxInFlight = kMaxInFlightFrames;  // see decode/pending_policy.h
 constexpr int64_t kMaxGapFrames = 8;  // a larger jump is not a frame-rate difference: leave it to the seek logic
 constexpr int64_t kUnknownDuration = INT64_MAX / 4;
-
-// Debug switch for A/B runs: `adb shell setprop debug.uveditor.decode_gap 0` turns the gap marking below off for new decoders.
-bool gapMarking() {
-    static const bool on = [] {
-        char value[PROP_VALUE_MAX] = {};
-        return !(__system_property_get("debug.uveditor.decode_gap", value) > 0 && value[0] == '0');
-    }();
-    return on;
-}
 
 int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -541,7 +531,7 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
         // Outputs come in presentation order, so within one decode run a jump in frame numbers names frames the stream does not
         // have (a 30 fps clip on a 60 fps grid skips every other one). Say so now: waiting for such a frame would otherwise end
         // in a seek back to the previous key frame (needsSeek: the decoder is already past it).
-        if (gapMarking() && !awaitingFirstOutput_ && decodePos_ > 0 && frame > decodePos_ && frame - decodePos_ <= kMaxGapFrames) {
+        if (!awaitingFirstOutput_ && decodePos_ > 0 && frame > decodePos_ && frame - decodePos_ <= kMaxGapFrames) {
             std::lock_guard<std::mutex> lock(unavailableMu_);
             for (int64_t gap = decodePos_; gap < frame; ++gap) unavailable_.insert(gap);
         }
