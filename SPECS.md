@@ -1018,7 +1018,7 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
   opacity (`videoAlpha`), volume (`audioVolume` as linear gain, 0 = -96 dB), pan, track volume; constant scale and horizontal position (see the table). Not mapped, each with a count
   and up to three places in the report: reversed, speed, transitions, effects (named), keyframes, flips, crop, fit/blend mode, anchor,
   a vertical position, title shadows/fonts/rotation/other layers, ducking/fill, hidden/locked tracks, markers, project
-  notes, master volume, background colour, colour space other than 0, cloud media, blank and unknown clip kinds, connected clips (they
+  notes, master volume, background colour, colour space other than 0 and 1 (1 is imported as HDR HLG, inferred), cloud media, blank and unknown clip kinds, connected clips (they
   are placed by their own time).
 
 | Mapping | Evidence | Status |

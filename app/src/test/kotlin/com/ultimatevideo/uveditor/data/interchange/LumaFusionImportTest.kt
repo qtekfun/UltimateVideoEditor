@@ -161,6 +161,19 @@ class LumaFusionImportTest {
     }
 
     @Test
+    fun `colour space 1 makes an HDR project and 0 an SDR one`() {
+        val clips = listOf(LfFixture.track(0, 0, anchor = true, clips = listOf(ClipSpec("a", "clip1.MOV", 0, 600))))
+        val hdr = convert(LfFixture.archive(tracks = clips, colorspace = 1))
+        assertEquals("Rec2020-HLG", hdr.project.settings.colorSpace)
+        assertEquals("Rec2020-HLG", hdr.project.mediaLibrary.single().colorSpace)
+        assertTrue(hdr.report.imported.has("HDR"))
+        assertEquals("Rec709-SDR", convert(LfFixture.archive(tracks = clips)).project.settings.colorSpace)
+        val other = convert(LfFixture.archive(tracks = clips, colorspace = 5))
+        assertEquals("Rec709-SDR", other.project.settings.colorSpace)
+        assertTrue(other.report.notImported.has("Colour space 5"))
+    }
+
+    @Test
     fun `an archive without an anchor video track still gets a base track`() {
         val c = convert(LfFixture.archive(tracks = listOf(LfFixture.track(1, -1, emptyList()))))
         assertEquals(listOf("track-v1", "track-a1"), c.project.tracks.map { it.id })

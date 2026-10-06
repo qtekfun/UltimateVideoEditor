@@ -649,6 +649,8 @@ object LumaFusionImport {
         // Titles draw above every video layer: their tracks go first, topmost lane's titles first.
         (titleTracks + built + audioBuilt).forEachIndexed { index, t -> trackDtos += t.copy(order = index) }
 
+        // LumaFusion colour space 1 is HDR (its other option is Rec. 709; the sample with 1 holds iPhone footage); the user can switch it in the editor.
+        val space = if (lf.colorspace == 1) HLG else SDR
         val assets = assetIds.map { (_, id) ->
             val clips = assetClips[id].orEmpty()
             val name = clips.first().fileName.ifEmpty { id }
@@ -660,7 +662,7 @@ object LumaFusionImport {
                 durationFrames = last.coerceAtLeast(1),
                 nativeFpsNum = fpsNum,
                 nativeFpsDen = fpsDen,
-                colorSpace = SDR,
+                colorSpace = space,
                 hasVideo = !isPhoto && clips.any { it.hasVideo },
                 hasAudio = !isPhoto && clips.any { it.hasAudio },
                 isImage = isPhoto,
@@ -668,7 +670,8 @@ object LumaFusionImport {
             )
         }
 
-        if (lf.colorspace != 0) notes.add("Colour space ${lf.colorspace} (Rec. 709 used)", "project")
+        if (lf.colorspace > 1 || lf.colorspace < 0) notes.add("Colour space ${lf.colorspace} (Rec. 709 used; change it in the canvas settings)", "project")
+        if (lf.colorspace == 1) cautions.add("Project colour space 1 imported as HDR Rec.2020 HLG (inferred); switch it to SDR or back in the canvas settings of the editor", "project")
         if (abs(lf.primaryVolume - 1.0) > EPS) notes.add("Project master volume (not applied)", "project")
         if (!lf.backgroundBlack) notes.add("Background colour (black used)", "project")
         if (lf.markerCount > 0) notes.add("Markers", "${lf.markerCount} markers")
@@ -685,7 +688,7 @@ object LumaFusionImport {
         val project = ProjectDto(
             id = "lumafusion-import",
             name = lf.title.ifEmpty { "LumaFusion project" }.take(80),
-            settings = ProjectSettingsDto(width, height, fpsNum, fpsDen, SDR),
+            settings = ProjectSettingsDto(width, height, fpsNum, fpsDen, space),
             mediaLibrary = assets,
             tracks = trackDtos,
         )
@@ -698,6 +701,7 @@ object LumaFusionImport {
     private fun rate(num: Int, den: Int): String = if (den == 1) "$num" else "%.3f".format(num.toDouble() / den).trimEnd('0').trimEnd('.')
 
     private const val SDR = "Rec709-SDR"
+    private const val HLG = "Rec2020-HLG"
     private const val MAX_SCALE = 20.0
     private const val MAX_OFFSET_UNITS = 4.0
     private const val MAX_OFFSET_TITLE = 2.0
