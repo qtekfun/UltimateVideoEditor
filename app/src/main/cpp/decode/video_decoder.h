@@ -19,8 +19,10 @@
 #include <thread>
 
 #include "core/codec_config.h"
+#include "core/file_lock.h"
 #include "decode/frame_rate.h"
 #include "decode/status.h"
+#include "decode/seek_policy.h"
 #include "decode/video_decoder_api.h"
 
 namespace uv::decode {
@@ -90,6 +92,7 @@ private:
     core::CodecConfig codecConfig_;  // csd-0..2 of the track, queued again after every flush (core/codec_config.h)
     std::string rungLabel_;  // which rung of the open ladder (decode/decoder_ladder.h) started the codec
     int fd_ = -1;
+    core::FileLock fileLock_;  // held around every extractor call that reads the file (core/file_lock.h)
     AssetInfo info_;
     Callbacks callbacks_;
     int64_t startPtsUs_ = 0;
@@ -124,6 +127,8 @@ private:
     std::atomic<int64_t> sharedMarkedUnavailable_{0};
     std::atomic<bool> sharedPrimed_{false};
     std::atomic<bool> sharedInputEos_{false};
+    bool earlyEndReported_ = false;  // decode thread: a stream that ends far before its declared length was reported once
+    std::atomic<bool> sharedEarlyEnd_{false};
     std::atomic<bool> sharedFailed_{false};
 
     std::mutex readerMu_;  // guards reader_ between drainImages() and shutdown()

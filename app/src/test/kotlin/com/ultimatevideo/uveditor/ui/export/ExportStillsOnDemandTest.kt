@@ -46,7 +46,7 @@ class ExportStillsOnDemandTest {
         override fun openAsset(uri: String) = next++
         override fun openOutput(uri: String) = next++
         override fun close(fd: Int) = Unit
-        override fun deleteOutput(uri: String) = Unit
+        override fun deleteOutput(uri: String) = true
     }
 
     private class Runner : ExportRunner {
