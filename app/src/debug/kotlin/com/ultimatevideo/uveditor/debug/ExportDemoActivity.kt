@@ -4,6 +4,14 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.ultimatevideo.uveditor.data.model.MediaAssetDto
+import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipTransform
+import com.ultimatevideo.uveditor.domain.FrameIndex
+import com.ultimatevideo.uveditor.domain.FrameRate
+import com.ultimatevideo.uveditor.domain.Timeline
+import com.ultimatevideo.uveditor.domain.Track
+import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.engine.audio.AudioClipSpec
 import com.ultimatevideo.uveditor.engine.audio.AudioSnapshot
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
@@ -13,6 +21,10 @@ import com.ultimatevideo.uveditor.engine.export.ExportRequest
 import com.ultimatevideo.uveditor.engine.export.ExportSettings
 import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
 import com.ultimatevideo.uveditor.engine.export.VideoClipSpec
+import com.ultimatevideo.uveditor.ui.export.ExportPlan
+import com.ultimatevideo.uveditor.ui.export.ExportProxy
+import com.ultimatevideo.uveditor.ui.export.ExportProxyAssist
+import com.ultimatevideo.uveditor.ui.export.buildExportPlan
 import java.io.File
 import java.util.concurrent.CountDownLatch
 
@@ -26,6 +38,12 @@ import java.util.concurrent.CountDownLatch
  *
  * Layouts: `single` exports the first `frames` frames; `split` exports 60 frames, a 30 frame gap and
  * 60 more frames from further into the file; `layers` stacks a transformed clip over a full-frame one. The outcome is written to `<out>.result.txt`.
+ *
+ * `stack` goes through the real planner (`buildExportPlan`): `--ei k 3` layers of the same file (layer i starts 30 frames later in the
+ * source), each at `--es scale 0.3333` of a `--ei cw 3840 --ei ch 2160` canvas, tiled three to a row, for `frames` frames. With
+ * `--es proxy <file> --ei pw 1280 --ei ph 720` the "Faster export" rule is applied with that file as the ready proxy of the source, and the
+ * proxied layers read it (it is read as SDR Rec.709), so the same command with and without `--es proxy` compares the two paths.
+ * A proxy is made with this same harness: `--es layout single --ei w 1280 --ei h 720 --ei bitrate 4 --ei frames N --ez audio false`.
  */
 class ExportDemoActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,7 +59,11 @@ class ExportDemoActivity : Activity() {
         val layout = intent.getStringExtra("layout") ?: "single"
         val bitrate = intent.getIntExtra("bitrate", 12) * 1_000_000
 
-        val clips = if (layout == "layers") {
+        val proxyPath = intent.getStringExtra("proxy")
+        val stackPlan: ExportPlan? = if (layout == "stack") buildStackPlan(video, proxyPath, width, height, fps, frames) else null
+        val clips = if (stackPlan != null) {
+            stackPlan.videoClips
+        } else if (layout == "layers") {
             // A full-frame base (layer 1) with a smaller, rotated, half-transparent copy of a later part on top (layer 0).
             listOf(
                 VideoClipSpec(0, 90, 0, 0, 1, 0),
@@ -59,7 +81,9 @@ class ExportDemoActivity : Activity() {
             listOf(VideoClipSpec(0, frames, 0, 0, 0, intent.getIntExtra("color", 0)))
         }
         val total = clips.maxOf { it.startFrame + it.durationFrames }
-        val audio = if (withAudio) {
+        val audio = if (stackPlan != null) {
+            if (withAudio) stackPlan.audio?.encode() else null
+        } else if (withAudio) {
             AudioSnapshot(fps, 1, clips.mapIndexed { i, c ->
                 AudioClipSpec(i.toLong(), 0, c.startFrame, c.durationFrames, c.sourceInFrame, fps, 1)
             }).encode()
@@ -85,7 +109,17 @@ class ExportDemoActivity : Activity() {
                     canvasWidth = intent.getIntExtra("cw", width),
                     canvasHeight = intent.getIntExtra("ch", height),
                     totalFrames = total,
-                    assetFds = mapOf(0L to input),
+                    assetFds = if (stackPlan == null) {
+                        mapOf(0L to input)
+                    } else {
+                        // One descriptor per key: the original (audio and unproxied layers) and, when used, the proxy.
+                        val fds = LinkedHashMap<Long, Int>()
+                        stackPlan.assetKeys.values.forEach { fds[it] = input }
+                        for ((key, proxy) in stackPlan.proxyAssets) {
+                            fds[key] = ParcelFileDescriptor.open(File(proxy.uri.removePrefix("file://")), ParcelFileDescriptor.MODE_READ_ONLY).detachFd()
+                        }
+                        fds
+                    },
                     videoClips = clips,
                     audioSnapshot = audio,
                     outputFd = output,
@@ -113,6 +147,34 @@ class ExportDemoActivity : Activity() {
             Log.i(TAG, "result: $outcome")
             runOnUiThread { finish() }
         }.start()
+    }
+
+    private fun buildStackPlan(video: String, proxyPath: String?, outW: Int, outH: Int, fps: Int, frames: Long): ExportPlan {
+        val cw = intent.getIntExtra("cw", 3840)
+        val ch = intent.getIntExtra("ch", 2160)
+        val k = intent.getIntExtra("k", 3)
+        val scale = (intent.getStringExtra("scale") ?: "0.3333333333").toDouble()
+        val color = intent.getIntExtra("color", 0)
+        val colorSpace = if (color == 1) "Rec2020-HLG" else "Rec709-SDR"
+        val asset = MediaAssetDto("a", "file://$video", 100_000, fps, 1, colorSpace)
+        val rows = (k + 2) / 3
+        val tracks = (0 until k).map { i ->
+            val x = ((i % 3) - 1) * cw * scale
+            val y = ((i / 3) - (rows - 1) / 2.0) * ch * scale
+            val sourceIn = i * 30L
+            Track(
+                "v$i",
+                TrackType.VIDEO,
+                listOf(Clip("c$i", "a", FrameIndex(0), FrameIndex(sourceIn), FrameIndex(sourceIn + frames), ClipTransform(positionX = x, positionY = y, scaleX = scale, scaleY = scale))),
+            )
+        }
+        val assist = proxyPath?.let {
+            ExportProxyAssist(
+                mapOf("a" to ExportProxy("file://$it", intent.getIntExtra("pw", 1280), intent.getIntExtra("ph", 720))),
+                cw, ch, outW, outH, hdrOutput = intent.getBooleanExtra("hdr", false),
+            )
+        }
+        return checkNotNull(buildExportPlan(Timeline(tracks), listOf(asset), FrameRate(fps, 1), cw, ch, assist)) { "empty stack plan" }
     }
 
     private fun finishWith(message: String) {
