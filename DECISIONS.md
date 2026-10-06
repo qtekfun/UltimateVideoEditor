@@ -1485,3 +1485,8 @@ so preview, export and waveforms all get it, and it needs no FFmpeg build. The L
 LumaFusion had volume 0. **Alternatives:** requiring the FFmpeg fallback (off by default, a 7.6 MB engine growth for a trivial format);
 transcoding the audio at import (copies and rewrites the user's media).
 **Not handled:** edit lists (the track here starts 745 samples = 15 ms late; ignored), non-interleaved or 24-in-32 aligned `lpcm`, more than two channels (the first two are used).
+
+## 2026-10-06 · No debug switch for the decoder's gap marking
+**Context:** PR #118 shipped `debug.uveditor.decode_gap` to A/B the fix. A diagnostic run left it at 0 on the reference phone; system properties under `debug.*` survive until reboot, so every later export of the installed app ran with the fix off, and the 41-minute full exports did not measure the fix at all.
+**Chosen:** the switch is removed; gap marking is always on. A/B comparisons use two builds, not a property that can outlive the run.
+**Rule:** a debug property must never switch off a correctness or speed fix in a build that other people (or later sessions) use; diagnostics that stay (`export_perf`, `timeline_stats`, `atlas_bytes`) only add logging or shrink caches in debug builds. Scripts that set a debug property must reset it in a trap on exit.
