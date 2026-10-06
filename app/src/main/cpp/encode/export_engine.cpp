@@ -408,30 +408,41 @@ struct AssetState {
 
 class Renderer {
 public:
+    // With a window the frames go to an encoder surface; without one (save-frame mode) they go to an offscreen
+    // framebuffer of params.width x params.height that readStill() reads back. The still mode is always SDR.
     Renderer(const ExportParams& params, ANativeWindow* window, Perf& perf)
         : params_(params), residency_(params.pictureBudgetBytes), perf_(perf) {
         decode::Error e{decode::Status::Ok, ""};
-        if (egl_.init(&e, true, params.hdr) != decode::Status::Ok) failDecode(e, "EGL setup failed");
-        if (params.hdr && !egl_.tenBit()) {
-            fail(Status::UnsupportedFormat, "this device offers no ten-bit encoder surface, so HDR cannot be exported");
-        }
-        if (!egl_.supportsPresentationTime()) {
-            fail(Status::GlError, "this device lacks EGL_ANDROID_presentation_time, needed for exact timestamps");
-        }
-        if (egl_.attachWindow(window, &e, params.hdr) != decode::Status::Ok) failDecode(e, "cannot attach the encoder surface");
-        if (params.hdr && !egl_.hdrSurface()) {
-            fail(Status::UnsupportedFormat, "the encoder surface cannot be tagged BT.2020 HLG on this device");
-        }
-        if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
-        if (params.hdr) {
-            // ADATASPACE_BT2020_HLG (what the EGL colour-space attribute sets) is full range: the Pixel 8's encoder converts the RGB
-            // frames with that range and tags the stream "pc" although the compositor writes limited-range-compatible HLG and the
-            // format asks for limited. The ITU variant is the same primaries and transfer with limited range.
-            ANativeWindow_setBuffersDataSpace(window, ADATASPACE_BT2020_ITU_HLG);
+        if (window == nullptr) {
+            if (egl_.init(&e, false, false) != decode::Status::Ok) failDecode(e, "EGL setup failed");
+            targetW_ = params.width;
+            targetH_ = params.height;
+        } else {
+            if (egl_.init(&e, true, params.hdr) != decode::Status::Ok) failDecode(e, "EGL setup failed");
+            if (params.hdr && !egl_.tenBit()) {
+                fail(Status::UnsupportedFormat, "this device offers no ten-bit encoder surface, so HDR cannot be exported");
+            }
+            if (!egl_.supportsPresentationTime()) {
+                fail(Status::GlError, "this device lacks EGL_ANDROID_presentation_time, needed for exact timestamps");
+            }
+            if (egl_.attachWindow(window, &e, params.hdr) != decode::Status::Ok) failDecode(e, "cannot attach the encoder surface");
+            if (params.hdr && !egl_.hdrSurface()) {
+                fail(Status::UnsupportedFormat, "the encoder surface cannot be tagged BT.2020 HLG on this device");
+            }
+            if (egl_.makeCurrentWindow(&e) != decode::Status::Ok) failDecode(e, "cannot bind the encoder surface");
+            if (params.hdr) {
+                // ADATASPACE_BT2020_HLG (what the EGL colour-space attribute sets) is full range: the Pixel 8's encoder converts the RGB
+                // frames with that range and tags the stream "pc" although the compositor writes limited-range-compatible HLG and the
+                // format asks for limited. The ITU variant is the same primaries and transfer with limited range.
+                ANativeWindow_setBuffersDataSpace(window, ADATASPACE_BT2020_ITU_HLG);
+            }
+            targetW_ = egl_.windowWidth();
+            targetH_ = egl_.windowHeight();
         }
         pipeline_ = std::make_unique<render::GlPipeline>(egl_);
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
-        space_ = params.hdr ? render::OutputSpace::Hlg2020 : render::OutputSpace::Sdr709;
+        if (window == nullptr) createOffscreenTarget();
+        space_ = (params.hdr && window != nullptr) ? render::OutputSpace::Hlg2020 : render::OutputSpace::Sdr709;
         pipeline_->setOutputSpace(space_);
         pipeline_->setInterpolationQuality(2);  // the exporter has the time for the wide flow search
         for (const TitleImage& title : params.titles) {
@@ -450,6 +461,8 @@ public:
     }
 
     ~Renderer() {
+        if (fbo_ != 0) glDeleteFramebuffers(1, &fbo_);
+        if (fboTexture_ != 0) glDeleteTextures(1, &fboTexture_);
         for (auto& entry : assets_) entry.second->decoder->shutdown();
         if (pipeline_) pipeline_->clearSourceCache();
         assets_.clear();
@@ -481,8 +494,8 @@ public:
 
     void renderFrame(int64_t frame) {
         decode::Error e{decode::Status::Ok, ""};
-        const int w = egl_.windowWidth();
-        const int h = egl_.windowHeight();
+        const int w = targetW_;
+        const int h = targetH_;
         const int64_t projectFrame = outputToProjectFrame(frame, params_.fps, params_.projectFps);
         outputFrame_ = frame;
         framePictures_.clear();
@@ -562,6 +575,8 @@ public:
             layers.push_back(layer);
             used.push_back({&asset, source, clip->reverse, keepBehind});
         }
+        // Converting a decoded frame leaves the default framebuffer bound; the offscreen target must be bound again.
+        if (fbo_ != 0) glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
         // No layers draws black: a gap in the timeline.
         const auto drawStart = perf_.now();
         if (pipeline_->drawScene(layers, params_.canvasWidth, params_.canvasHeight, w, h, &e) != decode::Status::Ok) {
@@ -583,10 +598,24 @@ public:
         }
         if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
 
+        if (fbo_ != 0) return;  // save-frame mode: the picture stays in the framebuffer for readStill()
         egl_.setPresentationTimeExact(frameToNs(frame, params_.fps));
         const auto swapStart = perf_.now();
         if (egl_.swap(&e) != decode::Status::Ok) failDecode(e, "presenting a frame to the encoder failed");
         perf_.add(Perf::Swap, swapStart);
+    }
+
+    // Copies the `crop` rectangle of the offscreen picture into `out` (RGBA8, top row first).
+    void readStill(const StillCrop& crop, uint8_t* out) {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        std::vector<uint8_t> rows(static_cast<size_t>(stillBytes(crop)));
+        glFinish();
+        glReadPixels(crop.x, glReadY(crop, targetH_), crop.w, crop.h, GL_RGBA, GL_UNSIGNED_BYTE, rows.data());
+        const GLenum error = glGetError();
+        if (error != GL_NO_ERROR) fail(Status::GlError, "reading the picture back failed (GL error " + std::to_string(error) + ")");
+        flipRows(rows.data(), crop.w * 4, crop.h, out);
+        forceOpaque(out, static_cast<int64_t>(crop.w) * crop.h);
     }
 
     int64_t lastLayerCount() const { return lastLayerCount_; }
@@ -604,6 +633,23 @@ public:
     }
 
 private:
+    void createOffscreenTarget() {
+        GLint maxSize = 0;
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
+        if (targetW_ > maxSize || targetH_ > maxSize) {
+            fail(Status::InvalidArgument, "the picture is larger than this device's GPU can draw (" + std::to_string(maxSize) + " px)");
+        }
+        glGenTextures(1, &fboTexture_);
+        glBindTexture(GL_TEXTURE_2D, fboTexture_);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, targetW_, targetH_);
+        glGenFramebuffers(1, &fbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboTexture_, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            fail(Status::GlError, "cannot create the offscreen picture target");
+        }
+    }
+
     // One decoder per (media, slot), the slot being layer * 2 + lane: two layers, or the two sides
     // of a transition, showing the same file at different source frames must not fight over a
     // single decoder's position.
@@ -838,6 +884,10 @@ private:
     render::EglContext egl_;
     std::unique_ptr<render::GlPipeline> pipeline_;
     render::OutputSpace space_ = render::OutputSpace::Sdr709;
+    int targetW_ = 0;  // size of the surface or offscreen target that drawScene fills
+    int targetH_ = 0;
+    GLuint fbo_ = 0;  // save-frame mode only
+    GLuint fboTexture_ = 0;
     std::map<int64_t, int> fds_;
     std::map<std::pair<int64_t, int32_t>, std::unique_ptr<AssetState>> assets_;
     std::vector<std::shared_ptr<decode::GpuFrame>> pool_;
@@ -928,6 +978,10 @@ void ExportJob::run() {
 }
 
 std::string ExportJob::execute() {
+    if (params_.still) {
+        executeStill();
+        return {};  // one frame: nothing to repeat, no note
+    }
     if (params_.width <= 0 || params_.height <= 0 || params_.fps.num <= 0 || params_.fps.den <= 0 ||
         params_.projectFps.num <= 0 || params_.projectFps.den <= 0 || params_.totalFrames <= 0 ||
         params_.videoBitrate <= 0) {
@@ -1014,6 +1068,37 @@ std::string ExportJob::execute() {
         return std::to_string(repeated) + " frames could not be decoded and were repeated";
     }
     return {};
+}
+
+// Save frame as image: the same renderer as the export (drawScene, the decoders and their exact seeks, titles, stills,
+// transitions through the clip list), drawn once into an offscreen framebuffer and read back.
+void ExportJob::executeStill() {
+    const StillTarget& still = *params_.still;
+    if (params_.fps.num <= 0 || params_.fps.den <= 0 || params_.projectFps.num != params_.fps.num ||
+        params_.projectFps.den != params_.fps.den) {
+        fail(Status::InvalidArgument, "a saved frame needs the output rate to equal the project rate");
+    }
+    if (still.frame < 0 || still.out == nullptr || !validStillCrop(still.crop, params_.width, params_.height) ||
+        still.capacity < stillBytes(still.crop)) {
+        fail(Status::InvalidArgument, "invalid picture size or buffer");
+    }
+    if (params_.canvasWidth <= 0 || params_.canvasHeight <= 0) {
+        params_.canvasWidth = params_.width;
+        params_.canvasHeight = params_.height;
+    }
+    params_.hdr = false;
+    const auto begin = Clock::now();
+    if (cancelled_.load()) fail(Status::Cancelled, "cancelled");
+    Perf perf;  // the still mode keeps no statistics; the renderer only needs somewhere to add its timings
+    Renderer renderer(params_, nullptr, perf);
+    renderer.renderFrame(still.frame);
+    renderer.checkDecoderError();
+    // The export's safety net repeats the previous picture when a frame cannot be decoded; a saved frame must be that frame or nothing.
+    if (renderer.repeatedFrames() > 0) fail(Status::CodecError, "this frame could not be decoded");
+    renderer.readStill(still.crop, still.out);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
+    UV_LOGI("saved frame %lld as %dx%d in %lld ms", static_cast<long long>(still.frame), still.crop.w, still.crop.h,
+            static_cast<long long>(ms));
 }
 
 }  // namespace uv::encode

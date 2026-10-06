@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -15,6 +17,7 @@
 
 #include "core/error.h"
 #include "encode/export_math.h"
+#include "encode/still_math.h"
 
 namespace uv::encode {
 
@@ -48,6 +51,18 @@ struct PictureData {
     std::shared_ptr<void> hold;
 };
 
+// "Save frame as image": instead of a movie the job renders project frame `frame` once, into an offscreen surface of
+// `width` x `height` (ExportParams), and copies the `crop` rectangle of it, RGBA8 with the top row first, into `out`
+// (`capacity` bytes, owned by the caller, which keeps it alive until the job reports it is done). Always SDR (Rec.709):
+// an HLG source is tone-mapped exactly as in an SDR export. No audio, no encoder, no muxer. `fps` and `projectFps` must
+// be equal so that the output frame is the project frame.
+struct StillTarget {
+    int64_t frame = 0;
+    StillCrop crop;
+    uint8_t* out = nullptr;
+    int64_t capacity = 0;
+};
+
 struct ExportParams {
     int32_t width = 0;
     int32_t height = 0;
@@ -76,6 +91,7 @@ struct ExportParams {
     // Audio snapshot (audio/audio_snapshot.h layout); empty means the movie has no audio track.
     std::vector<uint8_t> audioSnapshot;
     int outputFd = -1;  // read/write, seekable; owned by the job
+    std::optional<StillTarget> still;  // set: render one frame to memory instead of exporting a movie
 };
 
 class ExportJob {
@@ -94,6 +110,7 @@ public:
 private:
     void run();
     std::string execute();  // throws ExportFailure; returns a note for the user ("" when everything was exact)
+    void executeStill();  // throws ExportFailure
     void closeDescriptors();
 
     ExportParams params_;

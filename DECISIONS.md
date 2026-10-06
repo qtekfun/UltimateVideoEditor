@@ -1409,6 +1409,32 @@ only), which is what makes "go back to the project list during an export" possib
 **Alternatives:** carrying only the project name (rejected: names are not unique ids); reopening the dialog for any notification tap
 (rejected: after a restart nothing is exporting); disabling the toolbar button outright (rejected: a disabled button cannot say why).
 
+## 2026-10-06 · Save frame as image: a one-frame mode of the exporter
+**Context:** thumbnails and covers need a still of any frame, exactly as the export would draw it (layers, titles, transitions, retimed and
+reversed clips, HLG tone mapping). Only the Freeze frame tool and the hub thumbnails existed, and neither draws the composite.
+**Chosen:** a "still" mode of `ExportJob` (`ExportParams::still`): the same `Renderer`, clip list, decoders and `drawScene` as the export, drawn
+once into an offscreen RGBA8 framebuffer and read back with `glReadPixels` into a direct buffer that Kotlin owns; no encoder, muxer or
+audio. Kotlin plans the frame with `buildExportPlan()` (so the plan cannot drift from the export) and keeps only the clips that cover the
+frame, so only their media is opened. Colour: the still is always rendered in the SDR output space, which is exactly the existing SDR
+export path (HLG tone mapped), and the bitmap is tagged sRGB. Encoding is `Bitmap.compress`; the YouTube size limit is met by bisecting
+the JPEG quality (monotonic size, about eight encodes). "Selected clip only" plans a timeline holding only that clip, so it reuses the
+plan instead of adding a second code path. "Fill" renders on a surface that covers the output and reads back the centre rectangle,
+instead of changing `drawScene` (a viewport larger than the framebuffer would break the blend-mode destination snapshot and the effect
+chain). The save is refused while an export runs and the dialog is modal, so two engine jobs never compete for the hardware decoders.
+`decode/video_decoder.cpp` and `.h` were not touched.
+**Alternatives:** (1) read the preview surface: not the exporter's picture (preview size, preview decode policy, a play state), and the
+preview is not available at an arbitrary size; (2) a new decoder and compositor path for stills: a second copy of the seek, retime and
+substitution logic that the exporter already hardened; (3) `PixelCopy` from the preview `SurfaceView`: screen-sized, needs the surface
+visible; (4) a quality knob for PNG: PNG has no quality, so a YouTube PNG over 2 MB is flagged and JPEG suggested; (5) even-rounding sizes:
+images need none, so odd project sizes are kept (only the engine surface for a crop is grown by a pixel or two so the integer letterbox
+cannot leave a black edge). The request building (titles, stills, LUTs, descriptors) is repeated in `NativeFrameRenderer` rather than
+extracted from `ExportViewModel`, to keep this change away from the export code that other work touches; a later refactor can share it.
+**Limits:** one frame costs about a second (the decoder has to start and decode up to the frame); output is capped at 4096 px per side to
+bound memory (readback buffer plus bitmap); HDR output (HLG PNG/AVIF) is out of scope; the document is created before the picture is drawn,
+so a failure deletes it (like the export does) rather than drawing first and asking later.
+**Verified on a device:** the engine and encoder with `FrameDemoActivity` on the Pixel 8 (frame numbers, ffmpeg comparison, HLG, fill, JPEG
+search, ICC/sRGB tags); the dialog, the document picker and the Share sheet were not driven (the phone's screen was off).
+
 ## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in)
 
 **Context.** A 4K export with several 4K layers at once is decode-bound: the hardware decoders are shared. A layer shown in a third of the canvas

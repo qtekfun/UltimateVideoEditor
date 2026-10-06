@@ -140,6 +140,13 @@ import com.ultimatevideo.uveditor.ui.editor.title.TitleLibraryViewModel
 import com.ultimatevideo.uveditor.ui.editor.title.TitleTools
 import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
+import com.ultimatevideo.uveditor.ui.frame.BitmapFrameEncoder
+import com.ultimatevideo.uveditor.ui.frame.ContentResolverFrameSink
+import com.ultimatevideo.uveditor.ui.frame.NativeFrameRenderer
+import com.ultimatevideo.uveditor.ui.frame.StillFrameHost
+import com.ultimatevideo.uveditor.ui.frame.StillFrameInput
+import com.ultimatevideo.uveditor.ui.frame.StillFrameIntent
+import com.ultimatevideo.uveditor.ui.frame.StillFrameViewModel
 import com.ultimatevideo.uveditor.engine.export.MediaCodecHdrExportSupport
 import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -291,6 +298,27 @@ fun EditorScreen(
         snackbar.currentSnackbarData?.dismiss()
         scope.launch { snackbar.showSnackbar(text) }
     }
+    val stillFrameViewModel: StillFrameViewModel = viewModel(
+        key = "frame-$projectId",
+        factory = viewModelFactory {
+            initializer {
+                val app = context.applicationContext
+                StillFrameViewModel(
+                    renderer = NativeFrameRenderer(
+                        ContentResolverExportIO(app), NativeExportRunner(), titleRasterizer, AndroidStillRasterizer(app), lutStore::load,
+                    ),
+                    encoder = BitmapFrameEncoder(),
+                    sink = ContentResolverFrameSink(app),
+                    exports = ExportCenter.executor(context),
+                    projectId = projectId,
+                )
+            }
+        },
+    )
+    StillFrameHost(stillFrameViewModel) { text ->
+        snackbar.currentSnackbarData?.dismiss()
+        scope.launch { snackbar.showSnackbar(text) }
+    }
     val exportHolder = exportViewModel.state.collectAsStateWithLifecycle()
     // Only the name is read, so the editor does not recompose on every progress report of an export.
     val exportBlockedBy by remember(exportHolder) { derivedStateOf { exportHolder.value.blockedBy } }
@@ -344,6 +372,29 @@ fun EditorScreen(
                     projectId, live.projectName, live.canvasWidth, live.canvasHeight, live.fps, live.timeline, live.assets, live.colorSpace,
                     missingAssetIds = live.missingMedia.keys,
                     proxies = proxyManager.readyForExport(live.assets),
+                ),
+            ),
+        )
+    }
+
+    val openStillFrame = {
+        // Playback stops first, so the frame is the one the playhead rests on, whatever the player was doing.
+        if (viewModel.state.value.isPlaying) viewModel.onIntent(EditorIntent.TogglePlay)
+        val live = viewModel.state.value
+        stillFrameViewModel.onIntent(
+            StillFrameIntent.Open(
+                StillFrameInput(
+                    projectId = projectId,
+                    projectName = live.projectName,
+                    projectWidth = live.canvasWidth,
+                    projectHeight = live.canvasHeight,
+                    fps = live.fps,
+                    timeline = live.timeline,
+                    assets = live.assets,
+                    colorSpace = live.colorSpace,
+                    frame = live.playhead.value,
+                    selectedClipId = live.selectedClipId,
+                    missingAssetIds = live.missingMedia.keys,
                 ),
             ),
         )
@@ -776,6 +827,7 @@ fun EditorScreen(
                 ) {
                     EditorMain(
                         state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, dropTarget, launchImport, openExport, openCaptions,
+                        onSaveFrame = openStillFrame,
                         exportBlockedBy = exportBlockedBy,
                         layout = layout,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
@@ -817,6 +869,7 @@ private fun EditorMain(
     onImport: () -> Unit,
     onExport: () -> Unit,
     onCaptions: () -> Unit,
+    onSaveFrame: () -> Unit,
     onOpenTray: (TrayTab) -> Unit,
     layout: EditorLayoutController,
     inspectorOverlay: Boolean,
@@ -1025,8 +1078,9 @@ private fun EditorMain(
                         ) { viewModel.onIntent(EditorIntent.TogglePlay) }
                         ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
                     }
-                    ToolButton(EditorIcons.Fit, "Fit the whole project and all lanes", modifier = Modifier.align(Alignment.CenterEnd)) {
-                        engine.fitToContent()
+                    Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+                        ToolButton(EditorIcons.FrameImage, "Save frame as image: the picture under the playhead as PNG or JPEG", onClick = onSaveFrame)
+                        ToolButton(EditorIcons.Fit, "Fit the whole project and all lanes") { engine.fitToContent() }
                     }
                 }
 
