@@ -394,7 +394,7 @@ void VideoDecoder::seekTo(int64_t frame) {
     const int64_t ptsUs = startPtsUs_ + frameToPtsUs(frame, info_.fps);
     media_status_t sought;
     {
-        std::lock_guard<std::mutex> io(*fileLock_);
+        core::FileGuard io(*fileLock_);
         sought = AMediaExtractor_seekTo(extractor_, ptsUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
     }
     if (sought != AMEDIA_OK) {
@@ -433,7 +433,7 @@ void VideoDecoder::pump(int64_t lo, int64_t hi) {
         ssize_t size = -1;
         int64_t sampleTime = 0;
         if (buffer != nullptr) {
-            std::lock_guard<std::mutex> io(*fileLock_);
+            core::FileGuard io(*fileLock_);
             size = AMediaExtractor_readSampleData(extractor_, buffer, capacity);
             if (size >= 0) {
                 sampleTime = AMediaExtractor_getSampleTime(extractor_);
