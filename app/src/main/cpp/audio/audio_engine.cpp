@@ -9,6 +9,7 @@
 #include "audio/android_pcm_decoder.h"
 #include "audio/audio_time.h"
 #include "audio/ffmpeg_pcm.h"
+#include "audio/mov_pcm.h"
 #include "decode/ffmpeg/ffmpeg_api.h"
 
 #define LOG_TAG "uv_audio_engine"
@@ -41,6 +42,14 @@ std::unique_ptr<PcmDecoder> AudioEngine::openAssetDecoder(int64_t assetKey, Stat
         return nullptr;
     }
     std::unique_ptr<PcmDecoder> decoder = AndroidPcmDecoder::open(fd, status);
+    if (!decoder && (*status == Status::UnsupportedFormat || *status == Status::CodecError)) {
+        // Uncompressed audio in a QuickTime file (iPhone 'lpcm') is not exposed by the platform's extractor: read it directly.
+        Status raw = Status::Ok;
+        if (std::unique_ptr<PcmDecoder> pcm = openMovPcmDecoderFd(fd, &raw)) {
+            *status = Status::Ok;
+            decoder = std::move(pcm);
+        }
+    }
     if (!decoder && decode::ffmpeg::available() &&
         (*status == Status::UnsupportedFormat || *status == Status::CodecError || *status == Status::IoError)) {
         // The platform cannot decode this audio: try the software decoder (FFmpeg fallback), which also
