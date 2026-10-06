@@ -2,6 +2,9 @@
 
 #include <sys/stat.h>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -37,5 +40,42 @@ inline FileLock fileLockFor(int fd) {
     registry[key] = fresh;
     return fresh;
 }
+
+}  // namespace uv::core
+
+namespace uv::core {
+
+/** How often readers of a shared media file had to wait for each other, and for how long (read by the export perf log). */
+struct FileLockStats {
+    std::atomic<int64_t> contended{0};  // acquisitions that found the lock taken
+    std::atomic<int64_t> waitNs{0};     // time those acquisitions waited
+    std::atomic<int64_t> acquired{0};   // all acquisitions
+};
+
+inline FileLockStats& fileLockStats() {
+    static FileLockStats stats;
+    return stats;
+}
+
+/** A lock_guard on a file lock that counts contention: an uncontended acquire costs one try_lock and two relaxed adds. */
+class FileGuard {
+public:
+    explicit FileGuard(std::mutex& m) : m_(m) {
+        FileLockStats& stats = fileLockStats();
+        stats.acquired.fetch_add(1, std::memory_order_relaxed);
+        if (m_.try_lock()) return;
+        const auto began = std::chrono::steady_clock::now();
+        m_.lock();
+        stats.contended.fetch_add(1, std::memory_order_relaxed);
+        stats.waitNs.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - began).count(),
+                               std::memory_order_relaxed);
+    }
+    ~FileGuard() { m_.unlock(); }
+    FileGuard(const FileGuard&) = delete;
+    FileGuard& operator=(const FileGuard&) = delete;
+
+private:
+    std::mutex& m_;
+};
 
 }  // namespace uv::core
