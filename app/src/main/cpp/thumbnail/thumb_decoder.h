@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "core/error.h"
 
@@ -15,8 +16,9 @@ namespace uv::thumb {
 // decoder is not held while the preview needs it.
 class ThumbDecoder {
 public:
-    // Opens the first video track of the media behind `fd` (not owned, not closed).
-    static std::unique_ptr<ThumbDecoder> open(int fd, core::Status* status);
+    // Opens the first video track of the media behind `fd` (not owned, not closed); a photo becomes a one-tile decoder.
+    // On failure `detail` (optional) says what failed and with which underlying code.
+    static std::unique_ptr<ThumbDecoder> open(int fd, core::Status* status, std::string* detail = nullptr);
     ~ThumbDecoder();
     ThumbDecoder(const ThumbDecoder&) = delete;
     ThumbDecoder& operator=(const ThumbDecoder&) = delete;

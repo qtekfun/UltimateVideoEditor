@@ -42,7 +42,7 @@ namespace {
 TimelineHandle* from(jlong h) { return reinterpret_cast<TimelineHandle*>(h); }
 jint code(Status s) { return static_cast<jint>(s); }
 
-void notifyError(const std::shared_ptr<ThumbBridge>& bridge, int64_t assetKey, Status status) {
+void notifyError(const std::shared_ptr<ThumbBridge>& bridge, int64_t assetKey, Status status, const std::string& detail) {
     std::lock_guard<std::mutex> lock(bridge->mu);
     if (bridge->closed || bridge->listener == nullptr) return;
     JNIEnv* env = nullptr;
@@ -54,7 +54,9 @@ void notifyError(const std::shared_ptr<ThumbBridge>& bridge, int64_t assetKey, S
         }
         attached = true;
     }
-    env->CallVoidMethod(bridge->listener, bridge->onError, static_cast<jlong>(assetKey), code(status));
+    jstring text = env->NewStringUTF(detail.c_str());
+    env->CallVoidMethod(bridge->listener, bridge->onError, static_cast<jlong>(assetKey), code(status), text);
+    if (text != nullptr) env->DeleteLocalRef(text);
     if (env->ExceptionCheck()) {
         LOGE("thumbnail listener threw");
         env->ExceptionDescribe();
@@ -83,10 +85,10 @@ JNIEXPORT jint JNICALL JNI_FN(nativeAttach)(JNIEnv* env, jobject /*thiz*/, jlong
     auto bridge = std::make_shared<ThumbBridge>();
     if (env->GetJavaVM(&bridge->vm) != JNI_OK) return code(Status::InvalidArgument);
     jclass cls = env->GetObjectClass(listener);
-    bridge->onError = env->GetMethodID(cls, "onThumbnailError", "(JI)V");
+    bridge->onError = env->GetMethodID(cls, "onThumbnailError", "(JILjava/lang/String;)V");
     env->DeleteLocalRef(cls);
     if (bridge->onError == nullptr) {
-        LOGE("listener lacks onThumbnailError(long,int)");
+        LOGE("listener lacks onThumbnailError(long,int,String)");
         return code(Status::InvalidArgument);  // NoSuchMethodError is pending for Kotlin
     }
     bridge->listener = env->NewGlobalRef(listener);
@@ -94,7 +96,7 @@ JNIEXPORT jint JNICALL JNI_FN(nativeAttach)(JNIEnv* env, jobject /*thiz*/, jlong
 
     uv::thumb::ThumbnailService::Listener callbacks;
     callbacks.onTilesReady = [bridge] { notifyTiles(bridge); };
-    callbacks.onError = [bridge](int64_t asset, Status st) { notifyError(bridge, asset, st); };
+    callbacks.onError = [bridge](int64_t asset, Status st, const std::string& detail) { notifyError(bridge, asset, st, detail); };
     h->thumbBridge = bridge;
     h->thumbnails = std::make_shared<uv::thumb::ThumbnailService>(std::move(callbacks));
     h->renderer->setThumbnails(h->thumbnails);
