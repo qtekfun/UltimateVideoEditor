@@ -400,14 +400,20 @@ fun EditorScreen(
         )
     }
 
+    val thumbnailFailures = remember(projectId) {
+        val main = Handler(Looper.getMainLooper())
+        ThumbnailFailures(
+            projectId,
+            log = { android.util.Log.w("uv_thumb", it) },
+            // Called on a native worker thread. The clip stays usable without its filmstrip.
+            show = { message -> main.post { viewModel.onIntent(EditorIntent.ReportError(message)) } },
+        )
+    }
     val engine = remember {
         val main = Handler(Looper.getMainLooper())
         TimelineEngine(
             density,
-            onThumbnailError = { _, status ->
-                // Called on a native worker thread. The clip stays usable without its filmstrip.
-                main.post { viewModel.onIntent(EditorIntent.ReportError("Could not generate thumbnails ($status)")) }
-            },
+            onThumbnailError = thumbnailFailures::onFailure,
         ) { _, status ->
             // Called on a native worker thread. A file without audio is not an error worth showing.
             if (status == EngineStatus.IO_ERROR || status == EngineStatus.CODEC_ERROR) {
@@ -683,6 +689,7 @@ fun EditorScreen(
         for (asset in s.playableAssets) {
             if (!(asset.hasVideo || asset.isImage) || !requestedThumbnails.add("${asset.id}|${asset.uri}")) continue
             // Filmstrips are cheaper to decode from a ready proxy; they are cached under the original's identity.
+            thumbnailFailures.register(viewModel.assetKey(asset.id), displayName(asset), asset.uri)
             requestThumbnails(context, engine, viewModel, projectId, asset.copy(uri = proxyVm.resolve(asset, MediaPurpose.THUMBNAIL).uri))
         }
     }

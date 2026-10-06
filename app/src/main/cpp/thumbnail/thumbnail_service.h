@@ -28,7 +28,7 @@ class ThumbnailService {
 public:
     struct Listener {
         std::function<void()> onTilesReady;  // worker thread; poke the renderer
-        std::function<void(int64_t assetKey, core::Status status)> onError;  // worker thread
+        std::function<void(int64_t assetKey, core::Status status, const std::string& detail)> onError;  // worker thread
     };
 
     struct ReadyTile {
