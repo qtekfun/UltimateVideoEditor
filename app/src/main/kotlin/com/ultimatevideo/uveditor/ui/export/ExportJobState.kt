@@ -13,25 +13,31 @@ sealed interface ExportJobState {
     data object Idle : ExportJobState
 
     data class Running(
+        override val projectId: String,
         val projectName: String,
         val progressPermille: Int,
         val startedAtMs: Long,
         val estimate: ExportEstimate = ExportEstimate(),
     ) : ExportJobState
 
-    data class Done(val projectName: String, val uri: String, val fileName: String) : ExportJobState
+    data class Done(override val projectId: String, val projectName: String, val uri: String, val fileName: String) : ExportJobState
 
     /** [error] is null only when the engine reported a failure without a reason. */
-    data class Failed(val projectName: String, val error: ExportException?, val leftoverNote: String = "") : ExportJobState
+    data class Failed(override val projectId: String, val projectName: String, val error: ExportException?, val leftoverNote: String = "") : ExportJobState
 
     /** The user cancelled; the partial file is already removed. */
-    data class Cancelled(val projectName: String) : ExportJobState
+    data class Cancelled(override val projectId: String, val projectName: String) : ExportJobState
 
     val isRunning: Boolean get() = this is Running
+
+    /** The project this export belongs to; null when there is none ([Idle]). */
+    val projectId: String? get() = null
 }
 
 /** One export to run; the work of opening files and building the request is in [prepare], which runs off the main thread. */
 class ExportJob(
+    /** The project being exported: the notification and the project list use it to lead back to its editor. */
+    val projectId: String,
     val projectName: String,
     val outputUri: String,
     /** Opens the descriptors and builds the request; throws [ExportException] (or [IllegalArgumentException]) on failure. */

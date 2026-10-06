@@ -17,6 +17,7 @@ import com.ultimatevideo.uveditor.engine.export.HdrExportSupport
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -106,11 +107,12 @@ class ExportViewModelTest {
     private val io = FakeIO()
     private val runner = FakeRunner()
 
-    private fun viewModel() = ExportViewModel(io, runner, dispatcher)
+    private fun viewModel() = ExportViewModel(io, runner, dispatcher, projectId = "p1")
 
     private fun asset(id: String) = MediaAssetDto(id, "content://$id", 600, 30, 1, "Rec709-SDR")
 
     private fun input(withClip: Boolean = true) = ExportInput(
+        projectId = "p1",
         projectName = "My movie",
         projectWidth = 1920,
         projectHeight = 1080,
@@ -327,7 +329,7 @@ class ExportViewModelTest {
     }
 
     @Test
-    fun `settings cannot change while exporting and the dialog cannot be dismissed`() {
+    fun `settings cannot change while exporting and dismissing only hides the dialog`() {
         val vm = viewModel()
         vm.openAndStart()
 
@@ -335,7 +337,8 @@ class ExportViewModelTest {
         vm.onIntent(ExportIntent.Dismiss)
 
         assertEquals(ExportCodec.H264, vm.state.value.codec)
-        assertTrue(vm.state.value.visible)
+        assertFalse(vm.state.value.visible)
+        assertTrue(vm.state.value.isRunning)
     }
 
     @Test
@@ -449,6 +452,94 @@ class ExportViewModelTest {
         assertEquals(ExportJobState.Idle, executor.state.value)
         assertFalse(vm.state.value.visible)
         assertFalse(ExportViewModel(io, runner, dispatcher, executor = executor).state.value.visible)
+    }
+
+    @Test
+    fun `an export of another project is not mirrored and the Export button is refused with its name`() {
+        val executor = sharedExecutor()
+        ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "other").openAndStart()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1")
+
+        assertFalse(vm.state.value.visible)
+        assertEquals("My movie", vm.state.value.blockedBy)
+        val messages = mutableListOf<ExportEffect>()
+        val job = kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.effects.collect { messages += it } }
+        vm.onIntent(ExportIntent.Open(input()))
+        job.cancel()
+
+        assertEquals(listOf<ExportEffect>(ExportEffect.Message("Another export is running: My movie")), messages)
+        assertFalse(vm.state.value.visible)
+        assertFalse(runner.handle.cancelled)
+    }
+
+    @Test
+    fun `the button of the exporting project shows its progress, and hiding the dialog does not stop the export`() {
+        val executor = sharedExecutor()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1")
+        vm.openAndStart()
+
+        vm.onIntent(ExportIntent.Dismiss)
+        runner.listener!!.onProgress(300)
+        assertFalse(vm.state.value.visible)
+        assertTrue(executor.state.value.isRunning)
+
+        vm.onIntent(ExportIntent.Open(input()))
+        assertTrue(vm.state.value.visible)
+        assertEquals(300, (vm.state.value.phase as ExportPhase.Running).progressPermille)
+    }
+
+    @Test
+    fun `a hidden dialog comes back with the result when the export ends`() {
+        val executor = sharedExecutor()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1")
+        vm.openAndStart()
+        vm.onIntent(ExportIntent.Dismiss)
+
+        runner.listener!!.onFinished(null)
+
+        assertTrue(vm.state.value.visible)
+        assertTrue(vm.state.value.phase is ExportPhase.Done)
+    }
+
+    @Test
+    fun `ShowProgress opens the dialog on this project's export and ignores another project's`() {
+        val executor = sharedExecutor()
+        ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1").openAndStart()
+        val own = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1")
+        own.onIntent(ExportIntent.Dismiss)
+        own.onIntent(ExportIntent.ShowProgress)
+        assertTrue(own.state.value.visible)
+
+        val foreign = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p2")
+        foreign.onIntent(ExportIntent.ShowProgress)
+        assertFalse(foreign.state.value.visible)
+    }
+
+    @Test
+    fun `leaving another project's editor does not clear the result shown in the project list`() {
+        val executor = sharedExecutor()
+        ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1").openAndStart()
+        runner.listener!!.onFinished(null)
+        val other = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p2")
+
+        other.javaClass.getDeclaredMethod("onCleared").apply { isAccessible = true }.invoke(other)
+        other.onIntent(ExportIntent.Open(input()))
+
+        assertTrue(executor.state.value is ExportJobState.Done)
+    }
+
+    @Test
+    fun `dismissing the result in the project list closes the dialog that was showing it`() {
+        val executor = sharedExecutor()
+        val vm = ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1")
+        vm.openAndStart()
+        runner.listener!!.onFinished(null)
+        assertTrue(vm.state.value.visible)
+
+        executor.acknowledge()
+
+        assertFalse(vm.state.value.visible)
+        assertEquals(ExportPhase.Configuring, vm.state.value.phase)
     }
 
     // endregion

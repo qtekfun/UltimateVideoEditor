@@ -11,7 +11,7 @@ import org.junit.Test
 
 class ExportNotificationModelTest {
     private fun running(permille: Int, estimate: ExportEstimate = ExportEstimate()) =
-        ExportJobState.Running("Holiday", permille, 0, estimate)
+        ExportJobState.Running("p1", "Holiday", permille, 0, estimate)
 
     @Test
     fun `a running export shows the project, whole percent and a cancel action`() {
@@ -52,14 +52,14 @@ class ExportNotificationModelTest {
 
     @Test
     fun `finished and failed exports get a plain, dismissible notification`() {
-        val done = checkNotNull(exportNotificationFor(ExportJobState.Done("Holiday", "content://x", "Holiday.mp4")))
+        val done = checkNotNull(exportNotificationFor(ExportJobState.Done("p1", "Holiday", "content://x", "Holiday.mp4")))
         assertEquals("Export finished", done.title)
         assertTrue(done.text.contains("Holiday.mp4"))
         assertFalse(done.ongoing)
         assertFalse(done.showCancel)
         assertNull(done.progressPercent)
 
-        val failed = checkNotNull(exportNotificationFor(ExportJobState.Failed("Holiday", ExportException(ExportErrorCode.CODEC_ERROR, "boom"))))
+        val failed = checkNotNull(exportNotificationFor(ExportJobState.Failed("p1", "Holiday", ExportException(ExportErrorCode.CODEC_ERROR, "boom"))))
         assertEquals("Export failed", failed.title)
         assertTrue(failed.text.contains("boom"))
         assertFalse(failed.ongoing)
@@ -68,7 +68,7 @@ class ExportNotificationModelTest {
     @Test
     fun `idle and cancelled leave no notification`() {
         assertNull(exportNotificationFor(ExportJobState.Idle))
-        assertNull(exportNotificationFor(ExportJobState.Cancelled("Holiday")))
+        assertNull(exportNotificationFor(ExportJobState.Cancelled("p1", "Holiday")))
         assertNotNull(exportNotificationFor(running(1)))
     }
 }

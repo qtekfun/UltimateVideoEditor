@@ -66,6 +66,10 @@ import com.ultimatevideo.uveditor.ui.hub.HubViewModel
 import com.ultimatevideo.uveditor.ui.templates.TemplateWizardViewModel
 import com.ultimatevideo.uveditor.data.TemplateStore
 import com.ultimatevideo.uveditor.ui.theme.UVEditorTheme
+import com.ultimatevideo.uveditor.ui.export.ExportCenter
+import com.ultimatevideo.uveditor.ui.export.ExportDestination
+import com.ultimatevideo.uveditor.ui.export.ExportLaunch
+import com.ultimatevideo.uveditor.ui.export.exportDestination
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,6 +85,25 @@ import com.ultimatevideo.uveditor.engine.track.MediaMetadataAspectProbe
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    /** One tap on an export notification; a new instance each time so that a second tap on the same project is handled again. */
+    private class ExportTap(val projectId: String?)
+
+    private var exportTap by mutableStateOf<ExportTap?>(null)
+
+    /** Reads the project id of an export notification's intent and clears it, so a rotation or recreation does not replay it. */
+    private fun takeExportTap(intent: android.content.Intent?) {
+        if (intent?.action != ExportLaunch.ACTION_SHOW) return
+        exportTap = ExportTap(intent.getStringExtra(ExportLaunch.EXTRA_PROJECT_ID))
+        intent.removeExtra(ExportLaunch.EXTRA_PROJECT_ID)
+        intent.action = null
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeExportTap(intent)
+    }
+
     /** The screen stays on while an export runs and this activity is visible; the flag is cleared as soon as it ends. */
     private fun keepScreenOnWhileExporting() {
         val executor = com.ultimatevideo.uveditor.ui.export.ExportCenter.executor(this)
@@ -97,6 +120,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         keepScreenOnWhileExporting()
+        if (savedInstanceState == null) takeExportTap(intent)
         // Dark only: light system-bar icons on a transparent bar whatever the system theme says.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -166,6 +190,7 @@ class MainActivity : ComponentActivity() {
                                 defaults = newProjectDefaults,
                                 peeker = clipPeeker,
                                 mediaFolders = mediaFolderSettings,
+                                exportJobs = ExportCenter.executor(applicationContext),
                             )
                         }
                     },
@@ -185,6 +210,37 @@ class MainActivity : ComponentActivity() {
                 )
                 var openProjectId by rememberSaveable { mutableStateOf<String?>(null) }
                 var showAbout by rememberSaveable { mutableStateOf(false) }
+                var showExportDialog by rememberSaveable { mutableStateOf(false) }
+                val tap = exportTap
+                LaunchedEffect(tap) {
+                    if (tap == null) return@LaunchedEffect
+                    val id = tap.projectId
+                    // A project that was deleted since the notification was posted must not be opened.
+                    val exists = id != null && withContext(Dispatchers.IO) {
+                        try {
+                            repository.list().projects.any { it.id == id }
+                        } catch (e: java.io.IOException) {
+                            Log.w("UVExport", "Could not read the project list for a notification tap", e)
+                            false
+                        }
+                    }
+                    when (val target = exportDestination(id, exists, ExportCenter.executor(applicationContext).state.value)) {
+                        is ExportDestination.Editor -> {
+                            session.markOpen(target.projectId)
+                            showAbout = false
+                            openProjectId = target.projectId
+                            showExportDialog = true
+                        }
+                        ExportDestination.ProjectList -> {
+                            if (id != null) {
+                                showAbout = false
+                                openProjectId = null
+                            }
+                        }
+                    }
+                    // Last, because changing the key restarts this effect: clearing it first would cancel the work above.
+                    exportTap = null
+                }
                 val projectId = openProjectId
                 if (projectId == null && showAbout) {
                     AboutScreen(aboutController, appearance, mediaFolderSettings, onBack = { showAbout = false })
@@ -200,6 +256,11 @@ class MainActivity : ComponentActivity() {
                         thumbnails = projectThumbnails,
                         templates = templateWizard,
                         onOpenAbout = { showAbout = true },
+                        onOpenExport = {
+                            session.markOpen(it)
+                            showExportDialog = true
+                            openProjectId = it
+                        },
                     )
                     // First launch (or after About -> Show tips again): three dismissible tips over the hub.
                     var tipsOpen by remember { mutableStateOf(!onboardingStore.seen()) }
@@ -238,6 +299,8 @@ class MainActivity : ComponentActivity() {
                     EditorScreen(
                         editorViewModel,
                         projectId,
+                        showExport = showExportDialog,
+                        onShowExportHandled = { showExportDialog = false },
                         onClose = {
                             // Leaving on purpose: the next start has nothing to offer to reopen.
                             session.markClosed()
