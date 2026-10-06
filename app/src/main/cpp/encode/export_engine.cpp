@@ -409,6 +409,7 @@ public:
         const int w = egl_.windowWidth();
         const int h = egl_.windowHeight();
         const int64_t projectFrame = outputToProjectFrame(frame, params_.fps, params_.projectFps);
+        outputFrame_ = frame;
         framePictures_.clear();
 
         // Every clip under the playhead, bottom layer first. `held` keeps the frames alive until the draw.
@@ -503,7 +504,13 @@ public:
 
     void checkDecoderError() {
         std::lock_guard<std::mutex> lock(errorMu_);
-        if (decoderError_) fail(fromDecode(decoderError_->code), "decoding failed: " + decoderError_->message);
+        if (decoderError_) {
+            // Say where in the movie it happened, so the clip can be found on the timeline.
+            const int64_t seconds = params_.fps.num > 0 ? outputFrame_ * params_.fps.den / params_.fps.num : 0;
+            char at[32];
+            std::snprintf(at, sizeof(at), "%lld:%02lld", static_cast<long long>(seconds / 60), static_cast<long long>(seconds % 60));
+            fail(fromDecode(decoderError_->code), "decoding failed at " + std::string(at) + " of the movie: " + decoderError_->message);
+        }
     }
 
 private:
@@ -710,6 +717,7 @@ private:
     std::mutex wakeMu_;
     std::condition_variable wakeCv_;
     std::mutex errorMu_;
+    int64_t outputFrame_ = 0;  // render thread: the output frame being made, for error messages
     std::optional<decode::Error> decoderError_;
 };
 

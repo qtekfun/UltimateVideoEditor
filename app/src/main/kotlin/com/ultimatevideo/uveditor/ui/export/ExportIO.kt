@@ -25,8 +25,8 @@ interface ExportIO {
     /** The name the document has on disk (the user may have renamed it in the picker), or null when unknown. */
     fun displayName(uri: String): String? = null
 
-    /** Removes a partly written output; failures are ignored (the file may already be gone). */
-    fun deleteOutput(uri: String)
+    /** Removes a partly written output; true when it is gone (or already was), false when the provider refused. */
+    fun deleteOutput(uri: String): Boolean
 }
 
 class ContentResolverExportIO(private val context: Context) : ExportIO {
@@ -61,15 +61,13 @@ class ContentResolverExportIO(private val context: Context) : ExportIO {
         }
     }
 
-    override fun deleteOutput(uri: String) {
-        try {
-            DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(uri))
-        } catch (e: FileNotFoundException) {
-            // Already gone: that is the outcome we wanted.
-        } catch (e: SecurityException) {
-            // The provider refuses deletion; the user can remove the partial file themselves.
-        } catch (e: IllegalArgumentException) {
-            // The provider does not support deleting this document.
-        }
+    override fun deleteOutput(uri: String): Boolean = try {
+        DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(uri))
+    } catch (e: FileNotFoundException) {
+        true // Already gone: that is the outcome we wanted.
+    } catch (e: SecurityException) {
+        false // The provider refuses deletion; the failure message says a partial file may remain.
+    } catch (e: IllegalArgumentException) {
+        false // The provider does not support deleting this document.
     }
 }

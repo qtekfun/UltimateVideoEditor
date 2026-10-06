@@ -319,10 +319,11 @@ class ExportViewModel(
             reduce { copy(phase = ExportPhase.Done(uri, io.displayName(uri) ?: suggestedFileName(projectName))) }
             return
         }
-        if (uri != null) io.deleteOutput(uri)
+        // A failed export never leaves a half-written file unmentioned: when the provider refuses to delete it, say so.
+        val leftover = if (uri != null && !io.deleteOutput(uri)) " A partly written file could not be removed: ${io.displayName(uri) ?: "the chosen file"}. It is incomplete; delete it." else ""
         outputUri = null
         reduce {
-            if (error?.code == ExportErrorCode.CANCELLED) copy(phase = ExportPhase.Configuring) else copy(phase = ExportPhase.Failed(describe(error)))
+            if (error?.code == ExportErrorCode.CANCELLED) copy(phase = ExportPhase.Configuring) else copy(phase = ExportPhase.Failed(describe(error) + leftover))
         }
     }
 

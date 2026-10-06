@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/codec_config.h"
+#include "core/file_lock.h"
 #include "thumbnail/rgba_tile.h"
 #include "thumbnail/yuv_tile.h"
 
@@ -98,6 +99,7 @@ Status decodeStillTile(int fd, std::vector<uint16_t>* tile) {
 }  // namespace
 
 struct ThumbDecoder::Impl {
+    core::FileLock fileLock;  // held around extractor calls that read the file (core/file_lock.h)
     AMediaExtractor* extractor = nullptr;
     AMediaCodec* codec = nullptr;
     core::CodecConfig codecConfig;  // csd-0..2, queued again after every flush (core/codec_config.h)
@@ -121,7 +123,10 @@ struct ThumbDecoder::Impl {
     }
 
     void seek(int64_t timeUs) {
-        AMediaExtractor_seekTo(extractor, timeUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+        {
+            std::lock_guard<std::mutex> io(*fileLock);
+            AMediaExtractor_seekTo(extractor, timeUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+        }
         AMediaCodec_flush(codec);
         if (!core::queueCodecConfig(codec, codecConfig)) LOGE("could not queue the codec config again after a flush");
         positionValid = true;
@@ -135,14 +140,22 @@ struct ThumbDecoder::Impl {
         if (idx < 0) return;
         size_t cap = 0;
         uint8_t* buf = AMediaCodec_getInputBuffer(codec, static_cast<size_t>(idx), &cap);
-        const ssize_t n = buf != nullptr ? AMediaExtractor_readSampleData(extractor, buf, cap) : -1;
+        ssize_t n = -1;
+        int64_t sampleTime = 0;
+        if (buf != nullptr) {
+            std::lock_guard<std::mutex> io(*fileLock);
+            n = AMediaExtractor_readSampleData(extractor, buf, cap);
+            if (n >= 0) {
+                sampleTime = AMediaExtractor_getSampleTime(extractor);
+                AMediaExtractor_advance(extractor);
+            }
+        }
         if (n < 0) {
             AMediaCodec_queueInputBuffer(codec, static_cast<size_t>(idx), 0, 0, 0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
             inputEos = true;
         } else {
             AMediaCodec_queueInputBuffer(codec, static_cast<size_t>(idx), 0, static_cast<size_t>(n),
-                                         static_cast<uint64_t>(AMediaExtractor_getSampleTime(extractor)), 0);
-            AMediaExtractor_advance(extractor);
+                                         static_cast<uint64_t>(sampleTime), 0);
         }
     }
 
@@ -291,6 +304,9 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
     if (fd < 0 || ::fstat(fd, &st) != 0 || st.st_size <= 0) return fail(Status::IoError);
 
     auto impl = std::make_unique<Impl>();
+    // Readers of one file that share a file offset must not interleave (core/file_lock.h); held while opening.
+    impl->fileLock = core::fileLockFor(fd);
+    std::unique_lock<std::mutex> openLock(*impl->fileLock);
     impl->extractor = AMediaExtractor_new();
     if (impl->extractor == nullptr) return fail(Status::CodecError);
     if (AMediaExtractor_setDataSourceFd(impl->extractor, fd, 0, static_cast<off64_t>(st.st_size)) != AMEDIA_OK) {
@@ -312,6 +328,7 @@ std::unique_ptr<ThumbDecoder> ThumbDecoder::open(int fd, Status* status) {
         }
         if (f != nullptr) AMediaFormat_delete(f);
     }
+    openLock.unlock();
     if (format == nullptr) {
         // No video track: a photo has one picture whatever the time, so its tile is decoded once here.
         if (decodeStillTile(fd, &impl->stillTile) != Status::Ok) return fail(Status::UnsupportedFormat);
