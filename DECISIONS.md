@@ -1408,3 +1408,18 @@ goes). Other projects' Export buttons are refused with the running project's nam
 only), which is what makes "go back to the project list during an export" possible.
 **Alternatives:** carrying only the project name (rejected: names are not unique ids); reopening the dialog for any notification tap
 (rejected: after a restart nothing is exporting); disabling the toolbar button outright (rejected: a disabled button cannot say why).
+
+## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in)
+
+**Context.** A 4K export with several 4K layers at once is decode-bound: the hardware decoders are shared. A layer shown in a third of the canvas
+needs no more than a 1280x720 picture.
+**Decision.** An export option, off by default, decodes a layer from its READY proxy when the proxy has at least as many pixels as the layer covers
+in the output (rule and exclusions in SPECS 5.10; pure code in `ExportProxyAssist`, JVM tests `ExportProxyAssistTest`, `ExportFasterExportTest`).
+Missing proxies fall back to originals; nothing is generated during an export (a preparation phase was not built: it only pays when the saving
+exceeds the proxy generation time, which depends on a long project, and proxies are made in the background anyway).
+**Why off by default.** It changes pixels (an H.264 8-bit copy instead of the original), so the user opts in; the dialog says so.
+**Measured (Pixel 8, synthetic 3 layers of 4K H.264 30 fps at a third of a 4K canvas, HEVC 35 Mbps 4K30 output, 300 frames; `ExportDemoActivity --es layout stack`):**
+originals 30 fps (10.8 s); with proxies 37 fps (8.2 s). Parity of the two outputs, frame by frame: SDR source PSNR 43.6 dB (min 43.1), SSIM 0.997;
+HLG 10-bit HEVC source exported to SDR PSNR 41.3 dB (min 40.9), SSIM 0.997 (the HLG vs SDR source outputs differ by only 31.9 dB, so tone mapping
+of the proxy is consistent). The synthetic content is `testsrc2`, a worst case for compression.
+**Not done.** Preparation phase with progress; a real-project run.
