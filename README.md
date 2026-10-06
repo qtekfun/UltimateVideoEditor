@@ -7,6 +7,12 @@ timeline rendering, audio and export.
 
 Licensed under [GPL-3.0](LICENSE). Third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+<p align="center">
+  <img src="docs/images/screenshot-1.png" alt="The editor with three clips on the base track and the preview above" width="30%">&nbsp;
+  <img src="docs/images/screenshot-2.png" alt="The playhead on the second clip, with the timeline ruler and tools" width="30%">
+</p>
+<p align="center"><sub>Screenshots use synthetic test clips.</sub></p>
+
 > **Status: feature complete for the first release, little time on real phones.** Every work package of the plan is implemented and
 > covered by automated tests (about 2,000 JVM tests and 13 native host test programs, run in CI). Most of the newer features have
 > never been seen on a phone, and nothing has been exercised with real footage beyond a few clips. The checklist to walk through on
