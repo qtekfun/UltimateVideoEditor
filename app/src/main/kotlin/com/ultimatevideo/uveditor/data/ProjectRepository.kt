@@ -8,7 +8,17 @@ import com.ultimatevideo.uveditor.data.interchange.BundlePreview
 import com.ultimatevideo.uveditor.data.interchange.BundleResourceInstaller
 import com.ultimatevideo.uveditor.data.interchange.BundleResources
 import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
+import com.ultimatevideo.uveditor.data.interchange.ImportProgress
+import com.ultimatevideo.uveditor.data.interchange.LumaFusionError
+import com.ultimatevideo.uveditor.data.interchange.LumaFusionImport
+import com.ultimatevideo.uveditor.data.interchange.LumaFusionPackage
+import com.ultimatevideo.uveditor.data.interchange.LumaFusionReport
+import com.ultimatevideo.uveditor.data.interchange.MediaFileNames
+import com.ultimatevideo.uveditor.data.interchange.MediaFolder
+import com.ultimatevideo.uveditor.data.interchange.MediaTarget
 import com.ultimatevideo.uveditor.data.interchange.ProjectBundle
+import com.ultimatevideo.uveditor.data.interchange.ZipEntryInfo
+import com.ultimatevideo.uveditor.data.interchange.ZipReader
 import com.ultimatevideo.uveditor.data.interchange.RelinkCandidate
 import com.ultimatevideo.uveditor.data.interchange.ResourceImportReport
 import com.ultimatevideo.uveditor.data.interchange.ResourceKind
@@ -18,6 +28,8 @@ import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -51,8 +63,11 @@ data class BundleImportSummary(
     val resources: ResourceImportReport = ResourceImportReport.EMPTY,
 )
 
-/** The imported project and, when it came from a bundle, [bundle]. */
-data class ImportReport(val project: ProjectDto, val bundle: BundleImportSummary? = null)
+/** What a LumaFusion import did: the [report] lines, the media that came inside the package and the media still to link by name. */
+data class LumaFusionImportSummary(val report: LumaFusionReport, val mediaCopied: Int, val missing: List<String>)
+
+/** The imported project and, when it came from a bundle, [bundle]; from LumaFusion, [lumaFusion]. */
+data class ImportReport(val project: ProjectDto, val bundle: BundleImportSummary? = null, val lumaFusion: LumaFusionImportSummary? = null)
 
 /** A project folder whose file cannot be read. [recoverable] means a leftover temp or backup file holds a usable copy. */
 data class UnreadableProject(val id: String, val error: ProjectError, val recoverable: Boolean = false)
@@ -77,6 +92,12 @@ class ProjectRepository(
     private val cardThumbnail: (suspend (ProjectDto) -> ByteArray?)? = null,
     /** The app-wide LUT and font libraries: bundles carry the ones a project refers to, and installs them; null disables both. */
     private val resourceLibrary: ResourceLibrary? = null,
+    /** The folder the user chose for footage unpacked from LumaFusion packages (read when an import needs it); null when none is set. */
+    private val mediaFolder: (() -> MediaFolder?)? = null,
+    /** Reads a media file's real duration, rate and colour space (footage extracted from a LumaFusion package); null keeps the archive's estimate. */
+    private val probeMedia: ((String) -> ProbedMedia?)? = null,
+    /** Where unexpected failures are logged (the app passes `Log.w`), so a message shown to the user always has a trace. */
+    private val log: (String, Throwable) -> Unit = { _, _ -> },
 ) : ProjectStore {
     private val mutex = Mutex()
 
@@ -184,20 +205,185 @@ class ProjectRepository(
      * Like [importFrom], and for a `.uvbundle` also says what became of its media. A bundle is unpacked in a
      * scratch folder and moved into place in one step, so an import that fails halfway leaves nothing behind.
      */
-    suspend fun importWithReport(uri: String): ImportReport = mutate {
-        try {
-            transferIO.openInput(uri).use { source ->
-                val input = BufferedInputStream(source)
-                if (ProjectBundle.sniff(input)) {
-                    importBundle(input)
-                } else {
-                    ImportReport(importDocument(input.readBytes().toString(Charsets.UTF_8)))
+    suspend fun importWithReport(uri: String, onProgress: ((ImportProgress) -> Unit)? = null): ImportReport {
+        val job = currentCoroutineContext()[Job]
+        val cancelled = { job?.isActive == false }
+        return mutate {
+            try {
+                transferIO.openInput(uri).use { source ->
+                    val input = BufferedInputStream(source)
+                    if (ProjectBundle.sniff(input)) {
+                        lumaFusionPackage(uri, onProgress, cancelled) ?: importBundle(input)
+                    } else {
+                        val text = input.readBytes().toString(Charsets.UTF_8)
+                        if (LumaFusionImport.looksLikeArchive(text)) importLumaFusion(text, null, null, onProgress, cancelled)
+                        else ImportReport(importDocument(text))
+                    }
                 }
+            } catch (e: IOException) {
+                log("import from $uri failed", e)
+                throw ProjectError.Io("import from $uri: ${e.javaClass.simpleName}: ${e.message}", e)
             }
-        } catch (e: IOException) {
-            throw ProjectError.Io("import from $uri", e)
         }
     }
+
+    /**
+     * The import of an `.lfpackage` at [uri], or null when the zip is not one or the document cannot be read at random
+     * (then it is read as a stream and tried as a bundle).
+     */
+    private fun lumaFusionPackage(uri: String, onProgress: ((ImportProgress) -> Unit)?, cancelled: () -> Boolean): ImportReport? {
+        val document = try {
+            transferIO.openSeekable(uri)
+        } catch (e: IOException) {
+            log("no random access to $uri, reading it as a stream", e)
+            null
+        } ?: return null
+        document.use {
+            val zip = try {
+                ZipReader(it.access)
+            } catch (e: BundleError) {
+                throw ProjectError.Bundle(e.message ?: "The file is not a readable zip", e)
+            }
+            val archive = LumaFusionPackage.archiveEntry(zip) ?: return null
+            if (zip.find(ProjectBundle.MANIFEST) != null) return null
+            val text = try {
+                LumaFusionPackage.readArchive(zip, archive)
+            } catch (e: BundleError) {
+                throw ProjectError.Bundle(e.message ?: "The package could not be read", e)
+            }
+            return importLumaFusion(text, zip, archive, onProgress, cancelled)
+        }
+    }
+
+    /**
+     * Converts a LumaFusion archive. With a package ([zip]) the footage it holds is copied into the project's own
+     * folder first (after checking the free space); without one every media file is left missing, so Relink offers it.
+     */
+    private fun importLumaFusion(
+        text: String,
+        zip: ZipReader?,
+        archive: ZipEntryInfo?,
+        onProgress: ((ImportProgress) -> Unit)?,
+        cancelled: () -> Boolean,
+    ): ImportReport {
+        val parsed = try {
+            LumaFusionImport.parse(text)
+        } catch (e: LumaFusionError) {
+            throw ProjectError.Bundle(e.message ?: "The LumaFusion project could not be read", e)
+        }
+        val entries = if (zip != null && archive != null) LumaFusionPackage.mediaEntries(zip, archive) else emptyMap()
+        val conversion = try {
+            LumaFusionImport.convert(parsed, entries.keys)
+        } catch (e: LumaFusionError) {
+            throw ProjectError.Bundle(e.message ?: "The LumaFusion project could not be converted", e)
+        }
+        val scratch = File(rootDir, ".import-${idGenerator()}")
+        val created = ArrayList<MediaTarget>()
+        var committed = false
+        try {
+            val id = idGenerator()
+            val name = ProjectNames.unique(validName(conversion.project.name), namesInUse(null), MAX_NAME_LENGTH) { b, n -> "$b ($n)" }
+            val finalDir = projectDir(id)
+            // Footage to copy: the files the project uses that the package holds, each once.
+            val wanted = conversion.assetNames.mapNotNull { (file, assetId) -> entries[file.lowercase()]?.let { Triple(assetId, file, it) } }
+            val total = wanted.sumOf { it.third.size.coerceAtLeast(0) }
+            val folder = if (wanted.isEmpty()) null else (mediaFolder?.invoke() ?: throw ProjectError.MediaFolderRequired())
+            var done = 0L
+            var reported = 0L
+            val uris = HashMap<String, String>()
+            val probed = HashMap<String, ProbedMedia>()
+            if (folder != null) {
+                val taken = HashSet<String>(try {
+                    folder.fileNames()
+                } catch (e: IOException) {
+                    throw folderUnavailable(e)
+                })
+                var spaceChecked = false
+                for ((assetId, file, entry) in wanted) {
+                    // Never replace a file the user already has: a taken name gets " (2)" before its extension.
+                    val fileName = MediaFileNames.unique(MediaFileNames.clean(file), taken)
+                    taken += fileName
+                    val target = try {
+                        folder.create(fileName, MediaFileNames.mimeOf(fileName))
+                    } catch (e: IOException) {
+                        throw folderUnavailable(e)
+                    }
+                    created += target
+                    if (!spaceChecked) {
+                        spaceChecked = true
+                        val free = target.freeBytes()
+                        if (free != null && free < total + SPACE_MARGIN) {
+                            throw ProjectError.Bundle("Not enough free space in the media folder: the footage of this package needs ${gb(total + SPACE_MARGIN)} and ${gb(free)} are free. Free some space or choose another folder in Settings.")
+                        }
+                    }
+                    try {
+                        target.openOutput().use { out ->
+                            LumaFusionPackage.copyEntry(
+                                checkNotNull(zip), entry, out,
+                                onBytes = { n ->
+                                    done += n
+                                    if (done - reported >= PROGRESS_STEP || done == total) {
+                                        reported = done
+                                        onProgress?.invoke(ImportProgress(file, done, total))
+                                    }
+                                },
+                                cancelled = cancelled,
+                            )
+                        }
+                    } catch (e: BundleError) {
+                        throw ProjectError.Bundle(e.message ?: "The footage could not be copied", e)
+                    } catch (e: java.util.zip.ZipException) {
+                        throw ProjectError.Bundle("The package is damaged near $file (${e.message}). Nothing was kept.", e)
+                    } catch (e: IOException) {
+                        log("copy of $fileName failed", e)
+                        throw ProjectError.Bundle("Could not write $fileName to the media folder (${e.message}). The folder may be full or unplugged; nothing was kept.", e)
+                    }
+                    uris[assetId] = target.uri
+                    probeMedia?.invoke(target.uri)?.let { probed[assetId] = it }
+                }
+            }
+            // Footage that is not here is "missing": its address points at where it would live, so Relink can replace it.
+            val library = conversion.project.mediaLibrary.map { asset ->
+                val uri = uris[asset.id] ?: fileUri(File(finalDir, "media/${ProjectBundle.safeLeaf("${asset.id}-${asset.displayName}")}"))
+                val real = probed[asset.id]
+                if (real == null || real.isImage) {
+                    asset.copy(uri = uri)
+                } else {
+                    val settings = conversion.project.settings
+                    val num = if (real.hasVideo) real.fpsNum else settings.fpsNum
+                    val den = if (real.hasVideo) real.fpsDen else settings.fpsDen
+                    asset.copy(
+                        uri = uri,
+                        durationFrames = com.ultimatevideo.uveditor.domain.FrameRate(num, den).microsToFrames(real.durationMicros).coerceAtLeast(1),
+                        nativeFpsNum = num,
+                        nativeFpsDen = den,
+                        colorSpace = real.colorSpace,
+                        hasVideo = real.hasVideo,
+                        hasAudio = real.hasAudio,
+                    )
+                }
+            }
+            val finalProject = conversion.project.copy(id = id, name = name, mediaLibrary = library)
+            atomicWrite(File(scratch, PROJECT_FILE), ProjectJson.encode(finalProject).toByteArray(Charsets.UTF_8), backupExisting = false)
+            io("move the imported project into place") {
+                Files.move(scratch.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            }
+            committed = true
+            val missing = library.filter { it.id !in uris }.map { MissingMedia.nameOf(it) }
+            return ImportReport(finalProject, lumaFusion = LumaFusionImportSummary(conversion.report, uris.size, missing))
+        } finally {
+            if (scratch.exists()) scratch.deleteRecursively()
+            // The files this import created in the user's folder are removed when it did not finish (cancel, error, full disk).
+            if (!committed) created.forEach { it.delete() }
+        }
+    }
+
+    private fun folderUnavailable(e: IOException) = ProjectError.Bundle(
+        "The media folder is not available (${e.message}). Choose it again in Settings, under About, and import again. Nothing was added to the project list.",
+        e,
+    )
+
+    private fun gb(bytes: Long): String = "%.1f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
 
     private fun importDocument(text: String): ProjectDto {
         val raw = ProjectJson.parseObject(text)
@@ -445,6 +631,8 @@ class ProjectRepository(
         const val BACKUP_FILE = "project.json.bak"
         const val CORRUPT_FILE = "project.json.corrupt"
         const val MAX_NAME_LENGTH = 80
+        private const val SPACE_MARGIN = 64L * 1024 * 1024
+        private const val PROGRESS_STEP = 4L * 1024 * 1024
         private val ID_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
     }
 }

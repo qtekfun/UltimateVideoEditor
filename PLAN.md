@@ -97,6 +97,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] WP-K Generalised keyframes (SPECS 5.23)
 - [x] WP-X Stabiliser (SPECS 5.21)
 - [x] WP-I Interchange and media library: bundle, EDL, FCPXML subset, tags, search (SPECS 5.24)
+- [x] LumaFusion import (`.lfpackage`/`.lfarchive`): cuts, lanes, photos, titles, a user-chosen media folder, a not-imported report (SPECS 5.24). Device run with the real packages: see the PR
 - [x] WP-V1 Motion tracking (SPECS 5.22)
 - [x] WP-V4 Slow motion, speed curves, denoise, deflicker
 - [x] WP-V2 Auto cut and manual reframe helper (SPECS 5.25)
