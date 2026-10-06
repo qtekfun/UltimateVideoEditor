@@ -1,6 +1,9 @@
 package com.ultimatevideo.uveditor.ui.library
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -112,9 +115,9 @@ fun ImportReportDialog(notes: ImportReportNotes, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("\"${notes.projectName}\" imported") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (notes.problems.isNotEmpty()) {
-                    Text("These LUTs and fonts are not available, so the project shows them as missing:", style = MaterialTheme.typography.bodyMedium)
+                    Text(notes.problemsHeading ?: "These LUTs and fonts are not available, so the project shows them as missing:", style = MaterialTheme.typography.bodyMedium)
                     for (line in notes.problems) Text("• $line", style = MaterialTheme.typography.bodySmall)
                 }
                 for (line in notes.notes) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -123,3 +126,26 @@ fun ImportReportDialog(notes: ImportReportNotes, onDismiss: () -> Unit) {
         confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
     )
 }
+
+/** Shown while a big import (a LumaFusion package) copies its footage: what is being copied, how far, and a way to stop. */
+@Composable
+fun ImportProgressDialog(progress: com.ultimatevideo.uveditor.data.interchange.ImportProgress, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Importing footage") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(progress.what, style = MaterialTheme.typography.bodyMedium)
+                LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
+                Text(
+                    "%.1f of %.1f GB".format(progress.doneBytes / GIB, progress.totalBytes / GIB),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+private const val GIB = 1024.0 * 1024.0 * 1024.0

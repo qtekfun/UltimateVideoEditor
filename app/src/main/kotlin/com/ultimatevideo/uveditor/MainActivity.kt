@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         val transferIO = ContentResolverTransferIO(applicationContext.contentResolver)
+        val mediaFolderSettings = com.ultimatevideo.uveditor.data.PreferencesMediaFolderSettings(applicationContext)
         val projectThumbnails = AndroidProjectThumbnails(applicationContext)
         val repository = ProjectRepository(
             rootDir = File(filesDir, "projects"),
@@ -91,6 +92,17 @@ class MainActivity : ComponentActivity() {
             mediaAccess = ContentResolverMediaAccess(applicationContext.contentResolver),
             // A bundle carries the imported LUTs and fonts the project uses, and installs the ones that come inside it.
             resourceLibrary = StoreResourceLibrary(LutStore(File(filesDir, "luts")), FontRegistry(File(filesDir, "fonts"))),
+            // Footage of a LumaFusion package goes into the folder the user chose in About (read each time it is needed).
+            mediaFolder = { mediaFolderSettings.folder() },
+            // Footage unpacked from a LumaFusion package is read once for its real length, frame rate and colour space.
+            probeMedia = { uri ->
+                try {
+                    AndroidMediaImporter(applicationContext).probe(android.net.Uri.parse(uri))
+                } catch (e: com.ultimatevideo.uveditor.data.MediaImportException) {
+                    Log.w("LumaFusionImport", "Could not read $uri: ${e.message}")
+                    null
+                }
+            },
             // The card picture goes into exported bundles; it is made on this device from the project's own first clip.
             cardThumbnail = { project ->
                 projectThumbnails.load(project.id, ProjectOverview.thumbnailSource(project))?.let { bitmap ->
@@ -116,7 +128,7 @@ class MainActivity : ComponentActivity() {
         // with missing media: give back the ones no project uses before that can happen.
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                trimPersistedUris(AndroidPersistedUris(applicationContext), repository.referencedMediaUris()) { Log.i("MediaPermissions", it) }
+                trimPersistedUris(AndroidPersistedUris(applicationContext), repository.referencedMediaUris() + listOfNotNull(mediaFolderSettings.treeUri())) { Log.i("MediaPermissions", it) }
             }
         }
         setContent {
@@ -133,6 +145,7 @@ class MainActivity : ComponentActivity() {
                                 session = session,
                                 defaults = newProjectDefaults,
                                 peeker = clipPeeker,
+                                mediaFolders = mediaFolderSettings,
                             )
                         }
                     },
@@ -154,7 +167,7 @@ class MainActivity : ComponentActivity() {
                 var showAbout by rememberSaveable { mutableStateOf(false) }
                 val projectId = openProjectId
                 if (projectId == null && showAbout) {
-                    AboutScreen(aboutController, appearance, onBack = { showAbout = false })
+                    AboutScreen(aboutController, appearance, mediaFolderSettings, onBack = { showAbout = false })
                 } else if (projectId == null) {
                     // Project timestamps and names may have changed while editing.
                     LaunchedEffect(Unit) { hubViewModel.onIntent(HubIntent.Refresh) }

@@ -9,8 +9,17 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
+/** A document opened for random access (a zip's central directory needs it): [file] reads it until [close]. */
+interface SeekableDocument : java.io.Closeable {
+    val file: java.io.File
+}
+
 /** Reads and writes whole documents addressed by URI (SAF in the app, in-memory in tests). */
 interface ProjectTransferIO {
+    /** The document as a seekable file, or null when this source cannot offer one (the importer then reads it as a stream). */
+    @Throws(IOException::class)
+    fun openSeekable(uri: String): SeekableDocument? = null
+
     @Throws(IOException::class)
     fun read(uri: String): ByteArray
 
@@ -53,6 +62,15 @@ class ContentResolverTransferIO(private val resolver: ContentResolver) : Project
 
     override fun openInput(uri: String): InputStream =
         resolver.openInputStream(Uri.parse(uri)) ?: throw FileNotFoundException("Cannot open $uri for reading")
+
+    override fun openSeekable(uri: String): SeekableDocument? {
+        val pfd = resolver.openFileDescriptor(Uri.parse(uri), "r") ?: return null
+        // The descriptor stays open while the importer reads; /proc/self/fd/N lets java.util.zip.ZipFile seek in it.
+        return object : SeekableDocument {
+            override val file = java.io.File("/proc/self/fd/${pfd.fd}")
+            override fun close() = pfd.close()
+        }
+    }
 
     override fun openOutput(uri: String): OutputStream =
         resolver.openOutputStream(Uri.parse(uri), "wt") ?: throw FileNotFoundException("Cannot open $uri for writing")

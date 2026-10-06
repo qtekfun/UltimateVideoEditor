@@ -18,6 +18,9 @@ sealed class ProjectError(message: String, cause: Throwable? = null) : Exception
 
     class Io(detail: String, cause: Throwable) : ProjectError("Storage error: $detail", cause)
 
+    /** The import has footage to unpack and the user has not chosen a media folder yet. */
+    class MediaFolderRequired : ProjectError("Choose a folder for the media of this package first")
+
     /** A project bundle could not be read; [detail] is already worded for the user. */
     class Bundle(detail: String, cause: Throwable? = null) : ProjectError(detail, cause)
 }
