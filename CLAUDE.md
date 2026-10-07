@@ -19,6 +19,7 @@ how to add a feature safely) before writing code. Privacy is a hard rule: no AI,
   - `./gradlew :app:testDebugUnitTest`
   - `./gradlew :app:connectedDebugAndroidTest`
   - `scripts/run-native-tests.sh` (host-built C++ tests for cache/time/colour math, needs only g++)
+  - `scripts/qa-smoke.sh <serial> [--quick]` (device regression runner on synthetic media, suffixed `qa` build: `docs/QA.md`)
 - Reference device is physical over wireless adb. Several adb transports can appear for the same
   device, so always pass `adb -s <serial>`; for Gradle use `ANDROID_SERIAL=<serial> ./gradlew :app:connectedDebugAndroidTest` (otherwise the install fails). The screen must be unlocked to view the UI. Parallel agents share the same phone: build with `-Puveditor.appIdSuffix=<name>` to install next to the others (separate data), and run device sessions under `flock /tmp/pixel-device.lock`; installs of the same package overwrite each other; check `dumpsys window | grep mCurrentFocus` before any `input tap`. Device: OPPO CPH2841, SM8850, Android 16, 11 GB RAM.
 
@@ -105,6 +106,12 @@ builds. It also checks a plain 1x clip frame for frame (`plain_*` outputs) and p
   covering collisions, gaps, and boundary frames. Write them with the operation, not afterwards.
 - `domain/` is pure Kotlin so tests run on the JVM without a device.
 - Run unit tests and a debug build before reporting a task done; say plainly if something was not run.
+- **Every defect found on a device gets a regression test in the same PR** (a JVM or host test where one can see it: `docs/QA.md` lists
+  what each existing guard protects). A defect only a device shows gets a scripted check in `scripts/qa-smoke.sh` (and its assertion
+  in `scripts/qa/check-export.py`, with a broken input in `scripts/qa/selftest.sh` proving it can fail). A fix without either is not done.
+- **No debug property may switch a fix off** (DECISIONS.md, "No debug switch"); `DebugPropertyGuardTest` allow-lists what the code reads.
+- Before a release run `scripts/qa-smoke.sh <serial>` on a device and record the result in `docs/RELEASE.md` (checklist step 7).
+  Shared phone rules: suffixed build only (`-Puveditor.appIdSuffix=qa`), `flock /tmp/pixel-device.lock`, never the unsuffixed app.
 
 ## Huawei tablet installs
 `scripts/huawei-install.sh <apk> [serial]` installs on the MatePad and presses EMUI's install confirmations (clickable
