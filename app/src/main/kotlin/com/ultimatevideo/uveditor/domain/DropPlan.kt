@@ -43,6 +43,31 @@ data class DropHint(val kind: DropKind, val trackId: String?, val startFrame: Lo
 data class DropDecision(val kind: DropKind, val command: EditCommand?, val hint: DropHint)
 
 /**
+ * What the user asked for during a drag, on top of where the clip is. [AUTO] lets [DropPlan] decide by position (near a cut inserts,
+ * over a clip overwrites); the other two force the action while the finger is still down.
+ */
+enum class DropChoice {
+    AUTO,
+    INSERT,
+    OVERWRITE,
+    ;
+
+    /** The choice a tap on the mode chip makes when the drop currently does [effective]: the other action, forced. */
+    fun flipped(effective: DropKind): DropChoice = if (effective == DropKind.INSERT) OVERWRITE else INSERT
+}
+
+/**
+ * How the finger aims a drop. [reachFrames] is how far from a cut still counts as "at the cut" (the canvas converts a finger-sized
+ * distance in dp to frames, so it follows the zoom); [finger] is the frame under the finger, which also aims at a cut, besides the
+ * clip's own start and end edges; [choice] is the user's override.
+ */
+data class DropAim(
+    val reachFrames: Long = DropPlan.INSERT_RADIUS_FRAMES,
+    val finger: FrameIndex? = null,
+    val choice: DropChoice = DropChoice.AUTO,
+)
+
+/**
  * Single source of truth for dragging a clip, LumaFusion style: the action is chosen by where the clip
  * is dragged, never asked. The same decision draws the indicator during the drag and runs on release.
  *
@@ -64,6 +89,7 @@ object DropPlan {
         requestedStart: FrameIndex,
         target: DropTarget,
         snap: Snap? = null,
+        aim: DropAim = DropAim(),
     ): DropDecision? {
         val source = timeline.trackOfClip(clipId) ?: return null
         val clip = checkNotNull(source.clip(clipId))
@@ -83,7 +109,7 @@ object DropPlan {
             else -> {
                 val wanted = (target as? DropTarget.Lane)?.trackId?.let { timeline.track(it) }
                 val lane = wanted?.takeIf { it.type == source.type } ?: source
-                onLane(timeline, clipId, source, lane, base, start, length, snap)
+                onLane(timeline, clipId, source, lane, base, start, length, snap, aim)
             }
         }
     }
@@ -106,6 +132,7 @@ object DropPlan {
         requestedStart: FrameIndex,
         target: DropTarget,
         snap: Snap? = null,
+        aim: DropAim = DropAim(),
     ): DropDecision {
         val length = clip.durationFrames
         val cancel = DropDecision(DropKind.CANCEL, null, DropHint(DropKind.CANCEL, null, 0, 0))
@@ -131,7 +158,7 @@ object DropPlan {
                     val junction = when {
                         lane.clips.isEmpty() -> 0L
                         start.value >= laneEnd -> laneEnd
-                        else -> junctionNear(lane.clips, start.value)
+                        else -> junctionFor(lane.clips, start.value, length, aim, includeEnds = true)
                     }
                     if (junction != null) {
                         return DropDecision(
@@ -148,7 +175,7 @@ object DropPlan {
                     )
                 }
                 // Other lanes insert only into a cut between two touching clips, like a clip dragged there.
-                cutNear(lane.clips, start.value)?.let { cut ->
+                junctionFor(lane.clips, start.value, length, aim, includeEnds = false)?.let { cut ->
                     return DropDecision(
                         DropKind.INSERT,
                         EditCommand.InsertNewOnLane(clip, lane.id, FrameIndex(cut)),
@@ -199,6 +226,7 @@ object DropPlan {
         start: FrameIndex,
         length: Long,
         snap: Snap?,
+        aim: DropAim,
     ): DropDecision {
         val onBase = base != null && lane.id == base.id
         if (base != null && source.id == base.id && lane.id != base.id) {
@@ -241,12 +269,13 @@ object DropPlan {
                 DropHint(DropKind.INSERT, lane.id, at, at),
             )
         }
+        val cut = if (onBase) null else junctionFor(others, start.value, length, aim, includeEnds = false)
         return when {
             onBase && others.isEmpty() -> insert(0L)
             onBase && start.value >= laneEnd -> insert(laneEnd)
-            onBase -> junctionNear(others, start.value)?.let(insert) ?: overwrite()
+            onBase -> junctionFor(others, start.value, length, aim, includeEnds = true)?.let(insert) ?: overwrite()
             // Other lanes insert only into a cut between two touching clips: free space and the ends stay plain moves.
-            cutNear(others, start.value) != null -> laneInsert(checkNotNull(cutNear(others, start.value)))
+            cut != null -> laneInsert(cut)
             others.any { it.timelineStart < start + length && it.timelineEnd > start } -> overwrite()
             else -> DropDecision(
                 DropKind.MOVE,
@@ -254,6 +283,43 @@ object DropPlan {
                 DropHint(DropKind.MOVE, lane.id, start.value, start.value + length),
             )
         }
+    }
+
+    /** A place where [clips] meet (or begin / end); [room] is the length of the shortest clip beside it. */
+    private data class Junction(val frame: Long, val room: Long)
+
+    private fun junctions(clips: List<Clip>, includeEnds: Boolean): List<Junction> = buildList {
+        if (includeEnds) {
+            add(Junction(clips.first().timelineStart.value, clips.first().durationFrames))
+        }
+        for ((left, right) in clips.zipWithNext()) {
+            if (left.timelineEnd == right.timelineStart) add(Junction(left.timelineEnd.value, minOf(left.durationFrames, right.durationFrames)))
+        }
+        if (includeEnds) {
+            add(Junction(clips.last().timelineEnd.value, clips.last().durationFrames))
+        }
+    }
+
+    /**
+     * The junction (or, without [includeEnds], the cut between two touching clips) of [clips] (sorted) a drop would insert at, or null.
+     * In [DropChoice.AUTO] the clip's start edge, its end edge or the finger must be within [DropAim.reachFrames] of it, and never more
+     * than a third of the shorter neighbouring clip away, so the middle of every clip stays an overwrite however far the timeline is
+     * zoomed out. [DropChoice.INSERT] takes the nearest one wherever the clip is; [DropChoice.OVERWRITE] never inserts.
+     */
+    internal fun junctionFor(clips: List<Clip>, start: Long, length: Long, aim: DropAim, includeEnds: Boolean): Long? {
+        if (clips.isEmpty() || aim.choice == DropChoice.OVERWRITE) return null
+        val points = junctions(clips, includeEnds)
+        if (aim.choice == DropChoice.INSERT) {
+            val at = aim.finger?.value ?: start
+            return points.minByOrNull { kotlin.math.abs(it.frame - at) }?.frame
+        }
+        // The base has no free space, so the clip aims at a cut with either edge or the finger; elsewhere only its start edge counts, as before.
+        val anchors = if (includeEnds) listOfNotNull(start, start + length, aim.finger?.value) else listOf(start)
+        return points
+            .map { it to anchors.minOf { a -> kotlin.math.abs(it.frame - a) } }
+            .filter { (junction, distance) -> distance <= minOf(aim.reachFrames, junction.room / 3) }
+            .minByOrNull { it.second }
+            ?.first?.frame
     }
 
     /** The cut between two touching clips of [clips] (sorted) nearest to [frame] within the radius, or null. */

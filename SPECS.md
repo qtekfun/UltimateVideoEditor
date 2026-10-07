@@ -602,6 +602,14 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   overlays follow); past the end -> append; otherwise OVERWRITE (`LaneOps.overwriteMove`). Base clips only REORDER.
   On other lanes: a start edge within the same radius of a cut between two touching clips -> INSERT (`InsertOnLane`: that
   lane's later clips shift right, nothing else moves); other overlapping clips -> OVERWRITE, free space -> MOVE.
+- **Reach and choice.** The insert zone is not a fixed 10 frames: the canvas converts a fingertip (28 dp) to frames at the
+  current zoom (`DropReach`) and sends it with every `DragMove` (`DropAim.reachFrames`). On the base the clip's start edge,
+  its end edge and the finger (`DropAim.finger`) all aim at a junction; it counts when within the reach and within a third
+  of the shorter neighbouring clip (the middle of a clip stays an overwrite at any zoom). On other lanes only the start
+  edge aims. `DropAim.choice` (`DropChoice` AUTO / INSERT / OVERWRITE) overrides the position: INSERT takes the nearest
+  junction (base) or cut (other lanes), OVERWRITE never inserts. `EditorIntent.FlipDropChoice` (the chip, or a tap with a
+  second finger, `SecondFingerTap`) toggles it and re-decides with the last finger position; it resets when the drag ends.
+  Tray drags use the default reach and no override.
 - **Indicator.** `EditorState.dropHint` is passed to the native canvas with `TimelineEngine.setDropHint` and drawn by
   `timeline_view/drop_hint.h` + the renderer: bar and arrow (insert), tinted range (overwrite), lane placeholder
   (new lane), wash (cancel).
