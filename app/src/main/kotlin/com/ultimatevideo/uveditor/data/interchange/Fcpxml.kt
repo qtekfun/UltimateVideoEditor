@@ -191,7 +191,10 @@ object Fcpxml {
                 )
                 if (t.opacity < 1.0) sb.append(pad).append("<adjust-blend amount=\"${num2(t.opacity)}\"/>\n")
             }
-            if (clip.gainDb != 0.0 && asset?.hasAudio != false) {
+            if (clip.audioDetached) {
+                // Its sound is a clip on an audio lane (exported on its own); silence the embedded one so it is not heard twice.
+                sb.append(pad).append("<adjust-volume amount=\"-96dB\"/>\n")
+            } else if (clip.gainDb != 0.0 && asset?.hasAudio != false) {
                 sb.append(pad).append("<adjust-volume amount=\"${String.format(Locale.ROOT, "%.1f", clip.gainDb)}dB\"/>\n")
             }
             return sb.toString()

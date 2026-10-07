@@ -76,6 +76,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import com.ultimatevideo.uveditor.domain.ClipLinks
 import com.ultimatevideo.uveditor.domain.TrackType
 import com.ultimatevideo.uveditor.ui.preview.wantedOutputSpace
 import com.ultimatevideo.uveditor.ui.preview.DisplayHdr
@@ -1145,6 +1146,14 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
                         viewModel.onIntent(EditorIntent.SplitAtPlayhead)
                     }
+                    ToolButton(
+                        EditorIcons.DetachAudio,
+                        "Detach audio: put the selected video clip's sound on an audio lane, linked to the clip",
+                        enabled = state.selectedClipId?.let { id ->
+                            val hasAudio = state.assets.firstOrNull { it.id == state.timeline.trackOfClip(id)?.clip(id)?.assetId }?.hasAudio == true
+                            ClipLinks.infoFor(state.timeline, id, hasAudio)?.canDetach == true
+                        } == true,
+                    ) { viewModel.onIntent(EditorIntent.DetachAudio) }
                     ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                         viewModel.onIntent(EditorIntent.RippleDeleteSelected)
                     }

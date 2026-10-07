@@ -74,7 +74,7 @@ sealed interface EditCommand {
         val toTrackId: String? = null,
         val snap: Snap? = null,
     ) : EditCommand {
-        override fun apply(timeline: Timeline) = TimelineOps.move(timeline, clipId, newStart, toTrackId, snap)
+        override fun apply(timeline: Timeline) = TimelineOps.move(timeline, clipId, newStart, toTrackId, snap).linkedFrom(timeline)
     }
 
     data class Overwrite(val trackId: String, val clip: Clip) : EditCommand {
@@ -102,7 +102,7 @@ sealed interface EditCommand {
         val toTrackId: String? = null,
         val snap: Snap? = null,
     ) : EditCommand {
-        override fun apply(timeline: Timeline) = MagneticBase.move(timeline, clipId, newStart, toTrackId, snap)
+        override fun apply(timeline: Timeline) = MagneticBase.move(timeline, clipId, newStart, toTrackId, snap).linkedFrom(timeline)
     }
 
     /** Base-aware trim: on the base the following clips ripple and overlays follow. */
@@ -112,7 +112,7 @@ sealed interface EditCommand {
         val frame: FrameIndex,
         val sourceLength: Long? = null,
     ) : EditCommand {
-        override fun apply(timeline: Timeline) = MagneticBase.trim(timeline, clipId, edge, frame, sourceLength)
+        override fun apply(timeline: Timeline) = MagneticBase.trim(timeline, clipId, edge, frame, sourceLength).linkedFrom(timeline)
     }
 
     /** Moves an overlay video clip onto a new lane above the others (one undo step). */
@@ -388,7 +388,7 @@ sealed interface EditCommand {
         val frame: FrameIndex,
         val sourceLength: Long? = null,
     ) : EditCommand {
-        override fun apply(timeline: Timeline) = TimelineOps.trim(timeline, clipId, edge, frame, sourceLength)
+        override fun apply(timeline: Timeline) = TimelineOps.trim(timeline, clipId, edge, frame, sourceLength).linkedFrom(timeline)
     }
 }
 
@@ -418,7 +418,7 @@ class EditHistory private constructor(
     val undoDepth: Int get() = undoStack.size
 
     /** Applies [command]; a successful edit clears the redo stack, a failed one changes nothing. */
-    fun execute(command: EditCommand): EditResult<EditHistory> = when (val result = command.apply(timeline)) {
+    fun execute(command: EditCommand): EditResult<EditHistory> = when (val result = command.apply(timeline).linkedFrom(timeline)) {
         is EditResult.Failure -> result
         is EditResult.Success -> {
             val entry = Entry(command, timeline, result.value)
@@ -439,4 +439,13 @@ class EditHistory private constructor(
     companion object {
         const val DEFAULT_LIMIT = 100
     }
+}
+
+/**
+ * Applies the edit to the linked partners of the clips it changed (see [ClipLinks.settle]). Settling twice is harmless: once
+ * a partner has followed, both clips changed alike and nothing more happens.
+ */
+internal fun EditResult<Timeline>.linkedFrom(before: Timeline): EditResult<Timeline> = when (this) {
+    is EditResult.Failure -> this
+    is EditResult.Success -> ClipLinks.settle(before, value)
 }

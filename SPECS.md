@@ -175,6 +175,9 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   - `gainDb` is limited to -96..+24 dB. Values outside these ranges are rejected as invalid edits
     (`EditError.InvalidAppearance`) and, when found in a file, reported as a corrupt project.
   - Splits and overwrites copy the appearance to every part of the original clip.
+- Detached sound (5.38): a video clip can carry `"audioDetached": true` (its own sound is not mixed) and a clip can carry `"linkId"`
+  (shared by exactly one video clip and one audio clip of the same media while they are linked). Both are absent when unused, so
+  older projects load with every clip attached and unlinked. A link whose partner is missing is dropped on load.
 - Video tracks stack in display order: the first video track is the top layer.
 - Clip duration = `sourceOutFrame - sourceInFrame` (out exclusive). Clips on one track never overlap
   except via explicit transitions.
@@ -1559,6 +1562,60 @@ is one undo step.
 **Tests.** Domain: `AudioShapingEditsTest` (split, trim, ripple), `FadeCurveTest`. Gestures: `AudioShapeGestureTest`,
 `AudioShapeViewModelTest`. Wire: `TimelineSnapshotTest`, `AudioSnapshotTest`, `AudioMapperTest`, `AudioSnapshotMappingTest`;
 native: `uv_audio_host_tests` (fade maths, mixer, snapshot), `uv_host_tests` (snapshot trailer, geometry, hit tests).
+
+### 5.38 Detached audio and linked clips
+
+**What existed.** A video clip carried its own sound: `audioSnapshotOf` (`ui/editor/EditorAudio.kt`, the one place that builds the
+mixer's clip list for the preview and for the export, from `Timeline.renderClips()`) put every clip whose asset has audio into the
+mix, video lanes included. Its level was `Clip.gainDb` (-96..+24 dB, -96 shows as "mute" in the inspector), `ClipAudio` (pan, fades,
+EQ, denoise, voice, loudness), the keyframed `audio.*` parameters and the lane's `TrackAudio` (volume, mute, solo). There was no way
+to move, cut or delete a video clip's sound apart from its picture, and no link between clips (only multicam groups, which realise
+ordinary clips). The LumaFusion importer maps LumaFusion's audio-lane clips to audio clips and a video clip's volume to `gainDb`;
+it has no notion of detached sound, so imports are unchanged.
+
+**Model.** `Clip.audioDetached` (video clips only) and `Clip.linkId`. `RenderClip.soundDetached` carries the first into the render
+plan, and `audioSnapshotOf` leaves such a clip out of the mix. Nothing in native code changed: preview, export and the offline
+renders read the same snapshot, so a detached sound is heard once, from the audio clip, in all of them. The video clip keeps its
+`gainDb`, `audio` and `params` (inert), so restoring brings back the same mix.
+
+**Commands** (`domain/ClipLinks.kt`, `ClipLinkCommands.kt`; each is one undo step):
+- `DetachAudio(video, audioId, lane, linked)`: creates an audio clip with the same media, source range, frames, speed (retime,
+  reverse, ramp), gain, sound tools and `audio.*` parameter tracks on the first audio lane with room (else a new lane at the bottom),
+  marks the video clip detached and, when `linked`, gives both one `linkId`. Refused for a clip that is not a video clip with media,
+  one already detached, or a lane that is not free.
+- `UnlinkClip`: clears the link of the pair; both stay where they are, and the video clip stays silent.
+- `RelinkClips(video, audio, realign)`: links a video clip and an audio clip of the same media (not the same media: refused) and marks the
+  video clip detached. `ClipLinks.syncOffset` is the number of frames the audio plays late (positive) or early against the picture:
+  `(audio.start - audio.sourceIn) - (video.start - video.sourceIn)` for unretimed clips, with the speed ratio folded in for clips at the
+  same constant speed, null otherwise. With `realign` the audio moves by minus that offset first (refused before frame 0 or onto
+  another clip). The inspector shows the offset in frames whenever a pair, or a relink candidate, is out of sync.
+- `RestoreEmbeddedAudio`: the video clip plays its own sound again; the audio clip linked to it is removed (an unlinked one stays).
+
+**Linked edits.** `ClipLinks.settle(before, after)` runs after every command in `EditHistory.execute` (and inside the drag commands,
+so the drag preview shows both clips): it compares each linked pair before and after the edit; when exactly one of the two changed,
+the other gets the same change. A move or ripple shifts it by the same frames, a trim crops it like the leader (`Clip.cropped`, so
+extensions work too, and a base clip that slides back to its neighbour carries its audio with it), a speed change copies the retime,
+and a cut of one clip cuts the other at the same frame (allowing for a sync offset) and gives the two right halves a link of their
+own. When both clips changed (a group edit with both selected) nothing is applied twice. When a partner cannot follow (it would overlap
+another clip of its lane or start before frame 0) the whole edit fails with the usual message and nothing changes. Deleting the
+video clip deletes its audio; deleting the audio clip removes only the audio: the picture stays, silent and unlinked ("delete the
+audio entirely"). A copy of a linked clip (paste, duplicate, a split's right half) never shares the original's link: a pair copied
+together becomes a new pair, a single copy becomes unlinked.
+
+**Invariants** (`Timeline.invariantViolations`): a link joins exactly two clips, one on a video lane and one on an audio lane, of the
+same asset; `audioDetached` is only set on video-lane clips with media. The project loader drops a broken link instead of failing.
+
+**Interchange.** The project JSON (and so the `.uvbundle`) carries both fields. FCPXML writes a detached video clip with
+`adjust-volume -96dB` and the audio clip on its own lane, and the EDL marks a detached clip as video only, so other tools do not
+play the sound twice.
+
+**UI.** The edit tool row has *Detach audio* (enabled for a video clip with sound that is not detached). The inspector's *Linked
+audio* block (video clips, and audio clips of a video's media) offers Detach audio, Unlink, Relink, Relink and realign, and Restore
+embedded audio, with the offset readout. A detached video clip hides its volume and sound tools (they are on the audio clip).
+
+**Tests.** `ClipLinksTest` (commands; linked move, base reorder, trim, split, delete, ripple, speed, group move, duplicate; unlinked
+independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
+round trip, broken link), `ToolbarGuideTest`.
 
 ## 6. Timeline operations (specification for tests)
 

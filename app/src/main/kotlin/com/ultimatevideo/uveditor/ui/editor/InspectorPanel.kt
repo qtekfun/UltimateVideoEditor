@@ -151,7 +151,9 @@ fun InspectorPanel(
             TrackControls(clip.id, state.track, onIntent)
         }
         if (clip.hasMedia) SpeedControls(state, clip, isVisual, onIntent)
-        if (clip.hasMedia) {
+        if (clip.hasMedia) AudioLinkControls(state, clip, onIntent)
+        // A video clip with detached sound is silent: its volume and sound tools would change nothing, so they are on the audio clip.
+        if (clip.hasMedia && !clip.audioDetached) {
             InspectorSlider(
                 label = "Volume",
                 value = clip.gainDb.toFloat().coerceIn(GAIN_MIN, GAIN_MAX),

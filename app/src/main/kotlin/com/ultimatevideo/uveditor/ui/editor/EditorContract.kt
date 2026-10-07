@@ -548,6 +548,24 @@ sealed interface EditorIntent : UiIntent {
     data object FreezeFrame : EditorIntent
 
     /**
+     * Detaches the sound of the selected video clip onto an audio lane (the first lane with room, else a new one), linked to the clip
+     * so they move, trim, split and delete together. The video clip goes silent. One undo step.
+     */
+    data object DetachAudio : EditorIntent
+
+    /** Unlinks the selected clip from its detached audio (or video): from then on they are edited independently. */
+    data object UnlinkAudio : EditorIntent
+
+    /**
+     * Links the selected clip with the unlinked clip of the same source ([com.ultimatevideo.uveditor.domain.ClipLinks.LinkInfo.relinkCandidateId]).
+     * With [realign] the audio clip first moves back to where it plays in sync with the video.
+     */
+    data class RelinkAudio(val realign: Boolean) : EditorIntent
+
+    /** Gives the selected video clip (or the video clip linked to the selected audio) its own sound back; the linked audio clip is removed. */
+    data object RestoreEmbeddedAudio : EditorIntent
+
+    /**
      * Effects, blend mode and mask of the selected clip. Add, remove, reorder, blend and clear are one
      * undo step each. [UpdateEffect] and [UpdateMask] are sliders: shown live, committed as one step
      * by [EndFxEdit] (or by the next intent of any other kind).

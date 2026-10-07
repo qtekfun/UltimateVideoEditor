@@ -5,7 +5,7 @@ package com.ultimatevideo.uveditor.domain
 
 /** Moves the clips by [deltaFrames] and [laneDelta] lanes, keeping their relative layout. */
 data class GroupMove(val clipIds: List<String>, val deltaFrames: Long, val laneDelta: Int = 0) : EditCommand {
-    override fun apply(timeline: Timeline) = GroupOps.move(timeline, clipIds, deltaFrames, laneDelta)
+    override fun apply(timeline: Timeline) = GroupOps.move(timeline, clipIds, deltaFrames, laneDelta).linkedFrom(timeline)
 }
 
 data class GroupDelete(val clipIds: List<String>) : EditCommand {
