@@ -316,8 +316,12 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   closes it 1.5 s after a pause (so a quick pause/resume does not reopen the device) and immediately when
   the app goes to the background (`ON_STOP`). The mixer state (assets, snapshot, position) survives a closed
   stream and scrubbing while paused never needs the device.
-- Waveform worker decodes PCM from clips in the background, computes min/max peak pyramids at several
-  zoom levels, and caches them on disk (`waveforms/<assetId>.peaks`). Timeline renderer reads the cache.
+- Waveform worker decodes PCM from clips in the background, computes min/max (and RMS) peak pyramids at several
+  zoom levels, and caches them on disk (`waveforms/<assetId>.peaks`). Timeline renderer reads the cache. Levels are 16, 64, 256 ...
+  65536 samples per peak (x4); from 64 on each peak also holds the RMS of its samples (UVPK v2, the v1 cache is rebuilt). The 16 sample
+  level makes the closest zoom (96 px per frame, 8 to 17 samples per pixel) about one peak per pixel; it is left out for a source longer
+  than `kMaxFineLevelFrames` (about 22 min at 48 kHz) to bound memory. Channels fold to one: min and max over all of them, RMS of the
+  loudest channel of each sample frame. `reducePeaks` reads the coarsest level whose peaks are no wider than a column.
 
 ### 5.7 3D LUT effect
 
@@ -1419,7 +1423,13 @@ block (3 segments, 4 dp; the sagitta error is under 0.4 px at 2.6x), so thumbnai
 draw calls does not change. A selected block gets a rounded outline fill under the body (primary: the selection colour, 2 dp; others: the
 primary colour, 1.5 dp) and, for the primary clip, a rounded handle pill at each end. The 18 dp header strip (darker, with a highlight
 line) carries the name, speed label, keyframe diamonds and fx badge; titles and stickers put their text in the body. The waveform gets a
-vertical shading and a centre line under it when there are no thumbnails. Lane bands have one-pixel edges in the ruler colour; lane headers
+vertical shading and a centre line under it when there are no thumbnails. The waveform itself (`timeline_view/wave_columns.h`, shared with
+`tests/waveform_render_tool.cpp`, which rasterises it on the host): columns of about 0.8 dp (whole pixels, at most 720 per clip and frame, so at
+most 720 x 3 quads x 6 = 13k vertices per audio clip on screen), each placed by sub-frame position so zoomed in every column has its own
+samples. Three layers per column: a 1 px dark outline, the min..max envelope, and the RMS band (lighter, symmetrical, never beyond the
+envelope); silence draws only the 1 px centre line, so the gaps between words, the cut points, are empty. Height is linear against
+the clip's own loudest level (half of its loudest peak, at most 24 dB of gain; louder spikes are clipped) or, as a layout sheet option
+(`WaveformScale`, one global choice, not part of the layout presets), decibels over 54 dB. The finest zoom has no RMS band (16 sample peaks). Lane bands have one-pixel edges in the ruler colour; lane headers
 have a stripe in the lane's colour, bold name and M/S chips. All sizes are dp x density.
 **Cost.** Everything stays in the batched coloured quads plus the thumbnail and text draws; per-frame allocations are none (the vertex vectors and
 the upload list are reused). The renderer can print its own frame statistics: `setprop debug.uveditor.timeline_stats 1` before opening the

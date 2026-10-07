@@ -75,6 +75,8 @@ public:
     HitResult hitTest(float x, float y) const;
     // The canvas colours from the app palette (kNativeColourCount ARGB values, see timeline_theme.h); other sizes are ignored.
     void setPalette(const uint32_t* argb, size_t count);
+    // How waveform amplitudes become heights: 0 linear (default), 1 decibels (see audio::WaveScale); other values mean linear.
+    void setWaveformScale(int scale);
     // A text bitmap (premultiplied RGBA, w*h*4 bytes) made by Kotlin, keyed by labelHash(); any thread. Blocks briefly when
     // the render thread is far behind. The render thread places it in the atlas a few per frame.
     void putLabel(uint64_t hash, int w, int h, bool colour, const uint8_t* rgba);

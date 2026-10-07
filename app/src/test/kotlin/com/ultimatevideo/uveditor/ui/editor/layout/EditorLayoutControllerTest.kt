@@ -1,5 +1,6 @@
 package com.ultimatevideo.uveditor.ui.editor.layout
 
+import com.ultimatevideo.uveditor.engine.timeline.WaveformScale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -98,5 +99,44 @@ class EditorLayoutControllerTest {
         assertEquals(LayoutPreset.TIMELINE_FOCUS, controller.state.preset)
         assertNull(NoLayoutStore.load(LayoutKey.of(phone)))
         assertNotNull(controller.window)
+    }
+
+    private class MemoryWaveform(var scale: WaveformScale = WaveformScale.LINEAR) : WaveformScaleStore {
+        var writes = 0
+
+        override fun load() = scale
+
+        override fun save(scale: WaveformScale) {
+            this.scale = scale
+            writes++
+        }
+    }
+
+    @Test
+    fun `the waveform scale defaults to linear, is remembered, and survives presets and other windows`() {
+        val waveform = MemoryWaveform()
+        val controller = EditorLayoutController(MemoryStore(), phone, waveform)
+        assertEquals(WaveformScale.LINEAR, controller.waveformScale)
+
+        controller.chooseWaveformScale(WaveformScale.DECIBEL)
+        controller.chooseWaveformScale(WaveformScale.DECIBEL) // no second write for the same value
+        assertEquals(WaveformScale.DECIBEL, waveform.scale)
+        assertEquals(1, waveform.writes)
+
+        controller.dispatch(LayoutAction.ApplyPreset(LayoutPreset.PREVIEW_FOCUS))
+        controller.dispatch(LayoutAction.Reset)
+        controller.onWindow(phoneSideways)
+        assertEquals(WaveformScale.DECIBEL, controller.waveformScale)
+
+        // A new editor session starts from what was saved.
+        assertEquals(WaveformScale.DECIBEL, EditorLayoutController(MemoryStore(), phone, waveform).waveformScale)
+    }
+
+    @Test
+    fun `an unknown stored waveform scale means linear`() {
+        assertEquals(WaveformScale.LINEAR, waveformScaleOf(null))
+        assertEquals(WaveformScale.LINEAR, waveformScaleOf("LOGARITHMIC"))
+        assertEquals(WaveformScale.DECIBEL, waveformScaleOf("DECIBEL"))
+        assertEquals(WaveformScale.entries.map { it.code }.distinct().size, WaveformScale.entries.size)
     }
 }
