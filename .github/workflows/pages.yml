@@ -1,0 +1,62 @@
+name: Documentation site
+
+# Builds the static site (user guide, privacy, architecture and the searchable toolbar-symbols page) from docs/ and the
+# toolbar guide registry, and publishes it to GitHub Pages. It needs no secrets. Pages must be switched to "GitHub Actions"
+# as its source once (docs/RELEASE.md); until then the deploy job fails and nothing else is affected.
+# The site loads nothing from outside: no analytics, fonts or CDN (scripts/gen-site.py).
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'scripts/gen-site.py'
+      - 'app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor/EditorIcons.kt'
+      - 'app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor/SelectionBar.kt'
+      - 'app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor/guide/ToolbarGuide.kt'
+      - '.github/workflows/pages.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pandoc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pandoc
+          pandoc --version | head -n1
+
+      - name: Generate the site
+        run: python3 scripts/gen-site.py --out _site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
