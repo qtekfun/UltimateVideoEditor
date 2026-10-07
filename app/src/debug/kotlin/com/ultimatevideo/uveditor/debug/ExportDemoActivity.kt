@@ -24,6 +24,7 @@ import java.util.concurrent.CountDownLatch
  *     --es out /sdcard/Android/data/com.ultimatevideo.uveditor/files/out.mp4 \
  *     --es codec hevc --ei w 1280 --ei h 720 --ei fps 30 --es layout split
  *
+ * `--ez smart true` turns on smart export (layout `smart`: a base clip of `frames` frames from `srcIn`, an overlay at `overlayStart` for `overlayLen` frames).
  * `--ez hdr true` exports HLG (HEVC Main10, BT.2020); pair it with `--ei color 1` so the source is read as HLG.
  *
  * Layouts: `single` exports the first `frames` frames; `split` exports 60 frames, a 30 frame gap and
@@ -43,7 +44,19 @@ class ExportDemoActivity : Activity() {
         val layout = intent.getStringExtra("layout") ?: "single"
         val bitrate = intent.getIntExtra("bitrate", 12) * 1_000_000
 
-        val clips = if (layout == "layers") {
+        val clips = if (layout == "smart") {
+            // A full-canvas base clip with a small overlay in the middle: the frames under the overlay are encoded, the rest can be copied.
+            val color = intent.getIntExtra("color", 0)
+            val at = intent.getIntExtra("overlayStart", 300).toLong()
+            val len = intent.getIntExtra("overlayLen", 120).toLong()
+            listOf(
+                VideoClipSpec(0, frames, intent.getIntExtra("srcIn", 0).toLong(), 0, 1, color),
+                VideoClipSpec(
+                    at, len, 0, 0, 0, color,
+                    positionX = width * 0.25, positionY = -height * 0.2, scaleX = 0.4, scaleY = 0.4,
+                ),
+            )
+        } else if (layout == "layers") {
             // A full-frame base (layer 1) with a smaller, rotated, half-transparent copy of a later part on top (layer 0).
             listOf(
                 VideoClipSpec(0, 90, 0, 0, 1, 0),
@@ -100,7 +113,7 @@ class ExportDemoActivity : Activity() {
                 ).detachFd()
                 val request = ExportRequest(
                     settings = ExportSettings(width, height, fps, 1, codec, bitrate, hdr = intent.getBooleanExtra("hdr", false),
-                        skipHiddenLayers = !intent.getBooleanExtra("keep_hidden", false)),
+                        skipHiddenLayers = !intent.getBooleanExtra("keep_hidden", false), smart = intent.getBooleanExtra("smart", false)),
                     projectFpsNum = fps,
                     projectFpsDen = 1,
                     canvasWidth = intent.getIntExtra("cw", width),

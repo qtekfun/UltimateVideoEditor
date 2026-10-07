@@ -706,6 +706,26 @@ class ExportViewModelTest {
     }
 
     @Test
+    fun `smart export is off by default, needs HEVC and an upload preset turns it off`() {
+        val vm = hdrViewModel()
+        vm.onIntent(ExportIntent.Open(hdrInput()))
+        assertFalse(vm.state.value.smart)
+
+        vm.onIntent(ExportIntent.SelectSmart(true))
+        assertTrue(vm.state.value.smart)
+
+        vm.onIntent(ExportIntent.SelectCodec(ExportCodec.H264))
+        assertFalse(vm.state.value.smart)
+        vm.onIntent(ExportIntent.SelectSmart(true))
+        assertFalse(vm.state.value.smart)
+
+        vm.onIntent(ExportIntent.SelectCodec(ExportCodec.HEVC))
+        vm.onIntent(ExportIntent.SelectSmart(true))
+        vm.onIntent(ExportIntent.SelectPreset(ExportPresets.all.first()))
+        assertFalse(vm.state.value.smart)
+    }
+
+    @Test
     fun `an upload preset exports SDR`() {
         val vm = hdrViewModel()
         vm.onIntent(ExportIntent.Open(hdrInput()))

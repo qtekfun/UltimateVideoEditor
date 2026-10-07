@@ -39,6 +39,11 @@
             android:name=".debug.HdrProbeDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.UVEditor" />
+        <!-- Debug-only spike: decodes MP4 files with MediaExtractor + MediaCodec and logs frame counts; see DecodeCheckActivity. -->
+        <activity
+            android:name=".debug.DecodeCheckActivity"
+            android:exported="true"
+            android:theme="@style/Theme.UVEditor" />
     </application>
 
 </manifest>

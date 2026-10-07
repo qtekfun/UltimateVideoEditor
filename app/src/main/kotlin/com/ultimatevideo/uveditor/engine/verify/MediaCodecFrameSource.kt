@@ -61,7 +61,9 @@ class MediaCodecFrameSource private constructor(
     /** Returns an error text, or null when the range was decoded to its end (or cancelled). */
     private fun run(from: Long, to: Long, cancel: () -> Boolean, out: MutableList<DecodedFrame>): String? {
         val decoder = codec ?: createCodec().also { codec = it }
-        extractor.seekTo(exp.ptsUsOf(from), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+        // A few frames early: in open-GOP footage (smart export copies the iPhone's) the pictures just before a CRA are decoded after
+        // it, so a seek to one of them lands on that CRA and loses them; the frames before [from] are discarded below anyway.
+        extractor.seekTo(exp.ptsUsOf(maxOf(0L, from - SEEK_MARGIN_FRAMES)), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
         decoder.flush()
         val info = MediaCodec.BufferInfo()
         var inputDone = false
@@ -164,6 +166,7 @@ class MediaCodecFrameSource private constructor(
 
     companion object {
         private const val TAG = "UVVerify"
+        private const val SEEK_MARGIN_FRAMES = 8L
         private const val TIMEOUT_US = 5_000L
         private const val STALL_NS = 8_000_000_000L
         private const val COLOR_FORMAT_P010 = 54 // MediaCodecInfo.CodecCapabilities.COLOR_FormatYUVP010 (API 33)
