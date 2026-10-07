@@ -312,7 +312,7 @@ class ExportViewModel(
         }
         reduce { copy(phase = ExportPhase.Running(0, startedAtMs = clock())) }
         val job = ExportJob(projectId, current.projectName, uri) { buildRequest(source, uri, resolution, rate, current) }
-        if (!executor.start(job)) reduce { copy(phase = ExportPhase.Failed("Another export is already running.")) }
+        if (!executor.start(job)) reduce { copy(phase = ExportPhase.Failed(executor.refusalReason() ?: "Another export is already running.")) }
     }
 
     /** Opens every descriptor and builds what the engine needs. Runs on the executor's IO dispatcher. */

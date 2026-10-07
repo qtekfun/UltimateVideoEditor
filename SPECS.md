@@ -970,6 +970,33 @@ model and sheet). Everything is local: files go through the system picker, nothi
 | `media/<assetId>-<name>` | the media files, only for "with media files"; stored, not recompressed |
 | `resources/<kind>-<key>-<name>` | the LUTs (`.cube`, deflated) and fonts (stored) the project refers to, when chosen (see below) |
 
+- Progress, completion and verification of a bundle write (`ProjectBundle.write` with a `BundleWriteObserver`; the job is
+  `ui/export/BundleExportExecutor`, one of the app's long jobs next to `ExportExecutor`):
+  - The total is known before the first byte: manifest + project + pictures + LUTs/fonts + the sizes of the media that will be
+    copied. The writer copies media in 256 KB chunks with its own loop, reports each chunk (`onBytes`), each entry (`onItem`, media
+    numbered from 1) and polls `isCancelled()` per chunk, so Cancel stops within one chunk (`BundleWriteCancelled`). A media file
+    that turns out unreadable still reports its announced bytes so the percent reaches 100. A read error is worded "could not
+    read <file>", a write error (disk full) is not.
+  - `BundleProgressTracker` turns the byte counts into snapshots at most every 250 ms (a new entry always shows), with a time left
+    from an EMA of the speed (alpha 0.3, samples at least 500 ms apart, shown after 2 s and 3 samples, unknown after 8 s without
+    progress). The copy runs on the executor's IO dispatcher; the UI thread only reads a `StateFlow`.
+  - `BundleJobState` (Idle, Running (packing or `verifying`), Done, Failed, Cancelled) is the one source of the dialog
+    (`BundleJobDialog`, over every screen, hidden with `detailsOpen`), the bar in the project list (`BundleBarView`) and the
+    notification (`bundleNotificationFor`), all built from `BundleView`. Done carries `BundleWriteResult` (media count, skipped,
+    `bytesWritten`, every entry with its size) and the `BundleVerification`.
+  - After the write, `BundleChecker` reopens the file through `ProjectTransferIO.openSeekable` and the importer's `ZipReader`:
+    the file size equals the bytes written, the central directory reads, the entry count equals the entries written, `bundle.json`
+    and `project.json` are present and read to their end, every entry's size equals what was written, and the manifest's media
+    entries exist. Any miss is `Warning(problems)` (the result is shown red, the file is kept, no Share); an unreadable file is
+    `CouldNotVerify`; Cancel during the check is `Skipped`. The media bytes are not re-read (a pass over many GB), so a flipped bit
+    inside a media file is not detected; truncation, a missing table of contents and wrong sizes are.
+  - Failure or Cancel deletes the output (`ExportIO.deleteOutput`); when the provider refuses, the message names the leftover file.
+    Failures are worded from their cause (`BundleJobText.failure`: storage full, permission lost, file gone, unreadable media).
+  - One long job at a time, shared with the movie export: `ExportCenter` gives each executor `otherJobBusy`; a backup started
+    during a movie export, a second backup, and a movie export started during a backup are all refused with a message that names
+    the running job (no queue: an unattended multi-GB copy starting minutes later would surprise the user).
+  - `ExportService` (same channel, permissions and `foregroundTypeFor`) watches both executors, posts the result notification
+    (7002 movie, 7003 backup, with a Share action for a verified backup) only for a job it saw running, and stops when neither runs.
 - Writing: entries carry no timestamps, so the same input gives the same bytes; media that cannot be read
   are named in the result and left out; the manifest still lists their name and size.
 - Reading (`ProjectBundle.extract`) never writes outside its target directory: names must be relative, use `/`,

@@ -16,6 +16,7 @@ import com.ultimatevideo.uveditor.domain.AnimationTiming
 import com.ultimatevideo.uveditor.domain.EditMarker
 import com.ultimatevideo.uveditor.domain.MoveMarker
 import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
+import com.ultimatevideo.uveditor.ui.export.BundleStart
 import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.BundleExportText
 import com.ultimatevideo.uveditor.ui.library.Library
@@ -3366,6 +3367,13 @@ class EditorViewModel(
                 if (dirty && !persist()) throw IOException("the project could not be saved first")
                 val choice = pendingBundleChoice ?: BundleChoice(includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
                 pendingBundleChoice = null
+                // A long job that outlives this editor: its dialog, the project list's bar and the notification show how far it is
+                // and how it ended, so nothing here waits for the copy.
+                when (val started = interchange.startBundleExport(projectId, project.name, uri, choice)) {
+                    BundleStart.Started -> return "Backup started: progress is shown on screen and in the notification"
+                    is BundleStart.Refused -> throw IOException(started.reason)
+                    null -> Unit
+                }
                 val result = interchange.exportBundle(projectId, uri, choice)
                 return BundleExportText.exportMessage("Bundle written", choice, result)
             }

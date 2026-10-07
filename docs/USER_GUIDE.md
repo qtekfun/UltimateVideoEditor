@@ -694,6 +694,18 @@ Everything goes through the system file picker and stays on your device: nothing
     giving the font file to others; check yours first.
   Whatever the project uses but you leave out (or this phone does not have) is still named in the bundle, so the
   other phone can tell you which LUT or font to get. The project file and a card picture are always included.
+  - **Progress and the end of the backup.** After you choose where to save, a window shows what is happening
+    (**Packing media 3 of 12: IMG_0014.mov**), how many bytes are done of the total, the percent, the speed and the time left
+    (for example **1.8 of 7.4 GB, about 2 min left**). **Hide** closes the window and the backup goes on; the same progress is
+    in a bar at the bottom of the project list (tap it to open the window again) and in a notification, so you can leave the
+    app or turn the screen off. **Cancel** stops within a moment and removes the half-written file; if the file manager refuses to
+    delete it, the window says which file is left over. When it ends you read **Backup saved: Holiday.uvbundle (7.4 GB, 14 media
+    files, took 4:12)** with **Share** and **Close**; the bar and the notification say the same. The app then reopens the saved
+    file and checks that it is complete (its table of contents, every file and its size, the project data). If that finds a
+    problem (a full disk, a card pulled out, a cut-short file) the result turns red and says what is wrong; do not rely on that
+    file. A backup that cannot finish says why (storage full, permission lost, a media file that vanished) and removes what it wrote.
+  - **One long job at a time.** A backup is refused with a message while a movie export runs, and a movie export is refused
+    while a backup runs; wait for the first to finish or cancel it. Nothing is queued.
 - **Importing a bundle** (hub, top-right ⋮): the project is unpacked next to your other projects, renamed if the
   name is taken ("Name (2)"), and its media is set up for you: files that came inside the bundle are used from
   the project's own folder; for the others the app looks among the files your other projects already use for one

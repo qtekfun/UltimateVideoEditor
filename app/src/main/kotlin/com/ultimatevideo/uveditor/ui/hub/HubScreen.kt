@@ -60,6 +60,7 @@ import com.ultimatevideo.uveditor.data.ProjectSummary
 import com.ultimatevideo.uveditor.data.ProjectThumbnails
 import com.ultimatevideo.uveditor.data.UnreadableProject
 import com.ultimatevideo.uveditor.data.interchange.BundleChoice
+import com.ultimatevideo.uveditor.ui.export.shareBundleIntent
 import com.ultimatevideo.uveditor.ui.export.shareExportedMovie
 import com.ultimatevideo.uveditor.ui.library.BundleExportDialog
 import com.ultimatevideo.uveditor.ui.library.ImportProgressDialog
@@ -135,6 +136,7 @@ fun HubScreen(
                 is HubEffect.OpenEditor -> onOpenProject(effect.projectId)
                 is HubEffect.OpenExport -> onOpenExport(effect.projectId)
                 is HubEffect.ShareExport -> shareExportedMovie(context, effect.uri)
+                is HubEffect.ShareBundle -> context.startActivity(shareBundleIntent(effect.uri))
             }
         }
     }
@@ -190,7 +192,12 @@ internal fun HubContent(
         },
         snackbarHost = { SnackbarHost(snackbar) },
         // The Scaffold puts the New project button above this bar.
-        bottomBar = { state.exportBar?.let { ExportBarView(it, onIntent) } },
+        bottomBar = {
+            Column {
+                state.exportBar?.let { ExportBarView(it, onIntent) }
+                state.bundleBar?.let { BundleBarView(it, onIntent) }
+            }
+        },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             state.resumeProject?.let { ResumeBanner(it, onIntent) }
