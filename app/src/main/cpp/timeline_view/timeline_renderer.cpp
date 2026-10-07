@@ -21,7 +21,6 @@
 #include "timeline_view/fade_curve.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/lane_header.h"
-#include "timeline_view/lane_zoom.h"
 #include "timeline_view/marker_style.h"
 #include "timeline_view/ruler_ticks.h"
 #include "timeline_view/snap_guide.h"
@@ -240,10 +239,9 @@ struct TimelineRenderer::State {
     // True until the user zooms by hand. While true the zoom follows the whole timeline: it is
     // refitted on resize and whenever fitToContent() is called.
     bool autoFit = true;
-    // The lane height, as the preset (small / medium / large) or a pinch left it. After a "fit" the lanes follow the panel
-    // and the number of lanes (resize, rotation, a lane added) until the user sets a height by hand again.
-    LaneScale laneScale;
-    bool autoFitLanes = false;
+    // The lane height as a multiple of the default: the layout sheet's Small / Medium / Large preset and nothing else (the
+    // vertical pinch zoom was removed, see DECISIONS "No vertical zoom"). Fixed until the preset changes.
+    float laneScale = 1.0f;
     std::weak_ptr<thumb::ThumbnailService> thumbs;
 
     ANativeWindow* requestedWindow = nullptr;
@@ -251,16 +249,9 @@ struct TimelineRenderer::State {
     uint64_t windowAckGeneration = 0;
     bool looperReady = false;
 
-    void applyLaneScale(LaneScale scale) {
-        laneScale = scale;
-        layout = Layout::forDensity(density, scale.toFloat()).withHeaders(kLaneHeaderDp * density);
-    }
-    // Fits every lane in the panel (or as many as the minimum height allows, scrolled to the base lane at the bottom).
-    void fitLanes() {
-        if (height <= 0) return;
-        const LaneFit fit = fitLaneScale(density, static_cast<int>(snapshot->tracks.size()), static_cast<float>(height));
-        applyLaneScale(fit.scale);
-        if (!fit.fitsAll) vp.scrollY = 1.0e9;
+    void applyLaneScale(float scale) {
+        laneScale = (scale == scale) ? scale : 1.0f;  // NaN keeps the default; Layout clamps the range
+        layout = Layout::forDensity(density, laneScale).withHeaders(kLaneHeaderDp * density);
     }
 
     void clampViewport() {
@@ -900,7 +891,6 @@ void TimelineRenderer::surfaceChanged(int width, int height) {
         state_->height = height;
         state_->vp.viewWidth = std::max(1, width);
         if (state_->autoFit) state_->vp.fitTo(state_->snapshot->endFrame());
-        if (state_->autoFitLanes) state_->fitLanes();
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -926,9 +916,7 @@ void TimelineRenderer::setSnapshot(std::shared_ptr<const TimelineSnapshot> snaps
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const bool firstContent = state_->snapshot->tracks.empty() && !snapshot->tracks.empty();
-        const size_t oldLanes = state_->snapshot->tracks.size();
         state_->snapshot = std::move(snapshot);
-        if (state_->autoFitLanes && state_->snapshot->tracks.size() != oldLanes) state_->fitLanes();
         // The base lane is at the bottom of the stack: when the stack is taller than the panel, open scrolled to it.
         if (firstContent) state_->vp.scrollY = 1.0e9;
         state_->clampViewport();
@@ -1019,8 +1007,7 @@ std::vector<int64_t> TimelineRenderer::clipsInRect(float x0, float y0, float x1,
 void TimelineRenderer::setLaneScale(float scale) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_->autoFitLanes = false;  // a height chosen by hand wins over a fit
-        state_->applyLaneScale(LaneScale::fromFloat(scale));
+        state_->applyLaneScale(scale);
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -1095,31 +1082,12 @@ void TimelineRenderer::zoomBy(float factor, float focusX) {
     wake();
 }
 
-void TimelineRenderer::zoomLanesBy(float factor, float focusY) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        State& s = *state_;
-        const Layout before = s.layout;
-        LaneScale next = s.laneScale;
-        next.zoom(factor);
-        s.applyLaneScale(next);
-        s.autoFitLanes = false;  // the user chose a height; stop overriding it
-        s.vp.scrollY = anchoredScrollY(before, s.layout, static_cast<int>(s.snapshot->tracks.size()),
-                                       static_cast<float>(s.height), s.vp.scrollY, focusY);
-        s.clampViewport();
-        s.dirty = true;
-    }
-    wake();
-}
-
 void TimelineRenderer::fitToContent() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state_->autoFit = true;
-        state_->autoFitLanes = true;
         state_->vp.viewWidth = std::max(1, state_->width);
         state_->vp.fitTo(state_->snapshot->endFrame());
-        state_->fitLanes();
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -1129,7 +1097,7 @@ void TimelineRenderer::fitToContent() {
 void TimelineRenderer::followContent() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!state_->autoFit) return;  // lanes follow on their own (see setSnapshot / surfaceChanged)
+        if (!state_->autoFit) return;
         state_->vp.viewWidth = std::max(1, state_->width);
         state_->vp.fitTo(state_->snapshot->endFrame());
         state_->clampViewport();

@@ -226,21 +226,16 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 ### 5.3 Rendering
 - Two `SurfaceView`s hosted via `AndroidView`: **preview** (GLES compositor) and **timeline canvas**
   (C++/GLES draws clip blocks, waveforms, playhead, thumbnails, handles).
-- Pinch is two-axis: `PinchAxisLock` (Kotlin, pure) picks time or lanes from the axis the finger span changed along most
-  once past a 12 dp slop (a tie is the time axis, the factor seen before the choice is held back and applied after it, so
-  a horizontal pinch zooms exactly as before). The choice is kept until the fingers lift. Vertical pinch calls
-  `TimelineRenderer::zoomLanesBy(factor, focusY)`.
-- Lane zoom (`timeline_view/lane_zoom.h`): one scalar `LaneScale`, Q12 fixed point, 0.5x to 3x of the 64 dp default lane
-  (32 to 192 dp), fed to `Layout::forDensity` once per frame snapshot; ruler, gaps and touch slop do not scale. The scroll
-  is re-anchored with `anchoredScrollY` (the fractional lane position under the focus stays under it, bottom-anchoring inset
-  included) and then clamped. `fitLaneScale(density, lanes, viewHeight)` gives the largest scale at which the ruler and all
-  lanes fit; if even 0.5x does not fit it returns 0.5x with `fitsAll = false` and the renderer scrolls to the base lane. An
-  empty timeline or a panel without room keeps 1x. All lanes have the same height (there is no per-lane collapsed state).
-  The Fit button (`fitToContent`) fits both axes and turns on "follow": a resize/rotation or a lane added or removed refits.
-  A pinch on an axis, or choosing a height preset, ends the follow for that axis. View state lives in the native renderer
-  like the horizontal zoom, survives rotation (the activity handles configuration changes) and is not persisted (the
-  horizontal zoom is not either). The snapshot format is unchanged. Below a 9 dp header strip clip names are not drawn and
-  below a 12 dp body the filmstrip is skipped (neither triggers at the 0.5x minimum; they guard the layout limits).
+- A pinch zooms the time axis only, whichever way the fingers spread (`TimelinePinch`, Kotlin, pure, calls
+  `TimelineRenderer::zoomBy`). There is no vertical zoom of the lanes (removed after #110, DECISIONS "No vertical zoom").
+- Lane height is one scalar, the layout sheet's Small / Medium / Large preset (0.75, 1, 1.4), set with `setLaneScale` and fed to
+  `Layout::forDensity` (clamped to 0.5x to 3x of the 64 dp default lane); ruler, gaps and touch slop do not scale. All lanes
+  have the same height. Lanes that do not fit the panel scroll vertically (native `scrollBy`, clamped by `Viewport::clamp`;
+  the stack is anchored to the panel bottom, so with few lanes the free room is above them). The Fit button
+  (`fitToContent`) fits the time axis only and turns on "follow" (a resize/rotation or a longer project refits) until the user
+  pinches; it never changes lane heights. View state lives in the native renderer, survives rotation (the activity handles
+  configuration changes) and is not persisted. Below a 9 dp header strip clip names are not drawn and below a 12 dp body the
+  filmstrip is skipped (they guard the layout limits).
 - Touch gestures (scroll, drag, trim) on the timeline surface are handled by a Kotlin
   `View` and forwarded as intents/commands; hit-testing against the snapshot is native.
 - Dedicated render thread per surface with its own EGL context (shared context for textures).
@@ -1895,7 +1890,7 @@ checklist in the PR.
   scrolling grid; lifting first is a tap; a second finger, Back or the tile leaving composition cancels. The ghost (`TrayDragGhost`: thumbnail,
   name, duration, 1.08x, shadow, lifted 56 dp above the finger) is a touchless layer above the whole editor; a cancel flies it back to its tile.
   The root coordinates of the finger become timeline view pixels (`toTimelinePoint`, the view's bounds in root coordinates) and go through the
-  same native `hitTest` as every other gesture, so the lane zoom and both scroll offsets are honoured. `TimelineTrayDrop` feeds the
+  same native `hitTest` as every other gesture, so the lane height and both scroll offsets are honoured. `TimelineTrayDrop` feeds the
   `TrayDragStart/Move/Leave/End` intents. Releasing over the timeline commits through `TrayDragEnd(commit = true)` (one undo step); releasing
   over another tile of the tray reorders the library; anywhere else cancels.
 - While hovering, the same decision as clip drags runs for a clip that is not on the timeline yet
@@ -1941,8 +1936,8 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
 - **Dividers:** draggable splitters between preview and timeline (vertical), and between the preview and the
   side panel (horizontal) on wide windows; minimum and maximum sizes; double-tap a divider to reset; haptic tick
   at the default position.
-- **Track height (done; see the pinch and lane zoom notes in the timeline UI section above):** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
-  choice of Small / Medium / Large lane heights; waveforms, thumbnails and keyframe diamonds scale.
+- **Track height (done; see 5.3):** a +/- control and a choice of Small / Medium / Large lane heights (no pinch: the vertical
+  zoom was removed); waveforms, thumbnails and keyframe diamonds scale.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
   toggle already exists.

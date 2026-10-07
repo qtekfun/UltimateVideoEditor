@@ -682,7 +682,7 @@ choices were made autonomously to implement that rule strictly; confirm or chang
 - The lane height is a scale (0.75, 1, 1.4) applied by the native timeline (`setLaneScale`), so waveforms, thumbnails and diamonds follow without Kotlin knowing about them. Alternative: scale in Compose (not possible, the lanes are drawn natively).
 - Side docks need a window of at least 600 dp; below that docks fall back to bottom / over the timeline. The editor keeps at least 30 % of the width.
 - The bottom tray's collapsed state is a thin bar of the layout (the tray's own snap heights stay inside it).
-- Lane height has +/- and chips; the vertical pinch was added later (see "Vertical lane zoom and Fit" below).
+- Lane height has +/- and chips; a vertical pinch was added later and removed again (see "No vertical zoom" below).
 - Added `-Puveditor.appIdSuffix=<name>` for debug builds so several people or agents can install side by side with separate data (it solved agents overwriting each other on the shared Pixel).
 **Found while testing:** the ToolButton tooltip wrapper broke `Modifier.align` (fixed in master by #42 in the same way) and the bottom tray took the whole editor on phones (fixed by #47).
 
@@ -1356,7 +1356,14 @@ The stats line also reports `uploads` and `upload_ms` (label bitmaps placed in t
 
 p95 and p99 are within 5 % of baseline. **Unverified:** the test project's media are missing, so no thumbnails were drawn (fade-in path not measured or seen on a device); a drag could not be started through adb (a swipe scrolls, `draganddrop` did nothing), so the guide and the shadow were not seen on screen and their drag-time cost was not measured.
 
-## 2026-10-04 · Vertical lane zoom and Fit
+## 2026-10-07 · No vertical zoom: a pinch zooms time only, lanes keep the preset height (supersedes "Vertical lane zoom and Fit" below)
+**Owner:** "I do not want the vertical zoom of the track lines, it distracts: only horizontal; vertical fixed."
+**Chosen:** every pinch zooms the time axis (`TimelinePinch`), whichever way the fingers spread; a vertical spread no longer does anything else. The lane height is the layout sheet's Small / Medium / Large preset (`setLaneScale`, kept: it is a setting, not a gesture). Fit goes back to fitting the whole project on the time axis only and following it until the user pinches; it does not touch lane heights. Many lanes scroll vertically as before (native vertical scroll, bottom-anchored stack, kept).
+**Removed:** `PinchAxisLock` and its test, the `TimelineEngine.zoomLanesBy` / `nativeZoomLanesBy` / `TimelineRenderer::zoomLanesBy` chain, `timeline_view/lane_zoom.h` (`LaneScale` Q12, `fitLaneScale`, `anchoredScrollY`) with its host tests, the renderer's `autoFitLanes` / `fitLanes`, the `--ef vzoom` debug extra. The renderer keeps the lane scale as a plain float set by the preset. The snapshot format never carried it.
+**Why not keep it behind a setting:** the owner finds the gesture distracting and an accidental two-finger spread silently changed the lane height; a setting would keep the code and the accidental trigger. Starting every project at the preset height was already the default, so nothing else changes.
+**Tests:** `TimelinePinchTest` (a vertical pinch only reaches the time-axis callback; no lane-zoom entry point remains on `NativeTimeline` / `TimelineEngine`); the host tests for `Layout` lane scale (preset heights, clamp, content height, bottom anchoring) stay.
+
+## 2026-10-04 · Vertical lane zoom and Fit (SUPERSEDED on 2026-10-07: see "No vertical zoom" above)
 **Context:** lane heights were three presets only. Many lanes needed scrolling and there was no way to see the whole stack.
 **Chosen:** a pinch whose fingers spread mostly vertically scales the lane height (0.5x to 3x of the default, anchored under the fingers); a horizontal pinch is unchanged. The axis is decided once per pinch, after a 12 dp slop, so a diagonal wobble cannot zoom both. The existing Fit button (it already fitted the time axis) now also fits the lanes and keeps following the panel and the lane count until the user zooms by hand. The scale is one Q12 integer in native code; the renderer only reads it through `Layout`. The initial view still uses the Small / Medium / Large preset (fit is an explicit action), because starting every project at 3x tall lanes would change the familiar default.
 **Alternatives:** a second Fit button (rejected: one already exists); scale-follows-both-axes with one finger-distance factor (rejected: a vertical pinch would also change the time zoom); per-lane heights (not needed, bigger change to hit testing and snapshots); persisting the scale (the horizontal zoom is not persisted, so neither is this).
