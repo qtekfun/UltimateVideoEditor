@@ -56,7 +56,7 @@ internal object ToolbarGuide {
         GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, "Fit everything", "Zooms the timeline so the whole project and all tracks are visible. This is not fullscreen: double tap the preview for that.", ""),
 
         GuideEntry("import", GuideSection.EDIT, EditorIcons.Add, "Import media", "Adds videos, photos or audio from your device at the playhead. Your files are not copied.", "No import is running. (In the layout sheet the same plus makes tracks taller.)"),
-        GuideEntry("split", GuideSection.EDIT, EditorIcons.Split, "Split at playhead", "Cuts the selected clip in two at the playhead.", "A clip is selected."),
+        GuideEntry("split", GuideSection.EDIT, EditorIcons.Split, "Split at playhead", "Cuts the selected clip in two at the playhead (every selected clip the playhead is over, if several). Playback pauses, the playhead stays exactly on the cut and the right-hand part is selected, so you can cut again.", "A clip is selected."),
         GuideEntry("delete", GuideSection.EDIT, EditorIcons.Delete, "Delete", "Deletes the selected clip. On the base track the gap closes by itself; on other tracks a gap is left.", "A clip is selected."),
         GuideEntry("select-mode", GuideSection.EDIT, SelectionIcons.SelectMode, "Select several clips", "Turns select mode on or off. While on (the button is highlighted), tap clips to add or remove them and drag across empty space to draw a selection rectangle.", ""),
         GuideEntry("close-gap", GuideSection.EDIT, EditorIcons.CloseGap, "Close gap before clip", "Slides an overlay or audio clip back until it touches the previous clip.", "A clip on an overlay or audio track is selected. The base track never has gaps, so it is off there."),
