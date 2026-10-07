@@ -609,6 +609,16 @@ at the bitrate, so the real file is usually close but can be smaller (quiet scen
 90% of the free space of the phone's storage, a warning says it may not fit. (If you save to an SD card or a cloud folder, the
 free space of that place is not known to the app.)
 
+**Smart export (HEVC).** Under Codec, **Copy untouched parts without re-encoding (faster, larger file)** is off by default. When
+on, stretches of the movie where one clip is shown on its own, full screen and unchanged (no title, no effect, no speed change, no
+transition, no other clip over it) are copied from your original file exactly as they were filmed, instead of being decoded and
+encoded again; only the short pieces at the start and end of each stretch and everything with something on it are encoded as usual.
+It needs footage in the same format as the export (an HDR export copies HDR footage, the same size and frame rate, for example your
+iPhone's 4K 60 fps HLG clips). The file is larger, because camera footage has a higher bitrate than the export bitrate, and the picture
+is stored rotated and flagged, like your iPhone files do (every player turns it upright). Phone clips shot upside down are copied that
+way; one orientation is chosen for the whole file. If nothing can be copied, or anything goes wrong, the whole movie is exported
+normally and a note says so. Progress and the time left count copied stretches as fast.
+
 **Leaving the app during an export.** The export keeps running if you press Home, switch to another app, rotate the
 screen, go back to the project list or the screen turns off. While it runs, a quiet notification "Exporting <project>" shows the
 percentage and the time left, with a **Cancel** button; cancelling there removes the partial file just like the dialog's Cancel. When

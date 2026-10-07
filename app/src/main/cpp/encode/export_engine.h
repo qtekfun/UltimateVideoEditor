@@ -22,6 +22,10 @@
 
 namespace uv::encode {
 
+namespace smart {
+class Session;
+}
+
 enum class VideoCodec : int32_t { H264 = 0, Hevc = 1 };
 
 // A rasterised title: premultiplied RGBA8, `width` x `height` canvas pixels, top row first.
@@ -97,6 +101,12 @@ struct ExportParams {
     std::function<void(std::vector<FrameSignature>)> signatureSink;
     int outputFd = -1;  // read/write, seekable; owned by the job
     std::optional<StillTarget> still;  // set: render one frame to memory instead of exporting a movie
+    // Smart export (SPECS.md 5.10): copy untouched stretches of the sources without re-encoding. Off = the normal export, byte
+    // for byte as before. When the movie has nothing to copy or anything about the copy fails, the job exports normally.
+    bool smart = false;
+    // The picture is drawn turned by this many degrees (0 or 180) because the file stores it that way and flags the rotation;
+    // set by the job from the smart plan, never by the caller.
+    int32_t outputRotation = 0;
 };
 
 class ExportJob {
@@ -115,6 +125,8 @@ public:
 private:
     void run();
     std::string execute();  // throws ExportFailure; returns a note for the user ("" when everything was exact)
+    // The export itself: `session` null = the normal pipeline, else smart export (throws smart::SmartFailure to be redone normally).
+    std::string runMovie(smart::Session* session);
     void executeStill();  // throws ExportFailure
     void closeDescriptors();
 

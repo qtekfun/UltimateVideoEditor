@@ -183,10 +183,11 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     params.projectFps = {projectFpsNum, projectFpsDen};
     params.canvasWidth = canvasWidth;
     params.canvasHeight = canvasHeight;
-    // `codec` is 0 (H.264) or 1 (HEVC), plus 0x100 for an HLG (HEVC Main10) export and 0x200 to keep hidden layers.
+    // `codec` is 0 (H.264) or 1 (HEVC), plus 0x100 for an HLG (HEVC Main10) export 0x200 to keep hidden layers and 0x400 for smart export.
     params.codec = (codec & 0xFF) == 1 ? uv::encode::VideoCodec::Hevc : uv::encode::VideoCodec::H264;
     params.hdr = (codec & 0x100) != 0;
     params.skipHiddenLayers = (codec & 0x200) == 0;  // 0x200: draw every layer (debug harness comparisons only)
+    params.smart = (codec & 0x400) != 0;
     params.videoBitrate = videoBitrate;
     params.audioBitrate = audioBitrate;
     params.totalFrames = totalFrames;

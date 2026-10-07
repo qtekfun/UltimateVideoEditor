@@ -426,6 +426,31 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   support the project exports as SDR (HLG clips tone-mapped) with a notice; a native refusal
   (`UnsupportedFormat`, e.g. no ten-bit surface) is reported with a hint to export as SDR. The JNI codec
   argument carries the HDR flag as bit 0x100.
+- **Smart export** (opt-in, off by default, HEVC only; `encode/smart_*`, `encode/mp4_writer.*`, `encode/mp4_source.*`, `encode/hevc_nal.h`,
+  JNI codec flag `0x400`, dialog chip "Copy untouched parts without re-encoding (faster, larger file)"). A stretch of the movie where the
+  topmost clip alone decides the picture (plain video layer, identity pose, opacity 1, no effect/mask/blend/keyframes/retime, nothing above)
+  and whose source is an MP4/MOV HEVC file that matches the export (profile, bit depth, 4:2:0, picture size = export size = canvas size,
+  colour description = the export's, same frame grid, rotation 0 or 180) is not decoded and re-encoded: its compressed samples are copied.
+  Never copied: titles and stills, transitions (the incoming clip has opacity below 1 or a baked pose), speed, reverse, effects, SDR sources in
+  an HDR export, HLG/PQ sources in an SDR export (tone mapping), another frame rate (30 -> 60 duplication shows holes in the frame grid), a
+  scaled export, portrait/mirrored track matrices, variable-frame-rate stretches where a frame would be shown twice or skipped.
+  `smart_plan.h` (pure, host tested) finds the stretches and `trimToGop` cuts each: a run starts at a random access point (IDR, CRA
+  or BLA) whose leading pictures are dropped (they need pictures that are not copied) and ends after any sample in decode order (a
+  prefix of decode order only references pictures it contains) as long as the frames shown are consecutive source frames, each once,
+  and the frame after the run is not a leading picture of a CRA (it is reached by a seek, which lands on that CRA, whose leading
+  pictures cannot be decoded: measured, the first three encoded frames after a copy came out as stand-ins). So only the head of a
+  stretch up to its first access point and a few frames at its end are decoded and encoded normally; the encoder is asked  for a key frame (`request-sync`) at the first frame after every copied stretch and the
+  sink refuses the file if it is not an IRAP. The stored orientation is chosen per project: the rotation (0 or 180, from the track matrix)
+  with the most copyable frames; the file stores the picture rotated and flags it in the track matrix, like the iPhone's own files, and
+  everything encoded is pre-rotated (each layer's pose turned by 180 degrees about the canvas centre, `ExportParams::outputRotation`).
+  Edits to a copied sample (nothing else is touched): (1) the first picture of each copied run, a CRA, becomes a BLA_N_LP (NAL type in the
+  header byte, `no_output_of_prior_pics_flag` cleared), (2) Dolby Vision RPU NAL units (type 62) are removed, (3) VPS/SPS/PPS are put in
+  front of the first picture of every run and of every encoded key frame ("hybrid" layout: two `hvc1` sample entries, one for the encoder's
+  stream and one per distinct source configuration, and the sets also in-band; measured on the Pixel 8 decoder: either alone breaks playback).
+  Audio is mixed and encoded as before. The file is written by our own MP4 writer (moov at the end like AMediaMuxer's, `co64`, `ctts` with an
+  edit list for the reorder delay, `colr`, track matrix) because AMediaMuxer cannot write several sample entries. After writing, the sink
+  checks the frame count, the moov position and a CRC of every 150th sample read back; any failure (or anything unexpected while copying)
+  deletes the output and the job exports the whole movie normally, with a note. Progress counts a copied frame as 5% of an encoded one.
 - FFmpeg (static, NDK) is an optional fallback for formats not supported by MediaCodec: built behind
   `-Puveditor.ffmpeg=<dir>`, off by default; see `docs/ffmpeg-fallback.md`. The build includes libdav1d (BSD-2-Clause) for AV1; licence
   notices in `THIRD_PARTY_NOTICES.md`.
