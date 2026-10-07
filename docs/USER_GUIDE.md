@@ -122,6 +122,9 @@ sideways and a tablet each keep theirs).
     *Two panels* (tray on the left, inspector on the right; needs a window at least 600 dp wide).
   - **Track height**: Small, Medium or Large lanes, or the **-** and **+** buttons. Waveforms, thumbnails and
     keyframe diamonds scale with the lane.
+  - **Waveform scale**: *Linear* (the default: the height follows the loudness of the clip, speech and pauses stand out) or *dB*
+    (quiet passages stay visible). Audio is drawn as an outline of the loudest peaks with a lighter band for the average level;
+    zoom in with a pinch to see individual sounds, and a gap between words is an empty stretch around the centre line.
   - **Media tray** and **Inspector**: choose where each one sits (bottom or over the timeline, or left or right on
     wide windows) and whether it is **collapsed**. A collapsed side panel becomes a narrow strip with one button
     that brings it back; the collapsed tray at the bottom becomes a thin bar with an arrow.

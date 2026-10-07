@@ -18,6 +18,15 @@ add_executable(uv_host_tests
 target_include_directories(uv_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# Developer aid, not a test: rasterises an audio clip's waveform with the renderer's column code (see its header comment).
+add_executable(uv_waveform_render_tool
+    waveform_render_tool.cpp
+    ${ENGINE_DIR}/core/error.cpp
+    ${ENGINE_DIR}/audio/waveform_peaks.cpp
+)
+target_include_directories(uv_waveform_render_tool PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_waveform_render_tool PRIVATE -Wall -Wextra -Werror)
+
 # Audio playback core (mixer, clock, resampler, worker) driven by a fake decoder.
 add_executable(uv_audio_host_tests
     audio_host_tests.cpp
