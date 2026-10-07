@@ -34,8 +34,18 @@ public final class Touch {
     }
 
     private static void send(long downTime, int action, float x, float y) throws Exception {
-        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0);
-        e.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        // A finger, with pressure and size, so that a drag-and-drop source treats it like the real thing.
+        MotionEvent.PointerProperties props = new MotionEvent.PointerProperties();
+        props.id = 0;
+        props.toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords coords = new MotionEvent.PointerCoords();
+        coords.x = x;
+        coords.y = y;
+        coords.pressure = 1f;
+        coords.size = 1f;
+        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, 1,
+                new MotionEvent.PointerProperties[] {props}, new MotionEvent.PointerCoords[] {coords},
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
         // 2 = INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH
         Object ok = inject.invoke(manager, e, 2);
         e.recycle();

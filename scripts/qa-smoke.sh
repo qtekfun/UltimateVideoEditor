@@ -11,7 +11,7 @@
 #                 `flock /tmp/gradle-build.lock ./gradlew :app:assembleDebug -Puveditor.appIdSuffix=qa`
 #   --fix-props   reset stale debug.uveditor.* properties on the device to empty before the hygiene check (they are only reported otherwise)
 #   --only IDS    run only these checks (comma separated, see the table)
-#   --no-ui       skip the uiautomator flows
+#   --no-ui       skip the uiautomator flows (and the real-touch drag check)
 #
 # Environment: QA_PKG (default com.ultimatevideo.uveditor.qa; must carry a suffix: the unsuffixed app holds the user's project and
 # is refused), QA_DATA (default /home/qtekfun/uvdata/qa-smoke; large files never go to /tmp, which is RAM), QA_LOCK (default
@@ -538,6 +538,74 @@ check_save_frame_ui() {
     assert UI-FRAME D2 "$what" frame "$data/saved_frame.jpg" --reference "$media/vfr27.mp4" --index 0 --min-psnr 18
 }
 
+
+# A real one-finger stream (scripts/qa/touch/Touch.java; `adb shell input` cannot hold before it moves). Arguments: x1 y1 x2 y2 holdMs moveMs.
+touch_jar=""
+touch() {
+    if [ -z "$touch_jar" ]; then
+        touch_jar="$("$qa/touch/build.sh" "$data/touch" 2> /dev/null | tail -1)"
+        [ -s "$touch_jar" ] && adb_ push "$touch_jar" /data/local/tmp/uv-touch.jar > /dev/null
+    fi
+    adb_ shell "app_process -Djava.class.path=/data/local/tmp/uv-touch.jar /system/bin Touch $*"
+}
+# Resets the seeded "QA drag" project (the checks edit it) and opens it in the editor with the tray collapsed.
+open_qadrag() {
+    adb_ shell am force-stop "$pkg" > /dev/null
+    adb_ push "$data/projects/qadrag.json" "$dev/qadrag.json" > /dev/null
+    adb_ shell "cat $dev/qadrag.json | run-as $pkg sh -c 'mkdir -p files/projects/qadrag && cat > files/projects/qadrag/project.json'"
+    ui_launch
+    in_front && ui_open_project "QA drag" && in_front
+}
+# "c0:0 c1:60 ..." (clip id and start frame) from the project the editor saved.
+drag_state() {
+    adb_ shell "run-as $pkg cat files/projects/qadrag/project.json" 2> /dev/null | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+print(" ".join("%s:%d" % (c["id"], c["timelineStartFrame"]) for t in p["tracks"] for c in t["clips"]))'
+}
+# Geometry of the editor on a phone with the tray collapsed, from the timeline canvas (the lower SurfaceView): the overlay
+# lane's clip c3 (frames 60-90) is at 40 % of the width and 170 dp above the canvas bottom. Sets tl_l tl_t tl_r tl_b cx cy.
+drag_geometry() {
+    local b density
+    b="$(ui_dump | grep -o 'class="android.view.SurfaceView"[^>]*bounds="[^"]*"' | grep -o 'bounds="[^"]*"' | tail -1 | tr -dc '0-9,[]' | tr '][' ',,' | tr -s ',' | sed 's/^,//; s/,$//')"
+    [ -n "$b" ] || return 1
+    IFS=, read -r tl_l tl_t tl_r tl_b <<< "$b"
+    density="$(adb_ shell wm density | grep -o '[0-9]*$' | tail -1)"
+    cx=$((tl_l + (tl_r - tl_l) * 40 / 100))
+    cy=$((tl_b - 170 * density / 160))
+}
+
+check_drag_clip() {
+    want UI-DRAG-CLIP || return 0
+    local what="a clip moves with hold-and-drag, and a selected clip with a plain drag"
+    ui_prepare || { record UI-DRAG-CLIP D8 "$what" SKIP "no UI (--no-ui or locked screen)"; return 0; }
+    open_qadrag || { record UI-DRAG-CLIP D8 "$what" SKIP "could not open the seeded project 'QA drag' (focus $(focus | cut -c1-80))"; return 0; }
+    drag_geometry || { record UI-DRAG-CLIP D8 "$what" SKIP "no timeline canvas found in the UI dump"; return 0; }
+    local dx=$(((tl_r - tl_l) * 28 / 100)) before after_hold after_back c3_before c3_hold c3_back
+    before="$(drag_state)"
+    # Hold (past the long-press timeout) on the unselected clip, then drag it to the right without lifting.
+    touch "$cx" "$cy" "$((cx + dx))" "$cy" 900 700 || true
+    sleep 4
+    after_hold="$(drag_state)"
+    # It is selected now: a plain drag (no hold) brings it back. The finger lands near the middle of the clip (a touch within
+    # about 24 dp of an end would trim it instead).
+    touch "$((cx + dx + dx / 6))" "$cy" "$((cx + dx / 6))" "$cy" 0 600 || true
+    sleep 4
+    after_back="$(drag_state)"
+    c3_before="$(echo "$before" | tr ' ' '\n' | grep '^c3:')"
+    c3_hold="$(echo "$after_hold" | tr ' ' '\n' | grep '^c3:')"
+    c3_back="$(echo "$after_back" | tr ' ' '\n' | grep '^c3:')"
+    if [ -z "$c3_before" ]; then
+        record UI-DRAG-CLIP D8 "$what" SKIP "the seeded project could not be read back"
+    elif [ "$c3_hold" = "$c3_before" ]; then
+        record UI-DRAG-CLIP D8 "$what" FAIL "hold then drag left the clip at $c3_before (it must move right)"
+    elif [ "${c3_back#c3:}" -ge "${c3_hold#c3:}" ]; then
+        record UI-DRAG-CLIP D8 "$what" FAIL "after the hold-drag ($c3_hold) a plain drag to the left gave $c3_back (it must move left)"
+    else
+        record UI-DRAG-CLIP D8 "$what" PASS "c3 starts at frame ${c3_before#c3:}, ${c3_hold#c3:} after hold and drag right, ${c3_back#c3:} after a plain drag left"
+    fi
+}
+
 # ---- run ------------------------------------------------------------------------------------------------------------------------
 adb_ shell input keyevent KEYCODE_WAKEUP > /dev/null 2>&1
 need_files
@@ -563,6 +631,7 @@ if full; then check_rotation; check_frame; fi
 check_footer
 check_thumbnails
 check_save_frame_ui
+check_drag_clip
 if full; then
     check_export_dialog "QA quick" sdr
     check_export_dialog "QA HLG" hlg
