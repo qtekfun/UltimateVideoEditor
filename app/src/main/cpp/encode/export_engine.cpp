@@ -27,6 +27,7 @@
 #include "decode/log.h"
 #include "decode/open_decoder.h"
 #include "decode/video_decoder_api.h"
+#include "encode/frame_probe.h"
 #include "encode/picture_residency.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
@@ -438,6 +439,9 @@ public:
             }
             targetW_ = egl_.windowWidth();
             targetH_ = egl_.windowHeight();
+            // Signatures of a few composed frames for the post-export verification (frame_probe.h).
+            probe_.configure(targetW_, targetH_, params.hdr, params.hdr ? SigMatrix::Bt2020 : SigMatrix::Bt709,
+                             probeFrames(params.totalFrames, params.fps));
         }
         pipeline_ = std::make_unique<render::GlPipeline>(egl_);
         if (pipeline_->init(&e) != decode::Status::Ok) failDecode(e, "GLES setup failed");
@@ -599,6 +603,7 @@ public:
         if (frame % kIdleCheckFrames == 0) releaseIdleDecoders(frame);
 
         if (fbo_ != 0) return;  // save-frame mode: the picture stays in the framebuffer for readStill()
+        probe_.capture(frame, frameToNs(frame, params_.fps) / 1000);  // reads the back buffer: before the swap
         egl_.setPresentationTimeExact(frameToNs(frame, params_.fps));
         const auto swapStart = perf_.now();
         if (egl_.swap(&e) != decode::Status::Ok) failDecode(e, "presenting a frame to the encoder failed");
@@ -619,6 +624,7 @@ public:
     }
 
     int64_t lastLayerCount() const { return lastLayerCount_; }
+    FrameProbe& probe() { return probe_; }
     int64_t repeatedFrames() const { return repeatedFrames_; }
 
     void checkDecoderError() {
@@ -886,6 +892,7 @@ private:
     std::unordered_set<uint32_t> framePictures_;  // pictures the frame being rendered draws
     render::EglContext egl_;
     std::unique_ptr<render::GlPipeline> pipeline_;
+    FrameProbe probe_;  // after egl_: its GL objects go before the context
     render::OutputSpace space_ = render::OutputSpace::Sdr709;
     int targetW_ = 0;  // size of the surface or offscreen target that drawScene fills
     int targetH_ = 0;
@@ -1022,6 +1029,7 @@ std::string ExportJob::execute() {
     }
 
     int64_t repeated = 0;
+    std::vector<FrameSignature> signatures;
     {
         Perf perf;
         perf.init();
@@ -1052,6 +1060,9 @@ std::string ExportJob::execute() {
         }
         renderer.checkDecoderError();
         repeated = renderer.repeatedFrames();
+        UV_LOGI("frame probe: %lld frames signed in %lld us%s", static_cast<long long>(renderer.probe().captured()),
+                static_cast<long long>(renderer.probe().captureMicros()), renderer.probe().failed() ? " (FAILED)" : "");
+        signatures = renderer.probe().take();
         if (AMediaCodec_signalEndOfInputStream(video.codec()) != AMEDIA_OK) {
             fail(Status::CodecError, "cannot end the video stream");
         }
@@ -1063,6 +1074,7 @@ std::string ExportJob::execute() {
         audioPump->finish();
     }
     muxer.finish();
+    if (params_.signatureSink) params_.signatureSink(std::move(signatures));
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
     UV_LOGI("export done: %lld frames in %lld ms", static_cast<long long>(params_.totalFrames), static_cast<long long>(ms));
     if (repeated > 0) {

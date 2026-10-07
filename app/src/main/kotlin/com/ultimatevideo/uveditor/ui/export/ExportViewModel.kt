@@ -83,6 +83,7 @@ class ExportViewModel(
             ExportIntent.ChooseLocation -> chooseLocation()
             is ExportIntent.LocationChosen -> intent.uri?.let(::start)
             ExportIntent.Cancel -> executor.cancel()
+            ExportIntent.ExportAgain -> exportAgain()
             ExportIntent.Share -> share()
         }
     }
@@ -194,13 +195,13 @@ class ExportViewModel(
                         visible = !hiddenWhileRunning,
                         blockedBy = null,
                         projectName = if (visible) projectName else job.projectName,
-                        phase = ExportPhase.Running(job.progressPermille, job.startedAtMs, job.estimate),
+                        phase = ExportPhase.Running(job.progressPermille, job.startedAtMs, job.estimate, job.verifying),
                     )
                 }
             }
             is ExportJobState.Done -> {
                 mirrored = job
-                reduce { copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Done(job.uri, job.fileName, job.note)) }
+                reduce { copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Done(job.uri, job.fileName, job.note, job.verification)) }
             }
             is ExportJobState.Failed -> {
                 mirrored = job
@@ -264,6 +265,14 @@ class ExportViewModel(
         val shown = clips.take(MAX_NAMED_CLIPS).joinToString(", ") { it.where }
         val more = if (clips.size > MAX_NAMED_CLIPS) " and ${clips.size - MAX_NAMED_CLIPS} more" else ""
         return "Cannot export: the media for ${clips.size} clip(s) is missing ($shown$more). Relink it in the editor first."
+    }
+
+    /** The check of the last export found a problem and the user chose to export again: the file stays, the settings come back. */
+    private fun exportAgain() {
+        if (state.value.phase !is ExportPhase.Done) return
+        mirrored = null
+        executor.acknowledge(projectId)
+        reduce { copy(phase = ExportPhase.Configuring, visible = resolutions.isNotEmpty()) }
     }
 
     private fun share() {

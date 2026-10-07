@@ -80,5 +80,17 @@ expect pass "a few seeks" seeks "$work/good.log" --seconds 6 --clips 3
 expect fail "a seek per missing frame" seeks "$work/thrash.log" --seconds 6 --clips 3
 expect fail "a decoder stall" seeks "$work/stalled.log" --seconds 6 --clips 3
 
+# The app's post-export verification: it must say verified for a good file, and a damaged file must not get past it.
+good_line='OK frames=180 audio=true verification=verified frames=180 probes=24 decoded=210 took_ms=900 headline="Checked: the video is complete (180 frames, 00:03)" in 4.1 s, 100 bytes'
+expect pass "verified result is accepted" verification --result "$good_line" --expect verified
+expect fail "a skipped verification is not verified" verification --result 'OK frames=180 verification=skipped' --expect verified
+expect fail "a missing verification is caught" verification --result 'OK frames=180 audio=true' --expect verified
+expect fail "could not verify is not verified" verification --result 'OK frames=180 verification=could_not_verify reason=no decoder' --expect verified
+expect fail "a warning on a good export fails the run" verification --result 'OK frames=180 verification=warning tail_frames=20 checks=decode' --expect verified
+expect pass "a damaged file that was flagged" verification --result 'OK frames=180 verification=warning tail_frames=45 checks=sample_data damage=zerotail' --expect warning
+expect fail "a damaged file that passed is the worst outcome" verification --result 'OK frames=180 verification=verified frames=180 damage=zero2mb' --expect warning
+expect fail "a damaged file with the check skipped" verification --result 'OK frames=180 verification=skipped damage=truncate' --expect warning
+expect fail "a damaged file with no verification at all" verification --result 'OK frames=180 damage=truncate' --expect warning
+
 if [ "$fails" -eq 0 ]; then echo "selftest passed: every assertion passes the good input and fails the broken one"; else echo "selftest FAILED: $fails wrong verdict(s)"; fi
 [ "$fails" -eq 0 ]

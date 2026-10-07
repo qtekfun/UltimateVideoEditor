@@ -225,6 +225,26 @@ def check_seeks(args):
     ok("%d decoder seeks in %.1f s (%.1f per second, %d clips)" % (seeks, args.seconds, rate, args.clips))
 
 
+def check_verification(args):
+    """The app's own post-export verification, as written into the harness result line (`verification=<state> ...`).
+
+    With --expect verified: anything but "verified" fails, and so does a missing verification (the pass was skipped or the build has none).
+    With --expect warning: the file is deliberately damaged; "verified" means a corrupted file passed, the worst outcome, and "skipped",
+    "could_not_verify" or a missing verification mean the check did not look at all."""
+    m = re.search(r"\bverification=(\w+)", args.result)
+    state = m.group(1) if m else "none"
+    shown = re.sub(r' headline=.*', '', args.result)
+    if args.expect == "verified":
+        if state != "verified":
+            fail("the export's verification is '%s', not 'verified' (%s)" % (state, args.result[:160]))
+        ok("verified (%s)" % shown[-90:])
+    if state == "verified":
+        fail("a deliberately damaged file was reported as verified (%s)" % args.result[:160])
+    if state != "warning":
+        fail("a deliberately damaged file got '%s' instead of a warning: the check did not look at the file (%s)" % (state, args.result[:160]))
+    ok("flagged: %s" % shown[-100:])
+
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -266,6 +286,10 @@ def main():
     s.add_argument("--seconds", type=float, required=True)
     s.add_argument("--clips", type=int, required=True)
     s.set_defaults(fn=check_seeks)
+    v = sub.add_parser("verification")
+    v.add_argument("--result", required=True, help="the first line of the harness's <out>.result.txt")
+    v.add_argument("--expect", choices=["verified", "warning"], required=True)
+    v.set_defaults(fn=check_verification)
     args = p.parse_args()
     args.fn(args)
 

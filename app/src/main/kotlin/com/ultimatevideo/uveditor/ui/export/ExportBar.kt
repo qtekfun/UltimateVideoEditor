@@ -25,9 +25,15 @@ sealed interface ExportBar {
         val percent: Int,
         /** Time left, or null while it is not known (just started, or the encoder is waiting). */
         val remainingMs: Long?,
+        /** The movie is finished and its file is being checked. */
+        val verifying: Boolean = false,
     ) : ExportBar {
         val detail: String
-            get() = if (remainingMs != null) "$percent% · about ${formatDuration(remainingMs)} left" else "$percent%"
+            get() = when {
+                verifying -> "Verifying the saved file · $percent%"
+                remainingMs != null -> "$percent% · about ${formatDuration(remainingMs)} left"
+                else -> "$percent%"
+            }
     }
 
     data class Finished(
@@ -35,6 +41,8 @@ sealed interface ExportBar {
         override val projectName: String,
         val uri: String,
         val fileName: String,
+        /** What the post-export check found (empty headline when none ran). */
+        val result: ExportResultText = ExportResultText(ResultSeverity.UNVERIFIED, "", ""),
     ) : ExportBar
 
     data class Failed(
@@ -51,9 +59,11 @@ fun exportBarFor(state: ExportJobState): ExportBar? = when (state) {
         state.projectId,
         state.projectName,
         percent = (state.progressPermille / 10).coerceIn(0, 100),
-        remainingMs = state.estimate.remainingMs?.takeIf { !state.estimate.stalled && state.progressPermille in 1..999 },
+        remainingMs = state.estimate.remainingMs?.takeIf { !state.verifying && !state.estimate.stalled && state.progressPermille in 1..999 },
+        verifying = state.verifying,
     )
-    is ExportJobState.Done -> ExportBar.Finished(state.projectId, state.projectName, state.uri, state.fileName)
+    is ExportJobState.Done ->
+        ExportBar.Finished(state.projectId, state.projectName, state.uri, state.fileName, exportResultText(state.note, state.verification))
     is ExportJobState.Failed ->
         ExportBar.Failed(state.projectId, state.projectName, describeExportFailure(state.error, hdr = false) + state.leftoverNote)
 }

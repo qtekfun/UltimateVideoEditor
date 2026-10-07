@@ -90,12 +90,20 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
     val phase = state.phase
     AlertDialog(
         onDismissRequest = { onIntent(ExportIntent.Dismiss) },
-        title = { Text(if (phase is ExportPhase.Running) "Exporting…" else "Export movie") },
+        title = {
+            Text(
+                when {
+                    phase is ExportPhase.Running && phase.verifying -> "Verifying…"
+                    phase is ExportPhase.Running -> "Exporting…"
+                    else -> "Export movie"
+                },
+            )
+        },
         text = {
             when (phase) {
                 ExportPhase.Configuring -> Settings(state, onIntent)
                 is ExportPhase.Running -> Progress(phase)
-                is ExportPhase.Done -> Text("Saved ${phase.fileName}." + if (phase.note.isNotEmpty()) " Note: ${phase.note}." else "")
+                is ExportPhase.Done -> DoneMessage(phase, onIntent)
                 is ExportPhase.Failed -> Text(phase.message, color = MaterialTheme.colorScheme.error)
             }
         },
@@ -114,12 +122,28 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
         },
         dismissButton = {
             when (phase) {
-                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Cancel) }) { Text("Cancel") }
+                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Cancel) }) { Text(if (phase.verifying) "Skip check" else "Cancel") }
                 is ExportPhase.Done -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Close") }
                 else -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Cancel") }
             }
         },
     )
+}
+
+/** The saved file and what the check of it found: verified, a warning with its reasons, or "could not verify". */
+@Composable
+private fun DoneMessage(phase: ExportPhase.Done, onIntent: (ExportIntent) -> Unit) {
+    val result = exportResultText(phase.note, phase.verification)
+    val colour = if (result.severity == ResultSeverity.OK) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
+    Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Saved ${phase.fileName}.")
+        if (result.headline.isNotEmpty()) Text(result.headline, style = MaterialTheme.typography.titleSmall, color = colour)
+        if (result.detail.isNotEmpty()) Text(result.detail, style = MaterialTheme.typography.bodySmall)
+        if (result.offersExportAgain) {
+            Text("The file was kept. You can use it, or export again.", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { onIntent(ExportIntent.ExportAgain) }) { Text("Export again") }
+        }
+    }
 }
 
 @Composable
@@ -133,6 +157,17 @@ private fun Progress(phase: ExportPhase.Running) {
         }
     }
     val estimate = phase.estimate
+    if (phase.verifying) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinearProgressIndicator(progress = { phase.progressPermille / 1000f }, modifier = Modifier.fillMaxWidth())
+            Text("Verifying… ${phase.progressPermille / 10}%", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "The movie is saved. Checking that its first and last frames are the right ones and not damaged.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        return
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         LinearProgressIndicator(progress = { phase.progressPermille / 1000f }, modifier = Modifier.fillMaxWidth())
         Text("${phase.progressPermille / 10}%", style = MaterialTheme.typography.labelLarge)
