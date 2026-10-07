@@ -1118,7 +1118,7 @@ private fun EditorMain(
                     }
                     Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
                         ToolButton(EditorIcons.FrameImage, "Save frame as image: the picture under the playhead as PNG or JPEG", onClick = onSaveFrame)
-                        ToolButton(EditorIcons.Fit, "Fit the whole project and all lanes") { engine.fitToContent() }
+                        ToolButton(EditorIcons.Fit, "Fit the whole project") { engine.fitToContent() }
                     }
                 }
 

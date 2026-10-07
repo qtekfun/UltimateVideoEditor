@@ -34,6 +34,8 @@ class ExportExecutor(
     private val onStarted: () -> Unit = {},
     /** Checks the finished file (first and last frames, structure); null skips the check, which only tests do. */
     private val verifier: ExportVerifier? = null,
+    /** A description of the other long job when one is running (a project backup: "Backing up Holiday"), else null. */
+    private val otherJobBusy: () -> String? = { null },
 ) : ExportJobHost {
     private val mutableState = MutableStateFlow<ExportJobState>(ExportJobState.Idle)
     override val state: StateFlow<ExportJobState> = mutableState.asStateFlow()
@@ -49,11 +51,16 @@ class ExportExecutor(
     private var expectation: VerifyExpectation? = null // what the running job promised about its file
     private var signatures: List<FrameSignature> = emptyList() // taken by the engine while exporting
 
-    /** Starts [next]; false when an export is already running (nothing is touched then). */
+    /** Why a new export cannot start right now (a project backup is running), in words for the user; null when it can. */
+    fun refusalReason(): String? =
+        otherJobBusy()?.let { "Another long job is running ($it). Start the export when it has finished, or cancel that one first." }
+
+    /** Starts [next]; false when an export or a project backup is already running (nothing is touched then). */
     fun start(next: ExportJob): Boolean {
         val running = ExportJobState.Running(next.projectId, next.projectName, 0, clock())
         synchronized(lock) {
             if (mutableState.value.isRunning) return false
+            if (otherJobBusy() != null) return false
             job = next
             cancelRequested = false
             completed = false

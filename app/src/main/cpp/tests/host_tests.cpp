@@ -14,7 +14,6 @@
 #include "timeline_view/glyphs.h"
 #include "timeline_view/hit_test.h"
 #include "timeline_view/lane_header.h"
-#include "timeline_view/lane_zoom.h"
 #include "timeline_view/marker_style.h"
 #include "timeline_view/ruler_ticks.h"
 #include "timeline_view/snap_guide.h"
@@ -971,100 +970,6 @@ static void testLaneScale() {
     CHECK(big.anchoredBottom(3, 1000.0f).inset < base.anchoredBottom(3, 1000.0f).inset);
 }
 
-static bool near(double a, double b, double eps = 1e-3) { return std::fabs(a - b) <= eps; }
-
-static void testLaneScaleFixedPoint() {
-    using timeline::LaneScale;
-    LaneScale s;
-    CHECK(s.toFloat() == 1.0f);
-    s.zoom(2.0f);
-    CHECK(s.toFloat() == 2.0f);
-    s.zoom(100.0f);  // clamped to 3x
-    CHECK(s.q == LaneScale::kMax && s.toFloat() == 3.0f);
-    s.zoom(0.0001f);  // clamped to 0.5x
-    CHECK(s.q == LaneScale::kMin && s.toFloat() == 0.5f);
-    s.zoom(0.0f);
-    s.zoom(-1.0f);
-    s.zoom(std::nanf(""));
-    CHECK(s.q == LaneScale::kMin);  // ignored
-    CHECK(LaneScale::fromFloat(std::nanf("")).q == LaneScale::kOne);
-    CHECK(LaneScale::fromFloat(0.75f).toFloat() == 0.75f);
-    CHECK(LaneScale::fromFloat(9.0f).q == LaneScale::kMax);
-    // Pinching out and back in by the same factor returns to the same value (no drift beyond a rounding step).
-    LaneScale t = LaneScale::fromFloat(1.0f);
-    for (int i = 0; i < 20; ++i) t.zoom(1.05f);
-    for (int i = 0; i < 20; ++i) t.zoom(1.0f / 1.05f);
-    CHECK(std::abs(t.q - LaneScale::kOne) <= 8);
-}
-
-static void testFitLaneScale() {
-    using timeline::fitLaneScale;
-    using timeline::Layout;
-    // Tablet-like: density 2, panel 800 px: ruler 56, gap 8, lane 128 at scale 1.
-    const float density = 2.0f;
-    for (int lanes : {1, 3, 10}) {
-        const auto fit = fitLaneScale(density, lanes, 800.0f);
-        const auto lay = Layout::forDensity(density, fit.scale.toFloat());
-        if (fit.fitsAll) {
-            CHECK(lay.contentHeight(lanes) <= 800.0f + 0.01f);
-            // The largest scale that fits: one more step would overflow, unless it is already the maximum.
-            if (fit.scale.q < timeline::LaneScale::kMax) {
-                CHECK(Layout::forDensity(density, (fit.scale.q + 2) / 4096.0f).contentHeight(lanes) > 800.0f);
-            }
-        }
-    }
-    CHECK(fitLaneScale(density, 1, 800.0f).scale.q == timeline::LaneScale::kMax);  // one lane: capped at 3x
-    const auto three = fitLaneScale(density, 3, 800.0f);  // (800-56)/3 - 8 = 240 px of 128: 1.875
-    CHECK(three.fitsAll && near(three.scale.toFloat(), 1.875, 0.001));
-    const auto ten = fitLaneScale(density, 10, 800.0f);  // (744)/10 - 8 = 66.4 of 128: ~0.5187
-    CHECK(ten.fitsAll && near(ten.scale.toFloat(), 0.5187, 0.001));
-    // Too many lanes for the panel: the minimum, and it says they do not all fit.
-    const auto many = fitLaneScale(density, 30, 800.0f);
-    CHECK(!many.fitsAll && many.scale.q == timeline::LaneScale::kMin);
-    // Empty timeline, no room, tiny viewport.
-    CHECK(fitLaneScale(density, 0, 800.0f).scale.q == timeline::LaneScale::kOne);
-    CHECK(fitLaneScale(density, 4, 0.0f).scale.q == timeline::LaneScale::kOne);
-    CHECK(fitLaneScale(density, 4, 40.0f).scale.q == timeline::LaneScale::kOne);  // not even the ruler fits
-    const auto tiny = fitLaneScale(density, 2, 100.0f);
-    CHECK(!tiny.fitsAll && tiny.scale.q == timeline::LaneScale::kMin);
-}
-
-static void testLaneZoomAnchoring() {
-    using timeline::anchoredScrollY;
-    using timeline::LaneScale;
-    using timeline::Layout;
-    // Ten lanes, panel 400: the stack overflows, so there is scrolling and no inset.
-    const int lanes = 10;
-    const float view = 400.0f;
-    const Layout a = Layout::forDensity(1.0f);  // ruler 28, lane 64, gap 4
-    LaneScale z;
-    z.zoom(1.5f);
-    const Layout b = Layout::forDensity(1.0f, z.toFloat());
-    const float focus = 250.0f;
-    const double scrollBefore = 120.0;
-    const double after = anchoredScrollY(a, b, lanes, view, scrollBefore, focus);
-    // The lane position under the focus is unchanged: (focus + scroll - ruler) / stride.
-    const double laneA = (focus + scrollBefore - 28.0) / 68.0;
-    const double laneB = (focus + after - 28.0) / (96.0 + 4.0);
-    CHECK(near(laneA, laneB));
-    // Same scale: nothing moves.
-    CHECK(near(anchoredScrollY(a, a, lanes, view, scrollBefore, focus), scrollBefore));
-    // Few lanes, resting on the bottom (inset): the lane under the focus stays under it after zooming in until the stack
-    // outgrows the panel.
-    const double scroll2 = anchoredScrollY(a, b, 2, view, 0.0, 380.0);
-    const double inset = a.anchoredBottom(2, view).inset;
-    CHECK(near((380.0 + 0.0 - 28.0 - inset) / 68.0, (380.0 + scroll2 - 28.0 - b.anchoredBottom(2, view).inset) / 100.0));
-    // Degenerate layouts leave the scroll alone.
-    Layout zero = a;
-    zero.trackHeight = 0.0f;
-    zero.trackGap = 0.0f;
-    CHECK(anchoredScrollY(zero, b, lanes, view, 77.0, focus) == 77.0);
-    // The result is clamped by the viewport afterwards.
-    timeline::Viewport vp;
-    vp.scrollY = after;
-    vp.clamp(1000, b.contentHeight(lanes), view);
-    CHECK(vp.scrollY >= 0.0 && vp.scrollY <= b.contentHeight(lanes) - view);
-}
 
 static void testBottomAnchoredLanes() {
     const auto lay = timeline::Layout::forDensity(1.0f);  // ruler 28, track 64, gap 4
@@ -1354,9 +1259,6 @@ int main() {
     testHitTest();
     testBottomAnchoredLanes();
     testLaneScale();
-    testLaneScaleFixedPoint();
-    testFitLaneScale();
-    testLaneZoomAnchoring();
     testDropHintGeometry();
     testPeaks();
     testViewportFit();

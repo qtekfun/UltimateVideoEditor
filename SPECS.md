@@ -226,21 +226,16 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 ### 5.3 Rendering
 - Two `SurfaceView`s hosted via `AndroidView`: **preview** (GLES compositor) and **timeline canvas**
   (C++/GLES draws clip blocks, waveforms, playhead, thumbnails, handles).
-- Pinch is two-axis: `PinchAxisLock` (Kotlin, pure) picks time or lanes from the axis the finger span changed along most
-  once past a 12 dp slop (a tie is the time axis, the factor seen before the choice is held back and applied after it, so
-  a horizontal pinch zooms exactly as before). The choice is kept until the fingers lift. Vertical pinch calls
-  `TimelineRenderer::zoomLanesBy(factor, focusY)`.
-- Lane zoom (`timeline_view/lane_zoom.h`): one scalar `LaneScale`, Q12 fixed point, 0.5x to 3x of the 64 dp default lane
-  (32 to 192 dp), fed to `Layout::forDensity` once per frame snapshot; ruler, gaps and touch slop do not scale. The scroll
-  is re-anchored with `anchoredScrollY` (the fractional lane position under the focus stays under it, bottom-anchoring inset
-  included) and then clamped. `fitLaneScale(density, lanes, viewHeight)` gives the largest scale at which the ruler and all
-  lanes fit; if even 0.5x does not fit it returns 0.5x with `fitsAll = false` and the renderer scrolls to the base lane. An
-  empty timeline or a panel without room keeps 1x. All lanes have the same height (there is no per-lane collapsed state).
-  The Fit button (`fitToContent`) fits both axes and turns on "follow": a resize/rotation or a lane added or removed refits.
-  A pinch on an axis, or choosing a height preset, ends the follow for that axis. View state lives in the native renderer
-  like the horizontal zoom, survives rotation (the activity handles configuration changes) and is not persisted (the
-  horizontal zoom is not either). The snapshot format is unchanged. Below a 9 dp header strip clip names are not drawn and
-  below a 12 dp body the filmstrip is skipped (neither triggers at the 0.5x minimum; they guard the layout limits).
+- A pinch zooms the time axis only, whichever way the fingers spread (`TimelinePinch`, Kotlin, pure, calls
+  `TimelineRenderer::zoomBy`). There is no vertical zoom of the lanes (removed after #110, DECISIONS "No vertical zoom").
+- Lane height is one scalar, the layout sheet's Small / Medium / Large preset (0.75, 1, 1.4), set with `setLaneScale` and fed to
+  `Layout::forDensity` (clamped to 0.5x to 3x of the 64 dp default lane); ruler, gaps and touch slop do not scale. All lanes
+  have the same height. Lanes that do not fit the panel scroll vertically (native `scrollBy`, clamped by `Viewport::clamp`;
+  the stack is anchored to the panel bottom, so with few lanes the free room is above them). The Fit button
+  (`fitToContent`) fits the time axis only and turns on "follow" (a resize/rotation or a longer project refits) until the user
+  pinches; it never changes lane heights. View state lives in the native renderer, survives rotation (the activity handles
+  configuration changes) and is not persisted. Below a 9 dp header strip clip names are not drawn and below a 12 dp body the
+  filmstrip is skipped (they guard the layout limits).
 - Touch gestures (scroll, drag, trim) on the timeline surface are handled by a Kotlin
   `View` and forwarded as intents/commands; hit-testing against the snapshot is native.
 - Dedicated render thread per surface with its own EGL context (shared context for textures).
@@ -970,6 +965,33 @@ model and sheet). Everything is local: files go through the system picker, nothi
 | `media/<assetId>-<name>` | the media files, only for "with media files"; stored, not recompressed |
 | `resources/<kind>-<key>-<name>` | the LUTs (`.cube`, deflated) and fonts (stored) the project refers to, when chosen (see below) |
 
+- Progress, completion and verification of a bundle write (`ProjectBundle.write` with a `BundleWriteObserver`; the job is
+  `ui/export/BundleExportExecutor`, one of the app's long jobs next to `ExportExecutor`):
+  - The total is known before the first byte: manifest + project + pictures + LUTs/fonts + the sizes of the media that will be
+    copied. The writer copies media in 256 KB chunks with its own loop, reports each chunk (`onBytes`), each entry (`onItem`, media
+    numbered from 1) and polls `isCancelled()` per chunk, so Cancel stops within one chunk (`BundleWriteCancelled`). A media file
+    that turns out unreadable still reports its announced bytes so the percent reaches 100. A read error is worded "could not
+    read <file>", a write error (disk full) is not.
+  - `BundleProgressTracker` turns the byte counts into snapshots at most every 250 ms (a new entry always shows), with a time left
+    from an EMA of the speed (alpha 0.3, samples at least 500 ms apart, shown after 2 s and 3 samples, unknown after 8 s without
+    progress). The copy runs on the executor's IO dispatcher; the UI thread only reads a `StateFlow`.
+  - `BundleJobState` (Idle, Running (packing or `verifying`), Done, Failed, Cancelled) is the one source of the dialog
+    (`BundleJobDialog`, over every screen, hidden with `detailsOpen`), the bar in the project list (`BundleBarView`) and the
+    notification (`bundleNotificationFor`), all built from `BundleView`. Done carries `BundleWriteResult` (media count, skipped,
+    `bytesWritten`, every entry with its size) and the `BundleVerification`.
+  - After the write, `BundleChecker` reopens the file through `ProjectTransferIO.openSeekable` and the importer's `ZipReader`:
+    the file size equals the bytes written, the central directory reads, the entry count equals the entries written, `bundle.json`
+    and `project.json` are present and read to their end, every entry's size equals what was written, and the manifest's media
+    entries exist. Any miss is `Warning(problems)` (the result is shown red, the file is kept, no Share); an unreadable file is
+    `CouldNotVerify`; Cancel during the check is `Skipped`. The media bytes are not re-read (a pass over many GB), so a flipped bit
+    inside a media file is not detected; truncation, a missing table of contents and wrong sizes are.
+  - Failure or Cancel deletes the output (`ExportIO.deleteOutput`); when the provider refuses, the message names the leftover file.
+    Failures are worded from their cause (`BundleJobText.failure`: storage full, permission lost, file gone, unreadable media).
+  - One long job at a time, shared with the movie export: `ExportCenter` gives each executor `otherJobBusy`; a backup started
+    during a movie export, a second backup, and a movie export started during a backup are all refused with a message that names
+    the running job (no queue: an unattended multi-GB copy starting minutes later would surprise the user).
+  - `ExportService` (same channel, permissions and `foregroundTypeFor`) watches both executors, posts the result notification
+    (7002 movie, 7003 backup, with a Share action for a verified backup) only for a job it saw running, and stops when neither runs.
 - Writing: entries carry no timestamps, so the same input gives the same bytes; media that cannot be read
   are named in the result and left out; the manifest still lists their name and size.
 - Reading (`ProjectBundle.extract`) never writes outside its target directory: names must be relative, use `/`,
@@ -1895,7 +1917,7 @@ checklist in the PR.
   scrolling grid; lifting first is a tap; a second finger, Back or the tile leaving composition cancels. The ghost (`TrayDragGhost`: thumbnail,
   name, duration, 1.08x, shadow, lifted 56 dp above the finger) is a touchless layer above the whole editor; a cancel flies it back to its tile.
   The root coordinates of the finger become timeline view pixels (`toTimelinePoint`, the view's bounds in root coordinates) and go through the
-  same native `hitTest` as every other gesture, so the lane zoom and both scroll offsets are honoured. `TimelineTrayDrop` feeds the
+  same native `hitTest` as every other gesture, so the lane height and both scroll offsets are honoured. `TimelineTrayDrop` feeds the
   `TrayDragStart/Move/Leave/End` intents. Releasing over the timeline commits through `TrayDragEnd(commit = true)` (one undo step); releasing
   over another tile of the tray reorders the library; anywhere else cancels.
 - While hovering, the same decision as clip drags runs for a clip that is not on the timeline yet
@@ -1941,8 +1963,8 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
 - **Dividers:** draggable splitters between preview and timeline (vertical), and between the preview and the
   side panel (horizontal) on wide windows; minimum and maximum sizes; double-tap a divider to reset; haptic tick
   at the default position.
-- **Track height (done; see the pinch and lane zoom notes in the timeline UI section above):** per-timeline vertical zoom (pinch with two fingers vertically or a +/- control) and a
-  choice of Small / Medium / Large lane heights; waveforms, thumbnails and keyframe diamonds scale.
+- **Track height (done; see 5.3):** a +/- control and a choice of Small / Medium / Large lane heights (no pinch: the vertical
+  zoom was removed); waveforms, thumbnails and keyframe diamonds scale.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
   toggle already exists.
