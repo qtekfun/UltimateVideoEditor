@@ -1,12 +1,9 @@
 package com.ultimatevideo.uveditor.ui.editor.tray
 
-import android.content.ClipData
 import android.content.Context
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +12,20 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,7 +61,6 @@ import com.ultimatevideo.uveditor.ui.editor.proxy.proxyStatusOf
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
-import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.geometry.CornerRadius
@@ -58,7 +68,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -83,12 +92,15 @@ private val BottomHalfHeight = 250.dp
 private val BottomFullHeight = 420.dp
 private val TileMinWidth = 96.dp
 private const val THUMBNAIL_PX = 256
+private const val CARRY_ALPHA = 0.45f
+private const val HINT_PREFS = "uveditor_tray"
+private const val HINT_KEY = "drag_hint_seen"
 
 /**
  * The media tray: the project's media, stickers, text templates and audio in one place. It is a bottom
- * panel on phones ([bottomPanel], with snap heights) and a side panel on wide windows. Tapping an asset adds
- * it at the playhead; long-pressing it drags it onto the timeline (see `TimelineSurfaceView`) or, within
- * the tray, to a new place in the order. Files dragged in from other apps land in the tray.
+ * panel on phones ([bottomPanel], with snap heights) and a side panel on wide windows. Tapping an asset (or its "+") adds
+ * it at the playhead; holding it for 300 ms picks it up and it follows the finger onto the timeline (see `TrayDrag.kt`)
+ * or, within the tray, to a new place in the order. Files dragged in from other apps land in the tray.
  */
 @Composable
 internal fun MediaTray(
@@ -100,8 +112,7 @@ internal fun MediaTray(
     bottomPanel: Boolean,
     onImport: () -> Unit,
     onAdd: (String) -> Unit,
-    onAssetDragStart: (String) -> Unit,
-    onReorder: (assetId: String, toIndex: Int) -> Unit,
+    drag: TrayDragController,
     onExternalFiles: (List<String>) -> Unit,
     onPickSticker: (String) -> Unit,
     onApplyTemplate: (templateId: String, text: String) -> Unit,
@@ -112,10 +123,13 @@ internal fun MediaTray(
     val context = LocalContext.current
     val externalTarget = remember(onExternalFiles) { externalFilesTarget(context, onExternalFiles) }
     Surface(
-        modifier = modifier.dragAndDropTarget(
-            shouldStartDragAndDrop = { event -> kindsOfMimes(event.mimeTypes().toList()).isNotEmpty() && event.isExternal() },
-            target = externalTarget,
-        ),
+        // While a tile is carried the bottom tray fades, so the timeline above it reads as the place to drop.
+        modifier = modifier
+            .graphicsLayer { alpha = if (bottomPanel && drag.isCarrying) CARRY_ALPHA else 1f }
+            .dragAndDropTarget(
+                shouldStartDragAndDrop = { event -> kindsOfMimes(event.mimeTypes().toList()).isNotEmpty() },
+                target = externalTarget,
+            ),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         // A bottom panel is mounted with wrapContentHeight: filling the height here would make it take
@@ -132,7 +146,7 @@ internal fun MediaTray(
                 Box(bodyModifier.fillMaxWidth()) {
                     when (state.tab) {
                         TrayTab.MEDIA, TrayTab.AUDIO -> AssetBody(
-                            state, onState, assets, items, isImporting, onImport, onAdd, onAssetDragStart, onReorder,
+                            state, onState, items, isImporting, onImport, onAdd, drag,
                         )
                         TrayTab.STICKERS -> Column(Modifier.verticalScroll(rememberScrollState())) { StickerChooser(onPickSticker) }
                         TrayTab.TEMPLATES -> Column(Modifier.verticalScroll(rememberScrollState())) { TextTemplateChooser(onApplyTemplate, userPresets = userPresets, onApplyPreset = onApplyPreset) }
@@ -142,9 +156,6 @@ internal fun MediaTray(
         }
     }
 }
-
-/** True for a drag that comes from another app (the tray's own drags carry the asset label). */
-private fun DragAndDropEvent.isExternal(): Boolean = toAndroidDragEvent().clipDescription?.isTrayAsset() != true
 
 private fun externalFilesTarget(context: Context, onFiles: (List<String>) -> Unit) = object : DragAndDropTarget {
     override fun onDrop(event: DragAndDropEvent): Boolean {
@@ -217,13 +228,11 @@ private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPan
 private fun AssetBody(
     state: TrayState,
     onState: (TrayState) -> Unit,
-    assets: List<MediaAssetDto>,
     items: List<TrayItem>,
     isImporting: Boolean,
     onImport: () -> Unit,
     onAdd: (String) -> Unit,
-    onAssetDragStart: (String) -> Unit,
-    onReorder: (assetId: String, toIndex: Int) -> Unit,
+    drag: TrayDragController,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -252,6 +261,7 @@ private fun AssetBody(
                 }
             }
         }
+        if (state.tab == TrayTab.MEDIA && items.isNotEmpty()) DragHint(drag)
         val importLabel = if (isImporting) "Importing…" else "Import"
         if (state.layout == TrayLayout.GRID) {
             LazyVerticalGrid(
@@ -262,14 +272,14 @@ private fun AssetBody(
             ) {
                 item(key = "import") { ImportTile(importLabel, !isImporting, onImport) }
                 items(items, key = { it.asset.id }) { item ->
-                    AssetTile(item, assets, onAdd, onAssetDragStart, onReorder, grid = true)
+                    AssetTile(item, onAdd, drag, grid = true)
                 }
             }
         } else {
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item(key = "import") { ImportTile(importLabel, !isImporting, onImport, row = true) }
                 items(items, key = { it.asset.id }) { item ->
-                    AssetTile(item, assets, onAdd, onAssetDragStart, onReorder, grid = false)
+                    AssetTile(item, onAdd, drag, grid = false)
                 }
             }
         }
@@ -290,14 +300,11 @@ private fun ImportTile(label: String, enabled: Boolean, onImport: () -> Unit, ro
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AssetTile(
     item: TrayItem,
-    assets: List<MediaAssetDto>,
     onAdd: (String) -> Unit,
-    onAssetDragStart: (String) -> Unit,
-    onReorder: (assetId: String, toIndex: Int) -> Unit,
+    drag: TrayDragController,
     grid: Boolean,
 ) {
     val context = LocalContext.current
@@ -305,41 +312,48 @@ internal fun AssetTile(
     val thumbnail by produceState<ImageBitmap?>(null, asset.id, asset.uri) {
         value = AssetThumbnails.load(context, asset, THUMBNAIL_PX)?.asImageBitmap()
     }
-    val reorderTarget = remember(asset.id, assets) {
-        object : DragAndDropTarget {
-            override fun onDrop(event: DragAndDropEvent): Boolean {
-                val draggedId = event.toAndroidDragEvent().clipData?.trayAssetId() ?: return false
-                if (draggedId == asset.id) return false
-                onReorder(draggedId, assets.indexOfFirst { it.id == asset.id })
-                return true
-            }
-        }
-    }
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    DisposableEffect(asset.id) { onDispose { drag.unregisterTile(asset.id) } }
+    val haptics = LocalHapticFeedback.current
     val dragShape = RoundedCornerShape(8.dp)
     val description = describe(item)
     val body = Modifier
+        .graphicsLayer { alpha = if (drag.carry?.assetId == asset.id) 0.35f else 1f }
         .clip(dragShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
-        .semantics { contentDescription = description }
-        .dragAndDropTarget(
-            shouldStartDragAndDrop = { event -> event.toAndroidDragEvent().clipDescription?.isTrayAsset() == true },
-            target = reorderTarget,
-        )
-        .dragAndDropSource(drawDragDecoration = { drawDragGhost(thumbnail) }) { _ ->
-            // Called when the long press turns into a drag: the editor prepares a clip for the asset.
-            onAssetDragStart(asset.id)
-            DragAndDropTransferData(ClipData.newPlainText(ASSET_DRAG_LABEL, asset.id))
+        .semantics {
+            contentDescription = description
+            customActions = listOf(CustomAccessibilityAction("Add to timeline") { onAdd(asset.id); true })
         }
-        // Must come after dragAndDropSource: the last modifier is the innermost and sees pointer events first.
-        // The drag source consumes the release of a short press, so with the click outside it a tap never reached
-        // the click (seen on the Huawei tablet: tapping a tile added nothing, only a long press drag did).
+        .onGloballyPositioned {
+            coordinates = it
+            drag.registerTile(asset.id, it)
+        }
         .clickable(role = Role.Button, onClickLabel = "Add at the playhead") { onAdd(asset.id) }
+        // After clickable, so it is the inner one and sees the finger first: once a tile is picked up it consumes the lift,
+        // which keeps the click from also adding the clip. Before the hold ends it consumes nothing.
+        .pointerInput(asset.id, item.missing) {
+            detectTrayDrag(
+                controller = drag,
+                enabled = !item.missing,
+                carryAt = { root ->
+                    val tile = coordinates?.takeIf { it.isAttached }
+                    val home = tile?.boundsInRoot()?.center ?: root
+                    TrayCarry(asset.id, item.name, durationLabel(asset), item.kind, thumbnail, root, home)
+                },
+                rootOf = { local -> coordinates?.takeIf { it.isAttached }?.localToRoot(local) ?: local },
+                onPickedUp = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+            )
+        }
     if (grid) {
-        Box(body.aspectRatio(1f)) { TileContent(item, thumbnail, showName = true) }
+        Box(body.aspectRatio(1f)) {
+            TileContent(item, thumbnail, showName = true)
+            AddButton(item, onAdd, Modifier.align(Alignment.TopEnd))
+        }
     } else {
         Row(body.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(56.dp)) { TileContent(item, thumbnail, showName = false) }
-            Column(Modifier.padding(horizontal = 8.dp)) {
+            Column(Modifier.padding(horizontal = 8.dp).weight(1f)) {
                 Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                 Text(
                     metaLine(item),
@@ -348,7 +362,51 @@ internal fun AssetTile(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            AddButton(item, onAdd, Modifier)
         }
+    }
+}
+
+/** The visible way to add a clip for people who do not know the hold-and-drag: puts it at the playhead, like a tap on the tile. */
+@Composable
+private fun AddButton(item: TrayItem, onAdd: (String) -> Unit, modifier: Modifier) {
+    if (item.missing) return
+    Box(
+        modifier = modifier
+            .padding(3.dp)
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(role = Role.Button, onClickLabel = "Add ${item.name} at the playhead") { onAdd(item.asset.id) }
+            // The tile already offers the "Add to timeline" action to screen readers; this button is the same thing for the eye.
+            .clearAndSetSemantics { },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("+", color = MaterialTheme.colorScheme.onPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** A one-line, dismissible hint above the tiles, shown until the first drag (or "Got it") and then never again. */
+@Composable
+private fun DragHint(drag: TrayDragController) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(HINT_PREFS, Context.MODE_PRIVATE) }
+    var seen by remember { mutableStateOf(prefs.getBoolean(HINT_KEY, false)) }
+    val dismiss = {
+        seen = true
+        prefs.edit().putBoolean(HINT_KEY, true).apply()
+    }
+    // Having dragged once, the person knows.
+    LaunchedEffect(drag.carry == null) { if (drag.carry != null) dismiss() }
+    if (seen) return
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Hold a clip and drag it onto the timeline",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = dismiss) { Text("Got it", fontSize = 12.sp) }
     }
 }
 
@@ -370,8 +428,10 @@ private fun TileContent(item: TrayItem, thumbnail: ImageBitmap?, showName: Boole
             )
         }
         Badge(durationLabel(item.asset), Alignment.BottomEnd)
-        colourBadge(item.asset)?.let { Badge(it, Alignment.TopStart, MaterialTheme.colorScheme.tertiary) }
-        if (item.usage > 0) Badge("×${item.usage}", Alignment.TopEnd, MaterialTheme.colorScheme.primary)
+        Row(Modifier.align(Alignment.TopStart)) {
+            colourBadge(item.asset)?.let { InlineBadge(it, MaterialTheme.colorScheme.tertiary) }
+            if (item.usage > 0) InlineBadge("×${item.usage}", MaterialTheme.colorScheme.primary)
+        }
         proxyStatusOf(item.asset.id).badgeLabel()?.let { Badge(it, Alignment.CenterEnd, MaterialTheme.colorScheme.secondary) }
         if (showName) {
             Text(
@@ -392,6 +452,16 @@ private fun TileContent(item: TrayItem, thumbnail: ImageBitmap?, showName: Boole
 }
 
 @Composable
+private fun InlineBadge(text: String, color: Color) {
+    Text(
+        text,
+        color = Color.White,
+        fontSize = 10.sp,
+        modifier = Modifier.padding(2.dp).background(color, RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
+    )
+}
+
+@Composable
 private fun BoxScope.Badge(
     text: String,
     align: Alignment,
@@ -404,13 +474,6 @@ private fun BoxScope.Badge(
         fontSize = 10.sp,
         modifier = Modifier.align(align).padding(2.dp).background(color, RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
     )
-}
-
-private fun DrawScope.drawDragGhost(thumbnail: ImageBitmap?) {
-    drawRoundRect(Color(0xCC1B1F2A), size = Size(size.width, size.height), cornerRadius = CornerRadius(12f, 12f))
-    if (thumbnail != null) {
-        drawImage(thumbnail, dstSize = IntSize(size.width.toInt(), size.height.toInt()), alpha = 0.85f)
-    }
 }
 
 internal fun durationLabel(asset: MediaAssetDto): String =
@@ -426,4 +489,4 @@ private fun metaLine(item: TrayItem): String = buildList {
 
 /** What a screen reader says for a tile, including how to use it. */
 internal fun describe(item: TrayItem): String =
-    "${item.name}. ${metaLine(item)}. Tap to add at the playhead, long press to drag onto the timeline."
+    "${item.name}. ${metaLine(item)}. Tap to add at the playhead, or hold and drag onto the timeline."

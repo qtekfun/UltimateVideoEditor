@@ -228,6 +228,41 @@ class TrayViewModelTest {
     }
 
     @Test
+    fun `a carried asset whose start is pulled onto a clip edge shows the snap line, and leaving or releasing clears it`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.TrayDragStart("snd"))
+        // The clip edge of the overlay clip at frame 300 is a target; 2 frames short of it the audio start snaps there.
+        h.move(298, lane = 2)
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint?.kind)
+        assertEquals(300L, h.state.dropHint?.startFrame)
+        assertEquals(300L, h.state.dragOverlay?.guideFrame)
+        assertEquals(emptyList<String>(), h.state.dragOverlay?.clipIds)
+
+        // Well away from every edge: no snap, no line.
+        h.move(150, lane = 2)
+        assertNull(h.state.dragOverlay)
+
+        h.move(298, lane = 2)
+        assertNotNull(h.state.dragOverlay)
+        h.vm.onIntent(EditorIntent.TrayDragLeave)
+        assertNull(h.state.dragOverlay)
+
+        h.move(298, lane = 2)
+        h.vm.onIntent(EditorIntent.TrayDragEnd(commit = true))
+        assertNull(h.state.dragOverlay)
+        assertEquals(300L, h.clips("a1").single().timelineStart.value)
+    }
+
+    @Test
+    fun `an insert on the base has no snap line`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.TrayDragStart("vid"))
+        h.move(104, lane = 1)
+        assertEquals(DropKind.INSERT, h.state.dropHint?.kind)
+        assertNull(h.state.dragOverlay)
+    }
+
+    @Test
     fun `an unknown asset cannot be dragged`() = runTest(dispatcher) {
         val h = harness()
         h.vm.onIntent(EditorIntent.TrayDragStart("nope"))
