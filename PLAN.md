@@ -106,6 +106,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] WP-V5 Project templates, transition and filter packs
 - [x] WP-M Multicam (SPECS 5.29)
 - [x] WP-R Release preparation: versioning, optional signing, R8 (release APK 6.6 MB), release workflow, local crash report, About, tips
+- [x] Toolbar guide: in-app searchable guide from one registry with a coverage test (SPECS 5.36), GitHub Pages site and release PDF workflows, About "Online guide" link
 - Removed from the plan by the privacy rule: ML cutout, subject-detecting reframe, neural voices, vocal isolation, speaker captions,
   speech recognition.
 
