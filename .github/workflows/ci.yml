@@ -40,6 +40,12 @@ jobs:
           cmake --build build/uv-host
           ctest --test-dir build/uv-host --output-on-failure
 
+      # The device smoke runner's assertions (scripts/qa/check-export.py) must be able to fail: good and broken files made with ffmpeg.
+      - name: QA assertions self-test
+        run: |
+          sudo apt-get install -y -qq ffmpeg
+          scripts/qa/selftest.sh
+
   android:
     name: Unit tests and debug APK
     runs-on: ubuntu-latest
@@ -60,6 +66,10 @@ jobs:
           "$SDKMANAGER" "platforms;android-37.0" "ndk;29.0.14206865" "cmake;3.31.6"
 
       - uses: gradle/actions/setup-gradle@v4
+
+      # ffmpeg writes the PCM-in-MOV files that MovAudioScanTableTest scans (the test skips itself without it).
+      - name: Install ffmpeg for the PCM sound-track scan test
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Unit tests and debug build
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain --max-workers=4
