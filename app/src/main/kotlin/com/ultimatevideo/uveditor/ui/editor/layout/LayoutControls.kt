@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.ultimatevideo.uveditor.engine.timeline.WaveformScale
 import com.ultimatevideo.uveditor.ui.editor.EditorIcons
 import com.ultimatevideo.uveditor.ui.editor.ToolButton
 
@@ -155,6 +156,17 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                     description = "Taller tracks",
                     enabled = state.laneHeight != LaneHeight.LARGE,
                 ) { onAction(LayoutAction.StepLaneHeight(1)) }
+            }
+
+            Text("Waveform scale", style = MaterialTheme.typography.labelLarge)
+            ChipRow {
+                for (scale in WaveformScale.entries) {
+                    FilterChip(
+                        selected = controller.waveformScale == scale,
+                        onClick = { controller.chooseWaveformScale(scale) },
+                        label = { Text(scale.label) },
+                    )
+                }
             }
 
             for (panel in Panel.entries) {

@@ -12,15 +12,16 @@ import kotlin.math.min
 
 /**
  * Reads the waveform peak cache the native service writes (`waveforms/<assetId>.peaks`, format "UVPK"
- * v1, see `audio/waveform_peaks.h`) and turns its finest level into a loudness envelope for beat
+ * v1 and v2, see `audio/waveform_peaks.h`) and turns its finest level into a loudness envelope for beat
  * detection, so analysis never decodes audio a second time.
  */
 object PeaksFile {
     private const val MAGIC = 0x4B505655
-    private const val VERSION = 1
+    private val SUPPORTED_VERSIONS = 1..2
     private const val HEADER_BYTES = 12 + 8 + 4
     private const val LEVEL_HEADER_BYTES = 8
     private const val MAX_LEVEL_COUNT = 16
+    private const val MIN_ENVELOPE_SAMPLES_PER_PEAK = 64
     private const val MAX_PEAKS = 1 shl 28
     private const val FULL_SCALE = 32768f
 
@@ -45,18 +46,32 @@ object PeaksFile {
         val header = ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
         if (!readFully(raf, header)) return null
         header.flip()
-        if (header.getInt() != MAGIC || header.getInt() != VERSION) return null
+        // v1 has min/max pairs per level; v2 adds an RMS block after the pairs of each level of 64 samples per peak or more.
+        // Only that level's pairs are read here, laid out the same in both.
+        if (header.getInt() != MAGIC || header.getInt() !in SUPPORTED_VERSIONS) return null
         val sampleRate = header.getInt()
         header.getLong() // total frames
         val levelCount = header.getInt()
         if (sampleRate <= 0 || levelCount <= 0 || levelCount > MAX_LEVEL_COUNT) return null
 
-        val levelHeader = ByteBuffer.allocate(LEVEL_HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
-        if (!readFully(raf, levelHeader)) return null
-        levelHeader.flip()
-        val samplesPerPeak = levelHeader.getInt()
-        val count = levelHeader.getInt()
-        if (samplesPerPeak <= 0 || count < 0 || count > MAX_PEAKS) return null
+        // The first level of 64 samples per peak or more: finer levels (16, added for the timeline waveform) are skipped, they
+        // carry no RMS block, so each is just its header and count * 4 bytes of pairs.
+        var levelStart = HEADER_BYTES.toLong()
+        var samplesPerPeak = 0
+        var count = 0
+        var index = 0
+        while (true) {
+            if (index++ >= levelCount) return null
+            val levelHeader = ByteBuffer.allocate(LEVEL_HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+            raf.seek(levelStart)
+            if (!readFully(raf, levelHeader)) return null
+            levelHeader.flip()
+            samplesPerPeak = levelHeader.getInt()
+            count = levelHeader.getInt()
+            if (samplesPerPeak <= 0 || count < 0 || count > MAX_PEAKS) return null
+            if (samplesPerPeak >= MIN_ENVELOPE_SAMPLES_PER_PEAK) break
+            levelStart += LEVEL_HEADER_BYTES + count * 4L
+        }
 
         val binsPerSecond = sampleRate.toDouble() / samplesPerPeak
         val firstBin = max(0L, (startMicros * binsPerSecond / 1_000_000.0).toLong())
@@ -65,7 +80,7 @@ object PeaksFile {
 
         val bins = (lastBin - firstBin).toInt()
         val data = ByteBuffer.allocate(bins * 4).order(ByteOrder.LITTLE_ENDIAN)
-        raf.seek(HEADER_BYTES + LEVEL_HEADER_BYTES + firstBin * 4)
+        raf.seek(levelStart + LEVEL_HEADER_BYTES + firstBin * 4)
         if (!readFully(raf, data)) return null
         data.flip()
         val values = FloatArray(bins)
