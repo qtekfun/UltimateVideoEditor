@@ -1,12 +1,14 @@
 package com.ultimatevideo.uveditor.ui.frame
 
 import androidx.lifecycle.viewModelScope
-import com.ultimatevideo.uveditor.domain.stillframe.FrameFormat
-import com.ultimatevideo.uveditor.domain.stillframe.FrameSource
+import com.ultimatevideo.uveditor.domain.stillframe.FrameContent
+import com.ultimatevideo.uveditor.domain.stillframe.JPEG_QUALITY
+import com.ultimatevideo.uveditor.domain.stillframe.frameContent
 import com.ultimatevideo.uveditor.domain.stillframe.frameFileName
+import com.ultimatevideo.uveditor.domain.stillframe.frameNotice
+import com.ultimatevideo.uveditor.domain.stillframe.frameTarget
 import com.ultimatevideo.uveditor.engine.export.ExportException
 import com.ultimatevideo.uveditor.mvi.MviViewModel
-import com.ultimatevideo.uveditor.ui.editor.formatTimecode
 import com.ultimatevideo.uveditor.ui.export.ExportAvailability
 import com.ultimatevideo.uveditor.ui.export.ExportJobHost
 import com.ultimatevideo.uveditor.ui.export.exportAvailability
@@ -16,10 +18,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.IOException
+import java.time.LocalDateTime
 
 /**
- * Drives the "Save frame as image" dialog (SPECS 5.35): settings, the document picker round trip, drawing and encoding off
- * the main thread, and the result. Refuses while an export runs: only one engine job at a time touches the decoders.
+ * "Save frame as image" in one tap (SPECS 5.35): draws the frame under the playhead at the project size with the exporter's
+ * engine, encodes a JPEG and stores it in Pictures/ultimateVE. No dialog, no options; the outcome is shown as snackbars.
+ * Refuses while an export runs: only one engine job at a time touches the hardware decoders.
  */
 class StillFrameViewModel(
     private val renderer: FrameRenderer,
@@ -28,32 +32,19 @@ class StillFrameViewModel(
     private val exports: ExportJobHost,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val projectId: String = "",
+    private val now: () -> LocalDateTime = { LocalDateTime.now() },
 ) : MviViewModel<StillFrameState, StillFrameIntent, StillFrameEffect>(StillFrameState()) {
 
-    private var input: StillFrameInput? = null
     private var job: Job? = null
+    private var lastSaved: SavedFrame? = null
 
     override fun onIntent(intent: StillFrameIntent) {
         when (intent) {
-            is StillFrameIntent.Open -> open(intent.input)
-            StillFrameIntent.Dismiss -> dismiss()
-            StillFrameIntent.ChooseLocation -> chooseLocation()
-            is StillFrameIntent.LocationChosen -> intent.uri?.let(::save)
-            StillFrameIntent.Cancel -> cancel()
-            StillFrameIntent.Back -> if (!state.value.isWorking) reduce { copy(phase = StillFramePhase.Configuring) }
-            StillFrameIntent.Share -> share()
-            else -> reduce { edited(intent) }
+            is StillFrameIntent.Save -> save(intent.input)
+            StillFrameIntent.Cancel -> if (state.value.isSaving) job?.cancel()
+            StillFrameIntent.Share -> lastSaved?.let { emit(StillFrameEffect.ShareFile(it.uri)) }
+            StillFrameIntent.Open -> lastSaved?.let { emit(StillFrameEffect.OpenFile(it.uri)) }
         }
-    }
-
-    private fun open(newInput: StillFrameInput) {
-        if (state.value.isWorking) return
-        refusalWhileExporting()?.let {
-            emit(StillFrameEffect.Message(it))
-            return
-        }
-        input = newInput
-        reduce { openedState(newInput, formatTimecode(newInput.frame, newInput.fps)) }
     }
 
     private fun refusalWhileExporting(): String? = when (val availability = exportAvailability(exports.state.value, projectId)) {
@@ -62,128 +53,68 @@ class StillFrameViewModel(
         ExportAvailability.RunningHere -> "Cannot save a frame while this project is exporting. Wait for the export to finish."
     }
 
-    private fun dismiss() {
-        if (state.value.isWorking) return // Cancel is the way out of a running save
-        input = null
-        reduce { copy(visible = false, phase = StillFramePhase.Configuring) }
-    }
-
-    private fun chooseLocation() {
-        val current = state.value
-        if (current.phase !is StillFramePhase.Configuring && current.phase !is StillFramePhase.Failed) return
+    private fun save(input: StillFrameInput) {
+        if (state.value.isSaving) return
         refusalWhileExporting()?.let {
-            reduce { copy(phase = StillFramePhase.Failed(it)) }
+            emit(StillFrameEffect.Message(it))
             return
         }
-        reduce { copy(phase = StillFramePhase.Configuring) }
-        emit(StillFrameEffect.LaunchCreateDocument(frameFileName(current.projectName, current.timecode, current.format), current.format.mime))
-    }
-
-    private fun cancel() {
-        if (state.value.isWorking) job?.cancel()
-    }
-
-    private fun share() {
-        val phase = state.value.phase
-        if (phase is StillFramePhase.Saved) emit(StillFrameEffect.ShareFile(phase.uri, state.value.format.mime))
-    }
-
-    private fun save(uri: String) {
-        val source = input ?: return
-        val current = state.value
-        if (current.isWorking) return
-        refusalWhileExporting()?.let {
-            sink.delete(uri)
-            reduce { copy(phase = StillFramePhase.Failed(it)) }
+        val content = frameContent(input.timeline, input.frame)
+        if (content == FrameContent.EMPTY) {
+            emit(StillFrameEffect.Message("There is nothing to save yet. Add a clip to the timeline."))
             return
         }
-        val timeline = frameTimeline(current.source, source.timeline, source.selectedClipId)
-        if (timeline == null) {
-            sink.delete(uri)
-            reduce { copy(phase = StillFramePhase.Failed("Select a clip under the playhead to save only that clip.")) }
-            return
-        }
-        reduce { copy(phase = StillFramePhase.Working) }
-        val plan = current.renderPlan
-        val target = current.target
-        val limit = if (current.format == FrameFormat.JPEG) current.sizeLimit else null
+        val target = frameTarget(input.projectWidth, input.projectHeight)
+        val name = frameFileName(input.projectName, input.frame, input.fps, now())
+        reduce { copy(phase = StillFramePhase.Saving) }
+        emit(StillFrameEffect.Started)
         job = viewModelScope.launch(ioDispatcher) {
             try {
                 val frame = renderer.render(
                     FrameRenderJob(
-                        timeline = timeline,
-                        assets = source.assets,
-                        fps = source.fps,
-                        projectWidth = source.projectWidth,
-                        projectHeight = source.projectHeight,
-                        frame = source.frame,
-                        plan = plan,
-                        missingAssetIds = source.missingAssetIds,
+                        timeline = input.timeline,
+                        assets = input.assets,
+                        fps = input.fps,
+                        projectWidth = input.projectWidth,
+                        projectHeight = input.projectHeight,
+                        frame = input.frame,
+                        width = target.size.width,
+                        height = target.size.height,
+                        missingAssetIds = input.missingAssetIds,
                     ),
                 )
-                val encoded = encoder.encode(frame, current.format, current.jpegQuality, limit)
-                sink.write(uri, encoded.bytes)
-                val notes = notesFor(current, plan.shrunk, target.reduced, encoded, limit)
-                reduce {
-                    copy(
-                        phase = StillFramePhase.Saved(
-                            uri = uri,
-                            fileName = sink.displayName(uri) ?: frameFileName(projectName, timecode, format),
-                            width = frame.width,
-                            height = frame.height,
-                            bytes = encoded.bytes.size.toLong(),
-                            quality = encoded.quality,
-                            notes = notes,
-                        ),
-                    )
+                val bytes = encoder.encodeJpeg(frame, JPEG_QUALITY)
+                val saved = sink.saveJpeg(name, bytes)
+                val notes = buildList {
+                    if (target.reduced) add("The project is larger than 4096 px: saved at ${target.size.width} x ${target.size.height}.")
+                    frameNotice(content)?.let(::add)
                 }
+                val result = SavedFrame(saved.uri, saved.displayName, saved.folder, frame.width, frame.height, notes)
+                lastSaved = result
+                reduce { copy(phase = StillFramePhase.Saved(result)) }
+                emit(StillFrameEffect.Saved(result))
             } catch (e: CancellationException) {
-                sink.delete(uri)
-                reduce { copy(phase = StillFramePhase.Configuring) }
+                reduce { copy(phase = StillFramePhase.Idle) }
+                emit(StillFrameEffect.Message("Saving the frame was cancelled."))
                 throw e
             } catch (e: StillFrameException) {
-                failed(uri, e.message ?: "The picture could not be made.")
+                failed(e.message ?: "The picture could not be made.")
             } catch (e: ExportException) {
-                failed(uri, "The picture could not be drawn: ${e.message}")
+                failed("The picture could not be drawn: ${e.message}")
             } catch (e: IOException) {
-                failed(uri, "The file could not be written: ${e.message}")
+                failed("The picture could not be saved: ${e.message}")
             } catch (e: OutOfMemoryError) {
-                failed(uri, "Not enough memory for a picture this large. Choose a smaller size.")
+                failed("Not enough memory for a picture this large.")
             }
         }
     }
 
-    /** A failed save never leaves an empty file behind; when the provider refuses to delete it, the message says so. */
-    private fun failed(uri: String, message: String) {
-        val removed = sink.delete(uri)
-        val extra = if (removed) "" else " An empty file may remain: ${sink.displayName(uri) ?: "the chosen file"}."
-        reduce { copy(phase = StillFramePhase.Failed(message + extra)) }
+    private fun failed(message: String) {
+        reduce { copy(phase = StillFramePhase.Failed(message)) }
+        emit(StillFrameEffect.Message(message))
     }
 
     override fun onCleared() {
         job?.cancel()
     }
-}
-
-/** What the saved file's result line should add: size limits, lowered quality, a reduced size. */
-internal fun notesFor(state: StillFrameState, surfaceShrunk: Boolean, targetReduced: Boolean, encoded: EncodedFrame, limit: Long?): List<String> {
-    val notes = ArrayList<String>()
-    if (targetReduced || surfaceShrunk) notes += "The picture was made smaller than asked: the limit is 4096 px."
-    when (state.format) {
-        FrameFormat.JPEG -> {
-            val used = encoded.quality
-            if (limit != null && used != null && used < state.jpegQuality) notes += "JPEG quality lowered to $used to stay under 2 MB."
-            if (limit != null && !encoded.fitsLimit) notes += "The file is still over 2 MB at the lowest quality. Choose a smaller size."
-        }
-        FrameFormat.PNG -> if (state.sizeLimit?.let { encoded.bytes.size > it } == true) {
-            notes += "The PNG is over 2 MB, which YouTube refuses for thumbnails. Save it as JPEG."
-        }
-    }
-    return notes
-}
-
-/** The kind of picture the dialog describes for its source choice. */
-internal fun FrameSource.describe(): String = when (this) {
-    FrameSource.WHOLE_PICTURE -> "Whole picture"
-    FrameSource.SELECTED_CLIP -> "Selected clip only"
 }
