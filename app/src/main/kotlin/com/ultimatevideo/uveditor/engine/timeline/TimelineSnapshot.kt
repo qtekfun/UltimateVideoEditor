@@ -92,6 +92,41 @@ data class SnapshotLabel(val clipKey: Long, val text: String) {
 }
 
 /**
+ * The sound shaping drawn on the clip with key [clipKey]: its fade ramps ([fadeInFrames], [fadeOutFrames], shaped by
+ * [fadeShape] = a `FadeShape` code) and its volume curve [points]. An [editable] clip also shows the circles and dots to grab.
+ * [baseDb] is the static gain, where the curve line sits while it has no points.
+ */
+data class SnapshotShaping(
+    val clipKey: Long,
+    val fadeInFrames: Long = 0,
+    val fadeOutFrames: Long = 0,
+    val fadeShape: Int = 0,
+    val editable: Boolean = false,
+    val baseDb: Float = 0f,
+    val points: List<SnapshotCurvePoint> = emptyList(),
+) {
+    init {
+        require(fadeInFrames >= 0 && fadeOutFrames >= 0) { "clip $clipKey has a negative fade" }
+        require(fadeShape in 0..3) { "clip $clipKey has an invalid fade shape" }
+        require(baseDb.isFinite()) { "clip $clipKey has a non-finite gain" }
+        require(points.size <= MAX_POINTS) { "clip $clipKey has too many volume points" }
+        require(points.zipWithNext().all { (a, b) -> a.frame < b.frame } && points.all { it.frame >= 0 && it.db.isFinite() }) {
+            "clip $clipKey has unordered or invalid volume points"
+        }
+    }
+
+    val flags: Int get() = fadeShape or (if (editable) EDITABLE_BIT else 0)
+
+    companion object {
+        const val EDITABLE_BIT = 4
+        const val MAX_POINTS = 4096
+    }
+}
+
+/** A point of a volume curve: [db] at [frame] frames after the clip's start. */
+data class SnapshotCurvePoint(val frame: Long, val db: Float)
+
+/**
  * A ruler marker at timeline [frame]; [beat] marks one found by beat detection rather than placed by hand.
  * [colorCode] is 0 for none or 1..6 for red, orange, yellow, green, blue, purple (the `MarkerColor` order plus one);
  * [hasNote] draws a small note indicator. Both travel in the marker's last wire word (see `marker_style.h`).
@@ -130,6 +165,8 @@ data class TimelineSnapshot(
     val retimes: List<SnapshotRetime> = emptyList(),
     val markers: List<SnapshotMarker> = emptyList(),
     val labels: List<SnapshotLabel> = emptyList(),
+    /** Fades and volume curves to draw, at most one per clip (wire version 9). */
+    val shaping: List<SnapshotShaping> = emptyList(),
     /**
      * Per-lane flags for the lane headers, one entry per track (or empty for none): [TRACK_MUTED] and [TRACK_SOLO] mark
      * audio lanes. They travel in the high bits of the track's type word, so there is no version bump.
@@ -150,6 +187,8 @@ data class TimelineSnapshot(
             }
         }
         require(labels.mapTo(HashSet()) { it.clipKey }.size == labels.size) { "a clip has two labels" }
+        for (shape in shaping) require(shape.clipKey in clipKeys) { "sound shaping references missing clip ${shape.clipKey}" }
+        require(shaping.mapTo(HashSet()) { it.clipKey }.size == shaping.size) { "a clip has two sound shapings" }
         for (retime in retimes) {
             require(retime.clipKey in clipKeys) { "a retime references missing clip ${retime.clipKey}" }
             require(retime.sourceSpanFrames >= 1) { "clip ${retime.clipKey} has an empty source span" }
@@ -179,7 +218,8 @@ data class TimelineSnapshot(
         val size = HEADER_BYTES + tracks.size * TRACK_BYTES + clips.size * CLIP_BYTES +
             TRAILER_BYTES + transitions.size * TRANSITION_BYTES + KEYFRAME_TRAILER_BYTES + keyframes.size * KEYFRAME_BYTES +
             RETIME_TRAILER_BYTES + retimes.size * RETIME_BYTES + MARKER_TRAILER_BYTES + markers.size * MARKER_BYTES +
-            LABEL_TRAILER_BYTES + labels.sumOf { LABEL_FIXED_BYTES + paddedLength(it.text) }
+            LABEL_TRAILER_BYTES + labels.sumOf { LABEL_FIXED_BYTES + paddedLength(it.text) } +
+            SHAPING_TRAILER_BYTES + shaping.sumOf { SHAPING_BYTES + it.points.size * SHAPING_POINT_BYTES }
         val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(MAGIC)
         buffer.putInt(VERSION)
@@ -236,13 +276,28 @@ data class TimelineSnapshot(
             buffer.put(bytes)
             repeat(paddedLength(label.text) - bytes.size) { buffer.put(0) }
         }
+        buffer.putInt(shaping.size)
+        for (s in shaping) {
+            buffer.putLong(s.clipKey)
+            buffer.putInt(s.fadeInFrames.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            buffer.putInt(s.fadeOutFrames.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            buffer.putInt(s.flags)
+            buffer.putInt(s.points.size)
+            buffer.putFloat(s.baseDb)
+            buffer.putInt(0)
+            for (p in s.points) {
+                buffer.putLong(p.frame)
+                buffer.putFloat(p.db)
+                buffer.putInt(0)
+            }
+        }
         buffer.flip()
         return buffer
     }
 
     companion object {
         const val MAGIC = 0x53545655 // "UVTS"
-        const val VERSION = 8
+        const val VERSION = 9
         const val HEADER_BYTES = 24
         const val TRACK_BYTES = 4
 
@@ -274,6 +329,11 @@ data class TimelineSnapshot(
         /** The label count that follows the markers (version 7); each label is [LABEL_FIXED_BYTES] plus its text padded to 4. */
         const val LABEL_TRAILER_BYTES = 4
         const val LABEL_FIXED_BYTES = 12
+
+        /** The shaping count that follows the labels (version 9); each entry is [SHAPING_BYTES] plus [SHAPING_POINT_BYTES] per point. */
+        const val SHAPING_TRAILER_BYTES = 4
+        const val SHAPING_BYTES = 32
+        const val SHAPING_POINT_BYTES = 16
 
         /** Length of [text] in UTF-8 padded with zeros to a multiple of 4, as it is written. */
         fun paddedLength(text: String): Int = (SnapshotLabel.utf8Length(text) + 3) / 4 * 4

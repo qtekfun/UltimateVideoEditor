@@ -918,6 +918,15 @@ private fun EditorMain(
             override fun onMarquee(clipKeys: List<Long>) = viewModel.onIntent(SelectionIntent.Marquee(clipKeys))
         }
     }
+    val shaping = remember(holder, viewModel) {
+        object : TimelineShaping {
+            override fun canDrag(hit: TimelineHit) = AudioShapeGesture.isShapeHit(hit.kind) && hit.clipKey == holder.value.selectedClipId?.let(viewModel::clipKey)
+            override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(AudioShapeIntent.Start(hit))
+            override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(AudioShapeIntent.Move(hit))
+            override fun onDragEnd(commit: Boolean) = viewModel.onIntent(AudioShapeIntent.End(commit))
+            override fun onDoubleTap(hit: TimelineHit) = viewModel.onIntent(AudioShapeIntent.DoubleTap(hit))
+        }
+    }
     if (state.mixerOpen) MixerSheet(state) { viewModel.onIntent(it) }
     QuickEditSheets(state) { viewModel.onIntent(it) }
     if (state.multicam.open) {
@@ -1192,6 +1201,7 @@ private fun EditorMain(
                         editing = editing,
                         dropTarget = dropTarget,
                         selecting = selecting,
+                        shaping = shaping,
                         modifier = Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
                             trayDropBounds?.bounds = coordinates.boundsInRoot().let { RootBounds(it.left, it.top, it.right, it.bottom) }
                         },

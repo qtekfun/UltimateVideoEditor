@@ -82,6 +82,8 @@ data class ClipAudioDto(
     val targetLufs: Double? = null,
     /** A voice effect: its preset and slider values; absent for a clip without one. */
     val voice: VoiceFxDto? = null,
+    /** Shape of the two fade handles: `equal-power` (absent), `linear` or `logarithmic`; an unknown name reads as equal power. */
+    val fadeShape: String? = null,
 )
 
 /** A voice effect (`domain/VoiceFx`): [preset] is the lower-case preset name, [values] one value per slider. */

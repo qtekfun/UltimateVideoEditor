@@ -116,6 +116,8 @@ internal object ToolbarGuide {
         GuideGesture("preview-transform", "Drag, pinch and twist on the preview", "Moves, scales and rotates the selected clip (or the selected title layer) while the playhead is on it."),
         GuideGesture("divider", "Drag a divider, double tap it to reset", "The pill under the preview (and the bar beside a side panel) resizes the areas. A short vibration marks the default."),
         GuideGesture("tray-drag", "Hold a tile in the media tray, then drag", "Lifts the item and carries it onto the timeline; an indicator shows what releasing will do. Release outside the timeline to cancel."),
+        GuideGesture("audio-fades", "Drag the white circles on an audio clip", "Select an audio clip: a white circle sits in each top corner. Drag the left one right for a fade in, the right one left for a fade out. The shaded ramp shows the curve; the Sound tools sheet sets the shape (equal power, linear or logarithmic) and the exact length."),
+        GuideGesture("volume-curve", "Double tap an audio clip, drag its dots", "Double tap the selected audio clip to add a volume point where you tapped. Drag a dot up or down for louder or quieter (the bottom edge is silent, 0 dB sticks), and sideways to move it in time. Double tap a dot to remove it. The Sound tools sheet has Add point at playhead and Clear."),
         GuideGesture("tool-row-scroll", "Swipe the tool row sideways", "The tool row scrolls when the window is too narrow for every button."),
     )
 

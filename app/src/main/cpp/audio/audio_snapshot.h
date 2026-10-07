@@ -15,7 +15,8 @@
 //     audio: i32 trackIndex | f32 pan | i32 userFadeInFrames | i32 userFadeOutFrames |
 //            f32 highPassHz | f32 lowPassHz | 5 x (f32 freqHz, f32 gainDb, f32 q) EQ bands (low shelf,
 //            3 peaking, high shelf) | f32 denoiseStrength (0 = off) | i32 profileBins (0 or 513) |
-//            u32 laneCount (version 5; 0 in version 4, where this was reserved)
+//            u32 laneCount (version 5; 0 in version 4, where this was reserved): bits 0..15 the lane count,
+//            bits 16..17 the shape of the two user fades (core/fade_math.h; 0 = equal power, the default)
 //   knots (16 bytes each, after all clips, in clip order): i64 frame | f64 sourceFrame
 //   noise profiles (profileBins x f32 each, after the knots, for the clips that have one, in clip order)
 //   voice blocks (version 6, after the automation lanes, one 64-byte block per clip in clip order): 16 x f32 =
@@ -57,6 +58,9 @@
 
 namespace uv::audio {
 
+constexpr uint32_t kAudioSnapshotLaneCountMask = 0xFFFF;
+constexpr uint32_t kAudioSnapshotFadeShapeShift = 16;
+constexpr uint32_t kAudioSnapshotFadeShapeMask = 3;
 constexpr uint32_t kAudioSnapshotMagic = 0x53415655;  // "UVAS"
 constexpr uint32_t kAudioSnapshotVersion = 7;
 constexpr uint32_t kAudioSnapshotMinVersion = 4;  // version 4 has no automation lanes, 4 and 5 no voice blocks, 4 to 6 no voice lanes; all still parse
@@ -121,6 +125,7 @@ struct AudioClipDesc {
     float pan = 0.0f;
     int64_t userFadeInFrames = 0;
     int64_t userFadeOutFrames = 0;
+    int32_t fadeShape = 0;  // core::FadeShape of both user fades (0 equal power, 1 linear, 2 logarithmic)
     dsp::EqParams eq;
     float denoiseStrength = 0.0f;       // 0 = off
     std::vector<float> noiseProfile;    // kDenoiseBins magnitudes when denoiseStrength > 0

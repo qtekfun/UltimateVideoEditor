@@ -93,7 +93,8 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         profilesTotal += static_cast<uint64_t>(bins);
         // Version 4 left this field reserved (always 0); from version 5 it counts the clip's automation lanes.
         if (version >= 5) {
-            laneCounts[i] = readLe<uint32_t>(p + 64 + 92);
+            // Bits 0..15 count the lanes; bits 16..17 are the shape of the clip's own fades (core/fade_math.h).
+            laneCounts[i] = readLe<uint32_t>(p + 64 + 92) & kAudioSnapshotLaneCountMask;
             if (laneCounts[i] > kMaxClipLanes) return Status::BadSnapshot;
         }
     }
@@ -147,6 +148,9 @@ core::Status parseAudioSnapshot(const uint8_t* data, size_t size, AudioSnapshotD
         c.pan = readLe<float>(a + 4);
         c.userFadeInFrames = readLe<int32_t>(a + 8);
         c.userFadeOutFrames = readLe<int32_t>(a + 12);
+        if (version >= 5) {
+            c.fadeShape = static_cast<int32_t>((readLe<uint32_t>(a + 92) >> kAudioSnapshotFadeShapeShift) & kAudioSnapshotFadeShapeMask);
+        }
         c.eq.highPassHz = readLe<float>(a + 16);
         c.eq.lowPassHz = readLe<float>(a + 20);
         for (int b = 0; b < dsp::kEqBands; ++b) {

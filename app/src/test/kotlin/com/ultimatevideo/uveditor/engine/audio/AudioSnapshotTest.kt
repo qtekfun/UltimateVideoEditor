@@ -212,4 +212,17 @@ class AudioSnapshotTest {
         assertEquals(AudioErrorCode.Unknown, AudioErrorCode.fromValue(12345))
         assertEquals(AudioErrorCode.CodecError, AudioException(5, "x").errorCode)
     }
+
+    @Test
+    fun `the fade shape rides in bits 16 and 17 of the lane count word`() {
+        val lane = AutomationLane(AutoParam.GAIN_DB, listOf(AutoPoint(0, 0f), AutoPoint(10, -6f)))
+        val spec = clip(duration = 60).copy(userFadeInFrames = 5, fadeShape = 2, automation = listOf(lane))
+        val buffer = AudioSnapshot(30, 1, listOf(spec)).encode()
+        val word = buffer.getInt(clipsAt() + 64 + 92)
+        assertEquals(1, word and 0xFFFF) // one lane
+        assertEquals(2, (word ushr AudioSnapshot.FADE_SHAPE_SHIFT) and 3)
+        // The default shape leaves the word as it always was.
+        assertEquals(0, AudioSnapshot(30, 1, listOf(clip(duration = 60))).encode().getInt(clipsAt() + 64 + 92))
+        assertThrows(IllegalArgumentException::class.java) { clip(duration = 10).copy(fadeShape = 4) }
+    }
 }

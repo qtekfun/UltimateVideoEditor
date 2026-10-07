@@ -44,6 +44,8 @@ import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.EqBand
+import com.ultimatevideo.uveditor.domain.FadeShape
+import com.ultimatevideo.uveditor.domain.paramKeys
 import com.ultimatevideo.uveditor.domain.ParamIds
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
@@ -70,7 +72,8 @@ import kotlin.math.roundToInt
  */
 @Composable
 internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorIntent) -> Unit) {
-    var expanded by remember(clip.id) { mutableStateOf(false) }
+    // Fades and the volume curve are what people look for first on an audio lane, so its clips open the tools.
+    var expanded by remember(clip.id) { mutableStateOf(state.timeline.trackOfClip(clip.id)?.type == TrackType.AUDIO) }
     val audio = clip.audio
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text("Sound tools", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
@@ -97,12 +100,41 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
     // Fade handles, in seconds.
     val fpsValue = state.fps.num.toDouble() / state.fps.den
     val maxFade = min(clip.durationFrames.toDouble(), fpsValue * MAX_FADE_SECONDS).coerceAtLeast(1.0).toFloat()
-    InspectorSlider("Fade in", audio.fadeInFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, seconds(audio.fadeInFrames / fpsValue), onIntent, end) {
+    InspectorSlider("Fade in", audio.fadeInFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, fadeReadout(audio.fadeInFrames, fpsValue), onIntent, end) {
         change(audio.copy(fadeInFrames = it.roundToInt().toLong()))
     }
-    InspectorSlider("Fade out", audio.fadeOutFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, seconds(audio.fadeOutFrames / fpsValue), onIntent, end) {
+    InspectorSlider("Fade out", audio.fadeOutFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, fadeReadout(audio.fadeOutFrames, fpsValue), onIntent, end) {
         change(audio.copy(fadeOutFrames = it.roundToInt().toLong()))
     }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        Text("Fade curve", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        for (shape in FadeShape.entries) {
+            FilterChip(
+                selected = audio.fadeShape == shape,
+                onClick = { commit(audio.copy(fadeShape = shape)) },
+                label = { Text(shape.label) },
+                modifier = Modifier.semantics { contentDescription = "Fade curve ${shape.label}" },
+            )
+        }
+    }
+
+    // Volume curve: points on the clip (drawn over its waveform), also edited on the timeline.
+    val curvePoints = clip.paramKeys(ParamIds.GAIN_DB).size
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            if (curvePoints == 0) "Volume curve" else "Volume curve ($curvePoints points)",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { onIntent(AudioShapeIntent.AddPointAtPlayhead) }) { Text("Add point at playhead") }
+        TextButton(onClick = { onIntent(EditorIntent.ClearParamTrack(ParamIds.GAIN_DB)) }, enabled = curvePoints > 0) { Text("Clear") }
+    }
+    Text(
+        "On the timeline: drag the white circles at the top corners of the clip for the fades, double tap the clip to add a " +
+            "volume point, drag a point to shape the volume, double tap a point to remove it.",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 
     // EQ.
     EqControls(audio, ::change, ::commit, onIntent)
@@ -559,6 +591,9 @@ internal fun panReadout(pan: Double): String = when {
 internal fun signedDb(db: Double): String = String.format(Locale.US, "%+.1f", db).let { if (db == 0.0) "0.0" else it }
 
 internal fun seconds(value: Double): String = String.format(Locale.US, "%.1f s", value)
+
+/** A fade length as the sheet shows it: seconds to the hundredth and the exact frame count. */
+internal fun fadeReadout(frames: Long, fps: Double): String = String.format(Locale.US, "%.2f s (%d f)", frames / fps, frames)
 
 internal fun hertz(hz: Double): String = if (hz >= KILO) String.format(Locale.US, "%.0fk", hz / KILO) else String.format(Locale.US, "%.0f", hz)
 

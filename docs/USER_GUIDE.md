@@ -244,7 +244,25 @@ panel on the left.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
 - **Pinch** on the timeline to zoom the time axis (only the time axis, whichever way the fingers spread). The lane height does not change by gesture: the Layout sheet's Small / Medium / Large chips set it.
 - **Drag** on an empty area to scroll, **fling** to coast.
+- On a selected **audio clip**: **drag the white circles** in its corners for fades, **double tap** it to add a volume point, **drag a dot** to shape the volume (see [Fades and volume on an audio clip](#fades-and-volume-on-an-audio-clip)).
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
+
+### Fades and volume on an audio clip
+
+Select a clip on an **audio lane**. Two **white circles** appear in its top corners and the clip shows its volume
+curve as a yellow line over the waveform (a flat line while the clip has no points).
+
+- **Drag the left circle to the right** for a fade in, **the right circle to the left** for a fade out. The shaded ramp
+  shows the curve; the two fades cannot cross. The Sound tools sheet sets the exact length and the shape.
+- **Double tap the clip** where you want the volume to change: a yellow dot appears at that time and height. The first
+  dot also pins the clip's fixed volume at both ends, so only the part around the dot changes.
+- **Drag a dot** up for louder, down for quieter (the top of the lane is +12 dB, the bottom edge is silence, and the
+  value sticks to 0 dB when you are close) and sideways to move it in time; it stays between its neighbours. Each
+  gesture is one undo step.
+- **Double tap a dot** to remove it.
+
+Clips on video lanes show their fades and curve as read-only drawing; edit those from the Sound tools sheet. Preview and
+the exported movie use the same fades and curve.
 
 ### Selecting several clips
 
@@ -538,8 +556,13 @@ device. Every setting is non-destructive and one undo step (a slider drag is one
 **Per clip** (inspector, **Sound tools**; sliders change the sound while you drag during playback):
 
 - **Pan**: left to right, equal loudness across the arc. Mono clips are placed; stereo clips are balanced.
-- **Fade in / Fade out**: lengths in frames. Fades follow the clip edge when you trim it. Split or overwrite
-  clears the fade at the new cut.
+- **Fade in / Fade out**: lengths in frames (the readout shows seconds and frames). Fades follow the clip edge when you
+  trim it. Split or overwrite clears the fade at the new cut. **Fade curve** picks the shape: **Equal power** (the
+  default, the same as a crossfade), **Linear**, or **Logarithmic** (even to the ear, slow to start). Fades work on
+  every clip with sound, video clips included.
+- **Volume curve**: a line of points over the clip's waveform. **Add point at playhead** puts a point holding the
+  volume the clip has there; **Clear** removes the curve and the clip goes back to its fixed volume. The curve is
+  drawn on the timeline and edited there, see below. The sound tools open by themselves for a clip on an audio lane.
 - **Equaliser**: low cut, low shelf (100 Hz), peaking bands at 400 Hz, 1.5 kHz and 5 kHz, high shelf (10 kHz) and
   high cut. **Flat** resets it.
 - **Noise suppression**: **Mark start** and **Mark end** at the playhead to choose a stretch with only background
