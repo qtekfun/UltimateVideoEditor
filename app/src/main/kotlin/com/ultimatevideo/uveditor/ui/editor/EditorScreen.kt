@@ -521,7 +521,9 @@ fun EditorScreen(
         object : TimelineEditing {
             override fun canDrag(hit: TimelineHit) = viewModel.canDrag(hit)
             override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragStart(hit))
-            override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
+            override fun onDragMove(hit: TimelineHit, reachFrames: Long) =
+                viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit), reachFrames))
+            override fun onDropModeTap() = viewModel.onIntent(EditorIntent.FlipDropChoice)
             override fun onDragEnd(commit: Boolean) = viewModel.onIntent(EditorIntent.DragEnd(commit))
             override fun onLaneDragStart(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Start(hit))
             override fun onLaneDragMove(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Move(hit))
@@ -1196,6 +1198,14 @@ private fun EditorMain(
                             trayDropBounds?.bounds = coordinates.boundsInRoot().let { RootBounds(it.left, it.top, it.right, it.bottom) }
                         },
                     )
+                    if (state.dropChoiceOffered) {
+                        DropModeChip(
+                            effective = state.dropHint?.kind,
+                            choice = state.dropChoice,
+                            onFlip = { viewModel.onIntent(EditorIntent.FlipDropChoice) },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 8.dp),
+                        )
+                    }
                     // Under the ruler, so the marker being edited stays in view above the popup.
                     state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 40.dp)) }
                     state.markerPopup?.let { MarkerPopupCard(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 36.dp, start = 8.dp, end = 8.dp)) }
