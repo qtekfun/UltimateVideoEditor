@@ -216,26 +216,6 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        if (state.videoAssets > 0) {
-            Section("Faster export") {
-                FilterChip(
-                    selected = state.fasterExport,
-                    onClick = { onIntent(ExportIntent.SelectFasterExport(!state.fasterExport)) },
-                    enabled = state.proxiesReady > 0,
-                    label = { Text("Use proxies for small layers") },
-                )
-            }
-            Text(
-                if (state.proxiesReady > 0) {
-                    "Layers shown no larger than their proxy are read from it: faster with several 4K clips, slightly softer " +
-                        "on those layers. ${state.proxiesReady} of ${state.videoAssets} videos have a proxy."
-                } else {
-                    "Make proxies of your videos first (the proxy button in the editor) to export small layers faster."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
         Section("Codec") {
             for (codec in ExportCodec.entries) {
                 FilterChip(

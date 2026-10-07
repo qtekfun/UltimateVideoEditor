@@ -1435,7 +1435,7 @@ so a failure deletes it (like the export does) rather than drawing first and ask
 **Verified on a device:** the engine and encoder with `FrameDemoActivity` on the Pixel 8 (frame numbers, ffmpeg comparison, HLG, fill, JPEG
 search, ICC/sRGB tags); the dialog, the document picker and the Share sheet were not driven (the phone's screen was off).
 
-## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in)
+## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in) (SUPERSEDED: removed on 2026-10-07, see "Quality-first" below)
 
 **Context.** A 4K export with several 4K layers at once is decode-bound: the hardware decoders are shared. A layer shown in a third of the canvas
 needs no more than a 1280x720 picture.
@@ -1582,3 +1582,19 @@ Not tested on a device: an HLG output (the culling decision does not depend on t
 That is 1.43x on a stretch where a 4K60 10-bit clip is hidden, about 7.8 ms per skipped frame. On the real project 8,463 frames qualify (19.7%), which at this rate is about 66 s of the 32 min
 baseline (3.4%); the real covers are lighter than this synthetic cover (the base is the 95 Mbps clip), so the saving there can be larger or smaller; a real-project run was not made.
 `debug.uveditor.export_cull` from the first version of this change no longer exists (a stale value of it is harmless).
+
+## 2026-10-07 · Decoder reuse and pre-priming across cuts: evaluated, not built
+**Context:** idea: one decoder per file reused across consecutive pieces of that file, and the next clip's decoder opened and primed (seek to the key frame, decode to the start) before the cut, so the 4K export does not wait at each cut. Looked at on the real 11:54 project (4K60 HLG, 32 min export, decode-bound).
+**Measured (offline, `scripts/analysis/decoder_starts.py project.json`, which models the exporter's decoder lifecycle):** 95 clips, of which only 39 are video (the rest are titles and stills, which open no decoder), 18 assets, no transitions. An export makes 21 decoder openings, 8 contiguous continuations that already cost nothing (source gap 0, the decoder is kept), 2 forward jumps of 98 and 116 frames that the decoder decodes through, and 8 real seeks. The premise that IMG_0014's 19 pieces are contiguous is false: 11 pieces are on v1 with source gaps of 98, 116, 134, 323, 520, 635, 862, 1057 and 1857 frames (only one pair is adjacent, and its decoder had been released by then); the rest are scattered clips on v2.
+**Why reuse already happens:** `Renderer::assetFor` keeps one decoder per (asset, layer*2+lane), not per clip, and `releaseIdleDecoders` closes it only after more than max(60 frames, 2 s) without use. Pieces of one asset on one track therefore share a decoder; a jump goes through `needsSeek` (decode forward up to 120 frames, seek beyond). A pool keyed by file would only add the cross-track case.
+**Estimate:** about 30 start-ups at 1 to 1.5 s each (codec creation plus decoding from the key frame at about 35 fps per 4K decoder) is 30 to 45 s of 32 min, so the gain of a perfect scheme is at most 2%. This is an estimate: the Pixel was in use, so no device timing was taken.
+**Decision:** not built. A pool with eviction, an aggregate-throughput bound and shared-file-lock care is a lot of delicate code for at most 2%; occlusion culling and copying untouched stretches are bigger levers.
+**Cheap idea left (not done, about 1%):** open the next clip's decoder (codec creation only) on another thread a second before the cut, hiding the creation latency but not the decode from the key frame.
+**Future option:** per-start counters under `UVExportPerf` (open time and setTarget-to-first-frame time per decoder open and per jump, plus a total) were written on branch `perf/decoder-reuse-prime` (commit d4cc69d, local, off by default, no new property) and not merged; worth reviving if a device run is wanted to turn the estimate into a measurement.
+
+
+## 2026-10-07 · Quality-first: no proxy-assisted export, and no export mode that recompresses footage unnecessarily
+**Context:** the owner's videos exist to show the camera and video quality of phones. The "Use proxies for small layers" export option (PR #122) decoded layers shown at or below proxy size from the 720p proxy; it never upscaled, but it added a generation of lossy compression to those layers (about 43 dB PSNR on synthetic content, unmeasured on real footage).
+**Chosen:** the option is removed (code, dialog toggle, planner, tests, docs); exports always read the original media. Proxies stay what they were made for: smooth editing and preview, never final output.
+**Rule:** an export speed-up is acceptable only if the output pixels are identical (or the stretch is copied bit-exactly). Anything that recompresses source footage an extra time, lowers resolution, or changes colour handling is out, even as an opt-in default-off option, because the shipped result is the product here. Speed work therefore focuses on decoding fewer wasted frames, overlapping work, and copying untouched stretches without re-encoding (smart export, phase 1 feasibility in progress), all verified for exact or bit-identical output.
+**Alternatives rejected:** a 1080p proxy for half-size layers (same generation loss), a near-lossless intermediate (large disk cost and time, still re-encodes), keeping the option off by default (a toggle that silently lowers quality has no place in this app).

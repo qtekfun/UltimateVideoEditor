@@ -40,11 +40,6 @@ internal data class ExportPlan(
     val titles: Map<Int, TitleContent> = emptyMap(),
     /** Distinct photos and stickers to draw, by the key [VideoClipSpec.titleKey] refers to (keys never collide with [titles]'). */
     val stills: Map<Int, StillRef> = emptyMap(),
-    /**
-     * Stand-in files for the "Faster export" option, by the native key [VideoClipSpec.assetKey] refers to. These keys are
-     * never in [assetKeys] (audio and every other clip read the original); empty when the option is off or nothing qualified.
-     */
-    val proxyAssets: Map<Long, ExportProxy> = emptyMap(),
 )
 
 private fun RenderClip.toSpec(
@@ -56,7 +51,6 @@ private fun RenderClip.toSpec(
     start: Long = startFrame,
     duration: Long = durationFrames,
     crossfadeIn: Long = crossfadeInFrames,
-    keys: List<ExportKeyframe> = exportKeyframes(canvasWidth, canvasHeight),
 ) = VideoClipSpec(
     startFrame = start,
     durationFrames = duration,
@@ -74,7 +68,7 @@ private fun RenderClip.toSpec(
     crossfadeInFrames = if (transitionIn?.type?.fadesVideo != false) crossfadeIn else 0L,
     lane = lane,
     titleKey = titleKey,
-    keyframes = keys,
+    keyframes = exportKeyframes(canvasWidth, canvasHeight),
     keyframeOriginFrame = keyframeOriginFrame,
     sourceFrames = retime?.let { LongArray(durationFrames.toInt()) { i -> packSource(sourceMixAt(startFrame + i)) } },
     reverse = isReverse,
@@ -193,14 +187,11 @@ internal fun buildExportPlan(
     fps: FrameRate,
     canvasWidth: Int = 1920,
     canvasHeight: Int = 1080,
-    proxyAssist: ExportProxyAssist? = null,
 ): ExportPlan? {
     val assetsById = assets.associateBy { it.id }
     val assetKeys = KeyRegistry()
     val clipKeys = KeyRegistry()
     val used = LinkedHashMap<String, Long>()
-    val proxyKeys = LinkedHashMap<String, Long>()
-    val proxyAssets = LinkedHashMap<Long, ExportProxy>()
 
     val videoClips = ArrayList<VideoClipSpec>()
     val titles = LinkedHashMap<TitleContent, Int>()
@@ -238,19 +229,14 @@ internal fun buildExportPlan(
                 val asset = clip.assetId?.let(assetsById::get) ?: continue
                 if (!asset.hasVideo) continue
                 val key = used.getOrPut(asset.id) { assetKeys.keyFor(asset.id) }
-                // What the source is; the engine converts it to the colour space the export renders in
-                // (HLG sources are tone-mapped for an SDR export, kept for an HLG one).
-                val source = clip.colorOverride ?: SourceColorSpace.fromId(asset.colorSpace)
-                val keys = clip.exportKeyframes(canvasWidth, canvasHeight)
-                val proxy = proxyAssist?.proxyFor(clip, SourceColorSpace.fromId(asset.colorSpace), keys)
-                videoClips += if (proxy == null) {
-                    clip.toSpec(canvasWidth, canvasHeight, assetKey = key, colorMode = source.nativeModeValue, keys = keys)
-                } else {
-                    // The proxy holds the picture already tone-mapped to SDR Rec.709, so it is read as SDR. Audio keeps the original's key.
-                    val proxyKey = proxyKeys.getOrPut(asset.id) { assetKeys.keyFor("proxy:${asset.id}") }
-                    proxyAssets[proxyKey] = proxy
-                    clip.toSpec(canvasWidth, canvasHeight, assetKey = proxyKey, colorMode = SDR, keys = keys)
-                }
+                videoClips += clip.toSpec(
+                    canvasWidth,
+                    canvasHeight,
+                    assetKey = key,
+                    // What the source is; the engine converts it to the colour space the export renders in
+                    // (HLG sources are tone-mapped for an SDR export, kept for an HLG one).
+                    colorMode = (clip.colorOverride ?: SourceColorSpace.fromId(asset.colorSpace)).nativeModeValue,
+                )
             }
             RenderKind.TITLE -> {
                 // Photo layers of a multilayer title are pointed at their files, as in the preview.
@@ -278,7 +264,7 @@ internal fun buildExportPlan(
 
     val end = timeline.tracks.flatMap { it.clips }.maxOfOrNull { it.timelineEnd.value } ?: 0L
     if (end <= 0L || (videoClips.isEmpty() && audio == null)) return null
-    return ExportPlan(end, videoClips, audio, used, titles.entries.associate { it.value to it.key }, stills.entries.associate { it.value to it.key }, proxyAssets)
+    return ExportPlan(end, videoClips, audio, used, titles.entries.associate { it.value to it.key }, stills.entries.associate { it.value to it.key })
 }
 
 /** Output frames needed to cover [projectFrames] project frames, rounded up so no audio is cut off. */
