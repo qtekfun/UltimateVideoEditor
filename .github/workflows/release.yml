@@ -1,7 +1,7 @@
 name: Release build
 
 # Builds the release APK and AAB (R8-minified). A `v<versionName>` tag publishes a GitHub Release with the signed
-# APK, the AAB, SHA256SUMS.txt and the R8 mapping (a pre-release while the major version is 0). It needs the four
+# APK, the AAB, SHA256SUMS.txt, the R8 mapping and, when it could be built, the user guide as a PDF (a pre-release while the major version is 0). It needs the four
 # UVEDITOR_* signing secrets (docs/RELEASE.md); a tagged build without them fails, so nothing unsigned is ever
 # published. A manual run only builds and keeps the files as workflow artifacts (signed if the secrets exist).
 on:
@@ -81,6 +81,18 @@ jobs:
           cp app/build/outputs/mapping/release/mapping.txt dist/mapping.txt
           (cd dist && sha256sum *.apk *.aab > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
+      # The user guide as a PDF for offline reading. A nicety: if any step here fails the release still ships without it.
+      - name: Build USER_GUIDE.pdf
+        id: pdf
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pandoc
+          python3 scripts/gen-site.py --out "$RUNNER_TEMP/site"
+          google-chrome --headless --no-sandbox --disable-gpu --no-pdf-header-footer \
+            --print-to-pdf="$PWD/dist/USER_GUIDE.pdf" "file://$RUNNER_TEMP/site/user-guide.html"
+          test -s dist/USER_GUIDE.pdf
+
       - name: Upload release files
         uses: actions/upload-artifact@v4
         with:
@@ -113,5 +125,12 @@ jobs:
           cp dist/*.apk "dist/ultimateVE-${version}.apk"
           rm -f dist/app-release*.apk
           (cd dist && sha256sum "ultimateVE-${version}.apk" *.aab > SHA256SUMS.txt)
-          gh release create "$GITHUB_REF_NAME" "dist/ultimateVE-${version}.apk" dist/*.aab dist/SHA256SUMS.txt dist/mapping.txt \
+          extra=""
+          if [ -s dist/USER_GUIDE.pdf ]; then
+            mv dist/USER_GUIDE.pdf "dist/ultimateVE-${version}-user-guide.pdf"
+            extra="dist/ultimateVE-${version}-user-guide.pdf"
+          else
+            echo "::warning::No user guide PDF this time; releasing without it."
+          fi
+          gh release create "$GITHUB_REF_NAME" "dist/ultimateVE-${version}.apk" dist/*.aab dist/SHA256SUMS.txt dist/mapping.txt $extra \
             --target "$GITHUB_SHA" --title "ultimateVE ${version}" --generate-notes $flags
