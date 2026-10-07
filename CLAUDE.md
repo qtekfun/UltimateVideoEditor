@@ -51,6 +51,10 @@ accounts. The only permissions are the export's foreground-service ones and POST
 `OfflineGuaranteeTest` fails the build if one appears. Anything that would need a server or a downloaded model is out of
 scope; use classical, on-device algorithms instead. Details: `docs/PRIVACY.md`.
 
+## Toolbar guide
+Every editor icon needs an entry in `ui/editor/guide/ToolbarGuide.kt` (in-app guide, also the source of the website's icons page via
+`scripts/gen-site.py`); `ToolbarGuideTest` fails otherwise. Pages/PDF workflows: `docs/RELEASE.md`, SPECS 5.36.
+
 ## Captions
 Captions are ordinary title clips (ids start with `caption-`). They are typed by the user or imported from `.srt` / `.vtt`
 files (`domain/captions/Subtitles.kt`, parsing and frame conversion, unit tested); there is no speech recognition. Styles,

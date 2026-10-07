@@ -32,7 +32,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.ultimatevideo.uveditor.ui.editor.guide.ToolbarGuideScreen
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -46,14 +48,21 @@ fun AboutScreen(
     mediaFolder: com.ultimatevideo.uveditor.data.interchange.MediaFolderSettings,
     onBack: () -> Unit,
 ) {
-    BackHandler(onBack = onBack)
     val context = LocalContext.current
     var snapshot by remember { mutableStateOf(controller.snapshot()) }
     var confirmClear by remember { mutableStateOf(false) }
     var tipsMessage by remember { mutableStateOf(false) }
+    var guideOpen by rememberSaveable { mutableStateOf(false) }
+    var browserMissing by remember { mutableStateOf(false) }
     val privacy = remember { readAsset(context, "legal/PRIVACY.md") }
     val notices = remember { readAsset(context, "legal/THIRD_PARTY_NOTICES.md") }
     val licence = remember { readAsset(context, "legal/LICENSE.txt") }
+
+    if (guideOpen) {
+        ToolbarGuideScreen(onClose = { guideOpen = false })
+        return
+    }
+    BackHandler(onBack = onBack)
 
     Scaffold(
         topBar = {
@@ -93,6 +102,11 @@ fun AboutScreen(
                 var folderLabel by remember { mutableStateOf(mediaFolder.label()) }
                 var hasFolder by remember { mutableStateOf(mediaFolder.treeUri() != null) }
                 var folderError by remember { mutableStateOf<String?>(null) }
+                var layout by remember { mutableStateOf<com.ultimatevideo.uveditor.data.interchange.LayoutSummary?>(null) }
+                // Reading the folder goes through the document provider: keep it off the main thread.
+                androidx.compose.runtime.LaunchedEffect(folderLabel, hasFolder) {
+                    layout = if (hasFolder) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { mediaFolder.summary() } else null
+                }
                 val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
                     if (uri != null) {
                         try {
@@ -107,7 +121,9 @@ fun AboutScreen(
                 }
                 Text("Media folder for imported packages")
                 Text(
-                    "Footage that comes inside a LumaFusion package is copied here, so you can see and manage the files (a USB drive or SD card works too). Deleting a project never deletes these files.",
+                    "ultimateVE keeps its files in its own subfolder, called ultimateVE, inside the folder you choose (nothing is put loose in the folder itself). " +
+                        "Footage that comes inside a LumaFusion package is copied to ultimateVE/Media, in one folder per project, so you can see and manage the files (a USB drive or SD card works too). " +
+                        "Project backups (.uvbundle) open the file picker in ultimateVE/Project-Backups. Deleting a project never deletes these files.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -117,6 +133,22 @@ fun AboutScreen(
                         else -> "A folder is set but cannot be read now (drive unplugged or access removed). Choose it again."
                     },
                 )
+                layout?.let { summary ->
+                    Text("Files go to: ${summary.path}")
+                    if (!summary.rootExists) {
+                        Text("Nothing there yet: the subfolders are created when they are first used.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    for (category in summary.categories) {
+                        val what = if (category.name == com.ultimatevideo.uveditor.data.interchange.MediaLayout.MEDIA) "project folders" else "files"
+                        Text("${category.name}: ${category.items} $what", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (summary.looseFiles > 0) {
+                        Text(
+                            "${summary.looseFiles} files from earlier imports are directly in the chosen folder. They stay where they are, because projects point at them.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
                 folderError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 OutlinedButton(onClick = { picker.launch(null) }) { Text(if (hasFolder) "Change" else "Choose folder") }
             }
@@ -156,6 +188,14 @@ fun AboutScreen(
                 }
             }
             Section("Help") {
+                OutlinedButton(onClick = { guideOpen = true }) { Text("Toolbar guide") }
+                Text("What every symbol of the editor does. It is part of the app and works offline.", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { browserMissing = !openOnlineGuide(context) }) { Text("Online guide") }
+                Text(
+                    "Opens the full user guide in your browser (${AboutController.ONLINE_GUIDE_URL}). The app itself stays offline: it loads nothing, your browser does.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (browserMissing) Text("No browser was found on this device.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 OutlinedButton(onClick = { controller.showTipsAgain(); tipsMessage = true }) { Text("Show tips again") }
                 if (tipsMessage) Text("The tips will appear the next time you open the project list.", style = MaterialTheme.typography.bodySmall)
             }
@@ -206,4 +246,12 @@ private fun copyToClipboard(context: Context, text: String) {
 private fun share(context: Context, text: String) {
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
     context.startActivity(Intent.createChooser(send, "Share crash report"))
+}
+
+/** Hands the guide's address to the browser (the user tapped for it); returns false when no app can open it. */
+private fun openOnlineGuide(context: Context): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(AboutController.ONLINE_GUIDE_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+} catch (e: android.content.ActivityNotFoundException) {
+    false
 }

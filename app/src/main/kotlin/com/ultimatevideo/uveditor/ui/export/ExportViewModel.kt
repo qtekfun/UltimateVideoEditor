@@ -77,10 +77,6 @@ class ExportViewModel(
             is ExportIntent.SelectFrameRate -> editSettings { copy(frameRate = intent.rate) }
             is ExportIntent.SelectCodec -> editSettings { copy(codec = intent.codec, hdr = hdr && intent.codec == ExportCodec.HEVC) }
             is ExportIntent.SelectHdr -> selectHdr(intent.hdr)
-            is ExportIntent.SelectFasterExport ->
-                if (!state.value.isRunning && state.value.proxiesReady > 0) {
-                    reduce { copy(fasterExport = intent.enabled, phase = ExportPhase.Configuring) }
-                }
             is ExportIntent.SelectBitrate ->
                 if (!state.value.isRunning) reduce { copy(bitrateMbps = intent.mbps, preset = null, phase = ExportPhase.Configuring) }
             is ExportIntent.SelectPreset -> selectPreset(intent.preset)
@@ -115,14 +111,8 @@ class ExportViewModel(
         val projectHdr = newInput.colorSpace.isHdr
         val hdrAvailable = projectHdr && hdrSupport.supportsHlgExport(resolution.width, resolution.height, rates.first().num, rates.first().den)
         val codec = if (hdrAvailable) ExportCodec.HEVC else state.value.codec
-        val usedVideo = newInput.timeline.tracks.flatMap { track -> track.clips.mapNotNull { it.assetId } }.toSet()
-        val videoAssets = newInput.assets.filter { it.hasVideo && !it.isImage && it.id in usedVideo }
         reduce {
             copy(
-                // Off by default: it trades a little sharpness on small layers for speed, so the user chooses it.
-                fasterExport = false,
-                proxiesReady = videoAssets.count { it.id in newInput.proxies },
-                videoAssets = videoAssets.size,
                 visible = true,
                 codec = codec,
                 hdrAvailable = hdrAvailable,
@@ -308,15 +298,7 @@ class ExportViewModel(
         rate: FrameRate,
         current: ExportState,
     ): ExportRequest {
-        val assist = ExportProxyAssist(
-            proxies = if (current.fasterExport) source.proxies else emptyMap(),
-            canvasWidth = source.projectWidth,
-            canvasHeight = source.projectHeight,
-            outputWidth = resolution.width,
-            outputHeight = resolution.height,
-            hdrOutput = current.hdr,
-        )
-        var plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight, assist)
+        val plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight)
             ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.")
         val titleImages = plan.titles.map { (key, content) ->
             val bitmap = try {
@@ -342,17 +324,6 @@ class ExportViewModel(
         val opened = LinkedHashMap<Long, Int>()
         var outputFd = -1
         try {
-            // A stand-in file that cannot be opened (deleted since the dialog opened) is not an error: plan again from originals.
-            if (plan.proxyAssets.isNotEmpty()) {
-                try {
-                    for ((key, proxy) in plan.proxyAssets) opened[key] = io.openAsset(proxy.uri)
-                } catch (e: IOException) {
-                    opened.values.forEach(io::close)
-                    opened.clear()
-                    plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight)
-                        ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.")
-                }
-            }
             for ((assetId, key) in plan.assetKeys) {
                 val uri = uriByAsset[assetId] ?: throw IOException("A clip refers to media that is no longer in the project")
                 opened[key] = io.openAsset(uri)
