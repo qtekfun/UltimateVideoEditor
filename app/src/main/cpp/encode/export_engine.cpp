@@ -1096,6 +1096,25 @@ void ExportJob::executeStill() {
     // The export's safety net repeats the previous picture when a frame cannot be decoded; a saved frame must be that frame or nothing.
     if (renderer.repeatedFrames() > 0) fail(Status::CodecError, "this frame could not be decoded");
     renderer.readStill(still.crop, still.out);
+    const int64_t pixels = static_cast<int64_t>(still.crop.w) * still.crop.h;
+    UV_LOGI("still frame %lld: %lld layers, %dx%d, first pixel %02x%02x%02x%02x", static_cast<long long>(still.frame),
+            static_cast<long long>(renderer.lastLayerCount()), still.crop.w, still.crop.h, still.out[0], still.out[1], still.out[2],
+            still.out[3]);
+    if (stillLooksEmpty(renderer.lastLayerCount(), isUniformRgba(still.out, pixels))) {
+        // A layer's decoder may only now have delivered its frame: wait a moment, draw once more, read again.
+        UV_LOGW("still frame %lld came out uniform with %lld layers: drawing it again", static_cast<long long>(still.frame),
+                static_cast<long long>(renderer.lastLayerCount()));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        renderer.renderFrame(still.frame);
+        renderer.checkDecoderError();
+        if (renderer.repeatedFrames() > 0) fail(Status::CodecError, "this frame could not be decoded");
+        renderer.readStill(still.crop, still.out);
+        UV_LOGI("still frame %lld again: %lld layers, first pixel %02x%02x%02x%02x", static_cast<long long>(still.frame),
+                static_cast<long long>(renderer.lastLayerCount()), still.out[0], still.out[1], still.out[2], still.out[3]);
+        if (stillLooksEmpty(renderer.lastLayerCount(), isUniformRgba(still.out, pixels))) {
+            fail(Status::CodecError, "the picture came out as one flat colour although the frame has video");
+        }
+    }
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
     UV_LOGI("saved frame %lld as %dx%d in %lld ms", static_cast<long long>(still.frame), still.crop.w, still.crop.h,
             static_cast<long long>(ms));
