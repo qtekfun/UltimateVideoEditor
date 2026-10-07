@@ -116,7 +116,7 @@ internal object ToolbarGuide {
         GuideGesture("double-tap-preview", "Double tap the preview", "Fullscreen. Tap once to show the play and exit strip; double tap again or press Back to leave."),
         GuideGesture("preview-transform", "Drag, pinch and twist on the preview", "Moves, scales and rotates the selected clip (or the selected title layer) while the playhead is on it."),
         GuideGesture("divider", "Drag a divider, double tap it to reset", "The pill under the preview (and the bar beside a side panel) resizes the areas. A short vibration marks the default."),
-        GuideGesture("tray-drag", "Long press a tile in the media tray and drag", "Drops the item onto the timeline; an indicator shows what releasing will do."),
+        GuideGesture("tray-drag", "Hold a tile in the media tray, then drag", "Lifts the item and carries it onto the timeline; an indicator shows what releasing will do. Release outside the timeline to cancel."),
         GuideGesture("tool-row-scroll", "Swipe the tool row sideways", "The tool row scrolls when the window is too narrow for every button."),
     )
 
