@@ -1491,6 +1491,22 @@ transcoding the audio at import (copies and rewrites the user's media).
 **Chosen:** the switch is removed; gap marking is always on. A/B comparisons use two builds, not a property that can outlive the run.
 **Rule:** a debug property must never switch off a correctness or speed fix in a build that other people (or later sessions) use; diagnostics that stay (`export_perf`, `timeline_stats`, `atlas_bytes`) only add logging or shrink caches in debug builds. Scripts that set a debug property must reset it in a trap on exit.
 
+## 2026-10-07 · Media folder layout: the app makes its own `ultimateVE` subfolder
+**Context:** the chosen "Media folder" received loose files (the footage of every imported LumaFusion package, e.g. 122 files directly in the user's Movies/LFImport), and two packages with the same file names produced " (2)" copies. LumaFusion instead creates its own folder in the one the user picks and sorts what it writes below it (`LibraryMedia`, `media`, `Project-Backups`, `ReversedMedia`, `UserMedia`).
+**Chosen:** the root is literally `ultimateVE` inside the chosen folder. A chosen folder that is already called `ultimateVE`, or that already holds one (any case), is reused: no `ultimateVE/ultimateVE`. Every folder is created on first use (`MediaLayout`, `FolderPath.ensure`), so an empty one never appears; only what the app writes is listed here.
+| Folder | Written? | Why |
+|---|---|---|
+| `ultimateVE/Media/<project>/` | yes | Footage unpacked from `.lfpackage` imports (the only copy of media the app makes). One subfolder per import, named after the project (cleaned, unique among its siblings: "Name (2)"), as LumaFusion keeps a folder per project. Two packages with the same file names cannot collide, and deleting one folder removes one project's footage. The " (2)" suffix for files still applies, per subfolder. |
+| `ultimateVE/Project-Backups/` | yes, on first `.uvbundle` export | The save picker opens there (`EXTRA_INITIAL_URI`, a document of the chosen tree). The folder is created when the picker opens and removed again if the picker is cancelled and the folder is still empty. The user can still save elsewhere. No "Back up now" button was added. |
+| `LibraryMedia` | no | LUTs, fonts, looks, title presets and templates are app-private (`filesDir`), not user-visible, and stay so. |
+| `ReversedMedia` | no | Reverse playback is a retime mapping (`domain/Retime.kt`); no reversed copy is ever written. |
+| `UserMedia` | no | The app records nothing (no voice-over). Saved frames go to Pictures/ultimateVE through MediaStore and exported movies go where the system picker is pointed: both stay as they are. |
+**Migration:** none. Files from imports made before this change are directly in the chosen folder and projects reference them by `content://` URI; they are never moved, renamed or deleted. About shows how many such files sit there. New imports use the subfolder.
+**Cleanup:** a cancel or failure deletes the files written, then the folders this import created, innermost first and only while empty (`MediaLayout.discardEmpty`); an `ultimateVE` or `Media` folder that existed before is never removed. A package without footage creates nothing. Deleting a project never deletes user files.
+**Alternatives:** one flat `ultimateVE/Media` (name collisions between projects, no per-project cleanup); copying LumaFusion's five folders up front (empty folders that mean nothing here).
+**Found on the Pixel 8 (ExternalStorageProvider):** `DocumentsContract.deleteDocument` right after a cancelled copy throws `IllegalStateException("Failed to delete")` (the media scanner has the file), and a second call on the then-missing document throws `IllegalArgumentException`. The first version of the cleanup let that escape, which skipped the folder removal and left an empty `Media/<project>` folder (the exception was swallowed because the job was cancelled). `TreeMediaFolder.delete` now retries and never throws; `MediaLayout.discardEmpty` reports what it kept or removed to the import log (tag `UVImport`).
+**Not verified:** how each third-party document provider treats `EXTRA_INITIAL_URI` (the picker may ignore it).
+
 ## 2026-10-07 · Toolbar documentation: in the app first, a website and a PDF as extras
 **Context:** the editor has about 30 icon-only buttons and people did not know what they do. `docs/USER_GUIDE.md` had an icon table with
 characters standing in for the icons, which is hard to match with what is on screen, is not searchable on a phone and can drift from the app.
@@ -1506,3 +1522,22 @@ headless Chrome in the release workflow is attached to the release for people wh
 different version than the one installed, and an offline-by-design app should not send its users to the network for basic help); an embedded WebView
 (banned by the offline guarantee test and a bigger attack surface); a coach-marks overlay on every button (noisy, more UI to maintain).
 **Rule:** a new toolbar button needs a line in `ToolbarGuide.kt`; the test enforces it. Pages must be enabled once by hand (`docs/RELEASE.md`).
+
+## 2026-10-07 · Save frame as image: one tap, no dialog, into Pictures/ultimateVE
+**Context:** the first version (a dialog with source, size presets, fit/fill, PNG/JPEG and a document picker) was too much for the common
+case and, on the user's 4K HLG project, produced an image that was completely black. LumaFusion saves a frame with one tap.
+**Chosen:** the button saves immediately: whole picture, project size (capped at 4096 px), JPEG quality 95, sRGB, named from the project, the
+frame's timecode and the save time, into `Pictures/ultimateVE` through `MediaStore` (pending row while writing; no permission on API 29+, the
+folder is created implicitly). A snackbar offers Share and Open. The size presets, fit/fill, selected-clip source, PNG, the JPEG size search
+and the picker were removed from the user path and from the code (no dead UI); the engine keeps its generic crop rectangle, which the tests cover.
+A guard makes an empty picture impossible to save: a frame with visible layers that reads back as one flat colour is redrawn once after
+500 ms and otherwise reported as an error, in the engine and again in Kotlin; each save logs its plan and result.
+**Alternatives:** keep the dialog behind a long press (rejected: options nobody asked for, more code to keep correct); the document picker
+(rejected: a question on every save, and the user wants a fixed gallery folder); `Environment.getExternalStoragePublicDirectory` + file
+(rejected: needs storage permission or breaks under scoped storage, and the gallery would not see the file until scanned).
+**The black image:** it could not be reproduced on the current master on a Pixel 8 with a seeded project that mirrors the user's (4K60 HLG
+IMG_0014.mov at source frame 296, a second 4K SDR clip on a layer above, a photo with a transform, a transparent PNG, a title, rotation 180
+metadata): every frame saved correctly. The user's installed app is the 0.3.0 debuggable build, which predates #126 to #129, and the phone
+had a stale `debug.uveditor.decode_gap=0` property left by an A/B run, which #129 removed; the cause is therefore most likely that build and
+property rather than the editor wiring, but this is not proven. If it still happens with this build, the guard reports it and the `UVFrame`
+log shows the plan, the layers and the first pixel.
