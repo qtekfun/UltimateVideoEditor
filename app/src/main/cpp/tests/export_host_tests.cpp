@@ -613,6 +613,8 @@ void probeFramesOfShortMoviesAreWithinRange() {
     CHECK(probeFrames(0, Fps{30, 1}).empty());
     auto ntsc = probeFrames(100000, Fps{60000, 1001});
     CHECK_EQ(ntsc.back(), 99999);
+}
+
 void occlusionCoverageIsConservative() {
     using uv::render::LayerTransform;
     const int cw = 3840, ch = 2160;
