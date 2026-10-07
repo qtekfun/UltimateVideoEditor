@@ -102,6 +102,9 @@ data class BundleWriteResult(
     val resourcesSkipped: List<String> = emptyList(),
     val lutsIncluded: Int = 0,
     val fontsIncluded: Int = 0,
+    /** The size of the finished file as the writer counted it, and every entry in it: what the check of the saved file compares against. */
+    val bytesWritten: Long = 0,
+    val entries: List<WrittenEntry> = emptyList(),
 )
 
 /**
@@ -139,6 +142,7 @@ object ProjectBundle {
         thumbnails: Map<String, ByteArray>,
         out: OutputStream,
         resources: ResourcePlan = ResourcePlan(emptyList(), emptyList()),
+        observer: BundleWriteObserver = BundleWriteObserver.NONE,
     ): BundleWriteResult {
         val skipped = mutableListOf<String>()
         var copied = 0
@@ -167,37 +171,70 @@ object ProjectBundle {
             thumbnails = thumbnails.keys.sorted(),
             resources = resourceEntries + resources.references,
         )
-        ZipOutputStream(out).use { zip ->
-            putText(zip, MANIFEST, json.encodeToString(manifest))
-            putText(zip, PROJECT, projectJson)
-            for ((name, bytes) in thumbnails.toSortedMap()) {
-                zip.setLevel(DEFLATE)
-                zip.putNextEntry(ZipEntry(THUMBS + safeLeaf(name)).apply { time = 0L })
+        // The total is known before anything is written: every other payload is in memory and each media file has a size.
+        val manifestBytes = json.encodeToString(manifest).toByteArray(Charsets.UTF_8)
+        val projectBytes = projectJson.toByteArray(Charsets.UTF_8)
+        val total = manifestBytes.size + projectBytes.size + thumbnails.values.sumOf { it.size.toLong() } +
+            resources.payloads.sumOf { it.file.bytes.size.toLong() } +
+            entries.filter { it.entry != null }.sumOf { it.sizeBytes.coerceAtLeast(0) }
+        observer.onStart(total, entries.count { it.entry != null })
+        val written = ArrayList<WrittenEntry>()
+        val counting = CountingOutputStream(out)
+        val buffer = ByteArray(COPY_BUFFER)
+        ZipOutputStream(counting).use { zip ->
+            fun put(name: String, level: Int, bytes: ByteArray) {
+                if (observer.isCancelled()) throw BundleWriteCancelled()
+                zip.setLevel(level)
+                zip.putNextEntry(ZipEntry(name).apply { time = 0L })
                 zip.write(bytes)
                 zip.closeEntry()
+                written += WrittenEntry(name, bytes.size.toLong())
+                observer.onBytes(bytes.size.toLong())
+            }
+            observer.onItem(BundleItemKind.PROJECT, PROJECT, 0)
+            put(MANIFEST, DEFLATE, manifestBytes)
+            put(PROJECT, DEFLATE, projectBytes)
+            for ((name, bytes) in thumbnails.toSortedMap()) {
+                observer.onItem(BundleItemKind.THUMBNAIL, name, 0)
+                put(THUMBS + safeLeaf(name), DEFLATE, bytes)
             }
             for ((index, payload) in resources.payloads.withIndex()) {
-                zip.setLevel(if (payload.kind == ResourceKind.LUT) DEFLATE else 0)
-                zip.putNextEntry(ZipEntry(resourceEntries[index].entry).apply { time = 0L })
-                zip.write(payload.file.bytes)
-                zip.closeEntry()
+                observer.onItem(BundleItemKind.RESOURCE, payload.file.name, 0)
+                put(resourceEntryName(payload.kind, payload.key, payload.file.name), if (payload.kind == ResourceKind.LUT) DEFLATE else 0, payload.file.bytes)
             }
+            var mediaIndex = 0
             for (entry in entries) {
                 val name = entry.entry ?: continue
+                mediaIndex++
+                if (observer.isCancelled()) throw BundleWriteCancelled()
+                observer.onItem(BundleItemKind.MEDIA, entry.name, mediaIndex)
                 val asset = project.mediaLibrary.first { it.id == entry.assetId }
                 val stream = media?.open(asset.uri)
                 if (stream == null) {
                     skipped += entry.name
+                    observer.onBytes(entry.sizeBytes.coerceAtLeast(0)) // these bytes will not come: keep the percent honest
                     continue
                 }
                 zip.setLevel(0)
                 zip.putNextEntry(ZipEntry(name).apply { time = 0L })
-                try {
-                    stream.use { it.copyTo(zip) }
-                } catch (e: IOException) {
-                    throw IOException("could not read ${entry.name} while writing the bundle", e)
+                var size = 0L
+                stream.use { source ->
+                    while (true) {
+                        if (observer.isCancelled()) throw BundleWriteCancelled()
+                        // Reading and writing fail for different reasons (a vanished file, a full disk): only a failed read says "could not read".
+                        val n = try {
+                            source.read(buffer)
+                        } catch (e: IOException) {
+                            throw IOException("could not read ${entry.name} while writing the bundle", e)
+                        }
+                        if (n < 0) break
+                        zip.write(buffer, 0, n)
+                        size += n
+                        observer.onBytes(n.toLong())
+                    }
                 }
                 zip.closeEntry()
+                written += WrittenEntry(name, size)
                 copied++
             }
         }
@@ -208,6 +245,8 @@ object ProjectBundle {
             resourcesSkipped = resources.skipped,
             lutsIncluded = resources.payloads.count { it.kind == ResourceKind.LUT },
             fontsIncluded = resources.payloads.count { it.kind == ResourceKind.FONT },
+            bytesWritten = counting.count,
+            entries = written,
         )
     }
 
@@ -356,14 +395,8 @@ object ProjectBundle {
         return total
     }
 
-    private fun putText(zip: ZipOutputStream, name: String, text: String) {
-        zip.setLevel(DEFLATE)
-        zip.putNextEntry(ZipEntry(name).apply { time = 0L })
-        zip.write(text.toByteArray(Charsets.UTF_8))
-        zip.closeEntry()
-    }
-
     private const val BUFFER = 64 * 1024
+    private const val COPY_BUFFER = 256 * 1024
     private const val DEFLATE = 6
 
     // endregion
