@@ -112,4 +112,7 @@ fun exportDestination(projectId: String?, projectExists: Boolean, state: ExportJ
 object ExportLaunch {
     const val ACTION_SHOW = "com.ultimatevideo.uveditor.export.SHOW"
     const val EXTRA_PROJECT_ID = "com.ultimatevideo.uveditor.export.PROJECT_ID"
+
+    /** Set when the notification belongs to a project backup: the tap shows the project list with the backup dialog, not an editor. */
+    const val EXTRA_BUNDLE = "com.ultimatevideo.uveditor.export.BUNDLE"
 }
