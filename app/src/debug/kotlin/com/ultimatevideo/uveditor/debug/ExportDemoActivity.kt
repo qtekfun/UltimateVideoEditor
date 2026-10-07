@@ -74,6 +74,20 @@ class ExportDemoActivity : Activity() {
                     positionX = width * 0.25, positionY = -height * 0.2, scaleX = 0.5, scaleY = 0.5, rotationDegrees = 20.0, opacity = 0.7,
                 ),
             )
+        } else if (layout == "cover") {
+            // Hidden-layer skipping: a base (layer 1, 6 s) under a top clip (layer 0) in one of the situations `--es case` names. The
+            // export is compared frame by frame with `--ez keep_hidden true`, which draws every layer (see SPECS 5.10).
+            val base = VideoClipSpec(0, 180, 0, 0, 1, 0)
+            when (intent.getStringExtra("case") ?: "full") {
+                "full" -> listOf(base, VideoClipSpec(0, 180, 100, 0, 0, 0))                       // covers for the whole movie
+                "resume" -> listOf(base, VideoClipSpec(45, 90, 100, 0, 0, 0))                     // covers in the middle, then the base resumes
+                "small" -> listOf(base, VideoClipSpec(0, 180, 100, 0, 0, 0, scaleX = 0.5, scaleY = 0.5))
+                "fade" -> listOf(base, VideoClipSpec(0, 180, 100, 0, 0, 0, crossfadeInFrames = 60)) // partial opacity first, then full
+                "opacity" -> listOf(base, VideoClipSpec(0, 180, 100, 0, 0, 0, opacity = 0.99))
+                "short" -> listOf(base, VideoClipSpec(30, 30, 100, 0, 0, 0))                      // covers for 1 s only
+                "zoom" -> listOf(base, VideoClipSpec(0, 180, 100, 0, 0, 0, scaleX = 1.2, scaleY = 1.2, positionX = 20.0))
+                else -> return finishWith("unknown --es case")
+            }
         } else if (layout == "split") {
             listOf(
                 VideoClipSpec(0, 60, 0, 0, 0, 0),
@@ -105,7 +119,8 @@ class ExportDemoActivity : Activity() {
                     ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
                 ).detachFd()
                 val request = ExportRequest(
-                    settings = ExportSettings(width, height, fps, 1, codec, bitrate, hdr = intent.getBooleanExtra("hdr", false)),
+                    settings = ExportSettings(width, height, fps, 1, codec, bitrate, hdr = intent.getBooleanExtra("hdr", false),
+                        skipHiddenLayers = !intent.getBooleanExtra("keep_hidden", false)),
                     projectFpsNum = fps,
                     projectFpsDen = 1,
                     canvasWidth = intent.getIntExtra("cw", width),

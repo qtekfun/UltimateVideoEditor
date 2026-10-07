@@ -494,13 +494,8 @@ public:
             }
         }
         for (const auto& entry : params.assetFds) fds_[entry.first] = entry.second;
-        // `setprop debug.uveditor.export_cull 0` draws every layer, for before/after measurements; it is read once per
-        // export and says so in the log, so a forgotten value cannot silently change results.
-        char cull[PROP_VALUE_MAX] = {};
-        if (__system_property_get("debug.uveditor.export_cull", cull) > 0 && cull[0] == '0') {
-            cull_ = false;
-            UV_LOGW("debug.uveditor.export_cull=0: layers hidden behind a full-canvas layer are NOT skipped in this export");
-        }
+        cull_ = params.skipHiddenLayers;
+        if (!cull_) UV_LOGW("hidden layers are drawn in this export (skipHiddenLayers off, debug harness comparison)");
     }
 
     ~Renderer() {
@@ -1113,6 +1108,7 @@ std::string ExportJob::execute() {
     }
 
     int64_t repeated = 0;
+    int64_t hiddenSkipped = 0;
     {
         Perf perf;
         perf.init();
@@ -1147,6 +1143,7 @@ std::string ExportJob::execute() {
         renderer.checkDecoderError();
         perf.logSections(params_.totalFrames, 0.0);
         repeated = renderer.repeatedFrames();
+        hiddenSkipped = renderer.culledLayers();
         if (AMediaCodec_signalEndOfInputStream(video.codec()) != AMEDIA_OK) {
             fail(Status::CodecError, "cannot end the video stream");
         }
@@ -1159,7 +1156,8 @@ std::string ExportJob::execute() {
     }
     muxer.finish();
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
-    UV_LOGI("export done: %lld frames in %lld ms", static_cast<long long>(params_.totalFrames), static_cast<long long>(ms));
+    UV_LOGI("export done: %lld frames in %lld ms, %lld hidden layer draws skipped", static_cast<long long>(params_.totalFrames),
+            static_cast<long long>(ms), static_cast<long long>(hiddenSkipped));
     if (repeated > 0) {
         return std::to_string(repeated) + " frames could not be decoded and were repeated";
     }
