@@ -307,7 +307,8 @@ class ExportViewModelTest {
 
         runner.listener!!.onFinished(null)
 
-        assertEquals(ExportPhase.Done("content://out/movie.mp4", "Holiday cut.mp4"), vm.state.value.phase)
+        val done = vm.state.value.phase as ExportPhase.Done
+        assertEquals(ExportPhase.Done("content://out/movie.mp4", "Holiday cut.mp4", exportMs = done.exportMs), done)
     }
 
     @Test
@@ -320,7 +321,10 @@ class ExportViewModelTest {
 
         runner.listener!!.onFinished(null)
 
-        assertEquals(ExportPhase.Done("content://out/movie.mp4", "My movie.mp4"), vm.state.value.phase)
+        val done = vm.state.value.phase as ExportPhase.Done
+        // The fake clock ticks once per call, so the export time is whatever it counted: the rest of the phase must be exact.
+        assertEquals(ExportPhase.Done("content://out/movie.mp4", "My movie.mp4", exportMs = done.exportMs), done)
+        assertTrue(done.exportMs >= 0)
         assertTrue(runner.handle.closed)
         assertTrue(io.deleted.isEmpty())
     }

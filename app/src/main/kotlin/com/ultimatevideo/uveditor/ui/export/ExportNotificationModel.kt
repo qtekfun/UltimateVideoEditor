@@ -39,10 +39,10 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
         )
     }
     is ExportJobState.Done -> {
-        val result = exportResultText(state.note, state.verification)
+        val result = exportResultText(state.note, state.verification, state.exportMs, state.verifyMs)
         ExportNotificationModel(
             title = if (result.severity == ResultSeverity.WARNING) "Export saved: check the file" else "Export finished",
-            text = listOf("${state.fileName} is saved", result.headline).filter { it.isNotEmpty() }.joinToString(" · "),
+            text = listOf("${state.fileName} is saved", result.headline, result.timing).filter { it.isNotEmpty() }.joinToString(" · "),
             progressPercent = null,
             indeterminate = false,
             ongoing = false,

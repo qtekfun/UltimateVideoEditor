@@ -63,7 +63,7 @@ fun exportBarFor(state: ExportJobState): ExportBar? = when (state) {
         verifying = state.verifying,
     )
     is ExportJobState.Done ->
-        ExportBar.Finished(state.projectId, state.projectName, state.uri, state.fileName, exportResultText(state.note, state.verification))
+        ExportBar.Finished(state.projectId, state.projectName, state.uri, state.fileName, exportResultText(state.note, state.verification, state.exportMs, state.verifyMs))
     is ExportJobState.Failed ->
         ExportBar.Failed(state.projectId, state.projectName, describeExportFailure(state.error, hdr = false) + state.leftoverNote)
 }
