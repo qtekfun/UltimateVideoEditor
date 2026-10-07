@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "encode/export_math.h"
+#include "encode/occlusion_math.h"
 #include "encode/picture_residency.h"
 #include "encode/still_math.h"
 
@@ -533,8 +534,61 @@ void stillGuardRefusesFlatPicturesWithLayers() {
     CHECK(!stillLooksEmpty(3, false));  // real picture
 }
 
+void occlusionCoverageIsConservative() {
+    using uv::render::LayerTransform;
+    const int cw = 3840, ch = 2160;
+    LayerTransform full;  // identity: scale 1, centred, opaque
+    CHECK(coversCanvas(cw, ch, 3840, 2160, full));
+    CHECK(coversCanvas(cw, ch, 1920, 1080, full));            // same aspect, any size: contain fit reaches the edges
+    CHECK(coversCanvas(cw, ch, 2160, 3840, LayerTransform{}) == false);  // portrait frame is letterboxed
+    CHECK(coversCanvas(cw, ch, 1920, 1088, full) == false);    // 16:9.06: pillar of a few pixels stays uncovered
+    LayerTransform half = full;
+    half.scaleX = half.scaleY = 0.472f;
+    CHECK(!coversCanvas(cw, ch, 3840, 2160, half));            // split screen
+    LayerTransform zoom = full;
+    zoom.scaleX = zoom.scaleY = 1.2f;
+    CHECK(coversCanvas(cw, ch, 3840, 2160, zoom));
+    zoom.posX = 300.0f;  // moved less than the overscan (384 px each side)
+    CHECK(coversCanvas(cw, ch, 3840, 2160, zoom));
+    zoom.posX = 400.0f;  // moved past it: a sliver of what is beneath shows
+    CHECK(!coversCanvas(cw, ch, 3840, 2160, zoom));
+    LayerTransform fading = full;
+    fading.opacity = 0.999f;
+    CHECK(!coversCanvas(cw, ch, 3840, 2160, fading));
+    LayerTransform turned = full;
+    turned.rotationDeg = 90.0f;
+    CHECK(!coversCanvas(cw, ch, 3840, 2160, turned));
+    LayerTransform narrow = full;
+    narrow.scaleX = 0.9999f;  // 0.4 px short on a 4K canvas is not provable
+    CHECK(!coversCanvas(cw, ch, 3840, 2160, narrow));
+    CHECK(!coversCanvas(0, ch, 3840, 2160, full));
+    CHECK(!coversCanvas(cw, ch, 0, 2160, full));
+    // The size the Kotlin side hands over for a 4K canvas and an HLG iPhone clip, with rounding in the transform.
+    LayerTransform rounded = full;
+    rounded.scaleX = rounded.scaleY = 1.0000001f;
+    CHECK(coversCanvas(cw, ch, 3840, 2160, rounded));
+}
+
+void occlusionLookAndDuration() {
+    uv::core::LayerFx fx;
+    CHECK(opaqueLook(fx));
+    fx.blend = uv::core::BlendMode::Screen;
+    CHECK(!opaqueLook(fx));
+    fx = {};
+    fx.mask.shape = 2;
+    CHECK(!opaqueLook(fx));
+    fx = {};
+    fx.effects.push_back(uv::core::EffectOp{});
+    CHECK(!opaqueLook(fx));
+    CHECK_EQ(minCullFrames(60, 1), 120);
+    CHECK_EQ(minCullFrames(30000, 1001), 59);
+    CHECK_EQ(minCullFrames(0, 1), 120);
+}
+
 int main() {
     stillGuardRefusesFlatPicturesWithLayers();
+    occlusionCoverageIsConservative();
+    occlusionLookAndDuration();
     stillAlphaIsForcedOpaque();
     stillCropIsValidatedAgainstTheSurface();
     stillReadbackUsesTheLowerLeftOrigin();

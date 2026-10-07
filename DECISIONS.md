@@ -1547,6 +1547,51 @@ log shows the plan, the layers and the first pixel.
 **Chosen:** host and JVM guards for what a JVM can see (`app/src/test/kotlin/.../qa`, `MovAudioScanTableTest`, `LumaFusionPackageGuardTest`, the decode simulation for mixed frame rates, `engine_version_tests.cpp`), and `scripts/qa-smoke.sh` for what needs the phone. Every defect found on a device now gets a regression test in the same change; a device-only one gets a scripted check in the smoke runner (CLAUDE.md, Testing rules; docs/QA.md).
 **Found while writing them:** `debug.uveditor.export_enc_flags=0` switched the 4x export speed-up off in any build, the same trap as `decode_gap`; it is removed and a test allow-lists the debug properties the code may read. The exporter also evicted the stand-in frame at the end of a clip that ends two or more timeline frames after its last picture (24 fps on a 60 fps timeline), so each later frame seeked back and decoded a GOP again; the newest held frame is now kept (the simulation reproduces and guards it).
 
+## 2026-10-07 · Export: layers hidden behind a full-canvas video layer are not decoded or drawn
+
+**Context.** A layer that covers the whole canvas with full opacity hides everything below it, but the exporter decoded and drew those layers anyway.
+In the real 11:54 4K60 HLG project (`Review IPhone 18 Pro Max`, 42,891 frames) a full-scale B-roll clip (IMG_0650/0656/0657, six `VID*.mp4`, all 3840x2160) sits on
+lane v2 above the full-scale base clip IMG_0014.mov (4K60 HEVC 10-bit HLG, 3.7 GB) on v1.
+**Offline count (project.json, `scripts/`-free analysis; the engine decides at run time from the real decoded size):** 9,869 frames (23.0%) have a full,
+opaque, effect-free video clip above another video; with the 2 s rule below 8,463 frames (19.7%, 141 s of movie) are skipped, and in all of them the hidden clip is IMG_0014.
+**Decision.** `encode/occlusion_math.h` (`coversCanvas`, `opaqueLook`, `minCullFrames`, host tests in `export_host_tests.cpp`): the topmost video layer that is opaque (opacity 1
+after the crossfade), normal blend, no mask, no effect, no rotation and whose quad reaches all four canvas edges (1e-5 NDC, 0.02 px at 4K) hides every layer beneath it; those are not
+fetched and not drawn. Pictures and titles never hide anything (a PNG may have alpha). The decision is made per frame from the geometry the draw would use, so a cover that is scaled
+down, rotated, faded or of another aspect simply is not one. Plain code path, no switch in production; `ExportSettings.skipHiddenLayers` (default true, bit 0x200 on the JNI codec int)
+exists for the debug harness only (`ExportDemoActivity --ez keep_hidden true`) and a run that keeps hidden layers logs a warning.
+**The 2 s rule.** The cover must still have at least 2 s to run (`minCullFrames`). Skipping stops 2 s before the cover ends, so the hidden clip's decoder (shut down after 2 s of
+idleness) is re-opened and decodes while the cover is still shown: no stall and no seek storm when the cover ends, and a cover shorter than 2 s never skips anything. Cost: the last
+2 s of every cover are decoded as before, so a cover of length L saves the decode of L minus 2 s (nothing when L is under 2 s). Audio is not part of the video layer plan and is untouched.
+Also in this change: all layers' decoder targets are set before the first fetch waits (`setTarget` is idempotent), and `debug.uveditor.export_perf` prints a per-section
+table (video layers / picture layers / skipped layers: frames, seconds, fps) at the end of an export.
+**Parity (Pixel 8, `scripts/check-hidden-layers.sh <serial> parity`, 1280x720 30 fps SDR, 240 frames, framemd5 of the output with skipping on against `--ez keep_hidden true`).**
+Cases (base under a top clip, same 20 s H.264 source at different offsets): `full` (181 draws skipped; the last 2 s are drawn by the rule), `resume` (cover in the middle, 61 skipped,
+the base resumes), `fade` (60-frame fade-in, 121 skipped only after the fade), `zoom` (scale 1.2 and 20 px shift, 181 skipped), `small` (scale 0.5), `opacity` (0.99), `short`
+(cover of 1 s) and `aspect` (square canvas, 16:9 source): the last four skip nothing, as they must. All eight are frame-for-frame identical (240/240 md5).
+Noise caveat found on the way: the hardware encoder is not always deterministic. Twice in about 20 pairs the last 1-2 frames differed (PSNR 52.7 and 56.7 dB) with identical code paths (case `short`,
+nothing skipped on either side), and the file sizes of repeated runs differ by a few tens of kB; a rerun of the same pair was identical. So a mismatch is judged by frames and PSNR, not by file hash.
+Not tested on a device: an HLG output (the culling decision does not depend on the colour space), a cover in a different media slot of a real project.
+**Measured (Pixel 8, `... time`, a 31 s excerpt of IMG_0014.mov stream-copied (4K60 HEVC 10-bit HLG, 53 Mbps) used for both layers, full cover for 1200 frames, HEVC 35 Mbps 4K60 output
+(SDR tone-mapped), 2 runs interleaved, the app was not in the foreground, mapas had focus; thermal not recorded):**
+
+| skipping | run 1 | run 2 | fps | hidden draws skipped |
+|---|---|---|---|---|
+| off | 27.7 s | 27.6 s | 43.4 | 0 |
+| on | 19.3 s | 19.3 s | 62.0 | 1081 of 1200 |
+
+That is 1.43x on a stretch where a 4K60 10-bit clip is hidden, about 7.8 ms per skipped frame. On the real project 8,463 frames qualify (19.7%), which at this rate is about 66 s of the 32 min
+baseline (3.4%); the real covers are lighter than this synthetic cover (the base is the 95 Mbps clip), so the saving there can be larger or smaller; a real-project run was not made.
+`debug.uveditor.export_cull` from the first version of this change no longer exists (a stale value of it is harmless).
+
+## 2026-10-07 · Decoder reuse and pre-priming across cuts: evaluated, not built
+**Context:** idea: one decoder per file reused across consecutive pieces of that file, and the next clip's decoder opened and primed (seek to the key frame, decode to the start) before the cut, so the 4K export does not wait at each cut. Looked at on the real 11:54 project (4K60 HLG, 32 min export, decode-bound).
+**Measured (offline, `scripts/analysis/decoder_starts.py project.json`, which models the exporter's decoder lifecycle):** 95 clips, of which only 39 are video (the rest are titles and stills, which open no decoder), 18 assets, no transitions. An export makes 21 decoder openings, 8 contiguous continuations that already cost nothing (source gap 0, the decoder is kept), 2 forward jumps of 98 and 116 frames that the decoder decodes through, and 8 real seeks. The premise that IMG_0014's 19 pieces are contiguous is false: 11 pieces are on v1 with source gaps of 98, 116, 134, 323, 520, 635, 862, 1057 and 1857 frames (only one pair is adjacent, and its decoder had been released by then); the rest are scattered clips on v2.
+**Why reuse already happens:** `Renderer::assetFor` keeps one decoder per (asset, layer*2+lane), not per clip, and `releaseIdleDecoders` closes it only after more than max(60 frames, 2 s) without use. Pieces of one asset on one track therefore share a decoder; a jump goes through `needsSeek` (decode forward up to 120 frames, seek beyond). A pool keyed by file would only add the cross-track case.
+**Estimate:** about 30 start-ups at 1 to 1.5 s each (codec creation plus decoding from the key frame at about 35 fps per 4K decoder) is 30 to 45 s of 32 min, so the gain of a perfect scheme is at most 2%. This is an estimate: the Pixel was in use, so no device timing was taken.
+**Decision:** not built. A pool with eviction, an aggregate-throughput bound and shared-file-lock care is a lot of delicate code for at most 2%; occlusion culling and copying untouched stretches are bigger levers.
+**Cheap idea left (not done, about 1%):** open the next clip's decoder (codec creation only) on another thread a second before the cut, hiding the creation latency but not the decode from the key frame.
+**Future option:** per-start counters under `UVExportPerf` (open time and setTarget-to-first-frame time per decoder open and per jump, plus a total) were written on branch `perf/decoder-reuse-prime` (commit d4cc69d, local, off by default, no new property) and not merged; worth reviving if a device run is wanted to turn the estimate into a measurement.
+
 
 ## 2026-10-07 · Quality-first: no proxy-assisted export, and no export mode that recompresses footage unnecessarily
 **Context:** the owner's videos exist to show the camera and video quality of phones. The "Use proxies for small layers" export option (PR #122) decoded layers shown at or below proxy size from the 720p proxy; it never upscaled, but it added a generation of lossy compression to those layers (about 43 dB PSNR on synthetic content, unmeasured on real footage).
