@@ -90,6 +90,17 @@ class MediaLayoutTest {
     }
 
     @Test
+    fun `discarding says why a folder stayed`() {
+        val folder = chosen()
+        val created = ArrayList<MediaFolder>()
+        val media = MediaLayout.path(folder, MediaLayout.MEDIA).ensure(created) as FakeMediaFolder
+        File(media.dir, "keep.txt").writeText("x")
+        val said = ArrayList<String>()
+        MediaLayout.discardEmpty(created) { said += it }
+        assertEquals(listOf("Media is kept: it holds 1 entries"), said)
+    }
+
+    @Test
     fun `describe shows the effective path, the categories that exist and the loose files left by earlier imports`() {
         val folder = chosen("LFImport")
         File(folder.dir, "old1.MOV").writeText("x")

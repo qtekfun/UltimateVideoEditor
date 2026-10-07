@@ -68,14 +68,40 @@ class TreeMediaFolder private constructor(
         return TreeMediaFolder(context, tree, DocumentsContract.getDocumentId(doc))
     }
 
-    override fun delete(): Boolean = try {
-        DocumentsContract.deleteDocument(resolver, documentUri)
-    } catch (e: IOException) {
-        Log.w(TAG, "could not remove the folder: ${e.message}")
-        false
-    } catch (e: SecurityException) {
-        Log.w(TAG, "could not remove the folder: ${e.message}")
-        false
+    override fun delete(): Boolean = deleteDocument(documentUri, "the folder")
+
+    /**
+     * Removes [doc]. The provider throws IllegalStateException ("Failed to delete") when the media scanner has the file open
+     * at that moment (seen right after a cancelled copy on a Pixel 8), so a failure is retried a few times before giving up.
+     */
+    private fun deleteDocument(doc: Uri, what: String): Boolean {
+        // A cancelled import cleans up on a thread that may still carry the interrupt: that would fail the provider call
+        // and the sleep between attempts, and leave the file behind. The flag is put back afterwards.
+        val interrupted = Thread.interrupted()
+        try {
+            repeat(DELETE_ATTEMPTS) { attempt ->
+                try {
+                    return DocumentsContract.deleteDocument(resolver, doc)
+                } catch (e: IOException) {
+                    Log.w(TAG, "could not remove $what: ${e.message}")
+                    return false
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "could not remove $what: ${e.message}")
+                    return false
+                } catch (e: IllegalStateException) {
+                    Log.w(TAG, "could not remove $what (attempt ${attempt + 1}): ${e.message}")
+                    if (attempt < DELETE_ATTEMPTS - 1) Thread.sleep(DELETE_RETRY_MS)
+                } catch (e: RuntimeException) {
+                    // After a failed attempt the document may be gone already (the provider then says it is unknown): the
+                    // caller checks what is left, so this must not escape and skip the rest of a cleanup.
+                    Log.w(TAG, "could not remove $what (attempt ${attempt + 1}): ${e.javaClass.simpleName} ${e.message}")
+                    return false
+                }
+            }
+            return false
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt()
+        }
     }
 
     private fun childId(name: String): String? {
@@ -127,12 +153,7 @@ class TreeMediaFolder private constructor(
                 null
             }
 
-            override fun delete(): Boolean = try {
-                DocumentsContract.deleteDocument(resolver, doc)
-            } catch (e: IOException) {
-                Log.w(TAG, "could not remove the partial file $name: ${e.message}")
-                false
-            }
+            override fun delete(): Boolean = deleteDocument(doc, "the partial file $name")
         }
     }
 
@@ -151,6 +172,8 @@ class TreeMediaFolder private constructor(
 
     private companion object {
         const val TAG = "MediaFolder"
+        const val DELETE_ATTEMPTS = 5
+        const val DELETE_RETRY_MS = 300L
     }
 }
 

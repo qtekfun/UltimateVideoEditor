@@ -386,8 +386,9 @@ class ProjectRepository(
             if (scratch.exists()) scratch.deleteRecursively()
             // The files this import created in the user's folder are removed when it did not finish (cancel, error, full disk).
             if (!committed) {
+                log("cleanup after an unfinished import: ${created.size} files, ${createdFolders.size} folders", IOException("cleanup"))
                 created.forEach { it.delete() }
-                MediaLayout.discardEmpty(createdFolders)
+                MediaLayout.discardEmpty(createdFolders) { log(it, IOException(it)) }
             }
         }
     }
