@@ -96,8 +96,19 @@ To publish: set `versionName` in `gradle/version.properties`, merge, then `git t
 6. `docs/PRIVACY.md` is accurate (it is packed into the app and shown in About).
 7. A signed build is installed on the reference phone (OPPO CPH2841) and a smoke test is done: create a project, import a
    clip, split, play with sound, export, open About, tips shown once.
+   **Device regression run:** build the debug APK with the QA suffix and run the scripted checks on a phone before tagging
+   (`docs/QA.md` has the commands and what each check protects against):
+   `flock /tmp/gradle-build.lock ./gradlew :app:assembleDebug -Puveditor.appIdSuffix=qa && scripts/qa-smoke.sh <serial> --install`
+   (no `--quick`). Every row must be PASS (a SKIP needs a written reason); paste the RESULT line and the date in the log below.
+   Any FAIL blocks the release until it is fixed or the check is shown to be wrong (and then the check is fixed).
 8. Tag `v<versionName>`, run the release workflow, download the artifacts, check the checksums, keep `mapping.txt`.
 9. Store listing updated (below).
+
+Device regression log (`scripts/qa-smoke.sh`, one line per release):
+
+| Version | Date | Device | Result |
+|---|---|---|---|
+| 0.3.2 (master 63ecc5c plus the QA runner and PR #134) | 2026-10-07 | Pixel 8, Android 17 | 29 passed, 0 failed, 0 skipped (3 min) |
 
 Size log (R8-minified, arm64-v8a only):
 
