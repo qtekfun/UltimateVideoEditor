@@ -1506,3 +1506,38 @@ transcoding the audio at import (copies and rewrites the user's media).
 **Alternatives:** one flat `ultimateVE/Media` (name collisions between projects, no per-project cleanup); copying LumaFusion's five folders up front (empty folders that mean nothing here).
 **Found on the Pixel 8 (ExternalStorageProvider):** `DocumentsContract.deleteDocument` right after a cancelled copy throws `IllegalStateException("Failed to delete")` (the media scanner has the file), and a second call on the then-missing document throws `IllegalArgumentException`. The first version of the cleanup let that escape, which skipped the folder removal and left an empty `Media/<project>` folder (the exception was swallowed because the job was cancelled). `TreeMediaFolder.delete` now retries and never throws; `MediaLayout.discardEmpty` reports what it kept or removed to the import log (tag `UVImport`).
 **Not verified:** how each third-party document provider treats `EXTRA_INITIAL_URI` (the picker may ignore it).
+
+## 2026-10-07 · Toolbar documentation: in the app first, a website and a PDF as extras
+**Context:** the editor has about 30 icon-only buttons and people did not know what they do. `docs/USER_GUIDE.md` had an icon table with
+characters standing in for the icons, which is hard to match with what is on screen, is not searchable on a phone and can drift from the app.
+**Chosen:** (1) **In the app, primary.** A Toolbar guide screen (About, Help; and a ? button in the editor's top bar) draws each symbol
+with the toolbar's own `ImageVector`, with name, what it does, when it is enabled, grouped by where it sits, plus the gestures and a search box.
+It works offline, always matches the installed version, and is where a person stuck on a button already is. It is built from one registry and a
+JVM test fails when an editor icon has no entry, so it cannot go stale silently. Long-press tooltips already existed and stay.
+(2) **Website, secondary.** A GitHub Pages site generated from `docs/` and the same registry gives search-engine reach, links to share in
+a forum or a support answer, and room to read on a big screen. It is built by a stdlib Python script plus pandoc with no CDN, font or analytics,
+and the app only links to it with `ACTION_VIEW` on a tap (no INTERNET permission, no fetch by the app). (3) **PDF, tertiary.** The user guide printed by
+headless Chrome in the release workflow is attached to the release for people who want a file to keep offline; it is best effort and never blocks a release.
+**Alternatives:** PDF only (not searchable on a phone, stale the day after, a second thing to open); website only (needs a connection, can describe a
+different version than the one installed, and an offline-by-design app should not send its users to the network for basic help); an embedded WebView
+(banned by the offline guarantee test and a bigger attack surface); a coach-marks overlay on every button (noisy, more UI to maintain).
+**Rule:** a new toolbar button needs a line in `ToolbarGuide.kt`; the test enforces it. Pages must be enabled once by hand (`docs/RELEASE.md`).
+
+## 2026-10-07 · Save frame as image: one tap, no dialog, into Pictures/ultimateVE
+**Context:** the first version (a dialog with source, size presets, fit/fill, PNG/JPEG and a document picker) was too much for the common
+case and, on the user's 4K HLG project, produced an image that was completely black. LumaFusion saves a frame with one tap.
+**Chosen:** the button saves immediately: whole picture, project size (capped at 4096 px), JPEG quality 95, sRGB, named from the project, the
+frame's timecode and the save time, into `Pictures/ultimateVE` through `MediaStore` (pending row while writing; no permission on API 29+, the
+folder is created implicitly). A snackbar offers Share and Open. The size presets, fit/fill, selected-clip source, PNG, the JPEG size search
+and the picker were removed from the user path and from the code (no dead UI); the engine keeps its generic crop rectangle, which the tests cover.
+A guard makes an empty picture impossible to save: a frame with visible layers that reads back as one flat colour is redrawn once after
+500 ms and otherwise reported as an error, in the engine and again in Kotlin; each save logs its plan and result.
+**Alternatives:** keep the dialog behind a long press (rejected: options nobody asked for, more code to keep correct); the document picker
+(rejected: a question on every save, and the user wants a fixed gallery folder); `Environment.getExternalStoragePublicDirectory` + file
+(rejected: needs storage permission or breaks under scoped storage, and the gallery would not see the file until scanned).
+**The black image:** it could not be reproduced on the current master on a Pixel 8 with a seeded project that mirrors the user's (4K60 HLG
+IMG_0014.mov at source frame 296, a second 4K SDR clip on a layer above, a photo with a transform, a transparent PNG, a title, rotation 180
+metadata): every frame saved correctly. The user's installed app is the 0.3.0 debuggable build, which predates #126 to #129, and the phone
+had a stale `debug.uveditor.decode_gap=0` property left by an A/B run, which #129 removed; the cause is therefore most likely that build and
+property rather than the editor wiring, but this is not proven. If it still happens with this build, the guard reports it and the `UVFrame`
+log shows the plan, the layers and the first pixel.

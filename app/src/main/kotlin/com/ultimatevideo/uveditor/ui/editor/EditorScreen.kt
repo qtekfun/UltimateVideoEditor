@@ -141,9 +141,10 @@ import com.ultimatevideo.uveditor.ui.editor.title.TitleTools
 import com.ultimatevideo.uveditor.data.LutStore
 import com.ultimatevideo.uveditor.ui.export.ExportViewModel
 import com.ultimatevideo.uveditor.ui.frame.BitmapFrameEncoder
-import com.ultimatevideo.uveditor.ui.frame.ContentResolverFrameSink
+import com.ultimatevideo.uveditor.ui.frame.MediaStoreFrameSink
 import com.ultimatevideo.uveditor.ui.frame.NativeFrameRenderer
-import com.ultimatevideo.uveditor.ui.frame.StillFrameHost
+import com.ultimatevideo.uveditor.ui.frame.FrameSnackbarHost
+import com.ultimatevideo.uveditor.ui.frame.StillFrameEffects
 import com.ultimatevideo.uveditor.ui.frame.StillFrameInput
 import com.ultimatevideo.uveditor.ui.frame.StillFrameIntent
 import com.ultimatevideo.uveditor.ui.frame.StillFrameViewModel
@@ -308,17 +309,14 @@ fun EditorScreen(
                         ContentResolverExportIO(app), NativeExportRunner(), titleRasterizer, AndroidStillRasterizer(app), lutStore::load,
                     ),
                     encoder = BitmapFrameEncoder(),
-                    sink = ContentResolverFrameSink(app),
+                    sink = MediaStoreFrameSink(app),
                     exports = ExportCenter.executor(context),
                     projectId = projectId,
                 )
             }
         },
     )
-    StillFrameHost(stillFrameViewModel) { text ->
-        snackbar.currentSnackbarData?.dismiss()
-        scope.launch { snackbar.showSnackbar(text) }
-    }
+    StillFrameEffects(stillFrameViewModel, snackbar)
     val exportHolder = exportViewModel.state.collectAsStateWithLifecycle()
     // Only the name is read, so the editor does not recompose on every progress report of an export.
     val exportBlockedBy by remember(exportHolder) { derivedStateOf { exportHolder.value.blockedBy } }
@@ -382,7 +380,7 @@ fun EditorScreen(
         if (viewModel.state.value.isPlaying) viewModel.onIntent(EditorIntent.TogglePlay)
         val live = viewModel.state.value
         stillFrameViewModel.onIntent(
-            StillFrameIntent.Open(
+            StillFrameIntent.Save(
                 StillFrameInput(
                     projectId = projectId,
                     projectName = live.projectName,
@@ -391,9 +389,7 @@ fun EditorScreen(
                     fps = live.fps,
                     timeline = live.timeline,
                     assets = live.assets,
-                    colorSpace = live.colorSpace,
                     frame = live.playhead.value,
-                    selectedClipId = live.selectedClipId,
                     missingAssetIds = live.missingMedia.keys,
                 ),
             ),
@@ -722,7 +718,15 @@ fun EditorScreen(
         LocalProxyUi provides proxyHolder,
         LocalProxyIntent provides proxyVm::onIntent,
     ) {
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(
+        snackbarHost = {
+            FrameSnackbarHost(
+                snackbar,
+                onShare = { stillFrameViewModel.onIntent(StillFrameIntent.Share) },
+                onOpen = { stillFrameViewModel.onIntent(StillFrameIntent.Open) },
+            )
+        },
+    ) { padding ->
         when {
             state.isLoading -> Column(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -912,6 +916,17 @@ private fun EditorMain(
     LibraryOverlays(state) { viewModel.onIntent(it) }
     LocalProxyUi.current?.let { ProxySheetHost(it, LocalProxyIntent.current) }
     var scopesOpen by remember { mutableStateOf(false) }
+    var guideOpen by rememberSaveable { mutableStateOf(false) }
+    if (guideOpen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { guideOpen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                com.ultimatevideo.uveditor.ui.editor.guide.ToolbarGuideScreen(onClose = { guideOpen = false })
+            }
+        }
+    }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {
@@ -927,6 +942,7 @@ private fun EditorMain(
                 maxLines = 1,
                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
+            ToolButton(EditorIcons.Help, "Toolbar guide: what every symbol and gesture does") { guideOpen = true }
             ToolButton(EditorIcons.LayoutPanes, "Layout: presets, panels, track height and dividers", onClick = onOpenLayout)
             ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }

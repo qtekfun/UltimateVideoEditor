@@ -55,7 +55,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] Offline render loop to MediaCodec encoder (H.264, HEVC) + muxer
 - [x] Audio offline mix and AAC encode
 - [x] Export UI: resolution/fps/bitrate, progress, cancel, share
-- [x] Save frame as image (PNG/JPEG of the playhead frame through the exporter's engine, SPECS 5.35): engine and encoder seen on a Pixel 8 through a debug harness; the dialog itself not yet seen on a screen
+- [x] Save frame as image (one tap: JPEG of the playhead frame at project size into Pictures/ultimateVE through the exporter's engine, SPECS 5.35); seen in the real editor on a Pixel 8, `scripts/check-frame-export.sh` compares it with an export
 - [x] Optional: static FFmpeg fallback behind a feature flag (`-Puveditor.ffmpeg=<dir>`, off by default): **built, verified in CI only** — host tests of the readers against a real libav (MPEG-2, MPEG-4, ProRes, H.264, AAC, AC-3: exact frame indices, seeking inside GOPs, audio seek), the pinned LGPL static build for arm64 (+7.6 MB in `libuveditor_engine.so`; AV1 via libdav1d added, see DECISIONS) and the engine linked against it. **Not yet run on a device** (preview/export path, RGBA8 upload, the "software decoding" notice): see `docs/ffmpeg-fallback.md`.
 - _Status:_ exports the full timeline (all video layers composited with their transform and opacity through the preview's
   `drawScene`, clip gain in the audio mix, gaps black, HLG sources tone-mapped to SDR Rec.709) at the project
@@ -107,6 +107,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] WP-V5 Project templates, transition and filter packs
 - [x] WP-M Multicam (SPECS 5.29)
 - [x] WP-R Release preparation: versioning, optional signing, R8 (release APK 6.6 MB), release workflow, local crash report, About, tips
+- [x] Toolbar guide: in-app searchable guide from one registry with a coverage test (SPECS 5.36), GitHub Pages site and release PDF workflows, About "Online guide" link
 - Removed from the plan by the privacy rule: ML cutout, subject-detecting reframe, neural voices, vocal isolation, speaker captions,
   speech recognition.
 
@@ -135,7 +136,7 @@ the Pixel 8 is named; the Pixel 8 is a debug device, not the reference).
 | Media tray | Expanded tray, tabs, filters, search, long-press drag onto a base junction inserts the clip (Pixel, pass A) | Snap heights, drag onto the canvas with the live indicator, edge auto-scroll, drops from other apps, reordering |
 | Layout | Divider drag, layout sheet, Large lanes, presets (Pixel) | Inspector docked to a side on a wide window, folding a side column, split screen (persistence across a forced stop, Reset and customise switch seen on the Pixel, pass A) |
 | Playback and audio | AAudio started, clock drift 0.4 ms in 55 s (OPPO); playback with the v4 mixer, meter and Mixer sheet (Pixel); 7.6-minute play/pause/background stress without a crash (Pixel, pass A) | Hearing it: sync by ear, EQ, noise suppression on speech, ducking, fades, pan; export audio against preview; 5-minute drift run |
-| Save frame as image | Frame-exact stills of a plain clip starting mid-GOP, a reversed and a 2x clip: the frame number read back from each PNG matches the domain; PNG against ffmpeg's frame of an export of the same project is identical on flat SDR frames; an HLG clip is tone-mapped like the export (42 dB on a 64 x 36 average, visually identical); fill crop, JPEG size search (q=66 for 40 kB, q=1 fallback), sRGB PNG chunk and JPEG ICC (Pixel 8, debug harness only) | The dialog, the document picker and Share on a real screen, selected clip only, a title or transition frame, real 4K HLG footage, memory at 4096 px |
+| Save frame as image | One tap in the real editor on the Pixel 8 with seeded projects (4K60 HLG, 4K SDR, a mirror of the user's project with a 4K HLG base at source frame 296, a 4K overlay, a photo, a transparent PNG and a title): the JPEG in Pictures/ultimateVE matches the preview; harness frames of plain, reversed and 2x clips read back the right source frame | The user's own 95-clip project, a frame inside a transition, memory at 4096 px, Share and Open with other apps |
 | Export | Many ffprobe-checked exports on the OPPO; ETA text and a full UI export (Pixel); H.264 and HEVC 1080p30 ffprobe-checked, Cancel leaves no file, Share chooser opens (Pixel, pass A) | HDR HEVC Main10 on an HDR display, real footage colour, long-GOP 4K, two-layer speed |
 | Colour | Grade and scopes render and respond (Pixel); save look, copy/paste grade, filter packs, `.cube` import, forced-HLG tone-map message (Pixel, pass A) | HLG/SDR mixing look on real HLG footage, HSL eyedropper, scopes cost at 4K60 |
 | Titles, captions, stickers | Title and sticker blocks (Pixel) | Layer editor, fonts import, presets, SRT/VTT import, the eight caption styles, stickers and emoji art, photos (EXIF, HEIC) |
