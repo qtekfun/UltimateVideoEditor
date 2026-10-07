@@ -153,7 +153,7 @@ Every icon also has a text description: long press it to see its name, or use a 
 | ⤢ | Fit the whole project and all lanes | Zooms the time axis so the whole project fits, and the lane heights to the largest size at which every lane is visible (never taller than 3x or shorter than half the default; with very many lanes as many as fit, and the rest scroll). Both keep following the panel (rotation) and the lanes you add until you zoom that axis by hand. |
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
-| ✂ | Split at playhead | Cuts the selected clip in two. |
+| ✂ | Split at playhead | Cuts the selected clip in two (with several selected, every one the playhead is over, as one undo step). Playback pauses and the playhead stays exactly on the cut, the first frame of the right-hand part, which becomes the selection so you can move the playhead and cut again. Undo and redo leave the playhead where it is. |
 | ⛶ (dotted square) | Select several clips | Turns select mode on or off; see [Selecting several clips](#selecting-several-clips). |
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
