@@ -137,6 +137,9 @@ class TimelineEngine(
     /** Sets the canvas colours from the app palette (`Palette.nativeColours()`); redraws at once. */
     fun setPalette(argb: IntArray) = NativeTimeline.nativeSetPalette(live(), argb)
 
+    /** How waveform amplitudes become heights: linear (the default) or decibels; the code is [WaveformScale.code]. */
+    fun setWaveformScale(scale: WaveformScale) = NativeTimeline.nativeSetWaveformScale(live(), scale.code)
+
     fun scrollBy(dx: Float, dy: Float) = NativeTimeline.nativeScrollBy(live(), dx, dy)
     fun zoomBy(factor: Float, focusX: Float) = NativeTimeline.nativeZoomBy(live(), factor, focusX)
     fun fling(velocityX: Float) = NativeTimeline.nativeFling(live(), velocityX)
