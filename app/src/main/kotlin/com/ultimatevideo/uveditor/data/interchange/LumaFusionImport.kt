@@ -72,6 +72,10 @@ data class LfClip(
     val effectNames: List<String> = emptyList(),
     /** The content of a title clip (`runtimeTitle`), when the clip is one. */
     val runtimeTitle: LfTitle? = null,
+    /** The footage's picture size (`attributes.naturalSize`) and video bit rate in bits per second (`attributes.videoBitrate`), when stated. */
+    val naturalWidth: Int? = null,
+    val naturalHeight: Int? = null,
+    val videoBitrate: Long? = null,
 )
 
 /** One layer of a LumaFusion title: a text box or a plain shape, placed by its rectangle in the title's frame. */
@@ -244,6 +248,7 @@ object LumaFusionImport {
         // A name without an extension is a placeholder (a sample had "sioProviderRelink" for a picture): the title is the file name then.
         val fileName = listOf(leaf(original), attrs?.str("title").orEmpty(), leaf(decodeUrl(obj.str("assetURL"))))
             .let { names -> names.firstOrNull { it.contains('.') } ?: names.firstOrNull { it.isNotEmpty() }.orEmpty() }
+        val naturalSize = flatten(attrs?.get("naturalSize")).takeIf { it.size == 2 }
         val videoAttrs = visual?.get("streamAttributes") as? JsonObject
         val audioAttrs = audio?.get("streamAttributes") as? JsonObject
         val changes = ArrayList<String>()
@@ -298,6 +303,10 @@ object LumaFusionImport {
             orientation = flatten(valueOf(videoAttrs?.get("videoOrientation"))).firstOrNull() ?: 0.0,
             effectNames = streams.flatMap { s -> (s["effects"] as? JsonArray).orEmpty().map { e -> (e as? JsonObject)?.str("displayName").orEmpty().ifEmpty { "unnamed" } } },
             runtimeTitle = (obj["runtimeTitle"] as? JsonObject)?.let(::title),
+            naturalWidth = naturalSize?.getOrNull(0)?.toInt()?.takeIf { it > 0 },
+            naturalHeight = naturalSize?.getOrNull(1)?.toInt()?.takeIf { it > 0 },
+            // The unit is not documented; a figure below 10 kbit/s cannot be bits per second, so it is treated as unknown.
+            videoBitrate = (attrs?.get("videoBitrate") as? JsonPrimitive)?.doubleOrNull?.toLong()?.takeIf { it >= MIN_PLAUSIBLE_BITRATE },
         )
     }
 
@@ -393,6 +402,7 @@ object LumaFusionImport {
     private fun JsonObject.dbl(key: String, default: Double) = (this[key] as? JsonPrimitive)?.doubleOrNull ?: default
 
     private const val EPS = 1e-6
+    private const val MIN_PLAUSIBLE_BITRATE = 10_000L
 
     /** CMTime flags: positive infinity (4), negative infinity (8) and indefinite (16) have no position. */
     private const val INVALID_FLAGS = 4L or 8L or 16L
@@ -670,6 +680,9 @@ object LumaFusionImport {
                 hasAudio = !isPhoto && clips.any { it.hasAudio },
                 isImage = isPhoto,
                 displayName = name,
+                videoWidth = clips.firstNotNullOfOrNull { it.naturalWidth }.takeIf { !isPhoto },
+                videoHeight = clips.firstNotNullOfOrNull { it.naturalHeight }.takeIf { !isPhoto },
+                videoBitrate = clips.firstNotNullOfOrNull { it.videoBitrate }.takeIf { !isPhoto },
             )
         }
 

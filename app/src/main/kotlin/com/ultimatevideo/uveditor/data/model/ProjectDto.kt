@@ -194,6 +194,19 @@ data class MediaAssetDto(
      * NETSCAPE2.0 repeat count plus one, or 1 when it has none). Absent or 0 loops for as long as the clip lasts.
      */
     val animationPlays: Int? = null,
+    /**
+     * Facts of the video track the export dialog uses to pick its defaults (SPECS.md 5.10). All optional: projects saved before
+     * they existed, and files that do not state a value, read as unknown (null) and the dialog then falls back to its fixed defaults.
+     * The picture size is as displayed (rotation applied).
+     */
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    /** Bit rate of the video stream in bits per second: the stream's own figure, else the file's average (size over duration). */
+    val videoBitrate: Long? = null,
+    /** "avc", "hevc", "av1", "vp9" or "other". */
+    val videoCodec: String? = null,
+    /** The video is 10-bit (HEVC Main10 and similar), whatever its transfer function. */
+    val tenBit: Boolean? = null,
 )
 
 @Serializable

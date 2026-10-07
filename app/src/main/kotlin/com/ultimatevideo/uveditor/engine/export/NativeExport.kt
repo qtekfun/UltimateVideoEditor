@@ -178,7 +178,7 @@ class NativeExportRunner : ExportRunner {
         val handle = try {
             NativeExport.nativeStart(
                 native, s.width, s.height, s.fpsNum, s.fpsDen, request.projectFpsNum, request.projectFpsDen,
-                request.canvasWidth, request.canvasHeight, s.codec.value or (if (s.hdr) HDR_FLAG else 0), s.videoBitrate, s.audioBitrate, request.totalFrames,
+                request.canvasWidth, request.canvasHeight, s.codec.value or (if (s.hdr) HDR_FLAG else 0) or (if (s.skipHiddenLayers) 0 else KEEP_HIDDEN_FLAG), s.videoBitrate, s.audioBitrate, request.totalFrames,
                 keys, fds, clips, transforms, keyClips, keyFrames, keyValues, FxWire.encode(request.videoClips.map { it.fx }),
                 fxFrameClips, fxFrameData, sourceClips, sourceTable, titleMeta, titlePixels, lutMeta, lutData, request.audioSnapshot, request.outputFd,
                 request.pictureBudgetBytes,
@@ -212,6 +212,7 @@ class NativeExportRunner : ExportRunner {
     private companion object {
         /** Added to the codec value for an HLG export; see `export_jni.cpp`. */
         const val HDR_FLAG = 0x100
+        const val KEEP_HIDDEN_FLAG = 0x200
         const val CLIP_LONGS = 9
         const val CLIP_DOUBLES = 6
         const val KEY_CLIP_LONGS = 2
