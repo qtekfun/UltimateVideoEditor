@@ -15,6 +15,7 @@ here="$(dirname "$0")"
 . "$here/device-ui.sh"
 
 ui_require_unlocked
+trap 'adb_ shell setprop debug.uveditor.timeline_stats 0' EXIT  # a stale debug property outlives the run (DECISIONS.md, "No debug switch")
 adb_ shell setprop debug.uveditor.timeline_stats 1
 python3 "$here/make-perf-project.py" | adb_ shell "run-as $pkg sh -c 'mkdir -p files/projects/perf110 && cat > files/projects/perf110/project.json'"
 ui_launch

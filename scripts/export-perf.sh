@@ -42,6 +42,8 @@ fi
 
 one() {
     local adb="adb -s $serial"
+    # A debug property outlives the run (until reboot): reset it however this ends (DECISIONS.md, "No debug switch").
+    trap "adb -s $serial shell setprop debug.uveditor.export_perf 0" EXIT
     if $adb shell dumpsys window | grep -m1 mCurrentFocus | grep -q "$pkg/"; then
         echo "$pkg is in the foreground on $serial; not running" >&2
         return 3
