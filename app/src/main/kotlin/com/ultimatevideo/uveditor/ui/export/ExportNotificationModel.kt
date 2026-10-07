@@ -25,8 +25,12 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
         val percent = (state.progressPermille / 10).coerceIn(0, 100)
         val left = state.estimate.remainingMs?.takeIf { !state.estimate.stalled && state.progressPermille in 1..999 }
         ExportNotificationModel(
-            title = "Exporting ${state.projectName}",
-            text = if (left != null) "$percent% · about ${formatDuration(left)} left" else "$percent%",
+            title = if (state.verifying) "Verifying ${state.projectName}" else "Exporting ${state.projectName}",
+            text = when {
+                state.verifying -> "Checking the saved file · $percent%"
+                left != null -> "$percent% · about ${formatDuration(left)} left"
+                else -> "$percent%"
+            },
             progressPercent = percent,
             indeterminate = state.progressPermille <= 0,
             ongoing = true,
@@ -34,15 +38,18 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
             projectId = state.projectId,
         )
     }
-    is ExportJobState.Done -> ExportNotificationModel(
-        title = "Export finished",
-        text = "${state.fileName} is saved",
-        progressPercent = null,
-        indeterminate = false,
-        ongoing = false,
-        showCancel = false,
-        projectId = state.projectId,
-    )
+    is ExportJobState.Done -> {
+        val result = exportResultText(state.note, state.verification)
+        ExportNotificationModel(
+            title = if (result.severity == ResultSeverity.WARNING) "Export saved: check the file" else "Export finished",
+            text = listOf("${state.fileName} is saved", result.headline).filter { it.isNotEmpty() }.joinToString(" · "),
+            progressPercent = null,
+            indeterminate = false,
+            ongoing = false,
+            showCancel = false,
+            projectId = state.projectId,
+        )
+    }
     is ExportJobState.Failed -> ExportNotificationModel(
         title = "Export failed",
         text = describeExportFailure(state.error, hdr = false),

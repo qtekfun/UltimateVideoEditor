@@ -15,7 +15,17 @@ import com.ultimatevideo.uveditor.engine.export.ExportSettings
 import com.ultimatevideo.uveditor.engine.export.ExportTitle
 import com.ultimatevideo.uveditor.engine.still.AndroidStillRasterizer
 import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
+import com.ultimatevideo.uveditor.engine.export.NativeExportRunner
+import com.ultimatevideo.uveditor.engine.verify.ChannelByteSource
+import com.ultimatevideo.uveditor.engine.verify.Mp4Reader
+import com.ultimatevideo.uveditor.engine.verify.VerificationText
 import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
+import com.ultimatevideo.uveditor.ui.export.DeviceExportVerifier
+import com.ultimatevideo.uveditor.ui.export.ExportExecutor
+import com.ultimatevideo.uveditor.ui.export.ExportVerifier
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.ultimatevideo.uveditor.ui.export.ExportCenter
 import com.ultimatevideo.uveditor.ui.export.ExportJob
 import com.ultimatevideo.uveditor.ui.export.ExportJobState
@@ -33,6 +43,8 @@ import java.io.IOException
  *
  *   adb shell am start -n <pkg>/com.ultimatevideo.uveditor.debug.QaExportActivity --es project <project.json> --es out <out.mp4> \
  *     [--es codec avc|hevc] [--ez hdr true] [--ei w <px> --ei h <px>] [--ei fps <n>] [--ei bitrate <Mbps>]
+ *
+ * `--es damage truncate|zero2mb|zerotail|garble` damages the saved file before it is verified (scripts/qa-smoke.sh VERIFY-DAMAGE).
  *
  * Writes `<out>.result.txt`: `OK in <s> s, <bytes> bytes frames=<expected>` or `ERROR <code>: <message> ...`. The log tag is UVQa.
  */
@@ -86,7 +98,9 @@ class QaExportActivity : Activity() {
         val outputUri = Uri.fromFile(out).toString()
         out.delete()
 
-        val executor = ExportCenter.executor(app)
+        // --es damage <mode>: a private executor whose verifier first damages the finished file, to show the check catches it.
+        val damage = intent.getStringExtra("damage")
+        val executor = if (damage == null) ExportCenter.executor(app) else damagingExecutor(app, io, damage)
         val job = ExportJob(project.id, project.name, outputUri) {
             val titles = plan.titles.map { (key, content) ->
                 val bitmap = titleRasterizer.rasterize(content, project.settings.width, project.settings.height)
@@ -127,7 +141,10 @@ class QaExportActivity : Activity() {
             when (val state = executor.state.value) {
                 is ExportJobState.Done -> {
                     executor.acknowledge(null)
-                    return "OK frames=$expectedFrames audio=${plan.audio != null}" + if (state.note.isNotEmpty()) " note=${state.note}" else ""
+                    val verification = state.verification?.let { VerificationText.resultLine(it) } ?: "verification=none"
+                    val headline = state.verification?.let { " headline=\"${VerificationText.headline(it)}\" detail=\"${VerificationText.detail(it)}\"" } ?: ""
+                    return "OK frames=$expectedFrames audio=${plan.audio != null}" + (if (state.note.isNotEmpty()) " note=${state.note}" else "") +
+                        " $verification$headline" + (if (damage != null) " damage=$damage" else "")
                 }
                 is ExportJobState.Failed -> {
                     executor.acknowledge(null)
@@ -141,6 +158,62 @@ class QaExportActivity : Activity() {
         return "ERROR timeout"
     }
 
+    /** An executor of its own (no service, not the process-wide one) that damages the saved file before it is verified. */
+    private fun damagingExecutor(app: android.content.Context, io: ContentResolverExportIO, mode: String): ExportExecutor {
+        val inner = DeviceExportVerifier(io)
+        return ExportExecutor(
+            io = io,
+            runner = NativeExportRunner(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            ioDispatcher = Dispatchers.IO,
+            verifier = ExportVerifier { target, cancel, progress ->
+                damageFile(File(Uri.parse(target.uri).path.orEmpty()), mode)
+                inner.verify(target, cancel, progress)
+            },
+        )
+    }
+
+    private fun damageFile(file: File, mode: String) {
+        java.io.RandomAccessFile(file, "rw").use { raf ->
+            val length = raf.length()
+            fun zero(from: Long, to: Long) {
+                raf.seek(from)
+                val block = ByteArray(1 shl 16)
+                var left = to - from
+                while (left > 0) {
+                    val n = minOf(left, block.size.toLong()).toInt()
+                    raf.write(block, 0, n)
+                    left -= n
+                }
+            }
+            when (mode) {
+                "truncate" -> raf.setLength(length - 2 * 1024 * 1024)
+                "zero2mb" -> zero(length - 2 * 1024 * 1024, length)
+                "zerotail", "garble" -> {
+                    val video = Mp4Reader.read(ChannelByteSource(raf.channel)).video ?: error("no video track")
+                    for (i in maxOf(0, video.count - DAMAGED_SAMPLES) until video.count) {
+                        val at = video.offsets[i]
+                        val size = video.sizes[i]
+                        if (mode == "zerotail") {
+                            zero(at, at + size)
+                        } else {
+                            // Burst of flipped bits in the middle of the sample: the NAL structure stays intact, the decoder is left to cope.
+                            val middle = at + size / 2
+                            val burst = ByteArray(minOf(64, size / 4))
+                            raf.seek(middle)
+                            raf.read(burst)
+                            for (k in burst.indices) burst[k] = (burst[k].toInt() xor 0xFF).toByte()
+                            raf.seek(middle)
+                            raf.write(burst)
+                        }
+                    }
+                }
+                else -> error("unknown damage mode $mode")
+            }
+        }
+        Log.i(TAG, "damaged ${file.name} with $mode")
+    }
+
     private fun finishWith(message: String) {
         Log.e(TAG, message)
         finish()
@@ -148,5 +221,6 @@ class QaExportActivity : Activity() {
 
     private companion object {
         const val TAG = "UVQa"
+        const val DAMAGED_SAMPLES = 45
     }
 }

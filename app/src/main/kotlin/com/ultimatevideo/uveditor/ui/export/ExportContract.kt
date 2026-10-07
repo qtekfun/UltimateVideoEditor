@@ -5,6 +5,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.ProjectColorSpace
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
+import com.ultimatevideo.uveditor.engine.verify.VerificationOutcome
 import com.ultimatevideo.uveditor.mvi.UiEffect
 import com.ultimatevideo.uveditor.mvi.UiIntent
 import com.ultimatevideo.uveditor.mvi.UiState
@@ -30,8 +31,12 @@ sealed interface ExportPhase {
         val progressPermille: Int,
         val startedAtMs: Long = 0,
         val estimate: ExportEstimate = ExportEstimate(),
+        /** The movie is finished and the saved file is being checked; [progressPermille] is the check's progress. */
+        val verifying: Boolean = false,
     ) : ExportPhase
-    data class Done(val uri: String, val fileName: String, val note: String = "") : ExportPhase
+
+    /** [note] is the exporter's remark (repeated frames); [verification] what the check of the saved file found. */
+    data class Done(val uri: String, val fileName: String, val note: String = "", val verification: VerificationOutcome? = null) : ExportPhase
     data class Failed(val message: String) : ExportPhase
 }
 
@@ -87,6 +92,9 @@ sealed interface ExportIntent : UiIntent {
     data class LocationChosen(val uri: String?) : ExportIntent
     data object Cancel : ExportIntent
     data object Share : ExportIntent
+
+    /** After a failed verification: keep the file and go back to the settings to export again. */
+    data object ExportAgain : ExportIntent
 }
 
 sealed interface ExportEffect : UiEffect {

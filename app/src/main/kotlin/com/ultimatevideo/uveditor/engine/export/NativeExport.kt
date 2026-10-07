@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.engine.export
 
 import java.nio.ByteBuffer
 import com.ultimatevideo.uveditor.engine.fx.FxWire
+import com.ultimatevideo.uveditor.engine.verify.FrameSignature
 
 internal interface NativeExportListener {
     fun onProgress(permille: Int)
@@ -12,6 +13,9 @@ internal interface NativeExportListener {
      * {width, height, displayWidth, displayHeight} into [meta], or returns null.
      */
     fun loadPicture(key: Int, meta: IntArray): ByteBuffer?
+
+    /** Before [onFinished] on success: `{frame, ptsUs}` per probed frame in [meta], then 3 x cells shorts each in [data]. */
+    fun onSignatures(meta: LongArray, data: ShortArray)
 }
 
 /** JNI bindings only; use [NativeExportRunner]. */
@@ -79,6 +83,8 @@ class NativeExportRunner : ExportRunner {
                 if (code == 0 && message.isNotBlank()) listener.onNote(message)
                 listener.onFinished(if (code == 0) null else ExportException(code, text))
             }
+
+            override fun onSignatures(meta: LongArray, data: ShortArray) = listener.onSignatures(FrameSignature.parse(meta, data))
 
             override fun loadPicture(key: Int, meta: IntArray): ByteBuffer? {
                 val picture = request.pictureProvider?.load(key) ?: return null

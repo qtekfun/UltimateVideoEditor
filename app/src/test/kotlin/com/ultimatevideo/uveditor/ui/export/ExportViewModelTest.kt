@@ -662,4 +662,57 @@ class ExportViewModelTest {
     }
 
     // endregion
+
+    // region post-export verification
+
+    private fun verifyingViewModel(outcome: com.ultimatevideo.uveditor.engine.verify.VerificationOutcome): ExportViewModel {
+        val executor = ExportExecutor(
+            io, runner, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + dispatcher), dispatcher, { 0L }, {},
+            ExportVerifier { _, _, _ -> outcome },
+        )
+        return ExportViewModel(io, runner, dispatcher, executor = executor, projectId = "p1")
+    }
+
+    @Test
+    fun `the dialog ends on the verdict of the check`() {
+        val verified = com.ultimatevideo.uveditor.engine.verify.VerificationOutcome.Verified(
+            com.ultimatevideo.uveditor.engine.verify.VerifiedFacts(45, 1_500_000, 10, 45, 100),
+        )
+        val vm = verifyingViewModel(verified)
+        vm.openAndStart()
+
+        runner.listener!!.onFinished(null)
+
+        val done = vm.state.value.phase as ExportPhase.Done
+        assertEquals(verified, done.verification)
+    }
+
+    @Test
+    fun `export again after a warning keeps the file and returns to the settings`() {
+        val warning = com.ultimatevideo.uveditor.engine.verify.VerificationOutcome.Warning(
+            listOf(com.ultimatevideo.uveditor.engine.verify.Finding(com.ultimatevideo.uveditor.engine.verify.VerifyCheck.PICTURE, "x", 5)), 45, 1_500_000,
+        )
+        val vm = verifyingViewModel(warning)
+        vm.openAndStart()
+        runner.listener!!.onFinished(null)
+        assertTrue(vm.state.value.phase is ExportPhase.Done)
+
+        vm.onIntent(ExportIntent.ExportAgain)
+
+        assertEquals(ExportPhase.Configuring, vm.state.value.phase)
+        assertTrue(vm.state.value.visible)
+        assertTrue("the damaged file is the user's to delete", io.deleted.isEmpty())
+    }
+
+    @Test
+    fun `export again does nothing when there is no finished export`() {
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(input()))
+
+        vm.onIntent(ExportIntent.ExportAgain)
+
+        assertEquals(ExportPhase.Configuring, vm.state.value.phase)
+    }
+
+    // endregion
 }

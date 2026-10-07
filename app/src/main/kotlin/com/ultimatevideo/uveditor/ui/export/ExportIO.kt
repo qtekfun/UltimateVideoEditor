@@ -20,6 +20,9 @@ interface ExportIO {
     /** Opens the chosen document for writing; seekable, truncated. @throws IOException on failure. */
     fun openOutput(uri: String): Int
 
+    /** Opens a finished output for reading (seekable), for the post-export verification. @throws IOException on failure. */
+    fun openForRead(uri: String): Int = throw IOException("reading the output back is not supported here")
+
     fun close(fd: Int)
 
     /** The name the document has on disk (the user may have renamed it in the picker), or null when unknown. */
@@ -33,6 +36,8 @@ class ContentResolverExportIO(private val context: Context) : ExportIO {
     override fun openAsset(uri: String): Int = open(uri, "r")
 
     override fun openOutput(uri: String): Int = open(uri, "rwt")
+
+    override fun openForRead(uri: String): Int = open(uri, "r")
 
     private fun open(uri: String, mode: String): Int {
         val descriptor = try {
