@@ -68,6 +68,8 @@ import com.ultimatevideo.uveditor.engine.timeline.BeatResult
 import com.ultimatevideo.uveditor.engine.timeline.BeatSource
 import com.ultimatevideo.uveditor.engine.timeline.NoBeatSource
 import com.ultimatevideo.uveditor.engine.timeline.SnapshotMarker
+import com.ultimatevideo.uveditor.domain.DropAim
+import com.ultimatevideo.uveditor.domain.DropChoice
 import com.ultimatevideo.uveditor.domain.DropHint
 import com.ultimatevideo.uveditor.domain.DropKind
 import com.ultimatevideo.uveditor.domain.DropPlan
@@ -218,7 +220,12 @@ class EditorViewModel(
     private class DragSession(val clipId: String, val mode: DragMode, val grabOffset: Long, val group: List<String>? = null) {
         /** Last lane the finger was over, kept while it crosses a gap between lanes. */
         var target: DropTarget? = null
+
+        /** The last finger position, to decide again when the user flips the mode without moving. */
+        var last: LastMove? = null
     }
+
+    private class LastMove(val frame: Long, val trackIndex: Int, val zone: DragZone, val reachFrames: Long)
 
     /**
      * A drag of media that is not on the timeline yet: [clip] is the clip a release would create ([type] is
@@ -330,7 +337,8 @@ class EditorViewModel(
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
             EditorIntent.ScrubStarted -> scrubStarted()
             is EditorIntent.DragStart -> dragStart(intent.hit)
-            is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone)
+            is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone, intent.reachFrames)
+            EditorIntent.FlipDropChoice -> flipDropChoice()
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
             EditorIntent.RippleDeleteSelected -> {
@@ -1493,9 +1501,20 @@ class EditorViewModel(
         }
     }
 
-    private fun dragMove(frame: Long, trackIndex: Int, zone: DragZone) {
-        dragStep(frame, trackIndex, zone)
+    private fun dragMove(frame: Long, trackIndex: Int, zone: DragZone, reachFrames: Long) {
+        drag?.last = LastMove(frame, trackIndex, zone, reachFrames)
+        dragStep(frame, trackIndex, zone, reachFrames)
         updateDragOverlay()
+    }
+
+    /** The chip (or a second finger) asks for the other action: the drop is decided again at once, without the finger moving. */
+    private fun flipDropChoice() {
+        val session = drag ?: return
+        val last = session.last ?: return
+        if (!state.value.dropChoiceOffered) return
+        val effective = state.value.dropHint?.kind ?: return
+        reduce { copy(dropChoice = dropChoice.flipped(effective)) }
+        dragMove(last.frame, last.trackIndex, last.zone, last.reachFrames)
     }
 
     /** The clips being dragged or trimmed and where a moved edge snapped, read from the preview the step just produced. */
@@ -1513,7 +1532,7 @@ class EditorViewModel(
     /** Snapshot keys of the dragged clips, for the canvas. */
     fun dragOverlayKeys(overlay: DragOverlay): LongArray = LongArray(overlay.clipIds.size) { clipKeys.keyFor(overlay.clipIds[it]) }
 
-    private fun dragStep(frame: Long, trackIndex: Int, zone: DragZone) {
+    private fun dragStep(frame: Long, trackIndex: Int, zone: DragZone, reachFrames: Long = DropPlan.INSERT_RADIUS_FRAMES) {
         val session = drag ?: return
         if (session.mode == DragMode.PLAYHEAD) {
             setPlayhead(frame)
@@ -1535,7 +1554,10 @@ class EditorViewModel(
                 }
                 val target = dropTarget(session, base, trackIndex, zone)
                 session.target = target
-                moveDrag(session, base, FrameIndex((frame - session.grabOffset).coerceAtLeast(0)), target ?: DropTarget.Lane(sourceTrack.id), playhead)
+                moveDrag(
+                    session, base, FrameIndex((frame - session.grabOffset).coerceAtLeast(0)), target ?: DropTarget.Lane(sourceTrack.id), playhead,
+                    DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), state.value.dropChoice),
+                )
                 return
             }
             DragMode.TRIM_START -> EditCommand.TrimClip(
@@ -1564,13 +1586,13 @@ class EditorViewModel(
      * and the hint tells the timeline which indicator to draw. The decision's command is what a
      * release applies, so the indicator and the result always agree.
      */
-    private fun moveDrag(session: DragSession, base: Timeline, start: FrameIndex, target: DropTarget, playhead: FrameIndex) {
-        val decision = DropPlan.decide(base, session.clipId, start, target, snapWith(base, playhead)) ?: return
+    private fun moveDrag(session: DragSession, base: Timeline, start: FrameIndex, target: DropTarget, playhead: FrameIndex, aim: DropAim) {
+        val decision = DropPlan.decide(base, session.clipId, start, target, snapWith(base, playhead), aim) ?: return
         val command = decision.command
         if (command == null) {
             // Cancel: the clip shows where it started and a release changes nothing.
             pendingDragCommand = null
-            reduce { copy(dragPreview = null, dropHint = decision.hint) }
+            reduce { copy(dragPreview = null, dropHint = decision.hint, dropChoiceOffered = false) }
             return
         }
         val result = command.apply(base) as? EditResult.Success ?: return
@@ -1586,13 +1608,15 @@ class EditorViewModel(
             DropKind.NEW_LANE -> DropHint(DropKind.NEW_LANE, preview.tracks.firstOrNull { base.track(it.id) == null }?.id, decision.hint.startFrame, decision.hint.endFrame)
             else -> decision.hint
         }
-        reduce { copy(dragPreview = preview, dropHint = hint) }
+        val offered = decision.kind == DropKind.INSERT || decision.kind == DropKind.OVERWRITE
+        reduce { copy(dragPreview = preview, dropHint = hint, dropChoiceOffered = offered) }
     }
 
     private fun dragEnd(commit: Boolean) {
         val command = pendingDragCommand
         drag = null
         pendingDragCommand = null
+        reduce { copy(dropChoice = DropChoice.AUTO, dropChoiceOffered = false) }
         if (commit && command != null && execute(command)) return
         reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
     }
