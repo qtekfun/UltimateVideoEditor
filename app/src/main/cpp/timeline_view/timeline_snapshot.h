@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/error.h"
+#include "timeline_view/audio_shaping.h"
 
 namespace uv::timeline {
 
@@ -116,8 +117,12 @@ struct TimelineSnapshot {
     std::vector<MarkerSnapshot> markers;
     // Sorted by clipKey (version 7; empty before).
     std::vector<LabelSnapshot> labels;
+    // Sound shaping (fades and volume curve) of the clips that show some, sorted by clipKey (version 9; empty before).
+    std::vector<ShapingSnapshot> shaping;
 
     int64_t endFrame() const;
+    // The sound shaping of one clip, or null when it shows none.
+    const ShapingSnapshot* shapingOf(int64_t clipKey) const;
     // The label of one clip, or null when it has none.
     const std::string* labelOf(int64_t clipKey) const;
     // The retime of one clip, or null when it plays at 1x forward.
@@ -126,7 +131,10 @@ struct TimelineSnapshot {
     std::pair<const KeyframeSnapshot*, const KeyframeSnapshot*> keyframesOf(int64_t clipKey) const;
 };
 
-// Wire layout (little endian), version 8 (the same layout as version 7; the per-clip flags gain bits 4..6 = ClipKind, and a
+// Wire layout (little endian), version 9 (version 8 plus a shaping trailer after the labels: i32 count, then per clip
+//   i64 clipKey, i32 fadeInFrames, i32 fadeOutFrames, i32 flags (bits 0..1 fade shape, bit 2 editable), i32 pointCount,
+//   f32 baseDb, i32 reserved (32 bytes), then pointCount x (i64 frame, f32 db, i32 reserved) (16 bytes each)),
+// version 8 (the same layout as version 7; the per-clip flags gain bits 4..6 = ClipKind, and a
 // label is UTF-8 up to 96 bytes), version 7 (version 6 plus a label trailer after the markers), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
 // primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):
@@ -144,7 +152,10 @@ struct TimelineSnapshot {
 //   labels (v7): i32 labelCount, then per label: i64 clipKey, i32 length (0..24), then the ASCII bytes padded with
 //           zeros to a multiple of 4
 constexpr uint32_t kSnapshotMagic = 0x53545655;  // "UVTS"
-constexpr uint32_t kSnapshotVersion = 8;
+constexpr uint32_t kSnapshotVersion = 9;
+constexpr size_t kSnapshotShapingBytes = 32;
+constexpr size_t kSnapshotShapingPointBytes = 16;
+constexpr int32_t kSnapshotMaxShapingPoints = 4096;
 constexpr int32_t kSnapshotMaxLabelBytes = 24;
 constexpr int32_t kSnapshotMaxLabelBytesUtf8 = 96;
 constexpr uint32_t kSnapshotMinVersion = 2;

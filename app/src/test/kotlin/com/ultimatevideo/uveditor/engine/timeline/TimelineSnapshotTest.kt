@@ -9,6 +9,9 @@ import org.junit.Test
 
 class TimelineSnapshotTest {
 
+    /** What is left of the buffer before the sound-shaping count (version 9) that closes every snapshot; these tests have none. */
+    private fun java.nio.ByteBuffer.legacyRemaining() = remaining() - TimelineSnapshot.SHAPING_TRAILER_BYTES
+
     private fun clip(
         key: Long = 1,
         track: Int = 0,
@@ -31,7 +34,7 @@ class TimelineSnapshotTest {
             TimelineSnapshot.HEADER_BYTES + 2 * TimelineSnapshot.TRACK_BYTES + 2 * TimelineSnapshot.CLIP_BYTES +
                 TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
                 TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
-            buffer.remaining(),
+            buffer.legacyRemaining(),
         )
     }
 
@@ -104,7 +107,7 @@ class TimelineSnapshotTest {
             ),
         )
         val b = snapshot.encode()
-        assertEquals(8, TimelineSnapshot.VERSION)
+        assertEquals(9, TimelineSnapshot.VERSION)
         val first = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES
         fun flags(index: Int) = b.getInt(first + index * TimelineSnapshot.CLIP_BYTES + 52)
         assertEquals(0b1001, flags(0)) // selected + primary
@@ -119,7 +122,7 @@ class TimelineSnapshotTest {
         assertEquals(
             TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
                 TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
-            buffer.remaining(),
+            buffer.legacyRemaining(),
         )
     }
 
@@ -138,7 +141,7 @@ class TimelineSnapshotTest {
         assertEquals(
             trailer + TimelineSnapshot.TRAILER_BYTES + 2 * TimelineSnapshot.TRANSITION_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
                 TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
-            b.remaining(),
+            b.legacyRemaining(),
         )
         assertEquals(2, b.getInt(trailer))
         assertEquals(0, b.getInt(trailer + 4))
@@ -172,7 +175,7 @@ class TimelineSnapshotTest {
         val b = snapshot.encode()
         val keyframes = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES + 3 * TimelineSnapshot.CLIP_BYTES +
             TimelineSnapshot.TRAILER_BYTES + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + TimelineSnapshot.KEYFRAME_BYTES
-        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES + TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES, b.remaining())
+        assertEquals(keyframes + TimelineSnapshot.RETIME_TRAILER_BYTES + 2 * TimelineSnapshot.RETIME_BYTES + TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES, b.legacyRemaining())
         assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
         assertEquals(2, b.getInt(keyframes))
         assertEquals(9L, b.getLong(keyframes + 4))
@@ -211,7 +214,7 @@ class TimelineSnapshotTest {
         assertEquals(
             keys + TimelineSnapshot.KEYFRAME_TRAILER_BYTES + 2 * TimelineSnapshot.KEYFRAME_BYTES + TimelineSnapshot.RETIME_TRAILER_BYTES +
                 TimelineSnapshot.MARKER_TRAILER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
-            b.remaining(),
+            b.legacyRemaining(),
         )
         assertEquals(2, b.getInt(keys))
         assertEquals(7L, b.getLong(keys + 4))
@@ -254,7 +257,7 @@ class TimelineSnapshotTest {
             ),
         )
         val b = snapshot.encode()
-        val first = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - 4 * TimelineSnapshot.MARKER_BYTES
+        val first = b.legacyRemaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - 4 * TimelineSnapshot.MARKER_BYTES
         assertEquals(0, b.getInt(first + 12))
         assertEquals(3, b.getInt(first + 16 + 12))
         assertEquals(6 or 8, b.getInt(first + 32 + 12))
@@ -276,7 +279,7 @@ class TimelineSnapshotTest {
             markers = listOf(SnapshotMarker(30), SnapshotMarker(90, beat = true)),
         )
         val b = snapshot.encode()
-        val markers = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - TimelineSnapshot.MARKER_TRAILER_BYTES -
+        val markers = b.legacyRemaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - TimelineSnapshot.MARKER_TRAILER_BYTES -
             2 * TimelineSnapshot.MARKER_BYTES
         assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
         assertEquals(2, b.getInt(markers))
@@ -287,7 +290,7 @@ class TimelineSnapshotTest {
         assertEquals(0, b.getInt(markers + TimelineSnapshot.MARKER_TRAILER_BYTES + 2 * TimelineSnapshot.MARKER_BYTES))
         assertEquals(
             markers + TimelineSnapshot.MARKER_TRAILER_BYTES + 2 * TimelineSnapshot.MARKER_BYTES + TimelineSnapshot.LABEL_TRAILER_BYTES,
-            b.remaining(),
+            b.legacyRemaining(),
         )
     }
 
@@ -300,7 +303,7 @@ class TimelineSnapshotTest {
             labels = listOf(SnapshotLabel(1, "HI"), SnapshotLabel(2, "LOWER THIRD")),
         )
         val b = snapshot.encode()
-        val labels = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES -
+        val labels = b.legacyRemaining() - TimelineSnapshot.LABEL_TRAILER_BYTES -
             (TimelineSnapshot.LABEL_FIXED_BYTES + 4) - (TimelineSnapshot.LABEL_FIXED_BYTES + 12)
         assertEquals(2, b.getInt(labels))
         assertEquals(1L, b.getLong(labels + 4))
@@ -312,7 +315,7 @@ class TimelineSnapshotTest {
         assertEquals(2L, b.getLong(second))
         assertEquals(11, b.getInt(second + 8))
         assertEquals('L'.code.toByte(), b.get(second + 12))
-        assertEquals(second + TimelineSnapshot.LABEL_FIXED_BYTES + 12, b.remaining())
+        assertEquals(second + TimelineSnapshot.LABEL_FIXED_BYTES + 12, b.legacyRemaining())
         assertEquals(4, TimelineSnapshot.paddedLength("HI"))
         assertEquals(0, TimelineSnapshot.paddedLength(""))
         assertEquals(24, TimelineSnapshot.paddedLength("A".repeat(24)))
@@ -338,7 +341,7 @@ class TimelineSnapshotTest {
         val text = "Café ☕" // C a f (3) + é (2) + space (1) + ☕ (3) = 9 bytes
         val snapshot = TimelineSnapshot(30, 1, listOf(SnapshotTrackType.TITLE), listOf(clip(1)), labels = listOf(SnapshotLabel(1, text)))
         val b = snapshot.encode()
-        val labels = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - (TimelineSnapshot.LABEL_FIXED_BYTES + 12)
+        val labels = b.legacyRemaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - (TimelineSnapshot.LABEL_FIXED_BYTES + 12)
         assertEquals(1, b.getInt(labels))
         assertEquals(9, b.getInt(labels + 12))
         val bytes = ByteArray(9) { b.get(labels + 16 + it) }
@@ -376,7 +379,7 @@ class TimelineSnapshotTest {
             labels = listOf(SnapshotLabel(SnapshotLabel.markerKey(1), "DROP")),
         )
         val b = snapshot.encode()
-        val labels = b.remaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - (TimelineSnapshot.LABEL_FIXED_BYTES + 4)
+        val labels = b.legacyRemaining() - TimelineSnapshot.LABEL_TRAILER_BYTES - (TimelineSnapshot.LABEL_FIXED_BYTES + 4)
         assertEquals(1, b.getInt(labels))
         assertEquals(SnapshotLabel.markerKey(1), b.getLong(labels + 4))
         assertEquals(1, SnapshotLabel.markerIndexOf(SnapshotLabel.markerKey(1)))
@@ -409,5 +412,49 @@ class TimelineSnapshotTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `sound shaping closes the snapshot with the fades, flags, gain and curve points`() {
+        val snapshot = TimelineSnapshot(
+            30, 1,
+            listOf(SnapshotTrackType.AUDIO),
+            listOf(clip(1), clip(2, start = 100)),
+            shaping = listOf(
+                SnapshotShaping(2, fadeInFrames = 12, fadeOutFrames = 30, fadeShape = 2, editable = true, baseDb = -3f),
+                SnapshotShaping(1, points = listOf(SnapshotCurvePoint(0, 0f), SnapshotCurvePoint(40, -12.5f))),
+            ),
+        )
+        val b = snapshot.encode()
+        assertEquals(TimelineSnapshot.VERSION, b.getInt(4))
+        val end = b.remaining()
+        val firstEntry = end - (2 * TimelineSnapshot.SHAPING_BYTES + 2 * TimelineSnapshot.SHAPING_POINT_BYTES)
+        assertEquals(2, b.getInt(firstEntry - TimelineSnapshot.SHAPING_TRAILER_BYTES))
+        assertEquals(2L, b.getLong(firstEntry))
+        assertEquals(12, b.getInt(firstEntry + 8))
+        assertEquals(30, b.getInt(firstEntry + 12))
+        assertEquals(2 or 4, b.getInt(firstEntry + 16)) // shape 2, editable
+        assertEquals(0, b.getInt(firstEntry + 20))
+        assertEquals(-3f, b.getFloat(firstEntry + 24), 0f)
+        val second = firstEntry + TimelineSnapshot.SHAPING_BYTES
+        assertEquals(1L, b.getLong(second))
+        assertEquals(0, b.getInt(second + 16))
+        assertEquals(2, b.getInt(second + 20))
+        assertEquals(40L, b.getLong(second + TimelineSnapshot.SHAPING_BYTES + TimelineSnapshot.SHAPING_POINT_BYTES))
+        assertEquals(-12.5f, b.getFloat(second + TimelineSnapshot.SHAPING_BYTES + TimelineSnapshot.SHAPING_POINT_BYTES + 8), 0f)
+    }
+
+    @Test
+    fun `sound shaping is checked against the clips and its own ordering`() {
+        val tracks = listOf(SnapshotTrackType.AUDIO)
+        assertThrows(IllegalArgumentException::class.java) { TimelineSnapshot(30, 1, tracks, listOf(clip(1)), shaping = listOf(SnapshotShaping(9))) }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimelineSnapshot(30, 1, tracks, listOf(clip(1)), shaping = listOf(SnapshotShaping(1), SnapshotShaping(1)))
+        }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotShaping(1, fadeInFrames = -1) }
+        assertThrows(IllegalArgumentException::class.java) {
+            SnapshotShaping(1, points = listOf(SnapshotCurvePoint(5, 0f), SnapshotCurvePoint(5, 1f)))
+        }
+        assertThrows(IllegalArgumentException::class.java) { SnapshotShaping(1, points = listOf(SnapshotCurvePoint(-1, 0f))) }
     }
 }

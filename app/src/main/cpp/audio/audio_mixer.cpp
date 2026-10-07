@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "core/crossfade_math.h"
+#include "core/fade_math.h"
 
 namespace uv::audio {
 
@@ -40,7 +41,6 @@ void mixClipAutomated(const PreparedClip& clip, int64_t local, int32_t n, float*
     dsp::EqChain chain = clip.eq;  // the chunk loop rewrites the animated bands' stages in this copy
     const int64_t length = clip.endSample - clip.startSample;
     const int64_t crossOutFrom = length - clip.fadeOutSamples;
-    const int64_t userOutFrom = length - clip.userFadeOutSamples;
 
     int64_t s = local;
     const int64_t end = local + n;
@@ -70,8 +70,7 @@ void mixClipAutomated(const PreparedClip& clip, int64_t local, int32_t n, float*
             float gain = g0 + (g1 - g0) * (static_cast<float>(k - chunkStart) + 0.5f) / static_cast<float>(kLaneChunk);
             if (k < clip.fadeInSamples) gain *= core::crossfadeFadeInGain(k, clip.fadeInSamples);
             if (clip.fadeOutSamples > 0 && k >= crossOutFrom) gain *= core::crossfadeFadeOutGain(k - crossOutFrom, clip.fadeOutSamples);
-            if (k < clip.userFadeInSamples) gain *= core::crossfadeFadeInGain(k, clip.userFadeInSamples);
-            if (clip.userFadeOutSamples > 0 && k >= userOutFrom) gain *= core::crossfadeFadeOutGain(k - userOutFrom, clip.userFadeOutSamples);
+            gain *= core::fadeGainAt(clip.userFadeShape, clip.userFadeInSamples, clip.userFadeOutSamples, length, k);
             dst[2 * i] += scratch[2 * i] * gain * panL;
             dst[2 * i + 1] += scratch[2 * i + 1] * gain * panR;
         }
@@ -96,7 +95,6 @@ void mixClip(const PreparedClip& clip, int64_t local, int32_t n, float* scratch,
     const float g = clip.gain;
     const int64_t length = clip.endSample - clip.startSample;
     const int64_t crossOutFrom = length - clip.fadeOutSamples;
-    const int64_t userOutFrom = length - clip.userFadeOutSamples;
     const bool shaped = clip.fadeInSamples > 0 || clip.fadeOutSamples > 0 || clip.userFadeInSamples > 0 ||
                         clip.userFadeOutSamples > 0;
     if (!shaped) {
@@ -112,8 +110,7 @@ void mixClip(const PreparedClip& clip, int64_t local, int32_t n, float* scratch,
         float gain = g;
         if (s < clip.fadeInSamples) gain *= core::crossfadeFadeInGain(s, clip.fadeInSamples);
         if (clip.fadeOutSamples > 0 && s >= crossOutFrom) gain *= core::crossfadeFadeOutGain(s - crossOutFrom, clip.fadeOutSamples);
-        if (s < clip.userFadeInSamples) gain *= core::crossfadeFadeInGain(s, clip.userFadeInSamples);
-        if (clip.userFadeOutSamples > 0 && s >= userOutFrom) gain *= core::crossfadeFadeOutGain(s - userOutFrom, clip.userFadeOutSamples);
+        gain *= core::fadeGainAt(clip.userFadeShape, clip.userFadeInSamples, clip.userFadeOutSamples, length, s);
         dst[2 * i] += scratch[2 * i] * gain * panL;
         dst[2 * i + 1] += scratch[2 * i + 1] * gain * panR;
     }

@@ -18,6 +18,8 @@
 #include "thumbnail/thumb_atlas.h"
 #include "thumbnail/thumbnail_service.h"
 #include "thumbnail/tile_math.h"
+#include "core/fade_math.h"
+#include "timeline_view/audio_shaping.h"
 #include "timeline_view/fade_curve.h"
 #include "timeline_view/glyphs.h"
 #include "timeline_view/lane_header.h"
@@ -1573,6 +1575,81 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 }
                 g.setClip(0, layout.rulerHeight, W, H);
             }
+        }
+
+        // Sound shaping: the fade ramps and the volume curve, over the waveform. The selected audio clip also shows the
+        // circles to grab (fade handles in the top corners, a dot per curve point); see audio_shaping.h.
+        if (const ShapingSnapshot* shaping = snap->shapingOf(c.clipKey); shaping != nullptr && ix1 - ix0 > 8.0f) {
+            g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, itop), std::min(W, ix1), ibottom);
+            const float laneH = layout.trackHeight;
+            const float areaTop = shapeAreaTop(top, laneH), areaBottom = shapeAreaBottom(top, laneH);
+            const double ppf = vp.pxPerFrame;
+            const float step = std::max(2.0f, 2.0f * density);
+            const Color ramp = withAlpha(Color{0.0f, 0.0f, 0.0f, 1.0f}, 0.38f);
+            const Color edge = withAlpha(white, 0.9f);
+            const float lineHalf = std::max(1.0f, 1.0f * density);
+            const auto fadeShape = core::fadeShapeFromWire(shaping->shape());
+            // A ramp: what the fade takes away is shaded above its curve, and the curve is drawn as a line.
+            auto drawRamp = [&](float xFrom, float xTo, bool rising) {
+                const float width = xTo - xFrom;
+                if (width < 1.0f) return;
+                for (float x = std::max(xFrom, ix0 - step); x < std::min(xTo, ix1 + step); x += step) {
+                    const float p = std::min(1.0f, std::max(0.0f, (x + step * 0.5f - xFrom) / width));
+                    const float gain = core::fadeShapeGain(fadeShape, rising ? p : 1.0f - p);
+                    const float y = areaBottom - gain * (areaBottom - areaTop);
+                    g.rect(x, areaTop, x + step, y, ramp);
+                    g.rect(x, y - lineHalf, x + step, y + lineHalf, edge);
+                }
+            };
+            if (shaping->fadeInFrames > 0) drawRamp(static_cast<float>(x0), static_cast<float>(x0 + shaping->fadeInFrames * ppf), true);
+            if (shaping->fadeOutFrames > 0) drawRamp(static_cast<float>(x1 - shaping->fadeOutFrames * ppf), static_cast<float>(x1), false);
+
+            // The curve: dB-linear between its points, held before the first and after the last. With no points an
+            // editable clip shows a flat line at its static gain, so there is something to double tap.
+            const Color curve = withAlpha(th.keyframe, 0.95f);
+            if (!shaping->points.empty() || shaping->editable()) {
+                auto xOf = [&](const ShapingPoint& p) { return static_cast<float>(vp.frameToX(c.startFrame + p.frame)); };
+                auto curveDb = [&](float x) {
+                    const auto& pts = shaping->points;
+                    if (pts.empty()) return shaping->baseDb;
+                    if (x <= xOf(pts.front())) return pts.front().db;
+                    for (size_t i = 1; i < pts.size(); ++i) {
+                        const float xb = xOf(pts[i]);
+                        if (x <= xb) {
+                            const float xa = xOf(pts[i - 1]);
+                            const float t = xb > xa ? (x - xa) / (xb - xa) : 1.0f;
+                            return pts[i - 1].db + (pts[i].db - pts[i - 1].db) * t;
+                        }
+                    }
+                    return pts.back().db;
+                };
+                const float thick = std::max(1.0f, 1.25f * density);
+                float prevY = dbToY(curveDb(ix0), top, laneH);
+                for (float x = std::max(ix0, 0.0f); x < std::min(ix1, W); x += step) {
+                    const float y = dbToY(curveDb(x + step), top, laneH);
+                    g.rect(x, std::min(prevY, y) - thick, x + step, std::max(prevY, y) + thick, curve);
+                    prevY = y;
+                }
+            }
+            if (shaping->editable()) {
+                // The grabbable parts sit over everything and are not cut to the block, so a handle on a corner shows whole.
+                g.setClip(0, layout.rulerHeight, W, H);
+                const Color ring = withAlpha(Color{0.0f, 0.0f, 0.0f, 1.0f}, 0.75f);
+                for (const ShapingPoint& p : shaping->points) {
+                    const float px = static_cast<float>(vp.frameToX(c.startFrame + p.frame));
+                    if (px < ix0 - 8.0f || px > ix1 + 8.0f) continue;
+                    const float py = dbToY(p.db, top, laneH);
+                    const float r = layout.handleWidth * 0.36f;
+                    g.roundedRect(px - r - hair, py - r - hair, px + r + hair, py + r + hair, r + hair, ring);
+                    g.roundedRect(px - r, py - r, px + r, py + r, r, curve);
+                }
+                const FadeHandles h = fadeHandles(x0, x1, ppf, shaping->fadeInFrames, shaping->fadeOutFrames, top, layout);
+                for (const float hx : {h.inX, h.outX}) {
+                    g.roundedRect(hx - h.drawR - hair, h.y - h.drawR - hair, hx + h.drawR + hair, h.y + h.drawR + hair, h.drawR + hair, ring);
+                    g.roundedRect(hx - h.drawR, h.y - h.drawR, hx + h.drawR, h.y + h.drawR, h.drawR, white);
+                }
+            }
+            g.setClip(0, layout.rulerHeight, W, H);
         }
 
         // Keyframe markers: small diamonds in the clip's header strip, at their time in the clip.

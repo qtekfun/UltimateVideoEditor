@@ -1515,6 +1515,43 @@ deploys. About, Help has an **Online guide** button that opens `AboutController.
 fetches nothing and has no INTERNET permission (`OfflineGuaranteeTest` stays green). The release workflow prints the generated user
 guide to `ultimateVE-<version>-user-guide.pdf` (best effort, `continue-on-error`). Decision: DECISIONS.md, "Toolbar documentation".
 
+### 5.37 Fades and the volume curve
+
+**What exists.** A clip's `ClipAudio` holds `fadeInFrames` / `fadeOutFrames` (clip frames, equal power since 9.3) and, new,
+`fadeShape` (`FadeShape`: equal power = default, linear, logarithmic). The volume curve is the clip's `audio.gainDb` parameter
+track (`ParamTracks`, 5.5 / 9.5): keyframes in dB on clip frames, linear between points in dB, held outside them. Both are
+non-destructive and keep the rules of the clip operations: `Clip.cropped` clamps the fades to the new length and moves or drops
+curve points, pinning the gain at the new first and last frame; a split gives the fade-in to the left half and the fade-out to the
+right, copies the shape to both, and divides the curve so the gain is the same on both sides of the cut.
+
+**One source of truth.** `core/fade_math.h` defines the gain of a fade at a sample (`fadeGainAt`: shape, fade lengths in samples,
+clip length in samples, sample index). The mixer (`audio/audio_mixer.cpp`, both the plain and the keyframed path) is the only caller,
+and preview playback, the exporter and the offline renders of the tests all go through the mixer, so they cannot differ. The curve
+is sent as the clip's gain automation lane (audio snapshot, unchanged) and is evaluated by the mixer too. `domain/FadeCurve.kt`
+mirrors the formulas; `FadeCurveTest` and `testFadeShapeMath` in `audio_host_tests.cpp` check the same golden values, and
+`testFadeShapesInTheMixer` renders each shape through the mixer. Transition ramps (`crossfade_math.h`) stay equal power and win over
+a clip fade on the same edge (see `EditorAudio.kt`).
+
+**Wire format.** The fade shape travels in bits 16..17 of the lane-count word of the clip's audio block (no version bump; zero is
+the default, so older senders are unchanged). In a project file it is `audio.fadeShape` (`"linear"`, `"logarithmic"`; absent =
+equal power; an unknown name reads as equal power). The `.uvbundle` carries it with the rest of the project JSON; FCPXML export only
+lists audio tools in its notes.
+
+**On the canvas.** Timeline snapshot version 9 adds a trailer with, per clip that has a fade or a curve (or is the editable clip):
+fade lengths, flags (shape, editable), the static gain and the curve points (`timeline_view/audio_shaping.h`). The native renderer
+draws the shaded fade ramps and the curve over the waveform; for the selected clip of an **audio lane** it also draws the two fade
+circles and the dots. `hitTest` reports `FadeInHandle`, `FadeOutHandle` and `VolumePoint` (with the point's index) before the clip
+edges, and every hit inside a lane carries the gain under the finger (`hasDb`) on the scale +12 dB (top) to -48 dB (bottom), so Kotlin
+never needs the lane geometry. Kotlin decides what a drag means (`ui/editor/AudioShapeGesture.kt`, pure): the fade handles follow the
+finger within the clip and never cross; a point moves between its neighbours, sticks to 0 dB within 0.8 dB, rounds to 0.1 dB and
+becomes silence (-96 dB) at the bottom edge; double tap adds a point (pinning the fixed volume at both ends of a clip that had no
+curve) or removes the tapped one. The gestures run through `AudioShapeIntent` and reuse the provisional audio and key edits, so each
+is one undo step.
+
+**Tests.** Domain: `AudioShapingEditsTest` (split, trim, ripple), `FadeCurveTest`. Gestures: `AudioShapeGestureTest`,
+`AudioShapeViewModelTest`. Wire: `TimelineSnapshotTest`, `AudioSnapshotTest`, `AudioMapperTest`, `AudioSnapshotMappingTest`;
+native: `uv_audio_host_tests` (fade maths, mixer, snapshot), `uv_host_tests` (snapshot trailer, geometry, hit tests).
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

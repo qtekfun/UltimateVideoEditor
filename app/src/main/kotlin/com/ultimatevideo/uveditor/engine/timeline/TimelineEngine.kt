@@ -23,12 +23,37 @@ enum class EngineStatus(val code: Int) {
  * [LANE_HEADER] is the name tab at the left edge of a lane: a long press there starts a lane drag.
  * [MARKER] is a ruler marker; the hit's `clipKey` is the marker's index in the snapshot's marker list.
  */
-enum class HitKind { NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE, LANE_HEADER, MARKER }
+enum class HitKind {
+    NONE, RULER, CLIP, CLIP_LEFT_EDGE, CLIP_RIGHT_EDGE, EMPTY_TRACK, PLAYHEAD, ABOVE_LANES, OUTSIDE, LANE_HEADER, MARKER,
+
+    /** The fade-in circle in the top-left corner of the selected audio clip; `clipKey` is the clip. */
+    FADE_IN_HANDLE,
+
+    /** The fade-out circle in its top-right corner. */
+    FADE_OUT_HANDLE,
+
+    /** A point of the volume curve of the selected audio clip; the hit's `index` is its position in the curve. */
+    VOLUME_POINT,
+}
 
 /** What the indicator drawn over the timeline during a clip drag shows; mirrors the native `DropHintKind`. */
 enum class DropIndicator(val code: Int) { NONE(0), INSERT(1), OVERWRITE(2), NEW_LANE(3), CANCEL(4) }
 
-data class TimelineHit(val kind: HitKind, val trackIndex: Int, val clipKey: Long, val frame: Long)
+/**
+ * What is under a touch. [index] is the position of the point for [HitKind.VOLUME_POINT]. [dbTenths] is the gain under the
+ * finger in tenths of a dB on the volume curve's scale, or null outside the lanes: it lets a drag read the value without
+ * knowing the lane's geometry (see `audio_shaping.h`).
+ */
+private const val NO_DB = Long.MIN_VALUE
+
+data class TimelineHit(
+    val kind: HitKind,
+    val trackIndex: Int,
+    val clipKey: Long,
+    val frame: Long,
+    val index: Int = -1,
+    val dbTenths: Long? = null,
+)
 
 /**
  * Owns the native timeline canvas, waveform service and thumbnail service. Call all methods from the main thread;
@@ -164,7 +189,7 @@ class TimelineEngine(
     fun hitTest(x: Float, y: Float): TimelineHit {
         val r = NativeTimeline.nativeHitTest(live(), x, y) ?: throw EngineException("hitTest failed")
         val kind = HitKind.entries.getOrElse(r[0].toInt()) { HitKind.NONE }
-        return TimelineHit(kind, r[1].toInt(), r[2], r[3])
+        return TimelineHit(kind, r[1].toInt(), r[2], r[3], index = r.getOrElse(4) { -1L }.toInt(), dbTenths = r.getOrNull(5)?.takeIf { it != NO_DB })
     }
 
     /**

@@ -21,6 +21,9 @@ enum class HitKind : int32_t {
     AboveLanes = 7,  // below the ruler but above the first lane (room left by the bottom-anchored stack)
     LaneHeader = 9,  // the header column at the left edge of a lane (only when the layout has one)
     Marker = 10,     // a ruler marker; `clipKey` holds its index in the snapshot's marker list (`frame` is still the frame under the finger)
+    FadeInHandle = 11,   // the fade-in circle at the top-left corner of the selected audio clip (`clipKey` is the clip)
+    FadeOutHandle = 12,  // the fade-out circle at its top-right corner
+    VolumePoint = 13,    // a point of the volume curve of the selected audio clip; `index` is its position in the curve
 };
 
 struct HitResult {
@@ -28,6 +31,11 @@ struct HitResult {
     int32_t trackIndex = -1;
     int64_t clipKey = -1;
     int64_t frame = 0;  // timeline frame under the touch point
+    int32_t index = -1;  // VolumePoint: the point's position in the clip's curve
+    // The gain under the touch point on the volume-curve scale (audio_shaping.h), set when the touch is in a lane;
+    // lets a drag of a point or a double tap read the value without knowing the lane's geometry.
+    bool hasDb = false;
+    float db = 0.0f;
 };
 
 // `playheadFrame` < 0 means there is no playhead to grab. The playhead is only grabbable in the

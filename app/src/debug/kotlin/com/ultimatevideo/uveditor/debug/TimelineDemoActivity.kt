@@ -90,7 +90,9 @@ class TimelineDemoActivity : ComponentActivity() {
                 selectedKey = hit.clipKey
                 pushSnapshot()
             }
-            HitKind.EMPTY_TRACK, HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE, HitKind.LANE_HEADER, HitKind.MARKER -> {
+            HitKind.EMPTY_TRACK, HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE, HitKind.LANE_HEADER, HitKind.MARKER,
+            HitKind.FADE_IN_HANDLE, HitKind.FADE_OUT_HANDLE, HitKind.VOLUME_POINT,
+            -> {
                 selectedKey = -1
                 pushSnapshot()
             }
