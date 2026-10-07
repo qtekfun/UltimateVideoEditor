@@ -21,8 +21,6 @@ data class ExportInput(
     val colorSpace: ProjectColorSpace = ProjectColorSpace.REC709_SDR,
     /** Library files that cannot be read; clips that need them cannot be exported. */
     val missingAssetIds: Set<String> = emptySet(),
-    /** Ready proxies by asset id, for the "Faster export" option; empty when there are none. */
-    val proxies: Map<String, ExportProxy> = emptyMap(),
 )
 
 sealed interface ExportPhase {
@@ -57,14 +55,6 @@ data class ExportState(
     val hdr: Boolean = false,
     /** The project is HDR but this device cannot export it as HDR, so it goes out as SDR. */
     val hdrUnsupportedNotice: Boolean = false,
-    /**
-     * Faster export: layers shown at or below their proxy's size are decoded from the proxy. Off unless the user turns it
-     * on; only ever true when [proxiesReady] > 0.
-     */
-    val fasterExport: Boolean = false,
-    /** Video files of the project that have a ready proxy, and how many video files it uses in all (for the dialog's hint). */
-    val proxiesReady: Int = 0,
-    val videoAssets: Int = 0,
     /** The user hid the dialog of this project's running export; progress updates then leave it hidden until it ends. */
     val hiddenWhileRunning: Boolean = false,
     /** The project that is exporting while this editor's project is not: the Export button is refused with its name. */
@@ -86,9 +76,6 @@ sealed interface ExportIntent : UiIntent {
 
     /** HDR (HLG) or SDR output; HDR also switches the codec to HEVC. */
     data class SelectHdr(val hdr: Boolean) : ExportIntent
-
-    /** Decode small layers from their proxies (faster, a little softer) or always from the originals. */
-    data class SelectFasterExport(val enabled: Boolean) : ExportIntent
 
     /** Fill resolution, rate, codec and bitrate for an upload destination. */
     data class SelectPreset(val preset: ExportPreset) : ExportIntent
