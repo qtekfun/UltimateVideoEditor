@@ -66,6 +66,13 @@ If only some of the four values are present the build stays unsigned, so a parti
   GitHub Release with `ultimateVE-<version>.apk`, the AAB, `SHA256SUMS.txt` and the R8 `mapping.txt`; it is marked as a
   pre-release while the major version is 0. A tagged build **fails if the signing secrets are missing**, so an unsigned
   file is never published. A manual run only keeps the files as workflow artifacts (30 days).
+  The release also gets `ultimateVE-<version>-user-guide.pdf`, printed by headless Chrome from the generated user guide
+  page (`scripts/gen-site.py`, pandoc from apt). That step is `continue-on-error`: if it fails the release ships without
+  the PDF and says so in a warning.
+- **`pages.yml`** (push to `master` touching `docs/` or the toolbar guide, or manual) builds the documentation site with
+  `scripts/gen-site.py` (pandoc plus Python, nothing from a CDN) and deploys it with `actions/deploy-pages`. Enable it once, with
+  Pages' source set to GitHub Actions: `gh api -X POST repos/qtekfun/UltimateVideoEditor/pages -f build_type=workflow`
+  (use `-X PUT` to switch an existing site). The address is `https://qtekfun.github.io/UltimateVideoEditor/`; the About screen links to it.
 
 ### GitHub secrets (one time, same scheme as the other ultimate* repositories)
 

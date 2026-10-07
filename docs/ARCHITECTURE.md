@@ -110,7 +110,7 @@ Whenever a native structure changes, bump its version, keep the old reader, and 
    does not recompose the screen; give every control a content description and, for toolbar buttons, a tooltip.
 5. **Respect the boundaries**: no JNI outside `engine/`, no Android imports in `domain/`, no blocking work on the UI or render thread.
 6. **Respect privacy**: no network, no analytics, no ML, no third-party service. `OfflineGuaranteeTest` fails the build otherwise.
-7. **Update the docs**: the SPECS section, `docs/USER_GUIDE.md` (and its icon table), the PLAN box and a `DECISIONS.md` entry
+7. **Update the docs**: the toolbar guide registry (`ui/editor/guide/ToolbarGuide.kt`; a test fails without it), the SPECS section, `docs/USER_GUIDE.md` (and its icon table), the PLAN box and a `DECISIONS.md` entry
    with the alternative you rejected.
 8. **Verify**: JVM tests, host native tests (`scripts/run-native-tests.sh`), `./gradlew :app:assembleDebug`; then run it on a phone and
    say in the pull request what you did and did not see (the *Verification debt* table in `PLAN.md` is the place to record it).

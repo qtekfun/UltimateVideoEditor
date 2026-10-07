@@ -15,6 +15,7 @@ import com.ultimatevideo.uveditor.data.interchange.LumaFusionPackage
 import com.ultimatevideo.uveditor.data.interchange.LumaFusionReport
 import com.ultimatevideo.uveditor.data.interchange.MediaFileNames
 import com.ultimatevideo.uveditor.data.interchange.MediaFolder
+import com.ultimatevideo.uveditor.data.interchange.MediaLayout
 import com.ultimatevideo.uveditor.data.interchange.MediaTarget
 import com.ultimatevideo.uveditor.data.interchange.ProjectBundle
 import com.ultimatevideo.uveditor.data.interchange.ZipEntryInfo
@@ -279,6 +280,7 @@ class ProjectRepository(
         }
         val scratch = File(rootDir, ".import-${idGenerator()}")
         val created = ArrayList<MediaTarget>()
+        val createdFolders = ArrayList<MediaFolder>()
         var committed = false
         try {
             val id = idGenerator()
@@ -287,7 +289,16 @@ class ProjectRepository(
             // Footage to copy: the files the project uses that the package holds, each once.
             val wanted = conversion.assetNames.mapNotNull { (file, assetId) -> entries[file.lowercase()]?.let { Triple(assetId, file, it) } }
             val total = wanted.sumOf { it.third.size.coerceAtLeast(0) }
-            val folder = if (wanted.isEmpty()) null else (mediaFolder?.invoke() ?: throw ProjectError.MediaFolderRequired())
+            val chosen = if (wanted.isEmpty()) null else (mediaFolder?.invoke() ?: throw ProjectError.MediaFolderRequired())
+            // The footage goes into <chosen>/ultimateVE/Media/<project>/, created now (and only now) so nothing empty is left lying around.
+            val folder = chosen?.let { c ->
+                try {
+                    val media = MediaLayout.path(c, MediaLayout.MEDIA).ensure(createdFolders)
+                    media.createFolder(MediaLayout.projectFolderName(name, media.fileNames())).also { createdFolders += it }
+                } catch (e: IOException) {
+                    throw folderUnavailable(e)
+                }
+            }
             var done = 0L
             var reported = 0L
             val uris = HashMap<String, String>()
@@ -374,7 +385,11 @@ class ProjectRepository(
         } finally {
             if (scratch.exists()) scratch.deleteRecursively()
             // The files this import created in the user's folder are removed when it did not finish (cancel, error, full disk).
-            if (!committed) created.forEach { it.delete() }
+            if (!committed) {
+                log("cleanup after an unfinished import: ${created.size} files, ${createdFolders.size} folders", IOException("cleanup"))
+                created.forEach { it.delete() }
+                MediaLayout.discardEmpty(createdFolders) { log(it, IOException(it)) }
+            }
         }
     }
 
