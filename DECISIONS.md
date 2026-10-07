@@ -1553,3 +1553,23 @@ log shows the plan, the layers and the first pixel.
 **Chosen:** the option is removed (code, dialog toggle, planner, tests, docs); exports always read the original media. Proxies stay what they were made for: smooth editing and preview, never final output.
 **Rule:** an export speed-up is acceptable only if the output pixels are identical (or the stretch is copied bit-exactly). Anything that recompresses source footage an extra time, lowers resolution, or changes colour handling is out, even as an opt-in default-off option, because the shipped result is the product here. Speed work therefore focuses on decoding fewer wasted frames, overlapping work, and copying untouched stretches without re-encoding (smart export, phase 1 feasibility in progress), all verified for exact or bit-identical output.
 **Alternatives rejected:** a 1080p proxy for half-size layers (same generation loss), a near-lossless intermediate (large disk cost and time, still re-encodes), keeping the option off by default (a toggle that silently lowers quality has no place in this app).
+
+## 2026-10-07 · Export dialog: defaults follow the clips, and the size is estimated
+**Context:** the owner's videos show what phone cameras can do (see the Quality-first entry); an export dialog that opens on a fixed 20 Mbps for
+a clip shot at 80 Mbit/s silently throws quality away, and nobody could tell how big a 12-minute 4K file would be before the long render.
+**Chosen:** the assets carry optional source facts (size, bit rate, codec, 10-bit; null = unknown, old projects load unchanged and are filled
+on open like `hasAudio` was). The dialog derives its start settings from the clips actually used on video tracks: bit rate = the smallest
+choice that is at least the best source's rate (never below today's default, capped at 80 with a line saying so), scaled by pixels when the
+export is smaller than that source; codec HEVC for HEVC, 10-bit or HDR sources or rates beyond twice what H.264 gets by default; resolution,
+frame rate and HDR as before (the canvas is the user's decision, so there is no upscaling and no silent reduction); unknown facts mean
+today's defaults. The chips are marked "recommended" and a line under Bitrate explains. A live estimate (bitrate and audio times length, plus
+1%, shown with an 80% to 110% range) and a free-space warning above 90% sit under the settings.
+**Why these details:** the rate comes from the stream's own figure when the container has one, else file bytes over duration less audio, over the
+whole file rather than the used range (per-sample sizes would need reading the whole index at import for a number the user can override).
+Scaling by pixels keeps a 1080p canvas from asking for 80 Mbps because one 4K clip is in the library. The H.264 limit of twice the default
+rate keeps ordinary phone AVC clips on H.264. The range is wide because rate control is VBR: the one measurement we have (35 Mbps for 714.85 s,
+3.13 GB) was 1.5% under the estimate. Free space is only checked for shared storage because the picker's destination is chosen after the dialog.
+**Alternatives:** matching the source resolution when it is below the canvas (rejected: that is not what the canvas setting asks for);
+a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices, the bitrate choices stay); a per-chip size (rejected: one line is enough).
+**Not verified:** LumaFusion's `videoBitrate` unit is inferred (bits per second), no sample archive with the key was available.
+

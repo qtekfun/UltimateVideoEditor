@@ -104,4 +104,26 @@ class ProjectJsonTest {
         assertFalse(text.contains("\"fpsNum\": 60000"))
         assertThrows(ProjectError.Corrupt::class.java) { ProjectJson.decode(text) }
     }
+
+    @Test
+    fun `an asset written before the export facts existed loads with them unknown`() {
+        val old = """{"id":"p","name":"n","settings":{"width":1920,"height":1080,"fpsNum":30,"fpsDen":1,"colorSpace":"Rec709-SDR"},
+            "mediaLibrary":[{"id":"a","uri":"content://a","durationFrames":300,"nativeFpsNum":30,"nativeFpsDen":1,"colorSpace":"Rec709-SDR"}]}"""
+        val asset = ProjectJson.decode(old).mediaLibrary.single()
+        assertEquals(null, asset.videoWidth)
+        assertEquals(null, asset.videoHeight)
+        assertEquals(null, asset.videoBitrate)
+        assertEquals(null, asset.videoCodec)
+        assertEquals(null, asset.tenBit)
+    }
+
+    @Test
+    fun `export facts of an asset survive a save and load`() {
+        val asset = MediaAssetDto(
+            "a", "content://a", 300, 30, 1, "Rec2020-HLG",
+            videoWidth = 3840, videoHeight = 2160, videoBitrate = 52_000_000L, videoCodec = "hevc", tenBit = true,
+        )
+        val project = sample.copy(mediaLibrary = listOf(asset))
+        assertEquals(asset, ProjectJson.decode(ProjectJson.encode(project)).mediaLibrary.single())
+    }
 }

@@ -160,6 +160,13 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   right half (the one now at the cut).
 - `hasVideo`/`hasAudio` on an asset default to true so older files stay valid; the editor re-probes each
   medium once on load and corrects a wrong flag (a file without an audio track must never reach the mixer).
+- Optional export facts on an asset: `videoWidth`, `videoHeight` (as displayed), `videoBitrate` (bit/s), `videoCodec`
+  (`avc|hevc|av1|vp9|other`) and `tenBit`. All default to null (unknown), so older projects load unchanged. The probe fills them
+  (`VideoFacts`: size and rotation, codec from the MIME type, 10-bit from the profile, bit rate from `KEY_BIT_RATE` when the container
+  states it, else the file's average: bytes x 8 / duration less the audio track's rate; the average covers the whole file, not
+  the range a clip uses); `verifyAssets` fills them for projects that lack them (a repair like `hasAudio`, saved), relink replaces
+  them with the new file's. The LumaFusion import maps `attributes.naturalSize` and `attributes.videoBitrate` (a figure under 10 kbit/s
+  is treated as unknown, the unit being undocumented), and the footage's own probe replaces them when the files are copied.
 - Clip appearance (`transform`, `gainDb`) lives in the domain `Clip` and is saved as is:
   - The clip's frame is first fitted ("contain") into the project canvas, then `scale` (`[x, y]`,
     each > 0) is applied about its centre, then `rotation` (degrees, **clockwise**), then the centre is
@@ -379,6 +386,20 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   optional. `MainActivity` keeps the screen on (`FLAG_KEEP_SCREEN_ON`) while a job runs and the activity is started. Only one export
   at a time. If the system kills the process the export is gone (no native resume): the next start has no job, so nothing claims one is
   running; the partly written file is not tidied then (the output is a SAF document the user chose; see DECISIONS.md).
+- **Defaults follow the clips and the size is estimated** (`ui/export/ExportDefaults.kt`, pure). `usedSources(timeline, assets)` looks
+  only at clips on video tracks whose asset is a video file (no photos, stickers, titles, audio tracks, unused library items) and
+  yields the highest bit rate (with the pixel count of that source), whether any is HEVC or 10-bit/HDR/non-Rec.709, and whether any
+  asset has audio. `recommendExport(w, h, fps, sources, defaultCodec)`: needed rate = highest source rate, scaled by output pixels over
+  source pixels when the output is smaller; bit rate = smallest choice (4, 8, 12, 20, 35, 50, 80 Mbps) at or above it, never below
+  the fixed default for that size and codec, capped at 80 (`capped` then drives the "highest choice" line); codec = HEVC when a
+  source is HEVC or 10-bit/HDR or the needed rate exceeds twice the default H.264 rate for that size, else the previous default;
+  nothing known means today's defaults. Resolution and frame rate stay the project's (never above the canvas); HDR stays as before
+  (HLG project and an encoder that can). Changing size, rate, codec or HDR recomputes the bitrate with the same function for the
+  codec the user picked. Upload presets override as before. `ExportState.sizeEstimate` is derived from `bitrateMbps`, the movie length
+  (end of the last clip, project frames, integer maths) and 192 kbit/s of audio when any asset has audio (the AAC bitrate of
+  `ExportSettings`): (video + audio) x seconds / 8 plus 1% container, with a range of 80% to 110% because the encoder runs VBR. A real
+  35 Mbps export of 714.85 s measured 3.13 GB, 1.5% under the estimate. `ExportIO.freeBytes()` (StatFs of shared storage; null in
+  tests) drives a warning above 90%; the destination volume is not known until the picker returns, so other volumes are not checked.
 - HDR export: for an HLG project on a device whose encoder lists HEVC Main10 with HLG, the export dialog
   offers HDR (default on). The job renders into a ten-bit recordable encoder surface tagged BT.2020 HLG and
   configures HEVC Main10 with `COLOR_STANDARD_BT2020`, `COLOR_TRANSFER_HLG` and limited range. Without

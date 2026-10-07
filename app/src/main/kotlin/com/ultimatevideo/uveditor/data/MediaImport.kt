@@ -2,6 +2,7 @@ package com.ultimatevideo.uveditor.data
 
 import android.content.Context
 import android.content.Intent
+import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.graphics.BitmapFactory
@@ -9,6 +10,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import com.ultimatevideo.uveditor.data.model.MediaAssetDto
 import com.ultimatevideo.uveditor.domain.AnimationTiming
 import com.ultimatevideo.uveditor.engine.still.GifDelayScan
 import com.ultimatevideo.uveditor.engine.still.WebpAnimationScan
@@ -37,6 +39,12 @@ data class ProbedMedia(
     val animationDelaysMs: List<Int>? = null,
     /** Total passes of that animation the file asks for; 0 loops forever. */
     val animationPlays: Int = 0,
+    /** What the export dialog needs to pick its defaults; null when the file does not say (see [VideoFacts]). */
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    val videoBitrate: Long? = null,
+    val videoCodec: String? = null,
+    val tenBit: Boolean? = null,
 )
 
 /** Why a media file cannot be used; decides what the editor tells the user and offers. */
@@ -240,6 +248,8 @@ class AndroidMediaImporter(
         var fps: Double? = null
         var transfer: Int? = null
         var hdrStaticInfo = false
+        var video: VideoFacts? = null
+        var audioBitrate = 0L
         for (index in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(index)
             val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
@@ -254,8 +264,12 @@ class AndroidMediaImporter(
                         transfer = format.getInteger(MediaFormat.KEY_COLOR_TRANSFER)
                     }
                     hdrStaticInfo = format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO)
+                    video = VideoFacts.of(format, mime)
                 }
-                mime.startsWith("audio/") -> hasAudio = true
+                mime.startsWith("audio/") -> {
+                    hasAudio = true
+                    if (format.containsKey(MediaFormat.KEY_BIT_RATE)) audioBitrate += format.getInteger(MediaFormat.KEY_BIT_RATE)
+                }
             }
         }
         if (!hasAudio) {
@@ -265,7 +279,21 @@ class AndroidMediaImporter(
         if (!hasVideo && !hasAudio) throw MediaImportException("The file has no audio or video track", problem = MediaProblem.UNSUPPORTED)
         if (durationMicros <= 0) throw MediaImportException("The file has no readable duration", problem = MediaProblem.UNSUPPORTED)
         val (num, den) = FpsRational.fromFloat(fps ?: captureFrameRate(uri) ?: FpsRational.DEFAULT_FPS.toDouble())
-        return ProbedMedia(durationMicros, num, den, ColorSpaceNames.detect(transfer, hdrStaticInfo), hasVideo, hasAudio)
+        val bitrate = video?.let { VideoFacts.bitrate(it.streamBitrate, audioBitrate, fileSize(uri), durationMicros) }
+        return ProbedMedia(
+            durationMicros, num, den, ColorSpaceNames.detect(transfer, hdrStaticInfo), hasVideo, hasAudio,
+            videoWidth = video?.width, videoHeight = video?.height, videoBitrate = bitrate,
+            videoCodec = video?.codec, tenBit = video?.tenBit,
+        )
+    }
+
+    /** The file's size in bytes, or null when the provider does not say; only used to estimate a bit rate. */
+    private fun fileSize(uri: Uri): Long? = try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize.takeIf { size -> size > 0 } }
+    } catch (e: IOException) {
+        null
+    } catch (e: SecurityException) {
+        null
     }
 
     private fun pcmSoundTrack(uri: Uri): PcmSoundTrack? = try {
@@ -306,6 +334,67 @@ class AndroidMediaImporter(
         }
     }
 }
+
+/** The video track's own facts, read from its format (pure given the numbers; the Android reads are in [of]). */
+internal data class VideoFacts(
+    val width: Int,
+    val height: Int,
+    val codec: String,
+    val tenBit: Boolean,
+    /** The format's KEY_BIT_RATE when the container states one, else null. */
+    val streamBitrate: Long?,
+) {
+    companion object {
+        fun of(format: MediaFormat, mime: String): VideoFacts? {
+            if (!format.containsKey(MediaFormat.KEY_WIDTH) || !format.containsKey(MediaFormat.KEY_HEIGHT)) return null
+            var w = format.getInteger(MediaFormat.KEY_WIDTH)
+            var h = format.getInteger(MediaFormat.KEY_HEIGHT)
+            val rotation = if (format.containsKey(MediaFormat.KEY_ROTATION)) format.getInteger(MediaFormat.KEY_ROTATION) else 0
+            if (rotation == 90 || rotation == 270) w = h.also { h = w }
+            val profile = if (format.containsKey(MediaFormat.KEY_PROFILE)) format.getInteger(MediaFormat.KEY_PROFILE) else -1
+            val tenBit = profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 ||
+                profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ||
+                profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus ||
+                profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10 ||
+                profile == MediaCodecInfo.CodecProfileLevel.VP9Profile2
+            val stream = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE).toLong() else null
+            return VideoFacts(w, h, codecName(mime), tenBit, stream?.takeIf { it > 0 })
+        }
+
+        fun codecName(mime: String): String = when (mime) {
+            MediaFormat.MIMETYPE_VIDEO_AVC -> "avc"
+            MediaFormat.MIMETYPE_VIDEO_HEVC -> "hevc"
+            MediaFormat.MIMETYPE_VIDEO_AV1 -> "av1"
+            MediaFormat.MIMETYPE_VIDEO_VP9 -> "vp9"
+            else -> "other"
+        }
+
+        /**
+         * The video bit rate in bits per second: the stream's own figure when the container states one, else the file's average
+         * (bytes over duration) less the audio track's rate. The average covers the whole file, not only the part a clip uses: a
+         * VBR file can differ in the used range, which the dialog accepts (it recommends, the user decides). Null when neither is known.
+         */
+        fun bitrate(streamBitrate: Long?, audioBitrate: Long, fileBytes: Long?, durationMicros: Long): Long? {
+            if (streamBitrate != null && streamBitrate > 0) return streamBitrate
+            if (fileBytes == null || fileBytes <= 0 || durationMicros <= 0) return null
+            val total = fileBytes * 8L * 1_000_000L / durationMicros
+            return (total - audioBitrate.coerceAtLeast(0)).takeIf { it > 0 }
+        }
+    }
+}
+
+/** Copies what a probe learned about the video track onto an asset; values the probe did not find keep the asset's own. */
+fun MediaAssetDto.withVideoFacts(media: ProbedMedia): MediaAssetDto = copy(
+    videoWidth = media.videoWidth ?: videoWidth,
+    videoHeight = media.videoHeight ?: videoHeight,
+    videoBitrate = media.videoBitrate ?: videoBitrate,
+    videoCodec = media.videoCodec ?: videoCodec,
+    tenBit = media.tenBit ?: tenBit,
+)
+
+/** True when probing [media] would add something to this video asset's export facts (an older project, or a first probe). */
+fun MediaAssetDto.lacksVideoFacts(media: ProbedMedia): Boolean =
+    hasVideo && !isImage && withVideoFacts(media) != this
 
 /**
  * Whether a provider-reported media type is a still picture. Pictures take the image path (header probe, `isImage` asset, the native

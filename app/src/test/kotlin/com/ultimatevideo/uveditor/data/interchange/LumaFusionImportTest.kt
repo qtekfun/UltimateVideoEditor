@@ -135,6 +135,26 @@ class LumaFusionImportTest {
 
     // endregion
 
+    @Test
+    fun `natural size and video bit rate reach the asset, a photo and an implausible rate do not`() {
+        val json = LfFixture.archive(
+            tracks = listOf(
+                LfFixture.track(0, 0, listOf(
+                    ClipSpec("a", "clip1.MOV", 0, 600, videoBitrate = 52_000_000),
+                    ClipSpec("b", "clip2.MOV", 600, 600, videoBitrate = 80),
+                    ClipSpec("c", "pic.jpg", 1200, 600, type = 2, video = false, audio = false, videoBitrate = 52_000_000),
+                ), anchor = true),
+            ),
+        )
+        val library = convert(json).project.mediaLibrary.associateBy { it.displayName }
+        assertEquals(3840, library.getValue("clip1.MOV").videoWidth)
+        assertEquals(2160, library.getValue("clip1.MOV").videoHeight)
+        assertEquals(52_000_000L, library.getValue("clip1.MOV").videoBitrate)
+        assertNull(library.getValue("clip2.MOV").videoBitrate)
+        assertNull(library.getValue("pic.jpg").videoWidth)
+        assertNull(library.getValue("pic.jpg").videoBitrate)
+    }
+
     // region tracks
 
     @Test
