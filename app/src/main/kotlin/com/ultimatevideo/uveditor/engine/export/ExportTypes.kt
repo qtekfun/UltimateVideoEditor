@@ -44,6 +44,11 @@ data class ExportSettings(
     val audioBitrate: Int = DEFAULT_AUDIO_BITRATE,
     /** HDR (HLG, BT.2020) HEVC Main10 output; false is SDR Rec.709. Requires [ExportCodec.HEVC]. */
     val hdr: Boolean = false,
+    /**
+     * Smart export: untouched stretches of the sources are copied without re-encoding (faster, larger file); the rest is encoded
+     * as usual. The native job falls back to a normal export when nothing qualifies or anything about the copy fails. HEVC only.
+     */
+    val smart: Boolean = false,
     /** The settings of a saved picture ([ExportRequest.still]): the surface to draw, which need not have even sides. */
     val picture: Boolean = false,
     /** Layers hidden behind a video layer that covers the whole canvas are not decoded or drawn (same pixels, less work). Only the debug harness turns it off, to compare. */
@@ -52,6 +57,7 @@ data class ExportSettings(
     init {
         require(!hdr || codec == ExportCodec.HEVC) { "HDR export needs HEVC" }
         require(!picture || !hdr) { "a saved picture is always SDR" }
+        require(!smart || (codec == ExportCodec.HEVC && !picture)) { "smart export needs an HEVC movie export" }
         require(width > 0 && height > 0 && (picture || (width % 2 == 0 && height % 2 == 0))) { "size must be positive and even: ${width}x$height" }
         require(fpsNum > 0 && fpsDen > 0) { "fps must be positive: $fpsNum/$fpsDen" }
         require(videoBitrate > 0 && audioBitrate > 0) { "bitrates must be positive" }
