@@ -133,11 +133,12 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
 /** The saved file and what the check of it found: verified, a warning with its reasons, or "could not verify". */
 @Composable
 private fun DoneMessage(phase: ExportPhase.Done, onIntent: (ExportIntent) -> Unit) {
-    val result = exportResultText(phase.note, phase.verification)
+    val result = exportResultText(phase.note, phase.verification, phase.exportMs, phase.verifyMs)
     val colour = if (result.severity == ResultSeverity.OK) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
     Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Saved ${phase.fileName}.")
         if (result.headline.isNotEmpty()) Text(result.headline, style = MaterialTheme.typography.titleSmall, color = colour)
+        if (result.timing.isNotEmpty()) Text(result.timing, style = MaterialTheme.typography.bodyMedium)
         if (result.detail.isNotEmpty()) Text(result.detail, style = MaterialTheme.typography.bodySmall)
         if (result.offersExportAgain) {
             Text("The file was kept. You can use it, or export again.", style = MaterialTheme.typography.bodySmall)

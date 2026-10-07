@@ -36,7 +36,14 @@ sealed interface ExportPhase {
     ) : ExportPhase
 
     /** [note] is the exporter's remark (repeated frames); [verification] what the check of the saved file found. */
-    data class Done(val uri: String, val fileName: String, val note: String = "", val verification: VerificationOutcome? = null) : ExportPhase
+    data class Done(
+        val uri: String,
+        val fileName: String,
+        val note: String = "",
+        val verification: VerificationOutcome? = null,
+        val exportMs: Long = 0,
+        val verifyMs: Long = 0,
+    ) : ExportPhase
     data class Failed(val message: String) : ExportPhase
 }
 
