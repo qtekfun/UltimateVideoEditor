@@ -68,7 +68,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       # ffmpeg writes the PCM-in-MOV files that MovAudioScanTableTest scans (the test skips itself without it).
+      # The apt mirror hangs now and then and a hung step cost an hour of CI; the test skips itself without ffmpeg, so a slow install is not fatal.
       - name: Install ffmpeg for the PCM sound-track scan test
+        timeout-minutes: 5
+        continue-on-error: true
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Unit tests and debug build
