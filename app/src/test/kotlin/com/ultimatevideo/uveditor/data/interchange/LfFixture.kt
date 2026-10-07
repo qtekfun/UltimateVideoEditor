@@ -40,6 +40,8 @@ object LfFixture {
         val assetKey: String = "asset-$file",
         val runtimeTitle: String? = null,
         val original: String? = null,
+        /** `attributes.videoBitrate`, omitted when null. */
+        val videoBitrate: Long? = null,
     )
 
     fun clip(c: ClipSpec): String {
@@ -60,7 +62,7 @@ object LfFixture {
         val streams = listOfNotNull(audioStream, videoStream).joinToString(",", "[", "]")
         val title = if (c.runtimeTitle != null) ""","runtimeTitle":${c.runtimeTitle}""" else ""
         return """{"anchorFromClipIDs":[],"assetIsBlank":false,"assetType":${c.type},"assetURL":"file:///private/${c.file}",
-            "attributes":{"assetID":"${c.assetKey}","originalFilename":"${c.original ?: "/Volumes/Disk/Folder/${c.file}"}","title":"${c.file}","naturalSize":[3840,2160]},
+            "attributes":{"assetID":"${c.assetKey}","originalFilename":"${c.original ?: "/Volumes/Disk/Folder/${c.file}"}","title":"${c.file}","naturalSize":[3840,2160]${c.videoBitrate?.let { ",\"videoBitrate\":$it" } ?: ""}},
             "clipID":"${c.id}","reversed":${c.reversed},"title":"${c.file}","trackStart":${time(c.start)},"trackDuration":${time(c.duration)},
             "transitionType":${c.transition},"streams":$streams$title}"""
     }

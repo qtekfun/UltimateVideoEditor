@@ -59,8 +59,21 @@ data class ExportState(
     val hiddenWhileRunning: Boolean = false,
     /** The project that is exporting while this editor's project is not: the Export button is refused with its name. */
     val blockedBy: String? = null,
+    /** What the timeline's video clips say about quality; the defaults and the advice under the bitrate follow it. */
+    val sources: UsedSources = UsedSources(),
+    /** The settings derived from [sources] at open; the bitrate is recomputed when size, rate or codec change. Null before the dialog opens. */
+    val recommendation: ExportRecommendation? = null,
+    /** Length of the movie in project frames and the project's rate, for the size estimate. */
+    val movieFrames: Long = 0,
+    val projectFps: FrameRate? = null,
+    /** Free bytes of the device's shared storage, or null when unknown. */
+    val freeBytes: Long? = null,
 ) : UiState {
     val isRunning: Boolean get() = phase is ExportPhase.Running
+
+    /** About how big the file will be with the chosen bitrate (recomputed with every setting; null for an empty movie). */
+    val sizeEstimate: SizeEstimate?
+        get() = projectFps?.let { estimateExportSize(movieFrames, it, bitrateMbps, if (sources.hasAudio) ESTIMATE_AUDIO_BITRATE else 0L) }
 }
 
 sealed interface ExportIntent : UiIntent {
