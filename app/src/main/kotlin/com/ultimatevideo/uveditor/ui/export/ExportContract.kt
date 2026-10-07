@@ -58,6 +58,8 @@ data class ExportState(
     val hdrAvailable: Boolean = false,
     /** Export as HDR (HLG, 10-bit HEVC) instead of SDR. Only ever true when [hdrAvailable]. */
     val hdr: Boolean = false,
+    /** Smart export: copy untouched parts of the footage without re-encoding. Off by default; only with HEVC. */
+    val smart: Boolean = false,
     /** The project is HDR but this device cannot export it as HDR, so it goes out as SDR. */
     val hdrUnsupportedNotice: Boolean = false,
     /** The user hid the dialog of this project's running export; progress updates then leave it hidden until it ends. */
@@ -94,6 +96,9 @@ sealed interface ExportIntent : UiIntent {
 
     /** HDR (HLG) or SDR output; HDR also switches the codec to HEVC. */
     data class SelectHdr(val hdr: Boolean) : ExportIntent
+
+    /** Smart export on or off (HEVC only). */
+    data class SelectSmart(val smart: Boolean) : ExportIntent
 
     /** Fill resolution, rate, codec and bitrate for an upload destination. */
     data class SelectPreset(val preset: ExportPreset) : ExportIntent

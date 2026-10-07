@@ -30,6 +30,7 @@
 #include "encode/frame_probe.h"
 #include "encode/occlusion_math.h"
 #include "encode/picture_residency.h"
+#include "encode/smart_export.h"
 #include "render/gl_context.h"
 #include "render/gl_pipeline.h"
 #include "stabilise/stab_registry.h"
@@ -98,7 +99,9 @@ struct Packet {
 
 class Muxer {
 public:
-    Muxer(int fd, int expectedTracks) : expected_(expectedTracks) {
+    // With `smart` the samples go to the smart export sink (our own MP4 writer) instead of AMediaMuxer.
+    Muxer(int fd, int expectedTracks, smart::SmartSink* smart = nullptr) : smart_(smart), expected_(expectedTracks) {
+        if (smart_ != nullptr) return;
         muxer_ = AMediaMuxer_new(fd, AMEDIAMUXER_OUTPUT_FORMAT_MPEG_4);
         if (muxer_ == nullptr) fail(Status::IoError, "cannot create the MP4 muxer (is the output seekable?)");
     }
@@ -109,10 +112,14 @@ public:
     Muxer& operator=(const Muxer&) = delete;
 
     int addTrack(AMediaFormat* format) {
-        const ssize_t index = AMediaMuxer_addTrack(muxer_, format);
+        const ssize_t index = smart_ != nullptr ? smart_->addTrack(format) : AMediaMuxer_addTrack(muxer_, format);
         if (index < 0) fail(Status::IoError, "muxer rejected a track format");
         if (++added_ == expected_) {
-            if (AMediaMuxer_start(muxer_) != AMEDIA_OK) fail(Status::IoError, "muxer failed to start");
+            if (smart_ != nullptr) {
+                smart_->start();
+            } else if (AMediaMuxer_start(muxer_) != AMEDIA_OK) {
+                fail(Status::IoError, "muxer failed to start");
+            }
             started_ = true;
             for (Packet& p : pending_) write(p.track, p.data.data(), p.info);
             pending_.clear();
@@ -127,6 +134,10 @@ public:
             pending_.push_back(std::move(p));
             return;
         }
+        if (smart_ != nullptr) {
+            smart_->writeEncoded(track, data, info);
+            return;
+        }
         if (AMediaMuxer_writeSampleData(muxer_, static_cast<size_t>(track), data, &info) != AMEDIA_OK) {
             fail(Status::IoError, "writing to the output file failed (disk full?)");
         }
@@ -134,6 +145,10 @@ public:
 
     void finish() {
         if (!started_) fail(Status::CodecError, "the encoders produced no output");
+        if (smart_ != nullptr) {
+            smart_->finish();
+            return;
+        }
         if (AMediaMuxer_stop(muxer_) != AMEDIA_OK) fail(Status::IoError, "finalising the MP4 failed");
         AMediaMuxer_delete(muxer_);
         muxer_ = nullptr;
@@ -141,6 +156,7 @@ public:
 
 private:
     AMediaMuxer* muxer_ = nullptr;
+    smart::SmartSink* smart_ = nullptr;
     int expected_;
     int added_ = 0;
     bool started_ = false;
@@ -568,7 +584,12 @@ public:
         }
         for (size_t layerIndex = firstDrawn; layerIndex < stack.size(); ++layerIndex) {
             const VideoClip* clip = stack[layerIndex];
-            const core::Pose pose = poseAt(*clip, projectFrame);
+            core::Pose pose = poseAt(*clip, projectFrame);
+            if (params_.outputRotation == 180) {  // smart export stores the picture turned: everything drawn is turned about the canvas centre
+                pose.posX = -pose.posX;
+                pose.posY = -pose.posY;
+                pose.rotationDeg += 180.0;
+            }
             const float opacity = static_cast<float>(opacityAt(*clip, projectFrame));
             if (clip->titleKey != 0) {
                 ensurePicture(clip->titleKey);
@@ -1088,10 +1109,38 @@ std::string ExportJob::execute() {
     if (params_.hdr && params_.codec != VideoCodec::Hevc) {
         fail(Status::InvalidArgument, "HDR export needs HEVC (Main10); H.264 cannot carry HLG here");
     }
+    std::string note;
+    if (params_.smart) {
+        std::string why;
+        std::unique_ptr<smart::Session> session = smart::Session::prepare(params_, &why);
+        if (session) {
+            params_.outputRotation = session->plan().rotation;
+            try {
+                return runMovie(session.get());
+            } catch (const smart::SmartFailure& f) {
+                why = f.message;
+                UV_LOGW("smart export gave up: %s", why.c_str());
+            }
+            // Start again as a normal export, into the same (emptied) file.
+            params_.outputRotation = 0;
+            if (::ftruncate(params_.outputFd, 0) != 0 || ::lseek(params_.outputFd, 0, SEEK_SET) != 0) {
+                fail(Status::IoError, "smart export failed (" + why + ") and the output file could not be reset");
+            }
+            note = "Smart export was not possible (" + why + "), so the whole movie was exported normally. ";
+        } else {
+            note = "Smart export was not used (" + why + "). ";
+        }
+    }
+    return note + runMovie(nullptr);
+}
+
+std::string ExportJob::runMovie(smart::Session* session) {
     const bool hasAudio = !params_.audioSnapshot.empty();
     const auto begin = Clock::now();
 
-    Muxer muxer(params_.outputFd, hasAudio ? 2 : 1);
+    std::unique_ptr<smart::SmartSink> sink;
+    if (session != nullptr) sink = std::make_unique<smart::SmartSink>(params_.outputFd, session, params_, hasAudio);
+    Muxer muxer(params_.outputFd, hasAudio ? 2 : 1, sink.get());
 
     Encoder video(muxer);
     ANativeWindow* surface = nullptr;
@@ -1114,6 +1163,18 @@ std::string ExportJob::execute() {
         audioPump->start(params_.assetFds);
     }
 
+    // Smart export: stretches copied from the sources are skipped by the renderer. A copied frame counts a little in the
+    // progress (copying is fast, but not free).
+    const std::vector<smart::CopySegment> noSegments;
+    const std::vector<smart::CopySegment>& segments = session != nullptr ? session->plan().segments : noSegments;
+    const int64_t copiedTotal = session != nullptr ? session->plan().copiedFrames : 0;
+    constexpr int64_t kCopyWeightPermille = 50;  // a copied frame is worth 5% of an encoded one
+    const int64_t unitsTotal = (params_.totalFrames - copiedTotal) * 1000 + copiedTotal * kCopyWeightPermille;
+    int64_t unitsDone = 0;
+    size_t nextSegment = 0;
+    int64_t submitted = 0;
+    bool needSync = false;
+
     int64_t repeated = 0;
     std::vector<FrameSignature> signatures;
     int64_t hiddenSkipped = 0;
@@ -1123,10 +1184,61 @@ std::string ExportJob::execute() {
         Renderer renderer(params_, surface, perf);
 
         int64_t lastReport = -1;
+        auto report = [&] {
+            const int32_t permille = progressPermille(unitsDone, unitsTotal);
+            if (permille != lastReport) {
+                lastReport = permille;
+                progress_(permille);
+            }
+        };
         for (int64_t frame = 0; frame < params_.totalFrames; ++frame) {
             if (cancelled_.load()) fail(Status::Cancelled, "export cancelled");
+            if (nextSegment < segments.size() && frame == segments[nextSegment].outStart) {
+                const smart::CopySegment& seg = segments[nextSegment++];
+                // The audio of the stretch goes first: the file cannot start before the audio encoder has delivered its format,
+                // and the encoder's last frames only reach the sink once it has started.
+                auto pumpAudio = [&](int64_t f) {
+                    if (cancelled_.load()) fail(Status::Cancelled, "export cancelled");
+                    if (!audioPump) return;
+                    audioPump->pumpTo(framesToSamples(f + 1, params_.fps, kAudioSampleRate));
+                    audioPump->drain();
+                    audioPump->checkFaults();
+                };
+                for (int64_t f = seg.outStart; f < seg.outStart + seg.frames; ++f) pumpAudio(f);
+                for (int64_t f = seg.outStart + seg.frames; !sink->started() && f < params_.totalFrames; ++f) pumpAudio(f);
+                // Everything the encoder was given must be in the file before the copied samples (decode order).
+                const auto waitStart = Clock::now();
+                while (!sink->started() || sink->encodedFrames() < submitted) {
+                    video.drain(false);
+                    if (audioPump) audioPump->drain();
+                    if (sink->started() && sink->encodedFrames() >= submitted) break;
+                    if (cancelled_.load()) fail(Status::Cancelled, "export cancelled");
+                    if (Clock::now() - waitStart > std::chrono::seconds(10)) {
+                        throw smart::SmartFailure{"the encoder did not deliver its last frames before a copied stretch"};
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+                sink->copySegment(seg);
+                frame = seg.outStart + seg.frames - 1;
+                unitsDone += seg.frames * kCopyWeightPermille;
+                needSync = true;
+                report();
+                continue;
+            }
+            if (needSync) {
+                // The first frame after a copied stretch starts a new coded video sequence (a key frame).
+                AMediaFormat* request = AMediaFormat_new();
+                AMediaFormat_setInt32(request, AMEDIACODEC_KEY_REQUEST_SYNC_FRAME, 0);  // "request-sync", value 0 as documented
+                const media_status_t requested = AMediaCodec_setParameters(video.codec(), request);
+                if (requested != AMEDIA_OK) UV_LOGW("smart export: the sync frame request returned %d", static_cast<int>(requested));
+                AMediaFormat_delete(request);
+                // Parameters reach the codec asynchronously: give them time to land before the next frame is queued.
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                needSync = false;
+            }
             const auto frameStart = perf.now();
             renderer.renderFrame(frame);
+            ++submitted;
             const auto drainStart = perf.now();
             video.drain(false);
             perf.add(Perf::VideoDrain, drainStart);
@@ -1142,11 +1254,8 @@ std::string ExportJob::execute() {
             perf.section(renderer.lastLayerCount() - renderer.lastPictureLayers(), renderer.lastPictureLayers(), renderer.lastCulled(),
                          frameStart);
             perf.frameDone(renderer.lastLayerCount(), frame + 1 == params_.totalFrames);
-            const int32_t permille = progressPermille(frame + 1, params_.totalFrames);
-            if (permille != lastReport) {
-                lastReport = permille;
-                progress_(permille);
-            }
+            unitsDone += 1000;
+            report();
         }
         renderer.checkDecoderError();
         perf.logSections(params_.totalFrames, 0.0);
@@ -1168,8 +1277,8 @@ std::string ExportJob::execute() {
     muxer.finish();
     if (params_.signatureSink) params_.signatureSink(std::move(signatures));
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
-    UV_LOGI("export done: %lld frames in %lld ms, %lld hidden layer draws skipped", static_cast<long long>(params_.totalFrames),
-            static_cast<long long>(ms), static_cast<long long>(hiddenSkipped));
+    UV_LOGI("export done: %lld frames in %lld ms, %lld hidden layer draws skipped%s", static_cast<long long>(params_.totalFrames),
+            static_cast<long long>(ms), static_cast<long long>(hiddenSkipped), session != nullptr ? " (smart)" : "");
     if (repeated > 0) {
         return std::to_string(repeated) + " frames could not be decoded and were repeated";
     }

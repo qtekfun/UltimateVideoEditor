@@ -262,6 +262,23 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
                 )
             }
         }
+        if (state.codec == ExportCodec.HEVC) {
+            Section("Smart export") {
+                FilterChip(
+                    selected = state.smart,
+                    onClick = { onIntent(ExportIntent.SelectSmart(!state.smart)) },
+                    label = { Text("Copy untouched parts without re-encoding (faster, larger file)") },
+                )
+            }
+            if (state.smart) {
+                Text(
+                    "Stretches of one clip with nothing on them are copied as they are, bit for bit; the rest is encoded as usual. " +
+                        "The file stores the picture rotated and flags it, like your iPhone files do. " +
+                        "If nothing can be copied, or anything goes wrong, the whole movie is exported normally.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         Section("Bitrate") {
             val recommendation = state.recommendation?.takeIf { it.fromSources }
             for (mbps in bitrateChoicesMbps()) {

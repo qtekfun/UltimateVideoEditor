@@ -75,7 +75,8 @@ class ExportViewModel(
             ExportIntent.Dismiss -> dismiss()
             is ExportIntent.SelectResolution -> editSettings { copy(resolution = intent.option) }
             is ExportIntent.SelectFrameRate -> editSettings { copy(frameRate = intent.rate) }
-            is ExportIntent.SelectCodec -> editSettings { copy(codec = intent.codec, hdr = hdr && intent.codec == ExportCodec.HEVC) }
+            is ExportIntent.SelectCodec -> editSettings { copy(codec = intent.codec, hdr = hdr && intent.codec == ExportCodec.HEVC, smart = smart && intent.codec == ExportCodec.HEVC) }
+            is ExportIntent.SelectSmart -> if (!state.value.isRunning) editSettings { copy(smart = intent.smart && codec == ExportCodec.HEVC) }
             is ExportIntent.SelectHdr -> selectHdr(intent.hdr)
             is ExportIntent.SelectBitrate ->
                 if (!state.value.isRunning) reduce { copy(bitrateMbps = intent.mbps, preset = null, phase = ExportPhase.Configuring) }
@@ -153,6 +154,7 @@ class ExportViewModel(
                 frameRate = choice.frameRate,
                 codec = choice.codec,
                 hdr = false, // upload presets are SDR recommendations
+                smart = false,
                 bitrateMbps = choice.bitrateMbps,
                 preset = preset,
                 phase = ExportPhase.Configuring,
@@ -366,6 +368,7 @@ class ExportViewModel(
             codec = current.codec,
             videoBitrate = current.bitrateMbps * BITS_PER_MEGABIT,
             hdr = current.hdr,
+            smart = current.smart && current.codec == ExportCodec.HEVC,
         )
         val request = ExportRequest(
             settings = settings,

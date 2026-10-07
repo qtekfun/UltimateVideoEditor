@@ -4,5 +4,9 @@
 target_sources(uveditor_engine PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../encode/export_engine.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../encode/frame_probe.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../encode/mp4_source.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../encode/mp4_writer.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../encode/smart_source.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../encode/smart_export.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../jni/export_jni.cpp
 )

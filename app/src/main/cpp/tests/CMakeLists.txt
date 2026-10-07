@@ -73,6 +73,16 @@ add_executable(uv_export_host_tests export_host_tests.cpp)
 target_include_directories(uv_export_host_tests PRIVATE ${ENGINE_DIR})
 target_compile_options(uv_export_host_tests PRIVATE -Wall -Wextra -Werror)
 
+# Smart export: HEVC NAL edits, GOP trimming, planner, MP4 writer and reader.
+add_executable(uv_smart_export_host_tests
+    smart_export_host_tests.cpp
+    ${ENGINE_DIR}/encode/mp4_writer.cpp
+    ${ENGINE_DIR}/encode/mp4_source.cpp
+    ${ENGINE_DIR}/encode/smart_source.cpp
+)
+target_include_directories(uv_smart_export_host_tests PRIVATE ${ENGINE_DIR})
+target_compile_options(uv_smart_export_host_tests PRIVATE -Wall -Wextra -Werror)
+
 # Thumbnail grid math, atlas slot LRU, on-disk tile store and YUV conversion.
 add_executable(uv_thumbnail_host_tests
     thumbnail_host_tests.cpp
@@ -153,6 +163,7 @@ add_test(NAME uv_repair_host_tests COMMAND uv_repair_host_tests)
 add_test(NAME uv_grade_host_tests COMMAND uv_grade_host_tests)
 add_test(NAME uv_scope_host_tests COMMAND uv_scope_host_tests)
 add_test(NAME uv_export_host_tests COMMAND uv_export_host_tests)
+add_test(NAME uv_smart_export_host_tests COMMAND uv_smart_export_host_tests)
 add_test(NAME uv_host_tests COMMAND uv_host_tests)
 add_test(NAME uv_audio_host_tests COMMAND uv_audio_host_tests)
 add_test(NAME uv_dsp_host_tests COMMAND uv_dsp_host_tests)
