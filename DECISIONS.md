@@ -1491,6 +1491,22 @@ transcoding the audio at import (copies and rewrites the user's media).
 **Chosen:** the switch is removed; gap marking is always on. A/B comparisons use two builds, not a property that can outlive the run.
 **Rule:** a debug property must never switch off a correctness or speed fix in a build that other people (or later sessions) use; diagnostics that stay (`export_perf`, `timeline_stats`, `atlas_bytes`) only add logging or shrink caches in debug builds. Scripts that set a debug property must reset it in a trap on exit.
 
+## 2026-10-07 · Toolbar documentation: in the app first, a website and a PDF as extras
+**Context:** the editor has about 30 icon-only buttons and people did not know what they do. `docs/USER_GUIDE.md` had an icon table with
+characters standing in for the icons, which is hard to match with what is on screen, is not searchable on a phone and can drift from the app.
+**Chosen:** (1) **In the app, primary.** A Toolbar guide screen (About, Help; and a ? button in the editor's top bar) draws each symbol
+with the toolbar's own `ImageVector`, with name, what it does, when it is enabled, grouped by where it sits, plus the gestures and a search box.
+It works offline, always matches the installed version, and is where a person stuck on a button already is. It is built from one registry and a
+JVM test fails when an editor icon has no entry, so it cannot go stale silently. Long-press tooltips already existed and stay.
+(2) **Website, secondary.** A GitHub Pages site generated from `docs/` and the same registry gives search-engine reach, links to share in
+a forum or a support answer, and room to read on a big screen. It is built by a stdlib Python script plus pandoc with no CDN, font or analytics,
+and the app only links to it with `ACTION_VIEW` on a tap (no INTERNET permission, no fetch by the app). (3) **PDF, tertiary.** The user guide printed by
+headless Chrome in the release workflow is attached to the release for people who want a file to keep offline; it is best effort and never blocks a release.
+**Alternatives:** PDF only (not searchable on a phone, stale the day after, a second thing to open); website only (needs a connection, can describe a
+different version than the one installed, and an offline-by-design app should not send its users to the network for basic help); an embedded WebView
+(banned by the offline guarantee test and a bigger attack surface); a coach-marks overlay on every button (noisy, more UI to maintain).
+**Rule:** a new toolbar button needs a line in `ToolbarGuide.kt`; the test enforces it. Pages must be enabled once by hand (`docs/RELEASE.md`).
+
 ## 2026-10-07 · Save frame as image: one tap, no dialog, into Pictures/ultimateVE
 **Context:** the first version (a dialog with source, size presets, fit/fill, PNG/JPEG and a document picker) was too much for the common
 case and, on the user's 4K HLG project, produced an image that was completely black. LumaFusion saves a frame with one tap.
