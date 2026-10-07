@@ -7,6 +7,8 @@ import com.ultimatevideo.uveditor.data.interchange.BundleMediaSource
 import com.ultimatevideo.uveditor.data.interchange.BundlePreview
 import com.ultimatevideo.uveditor.data.interchange.BundleResourceInstaller
 import com.ultimatevideo.uveditor.data.interchange.BundleResources
+import com.ultimatevideo.uveditor.data.interchange.BundleWriteCancelled
+import com.ultimatevideo.uveditor.data.interchange.BundleWriteObserver
 import com.ultimatevideo.uveditor.data.interchange.BundleWriteResult
 import com.ultimatevideo.uveditor.data.interchange.ImportProgress
 import com.ultimatevideo.uveditor.data.interchange.LumaFusionError
@@ -484,6 +486,7 @@ class ProjectRepository(
         uri: String,
         choice: BundleChoice,
         thumbnails: Map<String, ByteArray> = emptyMap(),
+        observer: BundleWriteObserver = BundleWriteObserver.NONE,
     ): BundleWriteResult = withContext(ioDispatcher) {
         val file = projectFile(id)
         val text = readText(file)
@@ -492,8 +495,10 @@ class ProjectRepository(
         val pictures = thumbnails.ifEmpty { cardThumbnail?.invoke(project)?.let { mapOf("project.jpg" to it) } ?: emptyMap() }
         try {
             transferIO.openOutput(uri).use { out ->
-                ProjectBundle.write(text, project, mediaAccess, choice.includeMedia, pictures, out, resources)
+                ProjectBundle.write(text, project, mediaAccess, choice.includeMedia, pictures, out, resources, observer)
             }
+        } catch (e: BundleWriteCancelled) {
+            throw e // not an error: the caller removes the partial file
         } catch (e: IOException) {
             throw ProjectError.Io("export bundle to $uri", e)
         }

@@ -16,6 +16,10 @@ data class ExportNotificationModel(
     val showCancel: Boolean,
     /** The project the export belongs to: tapping the notification opens its editor. Empty for the placeholder before the job is known. */
     val projectId: String = "",
+    /** A project backup (`.uvbundle`), not a movie: tapping it shows the project list, whose bar and dialog hold the backup. */
+    val bundle: Boolean = false,
+    /** A finished file the notification offers to share; null when there is none or it must not be shared. */
+    val shareUri: String? = null,
 )
 
 /** The notification for [state], or null when there is nothing to show (idle, or the user cancelled). */
