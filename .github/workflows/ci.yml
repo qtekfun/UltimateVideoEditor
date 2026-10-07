@@ -41,9 +41,14 @@ jobs:
           ctest --test-dir build/uv-host --output-on-failure
 
       # The device smoke runner's assertions (scripts/qa/check-export.py) must be able to fail: good and broken files made with ffmpeg.
+      # The apt install can hang (a run was cancelled after an hour twice); fail fast so a re-run is cheap. The self-test needs ffmpeg, so this step cannot ignore a failure.
       - name: QA assertions self-test
+        timeout-minutes: 10
         run: |
-          sudo apt-get install -y -qq ffmpeg
+          for attempt in 1 2 3; do
+            sudo timeout 150 apt-get update -qq && sudo timeout 240 apt-get install -y -qq ffmpeg && break
+            echo "apt attempt $attempt failed or hung"; [ "$attempt" = 3 ] && exit 1
+          done
           scripts/qa/selftest.sh
 
   android:
