@@ -97,6 +97,8 @@ data class HubState(
     val mediaFolderPrompt: Boolean = false,
     /** The export that is running, or that ended and was not dismissed yet (bar above the New project button); null when none. */
     val exportBar: ExportBar? = null,
+    /** The project backup (`.uvbundle`) that is running or ended and was not dismissed yet; shown in a bar like [exportBar]. */
+    val bundleBar: com.ultimatevideo.uveditor.ui.export.BundleView? = null,
 ) : UiState {
     val unreadableCount: Int get() = unreadable.size
 
@@ -194,6 +196,12 @@ sealed interface HubIntent : UiIntent {
     data object DismissExportBar : HubIntent
     data object ShareExport : HubIntent
     data object OpenExportProject : HubIntent
+
+    /** The backup bar's buttons: stop it, forget a finished one, share the file, open the progress dialog. */
+    data object CancelBundle : HubIntent
+    data object DismissBundleBar : HubIntent
+    data object ShareBundle : HubIntent
+    data object ShowBundleDetails : HubIntent
 }
 
 sealed interface HubEffect : UiEffect {
@@ -203,6 +211,7 @@ sealed interface HubEffect : UiEffect {
     data class OpenEditor(val projectId: String) : HubEffect
     data object LaunchMediaFolderPicker : HubEffect
     data class ShareExport(val uri: String) : HubEffect
+    data class ShareBundle(val uri: String) : HubEffect
 
     /** Open the editor of [projectId] with its export dialog showing. */
     data class OpenExport(val projectId: String) : HubEffect

@@ -86,15 +86,16 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     /** One tap on an export notification; a new instance each time so that a second tap on the same project is handled again. */
-    private class ExportTap(val projectId: String?)
+    private class ExportTap(val projectId: String?, val bundle: Boolean = false)
 
     private var exportTap by mutableStateOf<ExportTap?>(null)
 
     /** Reads the project id of an export notification's intent and clears it, so a rotation or recreation does not replay it. */
     private fun takeExportTap(intent: android.content.Intent?) {
         if (intent?.action != ExportLaunch.ACTION_SHOW) return
-        exportTap = ExportTap(intent.getStringExtra(ExportLaunch.EXTRA_PROJECT_ID))
+        exportTap = ExportTap(intent.getStringExtra(ExportLaunch.EXTRA_PROJECT_ID), intent.getBooleanExtra(ExportLaunch.EXTRA_BUNDLE, false))
         intent.removeExtra(ExportLaunch.EXTRA_PROJECT_ID)
+        intent.removeExtra(ExportLaunch.EXTRA_BUNDLE)
         intent.action = null
     }
 
@@ -104,12 +105,13 @@ class MainActivity : ComponentActivity() {
         takeExportTap(intent)
     }
 
-    /** The screen stays on while an export runs and this activity is visible; the flag is cleared as soon as it ends. */
+    /** The screen stays on while a movie export or a project backup runs and this activity is visible; the flag is cleared as soon as it ends. */
     private fun keepScreenOnWhileExporting() {
         val executor = com.ultimatevideo.uveditor.ui.export.ExportCenter.executor(this)
+        val bundles = com.ultimatevideo.uveditor.ui.export.ExportCenter.bundles(this)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                executor.state.map { it.isRunning }.distinctUntilChanged().collect { running ->
+                kotlinx.coroutines.flow.combine(executor.state, bundles.state) { movie, backup -> movie.isRunning || backup.isRunning }.distinctUntilChanged().collect { running ->
                     if (running) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
@@ -154,7 +156,8 @@ class MainActivity : ComponentActivity() {
                 }
             },
         )
-        val interchange = RepositoryInterchangeExporter(repository, transferIO)
+        val bundleJobs = ExportCenter.bundles(applicationContext)
+        val interchange = RepositoryInterchangeExporter(repository, transferIO, bundleJobs)
         val mediaImporter = AndroidMediaImporter(applicationContext)
         val session = PreferencesSessionStore(applicationContext)
         val newProjectDefaults = PreferencesNewProjectDefaults(applicationContext)
@@ -191,6 +194,7 @@ class MainActivity : ComponentActivity() {
                                 peeker = clipPeeker,
                                 mediaFolders = mediaFolderSettings,
                                 exportJobs = ExportCenter.executor(applicationContext),
+                                bundleJobs = bundleJobs,
                             )
                         }
                     },
@@ -223,6 +227,12 @@ class MainActivity : ComponentActivity() {
                             Log.w("UVExport", "Could not read the project list for a notification tap", e)
                             false
                         }
+                    }
+                    if (tap.bundle) {
+                        // A backup is shown by the project list's bar and by its dialog, over whatever screen is open.
+                        bundleJobs.showDetails()
+                        exportTap = null
+                        return@LaunchedEffect
                     }
                     when (val target = exportDestination(id, exists, ExportCenter.executor(applicationContext).state.value)) {
                         is ExportDestination.Editor -> {
@@ -308,6 +318,8 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
+                // Over every screen: a project backup's progress and result, whichever screen started it.
+                com.ultimatevideo.uveditor.ui.library.BundleJobDialog(bundleJobs)
             }
         }
     }
