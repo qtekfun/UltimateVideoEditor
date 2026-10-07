@@ -11,6 +11,7 @@ import com.ultimatevideo.uveditor.data.model.ProjectDto
 import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.DropChoice
 import com.ultimatevideo.uveditor.domain.DropHint
 import com.ultimatevideo.uveditor.domain.DropKind
 import com.ultimatevideo.uveditor.domain.ClipTransform
@@ -388,6 +389,91 @@ class EditorViewModelTest {
         h.vm.onIntent(EditorIntent.Undo)
         assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
         assertEquals(listOf("x", "y"), h.clips("v2").map { it.id })
+    }
+
+    private fun loneOverlayProject() = ProjectDto(
+        id = "p1",
+        name = "Test",
+        settings = settings,
+        mediaLibrary = listOf(asset),
+        tracks = listOf(
+            TrackDto("v2", "video", 0, listOf(clipDto("x", 0))),
+            TrackDto("v1", "video", 1, listOf(clipDto("c1", 0), clipDto("c2", 100))),
+            TrackDto("a1", "audio", 2),
+        ),
+    )
+
+    @Test
+    fun `a drop between two base clips lands at fit zoom where a fingertip covers many frames`() = runTest(dispatcher) {
+        // Regression: the insert zone was a fixed 10 frames, a few pixels when the whole project fits the screen.
+        val h = harness(loneOverlayProject())
+        h.startDrag("x")
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 125, trackIndex = 1))
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint?.kind)
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 125, trackIndex = 1, reachFrames = 30))
+        assertEquals(DropHint(DropKind.INSERT, "v1", 100, 100), h.state.dropHint)
+        assertEquals(listOf("c1", "x", "c2"), h.state.visibleTimeline.track("v1")!!.clips.map { it.id })
+
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(listOf("c1", "x", "c2"), h.clips("v1").map { it.id })
+        assertEquals(DropChoice.AUTO, h.state.dropChoice)
+        assertFalse(h.state.dropChoiceOffered)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
+        assertEquals(listOf("x"), h.clips("v2").map { it.id })
+    }
+
+    @Test
+    fun `flipping the mode during the drag switches insert and overwrite without the finger moving`() = runTest(dispatcher) {
+        val h = harness(loneOverlayProject())
+        h.startDrag("x")
+
+        h.vm.onIntent(EditorIntent.DragMove(frame = 60, trackIndex = 1))
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint?.kind)
+        assertTrue(h.state.dropChoiceOffered)
+
+        h.vm.onIntent(EditorIntent.FlipDropChoice)
+        assertEquals(DropChoice.INSERT, h.state.dropChoice)
+        assertEquals(DropHint(DropKind.INSERT, "v1", 100, 100), h.state.dropHint)
+        assertEquals(listOf("c1", "x", "c2"), h.state.visibleTimeline.track("v1")!!.clips.map { it.id })
+
+        // The choice sticks while the finger moves, and flips back.
+        h.vm.onIntent(EditorIntent.DragMove(frame = 150, trackIndex = 1))
+        assertEquals(DropKind.INSERT, h.state.dropHint?.kind)
+        h.vm.onIntent(EditorIntent.FlipDropChoice)
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint?.kind)
+
+        h.vm.onIntent(EditorIntent.FlipDropChoice)
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(listOf("c1", "x", "c2"), h.clips("v1").map { it.id })
+        assertEquals(300L, h.state.timeline.track("v1")!!.end.value)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("c1", "c2"), h.clips("v1").map { it.id })
+        // The next drag starts in auto again.
+        h.startDrag("x")
+        h.vm.onIntent(EditorIntent.DragMove(frame = 60, trackIndex = 1))
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint?.kind)
+    }
+
+    @Test
+    fun `forcing overwrite at a cut keeps the base length and a flip with no drag does nothing`() = runTest(dispatcher) {
+        val h = harness(loneOverlayProject())
+        h.startDrag("x")
+        h.vm.onIntent(EditorIntent.DragMove(frame = 103, trackIndex = 1))
+        assertEquals(DropKind.INSERT, h.state.dropHint?.kind)
+        h.vm.onIntent(EditorIntent.FlipDropChoice)
+        assertEquals(DropKind.OVERWRITE, h.state.dropHint?.kind)
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        // It replaces footage instead of opening a gap: nothing after the cut moved.
+        assertEquals(listOf("c1", "c2", "x"), h.clips("v1").map { it.id })
+        assertEquals(3L, h.clips("v1")[1].durationFrames)
+        assertEquals(103L, h.clips("v1").last().timelineStart.value)
+        assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+
+        h.vm.onIntent(EditorIntent.FlipDropChoice)
+        assertEquals(DropChoice.AUTO, h.state.dropChoice)
     }
 
     @Test

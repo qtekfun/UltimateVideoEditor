@@ -295,13 +295,20 @@ the exported movie use the same fades and curve.
 An indicator shows the action while you drag:
 
 - **On the base, near a cut between two clips** (or the start/end): **Insert**. Later clips shift right and
-  overlays that start at or after the cut shift with them.
+  overlays that start at or after the cut shift with them. "Near" is about a fingertip wide at the current zoom, and
+  counts the clip's start edge, its end edge and your finger; so you can drop a clip between two others even when the
+  whole project is zoomed out. The timeline already shows the gap and the shifted clips while your finger is down.
 - **On the base, over the body of a clip**: **Overwrite**. The covered footage is replaced; the base length
   does not change.
 - **On an overlay, audio or title lane, in a cut between two touching clips**: **Insert**. Only that lane's later clips shift right; nothing else moves.
 - **On an overlay, audio or title lane, elsewhere**: overlapping clips are **overwritten**; free space is a plain move.
 - **Above the top lane**: a green placeholder shows a **new lane** that the clip will move into.
 - **Far outside the lanes**: red tint, release to **cancel**.
+- **Choosing Insert or Overwrite while dragging.** A small chip at the top right of the timeline shows what letting go
+  will do ("auto" means your position decides). Tap it, or tap anywhere on the timeline with a second finger, to switch
+  to the other action; the preview changes at once and the choice holds while you keep moving. Forced Insert goes to the
+  nearest cut of that lane; forced Overwrite replaces what the clip covers even beside a cut. It resets for every drag,
+  and releasing is one undo step either way. There is no dialog.
 - Dragging a base clip up onto an overlay lane **lifts it off the base**: the base closes the gap and no
   overlay is deleted or shifted.
 
