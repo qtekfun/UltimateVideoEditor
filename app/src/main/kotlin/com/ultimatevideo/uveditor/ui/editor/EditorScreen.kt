@@ -523,6 +523,7 @@ fun EditorScreen(
             override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragStart(hit))
             override fun onDragMove(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
             override fun onDragEnd(commit: Boolean) = viewModel.onIntent(EditorIntent.DragEnd(commit))
+            override fun onScrub() = viewModel.onIntent(EditorIntent.ScrubStarted)
             override fun onLaneDragStart(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Start(hit))
             override fun onLaneDragMove(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Move(hit))
             override fun onLaneDragEnd(commit: Boolean) = viewModel.onIntent(LaneDragIntent.End(commit))
@@ -757,15 +758,14 @@ fun EditorScreen(
             else -> BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
                 val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat())
                 val layout = remember {
-                    EditorLayoutController(
-                        PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE)),
-                        window,
-                    )
+                    val prefs = PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE))
+                    EditorLayoutController(prefs, window, prefs)
                 }
                 // Hiding the system bars changes the window by a few dp: that must not re-pick the layout, so it waits.
                 LaunchedEffect(window, fullscreen.active) { if (!fullscreen.active) layout.onWindow(window) }
                 // Lane heights are the native timeline's business: it scales its lanes and what is drawn in them.
                 LaunchedEffect(engine, layout) { snapshotFlow { layout.laneHeight }.collect { engine.setLaneScale(it.scale) } }
+                LaunchedEffect(engine, layout) { snapshotFlow { layout.waveformScale }.collect { engine.setWaveformScale(it) } }
                 var layoutSheetOpen by remember { mutableStateOf(false) }
                 if (layoutSheetOpen) LayoutSheet(layout) { layoutSheetOpen = false }
 

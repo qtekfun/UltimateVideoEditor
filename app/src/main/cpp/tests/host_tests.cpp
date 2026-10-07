@@ -19,6 +19,7 @@
 #include "timeline_view/snap_guide.h"
 #include "timeline_view/text_atlas.h"
 #include "timeline_view/timeline_theme.h"
+#include "timeline_view/wave_columns.h"
 #include "timeline_view/timeline_snapshot.h"
 #include "timeline_view/viewport.h"
 
@@ -1112,15 +1113,15 @@ static void testPeaks() {
     auto p = b.finish();
     CHECK(p.totalFrames == 400);
     CHECK(p.levels.size() == audio::kLevelCount);
-    // ceil(400/64) = 7 base peaks
-    CHECK(p.levels[0].count() == 7);
+    // ceil(400/16) = 25 base peaks
+    CHECK(p.levels[0].count() == 25);
     CHECK(p.levels[0].data[0] == 0 && p.levels[0].data[1] == 1000);  // right channel 0 is the min
-    // Last base peak is partial and all negative-or-zero.
-    CHECK(p.levels[0].data[13] == 0);
-    CHECK(p.levels[0].data[12] == -2000);
+    // Last base peak (samples 384..399) is all negative-or-zero.
+    CHECK(p.levels[0].data[49] == 0);
+    CHECK(p.levels[0].data[48] == -2000);
     // Top level folds everything.
-    CHECK(p.levels[5].count() == 1);
-    CHECK(p.levels[5].data[0] == -2000 && p.levels[5].data[1] == 1000);
+    CHECK(p.levels.back().count() == 1);
+    CHECK(p.levels.back().data[0] == -2000 && p.levels.back().data[1] == 1000);
 
     int16_t col[4];
     audio::queryPeaks(p, 0, 400, 2, col);
@@ -1171,34 +1172,283 @@ static void testViewportFit() {
     CHECK(vp.pxPerFrame == timeline::Viewport::kMaxPxPerFrame);
 }
 
+// ---- waveform: peak reduction, mip selection, column algorithm, budget ----
+
+static audio::PeakPyramid pyramidOf(const std::vector<int16_t>& pcm, int channels = 1, uint32_t rate = 48000) {
+    audio::PeakBuilder b(rate, channels);
+    b.addInterleaved(pcm.data(), pcm.size() / static_cast<size_t>(channels));
+    return b.finish();
+}
+
+static void testPeakRms() {
+    // A constant +-1000 square wave has an RMS of exactly 1000 at every level.
+    std::vector<int16_t> sq(4096);
+    for (size_t i = 0; i < sq.size(); ++i) sq[i] = (i / 32) % 2 == 0 ? 1000 : -1000;
+    const auto p = pyramidOf(sq);
+    for (const auto& lv : p.levels) {
+        // The 16 sample level has no RMS (too few samples to mean anything); every other level has one per peak.
+        CHECK(lv.hasRms() == (lv.samplesPerPeak >= audio::kFirstRmsSamplesPerPeak));
+        for (const int16_t r : lv.rms) CHECK(r == 1000);
+    }
+    // A single full-scale click in silence: the RMS of its 64 sample peak is 32767/8, the min/max keep the click whole.
+    std::vector<int16_t> click(640, 0);
+    click[100] = 32767;
+    const auto c = pyramidOf(click);
+    CHECK(c.levels[0].data[2 * 6 + 1] == 32767);  // 16 sample peak 6 holds samples 96..111
+    CHECK(c.levels[1].data[2 * 1 + 1] == 32767);  // 64 sample peak 1 holds samples 64..127
+    CHECK(std::abs(c.levels[1].rms[1] - static_cast<int>(std::lround(32767.0 / 8.0))) <= 1);
+    CHECK(c.levels[1].rms[0] == 0);
+    // The RMS of a coarser peak is the RMS of what it covers: the 256 sample peak holds the click among 255 zeros.
+    CHECK(std::abs(c.levels[2].rms[0] - static_cast<int>(std::lround(32767.0 / 16.0))) <= 1);
+}
+
+static void testPeakSilenceAndClipping() {
+    const std::vector<int16_t> silence(10000, 0);
+    const auto s = pyramidOf(silence);
+    const audio::PeakStat quiet = audio::reducePeaks(s, 0, 10000);
+    CHECK(quiet.min == 0 && quiet.max == 0 && quiet.rms == 0);
+    CHECK(audio::referenceLevel(s) == audio::kMinReferenceLevel);
+    const timeline::WaveColumn col = timeline::waveColumn(s, 0, 500, audio::referenceLevel(s), audio::WaveScale::Linear);
+    CHECK(col.up == 0.0f && col.down == 0.0f && col.rms == 0.0f);
+
+    // Clipped audio: full-scale samples fill the half lane but never exceed it, whichever the scale.
+    std::vector<int16_t> clipped(2000);
+    for (size_t i = 0; i < clipped.size(); ++i) clipped[i] = (i / 50) % 2 == 0 ? 32767 : -32768;
+    const auto c = pyramidOf(clipped);
+    const float ref = audio::referenceLevel(c);
+    CHECK(ref >= 0.999f && ref <= 1.0f);
+    for (const auto scale : {audio::WaveScale::Linear, audio::WaveScale::Decibel}) {
+        const auto col2 = timeline::waveColumn(c, 0, 400, ref, scale);
+        CHECK(col2.up <= 1.0f && col2.up > 0.99f);
+        CHECK(col2.down <= 1.0f && col2.down > 0.99f);
+        CHECK(col2.rms <= 1.0f && col2.rms > 0.99f);
+    }
+}
+
+static void testPeakShortClips() {
+    // Fewer samples than one peak: one partial peak, and queries clip to what exists.
+    std::vector<int16_t> few = {10, -20, 30, -40, 50, 60, -70, 5, 0, 1};
+    const auto p = pyramidOf(few);
+    CHECK(p.totalFrames == 10);
+    CHECK(p.levels[0].count() == 1 && p.levels.back().count() == 1);
+    const audio::PeakStat all = audio::reducePeaks(p, 0, 10);
+    CHECK(all.min == -70 && all.max == 60);
+    CHECK(all.rms == 0);  // the finest level has no RMS
+    const audio::PeakStat wide = audio::reducePeaks(p, 0, 200);  // a column of 200 samples reads the 64 sample level
+    CHECK(wide.min == -70 && wide.max == 60 && wide.rms > 0 && wide.rms < 70);
+    // Ranges past the end, before the start, empty or inverted give silence and never crash.
+    CHECK(audio::reducePeaks(p, 10, 20).max == 0);
+    CHECK(audio::reducePeaks(p, -50, -1).min == 0);
+    CHECK(audio::reducePeaks(p, 5, 5).max == 0 && audio::reducePeaks(p, 7, 3).max == 0);
+    // A range that starts before and ends after the data still sees all of it.
+    CHECK(audio::reducePeaks(p, -100, 100).max == 60);
+    // An empty source and an empty pyramid.
+    CHECK(audio::reducePeaks(audio::PeakPyramid{}, 0, 100).max == 0);
+    const auto none = pyramidOf({});
+    CHECK(none.totalFrames == 0 && audio::reducePeaks(none, 0, 10).max == 0);
+}
+
+static void testPeakStereoDownmix() {
+    // Left quiet, right loud with opposite signs: the fold keeps the extremes of both channels and the RMS follows
+    // the louder channel of each frame, so a loud channel is never hidden by a quiet one.
+    std::vector<int16_t> pcm;
+    for (int i = 0; i < 256; ++i) {
+        pcm.push_back(static_cast<int16_t>(i % 2 == 0 ? 100 : -100));    // left
+        pcm.push_back(static_cast<int16_t>(i % 2 == 0 ? -8000 : 6000));  // right
+    }
+    const auto p = pyramidOf(pcm, 2);
+    const audio::PeakStat st = audio::reducePeaks(p, 0, 256);
+    CHECK(st.min == -8000 && st.max == 6000);
+    const double expected = std::sqrt((8000.0 * 8000.0 + 6000.0 * 6000.0) / 2.0);
+    CHECK(std::fabs(st.rms - expected) < 2.0);
+    // Mono and the same signal duplicated on two channels agree.
+    std::vector<int16_t> mono, dup;
+    for (int i = 0; i < 300; ++i) {
+        const int16_t v = static_cast<int16_t>((i * 97) % 3000 - 1500);
+        mono.push_back(v);
+        dup.push_back(v);
+        dup.push_back(v);
+    }
+    const auto a = pyramidOf(mono, 1), b = pyramidOf(dup, 2);
+    CHECK(a.levels[0].data == b.levels[0].data && a.levels[1].rms == b.levels[1].rms && !a.levels[1].rms.empty());
+}
+
+static void testPeakLongSourceDropsFineLevel() {
+    // Past kMaxFineLevelFrames the 16 sample level is given up (memory), the rest still answers every query.
+    audio::PeakBuilder b(48000, 1);
+    std::vector<int16_t> chunk(1 << 20, 0);
+    chunk[5] = 12345;
+    int64_t fed = 0;
+    while (fed <= audio::kMaxFineLevelFrames + (1 << 21)) {
+        b.addInterleaved(chunk.data(), chunk.size());
+        fed += static_cast<int64_t>(chunk.size());
+    }
+    const auto p = b.finish();
+    CHECK(p.levels[0].count() == 0 && p.levels[1].count() > 0);
+    CHECK(audio::levelForColumn(p, 1) == 1);  // narrower than any level left: the finest one there is
+    CHECK(audio::reducePeaks(p, 0, 8).max == 12345);
+    CHECK(audio::reducePeaks(p, fed - 100, fed).max == 12345 || audio::reducePeaks(p, fed - 100, fed).max == 0);
+}
+
+static void testPeakMipSelection() {
+    std::vector<int16_t> pcm(300000, 0);
+    const auto p = pyramidOf(pcm);
+    // The coarsest level whose peaks are no wider than a column; the finest when even that is wider.
+    CHECK(audio::levelForColumn(p, 1) == 0 && audio::levelForColumn(p, 15) == 0 && audio::levelForColumn(p, 16) == 0);
+    CHECK(audio::levelForColumn(p, 63) == 0 && audio::levelForColumn(p, 64) == 1);
+    CHECK(audio::levelForColumn(p, 255) == 1 && audio::levelForColumn(p, 256) == 2);
+    CHECK(audio::levelForColumn(p, 1023) == 2 && audio::levelForColumn(p, 1024) == 3);
+    CHECK(audio::levelForColumn(p, 65536) == audio::kLevelCount - 1);
+    CHECK(audio::levelForColumn(p, int64_t{1} << 40) == audio::kLevelCount - 1);
+    CHECK(audio::levelForColumn(audio::PeakPyramid{}, 1000) == 0);
+
+    // A lone click keeps its height at every zoom: min/max never lose a transient when the level gets coarser.
+    std::vector<int16_t> click(300000, 0);
+    click[123457] = 20000;
+    click[200000] = -15000;
+    const auto c = pyramidOf(click);
+    for (const int64_t width : {int64_t{16}, int64_t{200}, int64_t{3000}, int64_t{70000}}) {
+        const int64_t start = 123457 / width * width;
+        CHECK(audio::reducePeaks(c, start, start + width).max == 20000);
+        const int64_t start2 = 200000 / width * width;
+        CHECK(audio::reducePeaks(c, start2, start2 + width).min == -15000);
+    }
+    // A column further away from the click is silent at every zoom.
+    CHECK(audio::reducePeaks(c, 0, 4096).max == 0);
+    // Reading cost is bounded: at most a handful of peaks per column, however wide it is.
+    for (const int64_t width : {int64_t{64}, int64_t{300}, int64_t{5000}, int64_t{200000}}) {
+        const auto& lv = c.levels[audio::levelForColumn(c, width)];
+        CHECK(width / static_cast<int64_t>(lv.samplesPerPeak) + 2 <= 2 * static_cast<int64_t>(audio::kLevelRatio) + 2 ||
+              lv.samplesPerPeak == c.levels.back().samplesPerPeak);
+    }
+}
+
 static void testWaveformDisplay() {
     // Quiet audio: its own loudest sample is 3000/32768 (about 9%), well above the floor.
     std::vector<int16_t> pcm(512, 0);
     pcm[10] = 3000;
     pcm[300] = -1500;
-    audio::PeakBuilder b(48000, 1);
-    b.addInterleaved(pcm.data(), pcm.size());
-    const auto p = b.finish();
+    const auto p = pyramidOf(pcm);
     const float ref = audio::referenceLevel(p);
     CHECK(ref > 0.09f && ref < 0.092f);
+    // The clip's own range: a stretch without the loud sample is lifted to its own loudest one.
+    const float refQuietPart = audio::referenceLevel(p, 256, 512);
+    CHECK(refQuietPart > 0.045f && refQuietPart < 0.092f);
+    CHECK(audio::referenceLevel(p, 0, 0) == ref);  // an empty range means the whole source
 
-    // The loudest sample fills the display; a sample a quarter as loud is half as tall (sqrt).
-    CHECK(audio::displayAmplitude(ref, ref) > 0.999f);
-    CHECK(audio::displayAmplitude(ref * 0.25f, ref) > 0.49f && audio::displayAmplitude(ref * 0.25f, ref) < 0.51f);
-    // Signed, clamped and monotonic.
-    CHECK(audio::displayAmplitude(-ref * 0.25f, ref) < -0.49f);
-    CHECK(audio::displayAmplitude(ref * 4.0f, ref) <= 1.0f);
-    CHECK(audio::displayAmplitude(0.0f, ref) == 0.0f);
-    CHECK(audio::displayAmplitude(ref * 0.1f, ref) < audio::displayAmplitude(ref * 0.2f, ref));
+    // Linear: the loudest sample fills the display, a quarter as loud is a quarter as tall.
+    using audio::WaveScale;
+    CHECK(audio::waveHeight(ref, ref, WaveScale::Linear) > 0.999f);
+    CHECK(std::fabs(audio::waveHeight(ref * 0.25f, ref, WaveScale::Linear) - 0.25f) < 1e-4f);
+    CHECK(audio::waveHeight(-ref * 0.25f, ref, WaveScale::Linear) > 0.24f);  // the sign is ignored
+    CHECK(audio::waveHeight(ref * 4.0f, ref, WaveScale::Linear) <= 1.0f);
+    CHECK(audio::waveHeight(0.0f, ref, WaveScale::Linear) == 0.0f);
+    CHECK(audio::waveHeight(ref * 0.1f, ref, WaveScale::Linear) < audio::waveHeight(ref * 0.2f, ref, WaveScale::Linear));
+    // Decibels: the reference fills the display, -6 dB is 1 - 6/54, the floor and below is empty, and it is monotonic.
+    CHECK(audio::waveHeight(ref, ref, WaveScale::Decibel) > 0.999f);
+    CHECK(std::fabs(audio::waveHeight(ref * 0.5f, ref, WaveScale::Decibel) - (1.0f - 6.0206f / audio::kWaveDbRange)) < 1e-3f);
+    CHECK(audio::waveHeight(ref * 0.001f, ref, WaveScale::Decibel) == 0.0f);  // -60 dB
+    CHECK(audio::waveHeight(0.0f, ref, WaveScale::Decibel) == 0.0f);
+    CHECK(audio::waveHeight(ref * 0.01f, ref, WaveScale::Decibel) < audio::waveHeight(ref * 0.02f, ref, WaveScale::Decibel));
+    // Quiet detail is much taller in decibels than linear; loud stays comparable.
+    CHECK(audio::waveHeight(ref * 0.03f, ref, WaveScale::Decibel) > 4.0f * audio::waveHeight(ref * 0.03f, ref, WaveScale::Linear));
+    CHECK(audio::waveScaleFromInt(0) == WaveScale::Linear && audio::waveScaleFromInt(1) == WaveScale::Decibel);
+    CHECK(audio::waveScaleFromInt(7) == WaveScale::Linear && audio::waveScaleFromInt(-1) == WaveScale::Linear);
 
-    // Near-silence is not amplified into a loud-looking waveform: the reference has a floor.
+    // Near-silence is not amplified into a loud-looking waveform: the reference has a floor (24 dB of gain at most).
     std::vector<int16_t> hiss(512, 5);
-    audio::PeakBuilder q(48000, 1);
-    q.addInterleaved(hiss.data(), hiss.size());
-    const auto quiet = q.finish();
+    const auto quiet = pyramidOf(hiss);
     CHECK(audio::referenceLevel(quiet) == audio::kMinReferenceLevel);
-    CHECK(audio::displayAmplitude(5.0f / 32768.0f, audio::referenceLevel(quiet)) < 0.1f);
+    CHECK(audio::waveHeight(5.0f / 32768.0f, audio::referenceLevel(quiet), WaveScale::Linear) < 0.01f);
     CHECK(audio::referenceLevel(audio::PeakPyramid{}) == audio::kMinReferenceLevel);
+    CHECK(audio::referenceLevel(audio::PeakPyramid{}, 10, 20) == audio::kMinReferenceLevel);
+}
+
+static void testWaveColumnGeometry() {
+    // Whole pixels, about 0.8 dp, never below one.
+    CHECK(timeline::waveColumnWidth(600.0f, 1.0f) == 1.0f);
+    CHECK(timeline::waveColumnWidth(1000.0f, 1.0f) == 2.0f);  // 1000 one-pixel columns would be over the budget
+    CHECK(timeline::waveColumnWidth(1000.0f, 2.0f) == 2.0f);
+    CHECK(timeline::waveColumnWidth(1000.0f, 2.6f) == 2.0f);
+    CHECK(timeline::waveColumnWidth(1000.0f, 3.5f) == 3.0f);
+    CHECK(timeline::waveColumnWidth(0.0f, 2.6f) == 2.0f);
+
+    // The vertex budget: however wide the visible part of a clip, a frame stays within kMaxWaveColumns columns of three
+    // quads (18 vertices each), plus the one or two columns at the edges of the grid.
+    for (const float density : {1.0f, 1.5f, 2.0f, 2.6f, 3.0f, 3.5f, 4.0f}) {
+        for (const float width : {120.0f, 800.0f, 1080.0f, 1440.0f, 2400.0f, 3840.0f, 8000.0f}) {
+            const float colW = timeline::waveColumnWidth(width, density);
+            const int64_t first = timeline::waveFirstColumn(0.0f, 777.3, colW);
+            const int64_t last = timeline::waveLastColumn(width, 777.3, colW);
+            const int64_t columns = last - first + 1;
+            CHECK(columns <= timeline::kMaxWaveColumns + 2);
+            CHECK(timeline::waveVertexBudget(columns) <= static_cast<size_t>(timeline::kMaxWaveColumns + 2) * 18);
+            CHECK(static_cast<float>(columns - 2) * colW <= width + colW);  // the columns cover the width and no more than that
+            CHECK(static_cast<float>(columns) * colW >= width);
+        }
+    }
+    CHECK(timeline::waveVertexBudget(0) == 0 && timeline::waveVertexBudget(-5) == 0);
+    CHECK(timeline::waveVertexBudget(10) == 10 * 3 * 6);
+    // A typical phone (1080 px, density 2.6): about 540 columns, 9.7k vertices, against 720 columns at most.
+    const float colW = timeline::waveColumnWidth(1080.0f, 2.6f);
+    CHECK(colW == 2.0f && timeline::waveLastColumn(1080.0f, 0.0, colW) - timeline::waveFirstColumn(0.0f, 0.0, colW) + 1 == 541);
+}
+
+static void testWaveSampleMapping() {
+    // 48 kHz, 30 fps: 1600 samples per frame. Zoomed in to 96 px per frame a 2 px column is 33 samples: consecutive
+    // columns must give consecutive, non-empty sample ranges, not blocks of identical columns (the whole-frame mapping did).
+    const double ppf = 96.0;
+    const float colW = 2.0f;
+    int64_t previous = -1;
+    for (int64_t col = 1000; col < 1100; ++col) {
+        const int64_t s = timeline::waveSampleAtColumn(col, colW, 0.0, ppf, 0, 100000, 0, 48000, 30, 1);
+        CHECK(s > previous);  // strictly increasing: every column has its own samples
+        if (previous >= 0) CHECK(s - previous >= 32 && s - previous <= 34);
+        previous = s;
+    }
+    // The columns tile the clip: the right edge of one is the left edge of the next by construction, and the source offset
+    // and the clip start move the mapping the way they should.
+    const int64_t at = timeline::waveSampleAtColumn(50, colW, 0.0, ppf, 0, 1000, 0, 48000, 30, 1);
+    CHECK(timeline::waveSampleAtColumn(50, colW, 0.0, ppf, 0, 1000, 10, 48000, 30, 1) == at + 10 * 1600);
+    CHECK(timeline::waveSampleAtColumn(50, colW, 0.0, ppf, 3, 1000, 0, 48000, 30, 1) < at);
+    CHECK(timeline::waveSampleAtColumn(50, colW, 96.0, ppf, 0, 1000, 0, 48000, 30, 1) == timeline::waveSampleAtColumn(98, colW, 0.0, ppf, 0, 1000, 0, 48000, 30, 1));
+    // Outside the clip the position clamps to its ends, so those columns come out empty and are skipped by the renderer.
+    CHECK(timeline::waveSampleAtColumn(-500, colW, 0.0, ppf, 10, 100, 0, 48000, 30, 1) == 0);
+    CHECK(timeline::waveSampleAtColumn(1000000, colW, 0.0, ppf, 10, 100, 0, 48000, 30, 1) == 100 * 1600);
+    // 29.97 fps (30000/1001) is exact in integers: 100 frames = 160160 samples.
+    CHECK(timeline::waveSampleAtColumn(100, 1.0f, 0.0, 1.0, 0, 1000, 0, 48000, 30000, 1001) == 160160);
+}
+
+static void testWaveColumnsOnSpeech() {
+    // A speech-like signal: a 200 Hz tone with a syllable envelope and a silent gap. The column algorithm must show the
+    // gap as empty columns (cut points), the syllables as envelope with a narrower RMS band inside it.
+    const uint32_t rate = 48000;
+    std::vector<int16_t> pcm(rate);  // one second
+    for (size_t i = 0; i < pcm.size(); ++i) {
+        const double t = static_cast<double>(i) / rate;
+        double env = 0.0;
+        if (t < 0.3) env = 0.5 * std::sin(3.14159265 * t / 0.3);
+        else if (t > 0.5 && t < 0.9) env = 0.3 * std::sin(3.14159265 * (t - 0.5) / 0.4);
+        pcm[i] = static_cast<int16_t>(env * 32767.0 * std::sin(2.0 * 3.14159265 * 200.0 * t));
+    }
+    const auto p = pyramidOf(pcm, 1, rate);
+    const float ref = audio::referenceLevel(p, 0, rate);
+    CHECK(ref > 0.22f && ref < 0.26f);  // half of the loudest peak (0.5), see kClipReferenceHeadroom
+    // 100 columns of 480 samples each.
+    int silent = 0, loud = 0, bandInsideEnvelope = 0;
+    for (int col = 0; col < 100; ++col) {
+        const auto wc = timeline::waveColumn(p, col * 480, (col + 1) * 480, ref, audio::WaveScale::Linear);
+        if (wc.up == 0.0f && wc.down == 0.0f) ++silent;
+        if (wc.up > 0.6f) ++loud;
+        if (wc.rms <= std::max(wc.up, wc.down) && wc.rms >= 0.0f) ++bandInsideEnvelope;
+        if (wc.up > 0.1f) CHECK(wc.rms <= wc.up);  // the RMS band sits inside the envelope
+    }
+    CHECK(silent >= 26 && silent <= 31);  // the gap from 0.3 s to 0.5 s (20 columns) and the tail after 0.9 s (10) are empty
+    CHECK(loud >= 3);
+    CHECK(bandInsideEnvelope == 100);
+    // The same gap is visible in decibels too, but the hiss floor of quiet passages is lifted.
+    const auto quietCol = timeline::waveColumn(p, 35 * 480, 36 * 480, ref, audio::WaveScale::Decibel);
+    CHECK(quietCol.up == 0.0f || quietCol.up < 0.2f);
 }
 
 static void testPeaksFile() {
@@ -1213,6 +1463,20 @@ static void testPeaksFile() {
     CHECK(audio::loadPeaks(path, &q) == core::Status::Ok);
     CHECK(q.sampleRate == 44100 && q.totalFrames == 5000 && q.levels.size() == p.levels.size());
     CHECK(q.levels[0].data == p.levels[0].data);
+    for (size_t i = 0; i < p.levels.size(); ++i) CHECK(q.levels[i].rms == p.levels[i].rms && q.levels[i].hasRms() == (p.levels[i].samplesPerPeak >= audio::kFirstRmsSamplesPerPeak));
+    // A cache from before the RMS block (version 1) is not read, so it is rebuilt.
+    {
+        FILE* v = std::fopen(path.c_str(), "r+b");
+        CHECK(v != nullptr);
+        if (v) {
+            std::fseek(v, 4, SEEK_SET);
+            const uint32_t one = 1;
+            std::fwrite(&one, sizeof(one), 1, v);
+            std::fclose(v);
+        }
+        CHECK(audio::loadPeaks(path, &q) == core::Status::UnsupportedFormat);
+        CHECK(audio::savePeaks(path, p) == core::Status::Ok);
+    }
     // Truncated/corrupt files are reported, not silently accepted.
     FILE* f = std::fopen(path.c_str(), "r+b");
     CHECK(f != nullptr);
@@ -1263,7 +1527,16 @@ int main() {
     testPeaks();
     testViewportFit();
     testViewportEnsureVisible();
+    testPeakRms();
+    testPeakSilenceAndClipping();
+    testPeakShortClips();
+    testPeakStereoDownmix();
+    testPeakLongSourceDropsFineLevel();
+    testPeakMipSelection();
     testWaveformDisplay();
+    testWaveColumnGeometry();
+    testWaveSampleMapping();
+    testWaveColumnsOnSpeech();
     testPeaksFile();
     if (g_failures == 0) std::puts("host tests: all passed");
     return g_failures == 0 ? 0 : 1;

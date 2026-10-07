@@ -33,6 +33,9 @@ interface TimelineEditing {
     fun onDragMove(hit: TimelineHit)
     fun onDragEnd(commit: Boolean)
 
+    /** A swipe along the time axis began on the content (see [ScrubGate]): the editor takes control of playback. */
+    fun onScrub() {}
+
     /** A lane header was long-pressed: the lane is picked up. [hit] is a `LANE_HEADER` hit-test. */
     fun onLaneDragStart(hit: TimelineHit) {}
 
@@ -177,6 +180,8 @@ class TimelineSurfaceView(
         }
     }
 
+    private val scrubGate = ScrubGate(slopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+
     // A pinch zooms the time axis, whichever way the fingers are spread; lanes keep the height of the layout preset.
     private val pinch = TimelinePinch(engine::zoomBy)
 
@@ -195,6 +200,7 @@ class TimelineSurfaceView(
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean {
                 downHit = engine.hitTest(e.x, e.y)
+                scrubGate.begin()
                 downX = e.x
                 downY = e.y
                 return true
@@ -233,12 +239,15 @@ class TimelineSurfaceView(
                 } else if (marquee) {
                     engine.setMarquee(downX, downY, e2.x, e2.y)
                 } else {
+                    // Swiping the content while the project plays takes control of it: playback stops before the scroll moves.
+                    if (scrubGate.onScroll(distanceX, distanceY)) editing()?.onScrub()
                     engine.scrollBy(distanceX, distanceY)
                 }
                 return true
             }
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (!scaleDetector.isInProgress && !dragging && scrubGate.onFling(velocityX, velocityY)) editing()?.onScrub()
                 // Finger velocity is opposite to the scroll offset direction.
                 if (!scaleDetector.isInProgress && !dragging) engine.fling(-velocityX)
                 return true

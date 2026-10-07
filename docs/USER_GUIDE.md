@@ -122,6 +122,9 @@ sideways and a tablet each keep theirs).
     *Two panels* (tray on the left, inspector on the right; needs a window at least 600 dp wide).
   - **Track height**: Small, Medium or Large lanes, or the **-** and **+** buttons. Waveforms, thumbnails and
     keyframe diamonds scale with the lane.
+  - **Waveform scale**: *Linear* (the default: the height follows the loudness of the clip, speech and pauses stand out) or *dB*
+    (quiet passages stay visible). Audio is drawn as an outline of the loudest peaks with a lighter band for the average level;
+    zoom in with a pinch to see individual sounds, and a gap between words is an empty stretch around the centre line.
   - **Media tray** and **Inspector**: choose where each one sits (bottom or over the timeline, or left or right on
     wide windows) and whether it is **collapsed**. A collapsed side panel becomes a narrow strip with one button
     that brings it back; the collapsed tray at the bottom becomes a thin bar with an arrow.
@@ -240,7 +243,7 @@ panel on the left.
 ### Gestures
 
 - **Tap** a clip to select it (yellow outline and a handle at each end, the edges you can drag to trim). Tap an empty lane to select that track.
-- **Drag the ruler or the red playhead** to scrub.
+- **Drag the ruler or the red playhead** to scrub. While the project is playing, **swiping the timeline sideways** (a drag or a fling along the time axis, not a clip drag) also stops playback at that moment, with the picture and sound stopped on the frame the playhead shows, and then scrolls as usual; press Play to continue. A mostly vertical swipe (scrolling the lanes) does not stop it, and a plain tap on the ruler jumps the playhead and keeps playing.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
 - **Pinch** on the timeline to zoom the time axis (only the time axis, whichever way the fingers spread). The lane height does not change by gesture: the Layout sheet's Small / Medium / Large chips set it.
 - **Drag** on an empty area to scroll, **fling** to coast.

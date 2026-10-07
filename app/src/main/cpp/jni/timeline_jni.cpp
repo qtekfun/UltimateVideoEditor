@@ -128,6 +128,10 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetPalette)(JNIEnv* env, jobject, jlong hand
     h->renderer->setPalette(argb, static_cast<size_t>(n));
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeSetWaveformScale)(JNIEnv*, jobject, jlong handle, jint scale) {
+    if (TimelineHandle* h = from(handle)) h->renderer->setWaveformScale(scale);
+}
+
 // May be called from the Kotlin text thread at any time; the bitmap is copied before this returns.
 JNIEXPORT jint JNICALL JNI_FN(nativeLabelPut)(JNIEnv* env, jobject, jlong handle, jlong hash, jobject buffer, jint width, jint height,
                                               jboolean colour) {
