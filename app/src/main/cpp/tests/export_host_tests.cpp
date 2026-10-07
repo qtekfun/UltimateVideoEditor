@@ -1,4 +1,5 @@
 // Host tests for encode/export_math.h (no Android dependencies).
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -7,6 +8,7 @@
 #include <vector>
 
 #include "encode/export_math.h"
+#include "encode/frame_signature.h"
 #include "encode/occlusion_math.h"
 #include "encode/picture_residency.h"
 #include "encode/still_math.h"
@@ -534,6 +536,85 @@ void stillGuardRefusesFlatPicturesWithLayers() {
     CHECK(!stillLooksEmpty(3, false));  // real picture
 }
 
+// ---- post-export verification: signatures (encode/frame_signature.h), mirrored by FrameSignature.kt ----
+
+std::vector<uint16_t> solidProbe(int r, int g, int b) {
+    std::vector<uint16_t> rgb(static_cast<size_t>(kProbeW) * kProbeH * 3);
+    for (size_t i = 0; i < rgb.size(); i += 3) {
+        rgb[i] = static_cast<uint16_t>(r);
+        rgb[i + 1] = static_cast<uint16_t>(g);
+        rgb[i + 2] = static_cast<uint16_t>(b);
+    }
+    return rgb;
+}
+
+void signatureOfSolidColoursMatchesTheMatrices() {
+    auto black = reduceProbe(solidProbe(0, 0, 0).data(), 255, SigMatrix::Bt709, 3, 100);
+    CHECK_EQ(black.frame, 3);
+    CHECK_EQ(black.ptsUs, 100);
+    CHECK_EQ(black.y.size(), kSigCells);
+    CHECK_EQ(black.y[0], 0);
+    CHECK_EQ(black.cb[0], 32768);  // chroma of a neutral colour is one half
+    CHECK(isFlatSignature(black, 2));
+    auto white = reduceProbe(solidProbe(255, 255, 255).data(), 255, SigMatrix::Bt709, 0, 0);
+    CHECK_EQ(white.y[17], kSigScale);
+    CHECK(std::abs(static_cast<int>(white.cb[17]) - 32768) <= 1);
+    // Pure red: Y = Kr, Cr = +0.5 (clamped to the top of the stored range), Cb = -Kr / (2 (1 - Kb)).
+    auto red709 = reduceProbe(solidProbe(255, 0, 0).data(), 255, SigMatrix::Bt709, 0, 0);
+    CHECK(std::abs(red709.y[5] - 0.2126 * kSigScale) < 2);
+    CHECK_EQ(red709.cr[5], kSigScale);
+    CHECK(std::abs(red709.cb[5] - (0.5 - 0.2126 / (2 * (1 - 0.0722))) * kSigScale) < 2);
+    auto red2020 = reduceProbe(solidProbe(1023, 0, 0).data(), 1023, SigMatrix::Bt2020, 0, 0);
+    CHECK(std::abs(red2020.y[5] - 0.2627 * kSigScale) < 2);  // ten-bit values keep their precision
+}
+
+void signatureCellsAverageTwoByTwoPixels() {
+    auto rgb = solidProbe(0, 0, 0);
+    // The top-left cell covers probe pixels (0..1, 0..1): make two of its four pixels white.
+    for (int c = 0; c < 3; ++c) {
+        rgb[(0 * kProbeW + 0) * 3 + static_cast<size_t>(c)] = 255;
+        rgb[(1 * kProbeW + 1) * 3 + static_cast<size_t>(c)] = 255;
+    }
+    auto sig = reduceProbe(rgb.data(), 255, SigMatrix::Bt709, 0, 0);
+    CHECK(std::abs(sig.y[0] - kSigScale / 2) <= 1);
+    CHECK_EQ(sig.y[1], 0);
+    CHECK_EQ(sig.y[kSigW], 0);  // the row below
+    CHECK(!isFlatSignature(sig, 2));
+}
+
+void signatureRowsRunTopToBottom() {
+    auto rgb = solidProbe(0, 0, 0);
+    for (int y = 0; y < kProbeH / 2; ++y) {  // the top half is white
+        for (int x = 0; x < kProbeW; ++x) {
+            for (int c = 0; c < 3; ++c) rgb[(static_cast<size_t>(y) * kProbeW + static_cast<size_t>(x)) * 3 + static_cast<size_t>(c)] = 255;
+        }
+    }
+    auto sig = reduceProbe(rgb.data(), 255, SigMatrix::Bt709, 0, 0);
+    CHECK_EQ(sig.y[0], kSigScale);
+    CHECK_EQ(sig.y[kSigCells - 1], 0);
+}
+
+void probeFramesAreTheFirstAndTheLast() {
+    auto frames = probeFrames(18000, Fps{30, 1});
+    CHECK_EQ(frames.size(), 2);
+    CHECK_EQ(frames.front(), 0);
+    CHECK_EQ(frames.back(), 17999);
+}
+
+void probeFramesOfShortMoviesAreWithinRange() {
+    auto one = probeFrames(1, Fps{30, 1});
+    CHECK_EQ(one.size(), 1);
+    CHECK_EQ(one[0], 0);
+    auto five = probeFrames(5, Fps{30, 1});
+    CHECK_EQ(five.size(), 2);
+    CHECK_EQ(five.front(), 0);
+    CHECK_EQ(five.back(), 4);
+    for (int64_t f : five) CHECK(f >= 0 && f < 5);
+    CHECK(probeFrames(0, Fps{30, 1}).empty());
+    auto ntsc = probeFrames(100000, Fps{60000, 1001});
+    CHECK_EQ(ntsc.back(), 99999);
+}
+
 void occlusionCoverageIsConservative() {
     using uv::render::LayerTransform;
     const int cw = 3840, ch = 2160;
@@ -586,6 +667,11 @@ void occlusionLookAndDuration() {
 }
 
 int main() {
+    signatureOfSolidColoursMatchesTheMatrices();
+    signatureCellsAverageTwoByTwoPixels();
+    signatureRowsRunTopToBottom();
+    probeFramesAreTheFirstAndTheLast();
+    probeFramesOfShortMoviesAreWithinRange();
     stillGuardRefusesFlatPicturesWithLayers();
     occlusionCoverageIsConservative();
     occlusionLookAndDuration();

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ultimatevideo.uveditor.ui.export.ExportBar
+import com.ultimatevideo.uveditor.ui.export.ResultSeverity
 
 /**
  * The export of the app, at the bottom of the project list so it is clear one is going and a second is not started.
@@ -39,7 +40,7 @@ internal fun ExportBarView(bar: ExportBar, onIntent: (HubIntent) -> Unit) {
         ) {
             when (bar) {
                 is ExportBar.Running -> {
-                    Text("Exporting ${bar.projectName}", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (bar.verifying) "Verifying ${bar.projectName}" else "Exporting ${bar.projectName}", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LinearProgressIndicator(progress = { bar.percent / 100f }, modifier = Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(bar.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -49,6 +50,15 @@ internal fun ExportBarView(bar: ExportBar, onIntent: (HubIntent) -> Unit) {
                 is ExportBar.Finished -> {
                     Text("Export finished: ${bar.fileName}", style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(bar.projectName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (bar.result.headline.isNotEmpty()) {
+                        Text(
+                            bar.result.headline,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (bar.result.severity == ResultSeverity.OK) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                         TextButton(onClick = { onIntent(HubIntent.ShareExport) }) { Text("Share") }
                         TextButton(onClick = { onIntent(HubIntent.DismissExportBar) }) { Text("Dismiss") }

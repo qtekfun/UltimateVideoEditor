@@ -386,6 +386,26 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   optional. `MainActivity` keeps the screen on (`FLAG_KEEP_SCREEN_ON`) while a job runs and the activity is started. Only one export
   at a time. If the system kills the process the export is gone (no native resume): the next start has no job, so nothing claims one is
   running; the partly written file is not tidied then (the output is a SAF document the user chose; see DECISIONS.md).
+- **Post-export verification** (`engine/verify/`, `ui/export/ExportVerifier.kt`; DECISIONS.md "Post-export verification"). The goal is
+  "the file is complete", not "every picture is identical". After the engine has finalised the MP4 and closed the file, `ExportExecutor`
+  keeps the job `Running(verifying = true)` (dialog "Verifying...", notification, project list bar, Cancel = skip) and calls the
+  `ExportVerifier`; the result is `ExportJobState.Done.verification` (`VerificationOutcome`: `Verified`, `Warning(findings)`,
+  `CouldNotVerify(reason)`, `Skipped`). It is never fine by default and a failed verification never deletes the file.
+  1. *Two signatures while exporting* (`encode/frame_probe.cpp`, `encode/frame_signature.h`): for the first and the last frame the picture the
+     compositor drew into the encoder surface is blitted (before the swap) through half-size 8-bit or `RGB10_A2` (HLG) textures down to
+     64x36 and read back (a 9 KB `glReadPixels`, about 10 ms at 4K, twice per export), reduced to a 32x18 grid of mean Y', Cb and Cr in
+     the stream's nominal domain (BT.709 SDR, BT.2020 HLG) and handed to Kotlin through `ExportListener.onSignatures`.
+  2. *Checks of the output file* (`VerifyRunner`, pure Kotlin over `ByteSource` and `FrameSource`): (a) `Mp4Reader` reads the sample tables;
+     `ContainerCheck` compares them with the plan: `moov` present, exact video sample count, first and last presentation time within one
+     frame, no duplicate timestamp or gap above 1.5 frames, duration within one frame, audio present and not shorter than the picture by
+     more than one AAC frame nor longer by more than four, every sample inside the file and none empty; `SampleCheck` walks the
+     length-prefixed NAL units of the first second and the last 3 s of video samples (they must add up to the sample size exactly) and
+     rejects all-zero audio samples; (b) `MediaCodecFrameSource` decodes the first second and the last 3 seconds with the platform
+     MediaCodec decoder into ByteBuffers (`YCBCR_P010` for HLG) and signs each frame on a lattice (coarse, for flatness; fine for the
+     first and last); (c) `FrameAssessor`: every frame arrived once and in order, no error, no run of flat frames reaching the end
+     unless the encoder's last picture was flat, and the first and last pictures within deliberately loose `VerifyThresholds` of the
+     recorded signatures. A finding carries how many frames at the end it affects ("the last N frames look damaged / missing").
+  The QA harness writes `verification=<state> ...` into `<out>.result.txt` (`VerificationText.resultLine`).
 - **Defaults follow the clips and the size is estimated** (`ui/export/ExportDefaults.kt`, pure). `usedSources(timeline, assets)` looks
   only at clips on video tracks whose asset is a video file (no photos, stickers, titles, audio tracks, unused library items) and
   yields the highest bit rate (with the pixel count of that source), whether any is HEVC or 10-bit/HDR/non-Rec.709, and whether any

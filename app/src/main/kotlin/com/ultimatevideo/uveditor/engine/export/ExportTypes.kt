@@ -1,6 +1,7 @@
 package com.ultimatevideo.uveditor.engine.export
 
 import com.ultimatevideo.uveditor.engine.still.PictureBudget
+import com.ultimatevideo.uveditor.engine.verify.FrameSignature
 import java.nio.ByteBuffer
 import com.ultimatevideo.uveditor.domain.ClipFx
 
@@ -208,6 +209,12 @@ interface ExportListener {
 
     /** Before [onFinished] with no error, when the movie was made but not exactly (frames repeated); [note] says so. */
     fun onNote(note: String) {}
+
+    /**
+     * Before [onFinished] with no error: the signatures of the frames the exporter probed (see `encode/frame_signature.h`),
+     * for the post-export verification. Not called when the engine could not take any.
+     */
+    fun onSignatures(signatures: List<FrameSignature>) {}
 }
 
 /** A running export. [close] blocks until the native thread has stopped: call it off the main thread. */
