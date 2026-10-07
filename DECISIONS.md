@@ -1490,3 +1490,22 @@ transcoding the audio at import (copies and rewrites the user's media).
 **Context:** PR #118 shipped `debug.uveditor.decode_gap` to A/B the fix. A diagnostic run left it at 0 on the reference phone; system properties under `debug.*` survive until reboot, so every later export of the installed app ran with the fix off, and the 41-minute full exports did not measure the fix at all.
 **Chosen:** the switch is removed; gap marking is always on. A/B comparisons use two builds, not a property that can outlive the run.
 **Rule:** a debug property must never switch off a correctness or speed fix in a build that other people (or later sessions) use; diagnostics that stay (`export_perf`, `timeline_stats`, `atlas_bytes`) only add logging or shrink caches in debug builds. Scripts that set a debug property must reset it in a trap on exit.
+
+## 2026-10-07 · Save frame as image: one tap, no dialog, into Pictures/ultimateVE
+**Context:** the first version (a dialog with source, size presets, fit/fill, PNG/JPEG and a document picker) was too much for the common
+case and, on the user's 4K HLG project, produced an image that was completely black. LumaFusion saves a frame with one tap.
+**Chosen:** the button saves immediately: whole picture, project size (capped at 4096 px), JPEG quality 95, sRGB, named from the project, the
+frame's timecode and the save time, into `Pictures/ultimateVE` through `MediaStore` (pending row while writing; no permission on API 29+, the
+folder is created implicitly). A snackbar offers Share and Open. The size presets, fit/fill, selected-clip source, PNG, the JPEG size search
+and the picker were removed from the user path and from the code (no dead UI); the engine keeps its generic crop rectangle, which the tests cover.
+A guard makes an empty picture impossible to save: a frame with visible layers that reads back as one flat colour is redrawn once after
+500 ms and otherwise reported as an error, in the engine and again in Kotlin; each save logs its plan and result.
+**Alternatives:** keep the dialog behind a long press (rejected: options nobody asked for, more code to keep correct); the document picker
+(rejected: a question on every save, and the user wants a fixed gallery folder); `Environment.getExternalStoragePublicDirectory` + file
+(rejected: needs storage permission or breaks under scoped storage, and the gallery would not see the file until scanned).
+**The black image:** it could not be reproduced on the current master on a Pixel 8 with a seeded project that mirrors the user's (4K60 HLG
+IMG_0014.mov at source frame 296, a second 4K SDR clip on a layer above, a photo with a transform, a transparent PNG, a title, rotation 180
+metadata): every frame saved correctly. The user's installed app is the 0.3.0 debuggable build, which predates #126 to #129, and the phone
+had a stale `debug.uveditor.decode_gap=0` property left by an A/B run, which #129 removed; the cause is therefore most likely that build and
+property rather than the editor wiring, but this is not proven. If it still happens with this build, the guard reports it and the `UVFrame`
+log shows the plan, the layers and the first pixel.

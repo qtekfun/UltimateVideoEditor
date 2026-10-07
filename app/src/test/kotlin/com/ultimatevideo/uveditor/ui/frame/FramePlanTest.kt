@@ -5,9 +5,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.clip
 import com.ultimatevideo.uveditor.domain.timeline
 import com.ultimatevideo.uveditor.domain.track
-import com.ultimatevideo.uveditor.domain.stillframe.timelineOfClip
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -69,17 +67,5 @@ class FramePlanTest {
     @Test
     fun `an empty timeline has no plan`() {
         assertNull(plan(timeline(), 0))
-    }
-
-    @Test
-    fun `the clip alone is planned without the layers around it`() {
-        val tl = timeline(track("v2", clip("o", 0, 30, asset = "b")), track("v1", clip("c1", 0, 60, asset = "a")))
-        val alone = timelineOfClip(tl, "c1")!!
-
-        val p = plan(alone, 10)!!
-
-        assertEquals(1, p.clips.size)
-        assertEquals(setOf("a"), p.assetKeys.keys)
-        assertNotNull(p.clips.single())
     }
 }

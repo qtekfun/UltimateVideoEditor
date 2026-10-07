@@ -13,10 +13,6 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.Track
 import com.ultimatevideo.uveditor.domain.TrackType
-import com.ultimatevideo.uveditor.domain.stillframe.FrameFit
-import com.ultimatevideo.uveditor.domain.stillframe.FrameFormat
-import com.ultimatevideo.uveditor.domain.stillframe.FrameSize
-import com.ultimatevideo.uveditor.domain.stillframe.planFrameRender
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
 import com.ultimatevideo.uveditor.engine.export.ExportException
 import com.ultimatevideo.uveditor.engine.export.ExportListener
@@ -28,6 +24,7 @@ import com.ultimatevideo.uveditor.engine.title.AndroidTitleRasterizer
 import com.ultimatevideo.uveditor.ui.export.ContentResolverExportIO
 import com.ultimatevideo.uveditor.ui.export.buildExportPlan
 import com.ultimatevideo.uveditor.ui.frame.BitmapFrameEncoder
+import com.ultimatevideo.uveditor.domain.stillframe.frameTarget
 import com.ultimatevideo.uveditor.ui.frame.FrameRenderJob
 import com.ultimatevideo.uveditor.ui.frame.NativeFrameRenderer
 import kotlinx.coroutines.runBlocking
@@ -41,8 +38,7 @@ import java.util.concurrent.CountDownLatch
  * frames can be compared:
  *
  *   adb shell am start -n <pkg>/com.ultimatevideo.uveditor.debug.FrameDemoActivity --es video <in.mp4> --es mode frames \
- *     --es frames 0,37,59,60,90,119,120,130,149,150 [--es size 1280x720] [--es fit letterbox|fill] [--es format png|jpg] \
- *     [--ei quality 92] [--ei limit <bytes>] [--es colour hlg]
+ *     --es frames 0,37,59,60,90,119,120,130,149,150 [--es format png|jpg] [--ei quality 95] [--es colour hlg]
  *   ... --es mode export        writes <dir>/frame_export.mp4 (all 150 frames)
  *
  * Output goes to the app's external files directory; the log (tag UVFrameDemo) and `<dir>/frame_result.txt` list, for every
@@ -82,18 +78,16 @@ class FrameDemoActivity : Activity() {
                 clip("c3", 120, 150, 210, retimed = 30), // 2x: 150, 152, ...
             ),
         )
-        return Triple(Timeline(listOf(track)), listOf(asset), FrameRate(30, 1))
+        return Triple(Timeline(listOf(track)), listOf(asset), FrameRate(intent.getIntExtra("fps", 30), 1))
     }
 
     private fun saveFrames(video: String, dir: File, report: StringBuilder) {
         val (timeline, assets, fps) = project(video)
         val frames = (intent.getStringExtra("frames") ?: "0").split(",").map { it.trim().toLong() }
-        val size = (intent.getStringExtra("size") ?: "1280x720").split("x").let { FrameSize(it[0].toInt(), it[1].toInt()) }
-        val fit = if (intent.getStringExtra("fit") == "fill") FrameFit.FILL else FrameFit.LETTERBOX
-        val format = if (intent.getStringExtra("format") == "jpg") FrameFormat.JPEG else FrameFormat.PNG
-        val quality = intent.getIntExtra("quality", 92)
-        val plan = planFrameRender(size, 1280, 720, fit)
-        report.append("plan $plan\n")
+        val format = if (intent.getStringExtra("format") == "png") "png" else "jpg"
+        val quality = intent.getIntExtra("quality", 95)
+        val size = frameTarget(canvasW, canvasH).size
+        report.append("size $size\n")
         val app = applicationContext
         val renderer = NativeFrameRenderer(
             ContentResolverExportIO(app),
@@ -104,15 +98,23 @@ class FrameDemoActivity : Activity() {
         val encoder = BitmapFrameEncoder()
         for (frame in frames) {
             val started = System.nanoTime()
-            val rendered = runBlocking { renderer.render(FrameRenderJob(timeline, assets, fps, 1280, 720, frame, plan, emptySet())) }
+            val rendered = runBlocking { renderer.render(FrameRenderJob(timeline, assets, fps, canvasW, canvasH, frame, size.width, size.height, emptySet())) }
             val drawn = (System.nanoTime() - started) / 1_000_000
-            val limit = if (intent.hasExtra("limit")) intent.getIntExtra("limit", 0).toLong() else null
-            val encoded = encoder.encode(rendered, format, quality, limit)
-            val file = File(dir, "frame_$frame.${format.extension}")
-            file.writeBytes(encoded.bytes)
+            val bytes = if (format == "png") pngBytes(rendered) else encoder.encodeJpeg(rendered, quality)
+            val file = File(dir, "frame_$frame.$format")
+            file.writeBytes(bytes)
             val number = if (rendered.width == 1280 && rendered.height == 720) frameNumberOf(file) else -1
-            report.append("frame $frame -> ${file.name} ${rendered.width}x${rendered.height} ${encoded.bytes.size} bytes q=${encoded.quality} fits=${encoded.fitsLimit} number=$number drew=${drawn}ms\n")
+            report.append("frame $frame -> ${file.name} ${rendered.width}x${rendered.height} ${bytes.size} bytes number=$number drew=${drawn}ms\n")
         }
+    }
+
+    private fun pngBytes(frame: com.ultimatevideo.uveditor.ui.frame.RenderedFrame): ByteArray {
+        val bitmap = android.graphics.Bitmap.createBitmap(frame.width, frame.height, android.graphics.Bitmap.Config.ARGB_8888)
+        frame.rgba.rewind()
+        bitmap.copyPixelsFromBuffer(frame.rgba)
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        return out.toByteArray()
     }
 
     private fun frameNumberOf(file: File): Int {
@@ -128,7 +130,7 @@ class FrameDemoActivity : Activity() {
 
     private fun exportMovie(video: String, dir: File, report: StringBuilder) {
         val (timeline, assets, fps) = project(video)
-        val plan = checkNotNull(buildExportPlan(timeline, assets, fps, 1280, 720))
+        val plan = checkNotNull(buildExportPlan(timeline, assets, fps, canvasW, canvasH))
         val out = File(dir, "frame_export.mp4").also { it.delete() }
         val input = ParcelFileDescriptor.open(File(video), ParcelFileDescriptor.MODE_READ_ONLY).detachFd()
         val output = ParcelFileDescriptor.open(
@@ -136,11 +138,11 @@ class FrameDemoActivity : Activity() {
             ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
         ).detachFd()
         val request = ExportRequest(
-            settings = ExportSettings(1280, 720, 30, 1, ExportCodec.H264, 20_000_000),
-            projectFpsNum = 30,
+            settings = ExportSettings(canvasW, canvasH, fps.num, 1, ExportCodec.H264, 20_000_000),
+            projectFpsNum = fps.num,
             projectFpsDen = 1,
-            canvasWidth = 1280,
-            canvasHeight = 720,
+            canvasWidth = canvasW,
+            canvasHeight = canvasH,
             totalFrames = plan.projectFrames,
             assetFds = mapOf(plan.assetKeys.getValue("a") to input),
             videoClips = plan.videoClips,
@@ -164,6 +166,9 @@ class FrameDemoActivity : Activity() {
         handle.close()
         report.append("export $outcome ${out.length()} bytes\n")
     }
+
+    private val canvasW get() = intent.getIntExtra("cw", 1280)
+    private val canvasH get() = intent.getIntExtra("ch", 720)
 
     private fun finishWith(message: String) {
         Log.e(TAG, message)
