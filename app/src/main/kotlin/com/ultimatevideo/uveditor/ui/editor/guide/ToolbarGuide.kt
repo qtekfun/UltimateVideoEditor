@@ -53,7 +53,7 @@ internal object ToolbarGuide {
         GuideEntry("pause", GuideSection.TRANSPORT, EditorIcons.Pause, "Pause", "Stops playback. This button replaces Play while the project is playing.", ""),
         GuideEntry("next", GuideSection.TRANSPORT, EditorIcons.SkipNext, "Next clip boundary", "Jumps the playhead to the next clip start or end. In the inspector's keyframe rows the same arrow jumps to the next keyframe.", ""),
         GuideEntry("save-frame", GuideSection.TRANSPORT, EditorIcons.FrameImage, "Save frame as image", "Saves the picture under the playhead as a PNG or JPEG, for a thumbnail or a cover.", ""),
-        GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, "Fit everything", "Zooms the timeline so the whole project and all tracks are visible. This is not fullscreen: double tap the preview for that.", ""),
+        GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, "Fit the whole project", "Zooms the time axis so the whole project is visible. Track heights do not change (the layout sheet sets them). This is not fullscreen: double tap the preview for that.", ""),
 
         GuideEntry("import", GuideSection.EDIT, EditorIcons.Add, "Import media", "Adds videos, photos or audio from your device at the playhead. Your files are not copied.", "No import is running. (In the layout sheet the same plus makes tracks taller.)"),
         GuideEntry("split", GuideSection.EDIT, EditorIcons.Split, "Split at playhead", "Cuts the selected clip in two at the playhead (every selected clip the playhead is over, if several). Playback pauses, the playhead stays exactly on the cut and the right-hand part is selected, so you can cut again.", "A clip is selected."),
@@ -107,8 +107,7 @@ internal object ToolbarGuide {
         GuideGesture("drag-clip", "Drag a selected clip", "Moves it. Edges snap to neighbours, the playhead and markers. Dropping on the base track near a cut inserts it."),
         GuideGesture("trim", "Drag a clip's edge", "Trims it. The handles at the ends of the selected clip are the edges to drag."),
         GuideGesture("scrub", "Drag the ruler or the red playhead", "Scrubs through the project."),
-        GuideGesture("pinch-time", "Pinch the timeline", "Zooms the time axis."),
-        GuideGesture("pinch-lanes", "Spread two fingers vertically", "Makes the lanes taller or shorter. Whichever way your fingers spread most at the start decides."),
+        GuideGesture("pinch-time", "Pinch the timeline", "Zooms the time axis, whichever way your fingers spread. Track height does not change by gesture; the layout sheet sets it."),
         GuideGesture("scroll", "Drag on empty timeline space", "Scrolls the timeline; a fling keeps it coasting."),
         GuideGesture("long-press-clip", "Long press a clip", "Adds it to the selection (or removes it) without select mode."),
         GuideGesture("lane-reorder", "Long press and drag a lane header", "Reorders the lane among lanes of its kind. The base track never moves."),
