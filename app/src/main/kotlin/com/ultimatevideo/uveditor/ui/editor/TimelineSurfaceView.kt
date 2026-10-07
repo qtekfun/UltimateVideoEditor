@@ -30,7 +30,10 @@ interface TimelineEditing {
     fun onDragStart(hit: TimelineHit)
 
     /** [hit] is the hit-test at the current finger position; only its frame and track are meaningful. */
-    fun onDragMove(hit: TimelineHit, reachFrames: Long)
+    fun onDragMove(hit: TimelineHit)
+
+    /** Same, with how many frames a fingertip covers at the current zoom (the size of the insert zone around a cut). */
+    fun onDragMove(hit: TimelineHit, reachFrames: Long) = onDragMove(hit)
 
     /** A second finger tapped while a clip is dragged: switch the drop between insert and overwrite. */
     fun onDropModeTap() {}

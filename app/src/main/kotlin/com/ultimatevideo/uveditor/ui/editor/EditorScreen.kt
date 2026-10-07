@@ -116,6 +116,7 @@ import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsIntent
 import com.ultimatevideo.uveditor.ui.editor.captions.CaptionsViewModel
 import com.ultimatevideo.uveditor.ui.editor.captions.ContentResolverSubtitleSource
 import com.ultimatevideo.uveditor.domain.DropKind
+import com.ultimatevideo.uveditor.domain.DropPlan
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.engine.timeline.DropIndicator
 import com.ultimatevideo.uveditor.engine.timeline.EngineStatus
@@ -521,6 +522,7 @@ fun EditorScreen(
         object : TimelineEditing {
             override fun canDrag(hit: TimelineHit) = viewModel.canDrag(hit)
             override fun onDragStart(hit: TimelineHit) = viewModel.onIntent(EditorIntent.DragStart(hit))
+            override fun onDragMove(hit: TimelineHit) = onDragMove(hit, DropPlan.INSERT_RADIUS_FRAMES)
             override fun onDragMove(hit: TimelineHit, reachFrames: Long) =
                 viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit), reachFrames))
             override fun onDropModeTap() = viewModel.onIntent(EditorIntent.FlipDropChoice)
