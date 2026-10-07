@@ -1884,22 +1884,37 @@ checklist in the PR.
   (SDR/HLG), usage badge (count in the timeline), a "missing" overlay for unreadable media, search and
   filters (video, photo, audio, unused). An **Import** tile at the start opens the system picker and adds the
   files to the tray without touching the timeline.
-- Long-press an asset to enter drag; tap adds it at the playhead as today (to the selected lane or the base).
+- Press and hold an asset (300 ms, with a haptic tick) to pick it up and drag it; tap adds it at the playhead as today (to the selected
+  lane or the base), and so does the **+** on every tile and the tile's TalkBack action "Add to timeline".
 - Multi-select (checkbox mode) and dragging several assets at once becomes available with WP-S.
 
 **Drag and drop to the timeline.**
-- Use the platform drag-and-drop (`startDragAndDrop` with a `ClipData` carrying the asset id, plus a
-  shadow of the thumbnail) so the native timeline `SurfaceView` receives `DragEvent`s with coordinates.
+- **Own pointer tracking, not the platform drag and drop** (DECISIONS.md "Tray drag"). The tile's gesture (`detectTrayDrag`, state in the pure
+  `TrayDragMachine`: IDLE -> ARMED -> CARRYING) arms on a press, picks the tile up after 300 ms without moving past the touch slop, and from
+  then on keeps consuming that pointer's events, which Compose keeps delivering outside the tile. Moving first hands the touch to the
+  scrolling grid; lifting first is a tap; a second finger, Back or the tile leaving composition cancels. The ghost (`TrayDragGhost`: thumbnail,
+  name, duration, 1.08x, shadow, lifted 56 dp above the finger) is a touchless layer above the whole editor; a cancel flies it back to its tile.
+  The root coordinates of the finger become timeline view pixels (`toTimelinePoint`, the view's bounds in root coordinates) and go through the
+  same native `hitTest` as every other gesture, so the lane zoom and both scroll offsets are honoured. `TimelineTrayDrop` feeds the
+  `TrayDragStart/Move/Leave/End` intents. Releasing over the timeline commits through `TrayDragEnd(commit = true)` (one undo step); releasing
+  over another tile of the tray reorders the library; anywhere else cancels.
 - While hovering, the same decision as clip drags runs for a clip that is not on the timeline yet
   (`DropPlan.decideNew(asset, requestedStart, target)`): on the base near a junction -> **Insert**, over a
   clip -> **Overwrite**; on overlays -> overwrite or free placement; above the top lane -> new lane; outside
   -> cancel. The native indicator draws the hint; the tray shows the dragged asset's ghost near the finger.
-- Auto-scroll of the timeline near its edges while dragging, snapping to the playhead and markers, one undo
-  step on drop. Audio-only assets can only land on audio lanes; photos default to 5 s.
+- Auto-scroll of the timeline near its edges while dragging (`TrayAutoScroll`: sideways within 56 dp of the left and right sides at up to
+  14 dp per frame, through the lanes within 36 dp of the top and bottom at up to 10 dp per frame; each axis waits 250 ms in its zone, so
+  crossing the left edge from a tray docked beside the timeline does not scroll), the snap line (`DragOverlay` without clips, from
+  `trayGuide`: shown when the start or the end was pulled onto the playhead, a marker or a clip edge; none for an insert), snapping to the
+  playhead and markers, one undo step on drop. On a phone the bottom tray fades to 45 % while a tile is carried (its tiles stay composed: the
+  gesture lives in them). Audio-only assets can only land on audio lanes; photos default to 5 s.
 - **Drop from other apps** (tablets, split screen, desktop windowing): accept `video/*`, `image/*`, `audio/*`
   content URIs dragged from the Files app onto the tray or the timeline (take persistable permission when
   offered, probe like a normal import).
 - **Reorder in the tray**: drag assets within the tray to sort (stored as an optional order list).
+- **Discoverability**: a one-line hint above the tiles ("Hold a clip and drag it onto the timeline", dismissed by "Got it" or by the first
+  drag, kept in the `uveditor_tray` preferences), the **+** on each tile, and the tile description read by TalkBack. Tray multi-select does
+  not exist, so one tile is carried at a time.
 
 **Tests.** `DropPlan.decideNew` over all zones, ViewModel tests for tray drop intents, undo, audio-only and
 photo rules, import without placement; host tests for drag-hit geometry.
@@ -1912,10 +1927,11 @@ render/, audio/. Run after WP-U1 and before WP-U3.
 
 **Implementation notes (as built).** `ui/editor/tray/` holds `TrayModel.kt` (tabs, filters, search, usage counts,
 library reordering: pure, tested), `MediaTray.kt` (Compose panel, tiles, header with snap heights),
-`AssetThumbnails.kt` and `DragPayload.kt`. The native canvas view implements `TimelineDropTarget` through the
-platform `DragEvent` listener and forwards positions as `TrayDragMove` / `ExternalDrop` intents;
-`DropPlan.decideNew` plans the drop and `LaneOps.addClipOnNewLane` / `overwriteNewClip` apply it. Tray
-payloads use the clip label `uveditor-asset` with the asset id as text. See the decisions in `DECISIONS.md`
+`AssetThumbnails.kt`, `DragPayload.kt` (MIME helpers for files from other apps), `TrayDragMachine.kt` (pure: the drag state machine,
+root-to-timeline coordinates, auto-scroll) and `TrayDrag.kt` (the controller, the tile gesture and the ghost). `ui/editor/TimelineTrayDrop.kt`
+is the timeline's side. Files dragged in from other apps still use the platform `DragEvent` listener of the canvas (`TimelineDropTarget`)
+and arrive as `ExternalDragStart` / `TrayDragMove` / `ExternalDrop` intents; the tray's own tiles no longer use it.
+`DropPlan.decideNew` plans the drop and `LaneOps.addClipOnNewLane` / `overwriteNewClip` apply it. See the decisions in `DECISIONS.md`
 for what was left out (drag of stickers/templates, a native "place" indicator).
 
 ### 9.14 WP-U3 Resizable and customisable layout

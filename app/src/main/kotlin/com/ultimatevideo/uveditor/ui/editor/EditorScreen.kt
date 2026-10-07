@@ -52,7 +52,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.ultimatevideo.uveditor.ui.editor.tray.MediaTray
+import com.ultimatevideo.uveditor.ui.editor.tray.RootBounds
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragController
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragGhost
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayState
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayTab
 import com.ultimatevideo.uveditor.ui.editor.tray.trayItems
@@ -544,13 +549,18 @@ fun EditorScreen(
             override fun onExternalEnter(kinds: List<AssetKind>) = viewModel.onIntent(EditorIntent.ExternalDragStart(kinds))
             override fun onHover(hit: TimelineHit) = viewModel.onIntent(EditorIntent.TrayDragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
             override fun onLeave() = viewModel.onIntent(EditorIntent.TrayDragLeave)
-            override fun onTrayDrop(hit: TimelineHit) {
-                viewModel.onIntent(EditorIntent.TrayDragMove(hit.frame, hit.trackIndex, dragZoneOf(hit)))
-                viewModel.onIntent(EditorIntent.TrayDragEnd(commit = true))
-            }
             override fun onExternalDrop(uris: List<String>, hit: TimelineHit) =
                 viewModel.onIntent(EditorIntent.ExternalDrop(uris, hit.frame, hit.trackIndex, dragZoneOf(hit)))
             override fun onEnd() = viewModel.onIntent(EditorIntent.TrayDragEnd(commit = false))
+        }
+    }
+    // Dragging a tile onto the timeline: the tray tracks the finger, the sink turns it into timeline drops (see DECISIONS.md "Tray drag").
+    val trayDropBounds = remember(viewModel, engine) { TimelineTrayDrop(engine, viewModel::onIntent, density) }
+    val trayDrag = remember(trayDropBounds) {
+        TrayDragController().also { controller ->
+            controller.sink = trayDropBounds
+            controller.onReorder = { id, index -> viewModel.onIntent(EditorIntent.ReorderAsset(id, index)) }
+            controller.indexOf = { id -> holder.value.assets.indexOfFirst { it.id == id } }
         }
     }
     val trayPanel: @Composable (Boolean, Modifier) -> Unit = { bottom, panelModifier ->
@@ -563,8 +573,7 @@ fun EditorScreen(
             bottomPanel = bottom,
             onImport = launchTrayImport,
             onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
-            onAssetDragStart = { viewModel.onIntent(EditorIntent.TrayDragStart(it)) },
-            onReorder = { id, index -> viewModel.onIntent(EditorIntent.ReorderAsset(id, index)) },
+            drag = trayDrag,
             onExternalFiles = { viewModel.onIntent(EditorIntent.ImportToTray(it)) },
             onPickSticker = { viewModel.onIntent(EditorIntent.AddSticker(it)) },
             onApplyTemplate = { id, text -> viewModel.onIntent(EditorIntent.ApplyTextTemplate(id, text)) },
@@ -696,6 +705,8 @@ fun EditorScreen(
     var fullscreen by rememberSaveable(stateSaver = FullscreenSaver) { mutableStateOf(FullscreenState()) }
     val onFullscreen: (FullscreenAction) -> Unit = { fullscreen = fullscreen.reduce(it) }
     BackHandler(enabled = fullscreen.consumesBack) { onFullscreen(FullscreenAction.Exit) }
+    // Registered last, so it wins: Back puts a tile in hand down again.
+    BackHandler(enabled = trayDrag.carry?.returning == false) { trayDrag.cancel() }
     ImmersiveWhile(fullscreen.active)
     LaunchedEffect(fullscreen.overlayEpoch, fullscreen.overlayVisible) {
         if (fullscreen.overlayVisible) {
@@ -717,6 +728,7 @@ fun EditorScreen(
         LocalProxyUi provides proxyHolder,
         LocalProxyIntent provides proxyVm::onIntent,
     ) {
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = {
             FrameSnackbarHost(
@@ -858,10 +870,14 @@ fun EditorScreen(
                         },
                         modifier = Modifier.fillMaxSize(),
                         takePeaks = audio::takePeaks,
+                        trayDropBounds = trayDropBounds,
                     )
                 }
             }
         }
+    }
+    // Above everything, touchless: the tile being dragged from the tray.
+    TrayDragGhost(trayDrag, Modifier.fillMaxSize())
     }
     }
 }
@@ -891,6 +907,8 @@ private fun EditorMain(
     modifier: Modifier = Modifier,
     /** Output peaks since the previous call, for the level meter next to the timecode. */
     takePeaks: () -> PeakLevels = { PeakLevels.SILENT },
+    /** Told where the timeline view is, so a tile dragged from the tray can be hit-tested against it. */
+    trayDropBounds: TimelineTrayDrop? = null,
     /** Another project is exporting: the Export button explains that instead of opening the dialog. */
     exportBlockedBy: String? = null,
 ) {
@@ -1176,7 +1194,9 @@ private fun EditorMain(
                         editing = editing,
                         dropTarget = dropTarget,
                         selecting = selecting,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+                            trayDropBounds?.bounds = coordinates.boundsInRoot().let { RootBounds(it.left, it.top, it.right, it.bottom) }
+                        },
                     )
                     // Under the ruler, so the marker being edited stays in view above the popup.
                     state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 40.dp)) }
@@ -1234,7 +1254,7 @@ private fun <K> StateEffect(holder: State<EditorState>, key: (EditorState) -> K,
 }
 
 /** Where the finger is during a drag: over the lanes, in the room above them, or off the panel (cancel). */
-private fun dragZoneOf(hit: TimelineHit): DragZone = when (hit.kind) {
+internal fun dragZoneOf(hit: TimelineHit): DragZone = when (hit.kind) {
     HitKind.ABOVE_LANES, HitKind.RULER, HitKind.MARKER -> DragZone.ABOVE_LANES
     HitKind.OUTSIDE -> DragZone.OUTSIDE
     else -> DragZone.LANES

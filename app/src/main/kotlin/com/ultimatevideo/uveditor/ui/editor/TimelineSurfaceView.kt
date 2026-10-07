@@ -16,7 +16,6 @@ import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
 import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.ui.editor.tray.findActivity
-import com.ultimatevideo.uveditor.ui.editor.tray.isTrayAsset
 import com.ultimatevideo.uveditor.ui.editor.tray.kindsOfMimes
 import com.ultimatevideo.uveditor.ui.editor.tray.mimes
 import com.ultimatevideo.uveditor.ui.editor.tray.persistReadAccess
@@ -45,9 +44,9 @@ interface TimelineEditing {
 }
 
 /**
- * Receives media dragged over the canvas with the platform drag-and-drop: assets from the media tray, or
- * files from another app. The canvas turns the finger position into a hit-test; what a release would do is
- * decided by the editor (see `DropPlan.decideNew`).
+ * Receives files dragged over the canvas from another app with the platform drag-and-drop. The canvas turns the finger
+ * position into a hit-test; what a release would do is decided by the editor (see `DropPlan.decideNew`). Tiles of the
+ * media tray are not dragged this way: see `TimelineTrayDrop`.
  */
 interface TimelineDropTarget {
     /** Files from another app entered the canvas; [kinds] come from their MIME types (they are not probed yet). */
@@ -58,9 +57,6 @@ interface TimelineDropTarget {
 
     /** The dragged media left the canvas; it may come back. */
     fun onLeave()
-
-    /** An asset from the tray was released over [hit]. */
-    fun onTrayDrop(hit: TimelineHit)
 
     /** Files from another app were released over [hit]. */
     fun onExternalDrop(uris: List<String>, hit: TimelineHit)
@@ -84,7 +80,6 @@ class TimelineSurfaceView(
 ) : SurfaceView(context), SurfaceHolder.Callback {
 
     private var hovering = false
-    private var hoverIsTray = false
 
     // Media dragged in from outside keeps the timeline scrolling near its side edges, like a clip drag.
     private val hoverScroll = object : Runnable {
@@ -109,10 +104,9 @@ class TimelineSurfaceView(
         val description = event.clipDescription
         return when (event.action) {
             DragEvent.ACTION_DRAG_STARTED ->
-                description != null && (description.isTrayAsset() || kindsOfMimes(description.mimes()).isNotEmpty())
+                description != null && kindsOfMimes(description.mimes()).isNotEmpty()
             DragEvent.ACTION_DRAG_ENTERED -> {
-                hoverIsTray = description?.isTrayAsset() == true
-                if (!hoverIsTray && description != null) target.onExternalEnter(kindsOfMimes(description.mimes()))
+                if (description != null) target.onExternalEnter(kindsOfMimes(description.mimes()))
                 hovering = true
                 postOnAnimation(hoverScroll)
                 true
@@ -131,19 +125,14 @@ class TimelineSurfaceView(
             DragEvent.ACTION_DROP -> {
                 stopHover()
                 val hit = engine.hitTest(event.x, event.y)
-                if (hoverIsTray) {
-                    target.onTrayDrop(hit)
+                val uris = event.clipData?.uris().orEmpty()
+                if (uris.isEmpty()) {
+                    target.onEnd()
                 } else {
-                    val data = event.clipData
-                    val uris = data?.uris().orEmpty()
-                    if (uris.isEmpty()) {
-                        target.onEnd()
-                    } else {
-                        // Access to the files lasts as long as the activity; keep it for later sessions when offered.
-                        context.findActivity()?.requestDragAndDropPermissions(event)
-                        uris.forEach { persistReadAccess(context, it) }
-                        target.onExternalDrop(uris, hit)
-                    }
+                    // Access to the files lasts as long as the activity; keep it for later sessions when offered.
+                    context.findActivity()?.requestDragAndDropPermissions(event)
+                    uris.forEach { persistReadAccess(context, it) }
+                    target.onExternalDrop(uris, hit)
                 }
                 true
             }

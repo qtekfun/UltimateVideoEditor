@@ -128,6 +128,3 @@ fun colourBadge(asset: MediaAssetDto): String? = when {
     asset.colorSpace.contains("PQ", ignoreCase = true) || asset.colorSpace.contains("2084") -> "PQ"
     else -> null
 }
-
-/** The label of the drag payload that carries an asset id inside the app. */
-const val ASSET_DRAG_LABEL = "uveditor-asset"

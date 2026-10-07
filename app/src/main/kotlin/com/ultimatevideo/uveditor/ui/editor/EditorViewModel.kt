@@ -430,7 +430,7 @@ class EditorViewModel(
             is EditorIntent.TrayDragStart -> trayDragStart(intent.assetId)
             is EditorIntent.ExternalDragStart -> externalDragStart(intent.kinds)
             is EditorIntent.TrayDragMove -> trayDragMove(intent.frame, intent.trackIndex, intent.zone)
-            EditorIntent.TrayDragLeave -> reduce { copy(dragPreview = null, dropHint = null) }
+            EditorIntent.TrayDragLeave -> reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
             is EditorIntent.TrayDragEnd -> trayDragEnd(intent.commit)
             is EditorIntent.ExternalDrop -> externalDrop(intent.uris, intent.frame, intent.trackIndex, intent.zone)
             is EditorIntent.ImportToTray -> importToTray(intent.uris)
@@ -2939,18 +2939,37 @@ class EditorViewModel(
             // The canvas draws the new-lane placeholder on a lane of the timeline it shows, so show one (empty).
             val top = base.tracks.indexOfFirst { it.type == TrackType.VIDEO }.coerceAtLeast(0)
             val preview = (TimelineOps.addTrack(base, Track(DROP_LANE_ID, TrackType.VIDEO), top) as? EditResult.Success)?.value
-            reduce { copy(dragPreview = preview, dropHint = decision.hint.copy(trackId = DROP_LANE_ID)) }
+            reduce { copy(dragPreview = preview, dropHint = decision.hint.copy(trackId = DROP_LANE_ID), dragOverlay = trayGuide(base, session, frame, decision.hint)) }
             return
         }
         // Free space is shown like an overwrite: the tinted range is where the clip will land.
         val hint = if (decision.kind == DropKind.MOVE) decision.hint.copy(kind = DropKind.OVERWRITE) else decision.hint
-        reduce { copy(dragPreview = null, dropHint = hint) }
+        reduce { copy(dragPreview = null, dropHint = hint, dragOverlay = trayGuide(base, session, frame, decision.hint)) }
+    }
+
+    /**
+     * The snap line for a carried asset: where the clip's start or end was pulled onto the playhead, a marker or a clip edge.
+     * Inserts go to a junction, not through snapping, so they have none.
+     */
+    private fun trayGuide(base: Timeline, session: TrayDragSession, requestedFrame: Long, hint: DropHint): DragOverlay? {
+        if (hint.kind != DropKind.OVERWRITE && hint.kind != DropKind.MOVE && hint.kind != DropKind.NEW_LANE) return null
+        val targets = SnapGuides.targets(base, emptySet(), snapWith(base, state.value.playhead))
+        val requestedStart = maxOf(requestedFrame, 0L)
+        val length = session.clip.durationFrames
+        val end = hint.startFrame + length
+        val guide = when {
+            hint.startFrame == requestedStart -> null
+            hint.startFrame in targets -> hint.startFrame
+            end in targets -> end
+            else -> null
+        }
+        return guide?.let { DragOverlay(emptyList(), it) }
     }
 
     private fun trayDragEnd(commit: Boolean) {
         val session = trayDrag
         trayDrag = null
-        reduce { copy(dragPreview = null, dropHint = null) }
+        reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
         if (!commit || session == null || session.assetId == null) return
         val command = session.command ?: return
         if (execute(command)) selectPlaced(session.clip.id)
@@ -2965,7 +2984,7 @@ class EditorViewModel(
     private fun externalDrop(uris: List<String>, frame: Long, trackIndex: Int, zone: DragZone) {
         val previous = trayDrag?.target
         trayDrag = null
-        reduce { copy(dragPreview = null, dropHint = null) }
+        reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
         if (uris.isEmpty()) return
         val target = trayTarget(history.timeline, trackIndex, zone, previous)
         viewModelScope.launch {
