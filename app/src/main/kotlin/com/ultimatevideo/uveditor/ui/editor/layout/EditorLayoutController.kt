@@ -6,9 +6,16 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.ultimatevideo.uveditor.engine.timeline.WaveformScale
 
 /** Layouts kept in local preferences, one entry per window size class and orientation. */
-class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore {
+class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore {
+    override fun load(): WaveformScale = waveformScaleOf(prefs.getString(WAVEFORM_KEY, null))
+
+    override fun save(scale: WaveformScale) {
+        prefs.edit().putString(WAVEFORM_KEY, scale.name).apply()
+    }
+
     override fun load(key: LayoutKey): LayoutState? =
         prefs.getString(prefKey(key), null)?.let(LayoutCodec::decode)
 
@@ -20,6 +27,7 @@ class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore {
 
     companion object {
         const val FILE = "editor_layout"
+        private const val WAVEFORM_KEY = "waveform_scale"
     }
 }
 
@@ -30,9 +38,23 @@ class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore {
  * for the new one is loaded; any other change of size only clamps the current one.
  */
 @Stable
-class EditorLayoutController(private val store: LayoutStore, initialWindow: WindowMetrics) {
+class EditorLayoutController(
+    private val store: LayoutStore,
+    initialWindow: WindowMetrics,
+    private val waveformStore: WaveformScaleStore = NoWaveformScaleStore,
+) {
     var window by mutableStateOf(initialWindow)
         private set
+
+    /** How the timeline draws waveform heights. One choice for every layout; the presets do not change it. */
+    var waveformScale by mutableStateOf(waveformStore.load())
+        private set
+
+    fun chooseWaveformScale(scale: WaveformScale) {
+        if (scale == waveformScale) return
+        waveformScale = scale
+        waveformStore.save(scale)
+    }
 
     var key by mutableStateOf(LayoutKey.of(initialWindow))
         private set
