@@ -658,7 +658,14 @@ Everything goes through the system file picker and stays on your device: nothing
   what is inside, not by its name. Nothing is sent anywhere.
   - **Media folder.** The footage inside an `.lfpackage` has to be copied out of the package. It goes into a folder
     **you** choose, not into the app's private storage, so you can see and manage the files, and it can be on a USB
-    drive or an SD card. The first time, the app explains this and asks for the folder; afterwards you can see and
+    drive or an SD card. The app never puts loose files in the folder you pick: it makes its own subfolder called
+    **ultimateVE** inside it (if the folder you pick is already called ultimateVE, or already contains one, that one
+    is used). The footage of each imported project goes into `ultimateVE/Media/<project name>/`, so two projects never
+    mix, and you can delete one project's footage by deleting that one folder (do that only when the project is gone:
+    it still points at the files). Project backups (`.uvbundle`) open the save dialog in `ultimateVE/Project-Backups`.
+    Folders are created when first needed, so you only see the ones in use. **About → Media folder** shows the full
+    path (for example `Movies/ultimateVE`) and what is inside. Files that an earlier version put directly in your
+    folder stay where they are, because projects point at them; nothing is moved or deleted. The first time, the app explains this and asks for the folder; afterwards you can see and
     change it in **About → Media folder**. A progress dialog shows the copy, with **Cancel** (nothing is left behind
     when you cancel or when it fails). The app checks that there is room and says so if not; if the folder is
     unplugged or access was removed, it says that too, and you choose it again. Files already in the folder are never
