@@ -140,7 +140,8 @@ class QaExportActivity : Activity() {
         while (System.currentTimeMillis() < deadline) {
             when (val state = executor.state.value) {
                 is ExportJobState.Done -> {
-                    executor.acknowledge(null)
+                    // --ez keep true leaves the result in the executor so the project list bar and the Done dialog can be looked at.
+                    if (!intent.getBooleanExtra("keep", false)) executor.acknowledge(null)
                     val verification = state.verification?.let { VerificationText.resultLine(it) } ?: "verification=none"
                     val headline = state.verification?.let { " headline=\"${VerificationText.headline(it)}\" detail=\"${VerificationText.detail(it)}\"" } ?: ""
                     return "OK frames=$expectedFrames audio=${plan.audio != null}" + (if (state.note.isNotEmpty()) " note=${state.note}" else "") +
