@@ -45,6 +45,8 @@ data class ExportSettings(
     val hdr: Boolean = false,
     /** The settings of a saved picture ([ExportRequest.still]): the surface to draw, which need not have even sides. */
     val picture: Boolean = false,
+    /** Layers hidden behind a video layer that covers the whole canvas are not decoded or drawn (same pixels, less work). Only the debug harness turns it off, to compare. */
+    val skipHiddenLayers: Boolean = true,
 ) {
     init {
         require(!hdr || codec == ExportCodec.HEVC) { "HDR export needs HEVC" }
