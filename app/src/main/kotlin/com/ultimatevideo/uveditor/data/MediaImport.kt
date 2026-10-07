@@ -155,7 +155,7 @@ class AndroidMediaImporter(
     }
 
     internal fun probe(uri: Uri): ProbedMedia {
-        if (context.contentResolver.getType(uri)?.startsWith("image/") == true) return probeImage(uri)
+        if (isImageMime(context.contentResolver.getType(uri))) return probeImage(uri)
         val extractor = MediaExtractor()
         try {
             try {
@@ -306,6 +306,12 @@ class AndroidMediaImporter(
         }
     }
 }
+
+/**
+ * Whether a provider-reported media type is a still picture. Pictures take the image path (header probe, `isImage` asset, the native
+ * image decoder for thumbnails); sending one down the video path made 43 photos fail with IO_ERROR on every editor open.
+ */
+internal fun isImageMime(type: String?): Boolean = type != null && type.startsWith("image/")
 
 private const val TAG = "MediaImport"
 
