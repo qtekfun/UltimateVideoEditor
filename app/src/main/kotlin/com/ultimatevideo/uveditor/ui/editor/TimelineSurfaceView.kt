@@ -8,6 +8,7 @@ import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.ViewConfiguration
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import com.ultimatevideo.uveditor.engine.timeline.HitKind
@@ -169,6 +170,10 @@ class TimelineSurfaceView(
     private var dragX = 0f
     private var dragY = 0f
 
+    // Hold then drag on a clip. The gesture detector reports no scrolls after its long press, so the moves that follow are read
+    // from the touch events (see PressDrag).
+    private val pressDrag = PressDrag(slopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+
     // While a clip is dragged with the finger near a side edge the timeline keeps scrolling, so a
     // clip can be carried beyond what is on screen. Runs once per frame and moves the clip with it.
     private val edgeScroll = object : Runnable {
@@ -241,7 +246,10 @@ class TimelineSurfaceView(
                 val target = selecting() ?: return
                 if (hit.kind == HitKind.CLIP || hit.kind == HitKind.CLIP_LEFT_EDGE || hit.kind == HitKind.CLIP_RIGHT_EDGE) {
                     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    target.onLongPress(hit)
+                    // A clip that is selected already is only toggled off when the finger lifts without having dragged it.
+                    val selected = editing()?.canDrag(hit) == true
+                    pressDrag.onLongPress(e.x, e.y, alreadySelected = selected)
+                    if (!selected) target.onLongPress(hit)
                 }
             }
 
@@ -329,6 +337,24 @@ class TimelineSurfaceView(
                 }
             }
             return true
+        }
+        if (pressDrag.isArmed) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE -> if (!dragging && pressDrag.onMove(event.x, event.y) == PressDragStep.START_DRAG) {
+                    tryStartDrag()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val cancelled = event.actionMasked == MotionEvent.ACTION_CANCEL
+                    if (pressDrag.onEnd(cancelled) == PressDragStep.TOGGLE_SELECTION) {
+                        downHit?.let { selecting()?.onLongPress(it) }
+                    }
+                }
+            }
+            if (dragging && event.actionMasked == MotionEvent.ACTION_MOVE) {
+                dragX = event.x
+                dragY = event.y
+                editing()?.onDragMove(engine.hitTest(event.x, event.y))
+            }
         }
         if (marquee && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
             marquee = false
