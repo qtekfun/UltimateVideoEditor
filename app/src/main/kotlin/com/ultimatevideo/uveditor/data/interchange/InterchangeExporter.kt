@@ -2,6 +2,9 @@ package com.ultimatevideo.uveditor.data.interchange
 
 import com.ultimatevideo.uveditor.data.ProjectRepository
 import com.ultimatevideo.uveditor.data.ProjectTransferIO
+import com.ultimatevideo.uveditor.ui.export.BundleJob
+import com.ultimatevideo.uveditor.ui.export.BundleJobHost
+import com.ultimatevideo.uveditor.ui.export.BundleStart
 import java.io.IOException
 
 /** Writes the files an export to another tool produces. The editor only knows this interface. */
@@ -22,6 +25,13 @@ interface InterchangeExporter {
     @Throws(IOException::class)
     suspend fun bundlePreview(projectId: String): BundlePreview = BundlePreview.EMPTY
 
+    /**
+     * Starts the backup of the saved project [projectId] as a long job that outlives the screen (a progress dialog, a bar in the
+     * project list and a notification follow it), or null when this exporter has none and [exportBundle] is the way. A refusal
+     * (another long job is running) comes back as [BundleStart.Refused] with the words to show.
+     */
+    fun startBundleExport(projectId: String, projectName: String, uri: String, choice: BundleChoice): BundleStart? = null
+
     /** Replaces the document at [uri] with [bytes] (an EDL, a zip of EDLs or an FCPXML file). */
     @Throws(IOException::class)
     suspend fun writeDocument(uri: String, bytes: ByteArray)
@@ -39,7 +49,12 @@ interface InterchangeExporter {
 class RepositoryInterchangeExporter(
     private val repository: ProjectRepository,
     private val io: ProjectTransferIO,
+    /** The process-wide backup (see ExportCenter); null writes bundles inside the call, as before. */
+    private val jobs: BundleJobHost? = null,
 ) : InterchangeExporter {
+    override fun startBundleExport(projectId: String, projectName: String, uri: String, choice: BundleChoice): BundleStart? =
+        jobs?.start(BundleJob(projectId, projectName, uri) { observer -> repository.exportBundle(projectId, uri, choice, observer = observer) })
+
     override suspend fun exportBundle(projectId: String, uri: String, includeMedia: Boolean): BundleWriteResult =
         repository.exportBundle(projectId, uri, includeMedia)
 

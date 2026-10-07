@@ -150,10 +150,10 @@ Every icon also has a text description: long press it to see its name, or use a 
 | ⬆ | Export movie | Opens the export dialog. |
 | ⏮ / ▶ / ⏭ | Previous boundary, Play / Pause, Next boundary | Boundaries are clip starts and ends. Play follows the audio clock. |
 | 🖼 (picture) | Save frame as image | Saves the picture under the playhead as a JPEG in Pictures/ultimateVE with one tap, see [Saving a frame as an image](#saving-a-frame-as-an-image). |
-| ⤢ | Fit the whole project and all lanes | Zooms the time axis so the whole project fits, and the lane heights to the largest size at which every lane is visible (never taller than 3x or shorter than half the default; with very many lanes as many as fit, and the rest scroll). Both keep following the panel (rotation) and the lanes you add until you zoom that axis by hand. |
+| ⤢ | Fit the whole project | Zooms the time axis so the whole project fits. It keeps following the panel (rotation) and the project length until you pinch. The lane heights are not changed: they are fixed by the Layout sheet's Small / Medium / Large chips, and lanes that do not fit the panel scroll vertically. |
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
-| ✂ | Split at playhead | Cuts the selected clip in two. |
+| ✂ | Split at playhead | Cuts the selected clip in two (with several selected, every one the playhead is over, as one undo step). Playback pauses and the playhead stays exactly on the cut, the first frame of the right-hand part, which becomes the selection so you can move the playhead and cut again. Undo and redo leave the playhead where it is. |
 | ⛶ (dotted square) | Select several clips | Turns select mode on or off; see [Selecting several clips](#selecting-several-clips). |
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
@@ -242,7 +242,7 @@ panel on the left.
 - **Tap** a clip to select it (yellow outline and a handle at each end, the edges you can drag to trim). Tap an empty lane to select that track.
 - **Drag the ruler or the red playhead** to scrub. While the project is playing, **swiping the timeline sideways** (a drag or a fling along the time axis, not a clip drag) also stops playback at that moment, with the picture and sound stopped on the frame the playhead shows, and then scrolls as usual; press Play to continue. A mostly vertical swipe (scrolling the lanes) does not stop it, and a plain tap on the ruler jumps the playhead and keeps playing.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
-- **Pinch** on the timeline to zoom the time axis. Spread your fingers **vertically** instead to make the lanes taller or shorter (between half and three times the default height); the lane under your fingers stays put. Whichever way the fingers spread most at the start decides. The Layout sheet's Small / Medium / Large chips set the lane height too, and the Fit button restores the all-lanes view.
+- **Pinch** on the timeline to zoom the time axis (only the time axis, whichever way the fingers spread). The lane height does not change by gesture: the Layout sheet's Small / Medium / Large chips set it.
 - **Drag** on an empty area to scroll, **fling** to coast.
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
 
@@ -694,6 +694,18 @@ Everything goes through the system file picker and stays on your device: nothing
     giving the font file to others; check yours first.
   Whatever the project uses but you leave out (or this phone does not have) is still named in the bundle, so the
   other phone can tell you which LUT or font to get. The project file and a card picture are always included.
+  - **Progress and the end of the backup.** After you choose where to save, a window shows what is happening
+    (**Packing media 3 of 12: IMG_0014.mov**), how many bytes are done of the total, the percent, the speed and the time left
+    (for example **1.8 of 7.4 GB, about 2 min left**). **Hide** closes the window and the backup goes on; the same progress is
+    in a bar at the bottom of the project list (tap it to open the window again) and in a notification, so you can leave the
+    app or turn the screen off. **Cancel** stops within a moment and removes the half-written file; if the file manager refuses to
+    delete it, the window says which file is left over. When it ends you read **Backup saved: Holiday.uvbundle (7.4 GB, 14 media
+    files, took 4:12)** with **Share** and **Close**; the bar and the notification say the same. The app then reopens the saved
+    file and checks that it is complete (its table of contents, every file and its size, the project data). If that finds a
+    problem (a full disk, a card pulled out, a cut-short file) the result turns red and says what is wrong; do not rely on that
+    file. A backup that cannot finish says why (storage full, permission lost, a media file that vanished) and removes what it wrote.
+  - **One long job at a time.** A backup is refused with a message while a movie export runs, and a movie export is refused
+    while a backup runs; wait for the first to finish or cancel it. Nothing is queued.
 - **Importing a bundle** (hub, top-right ⋮): the project is unpacked next to your other projects, renamed if the
   name is taken ("Name (2)"), and its media is set up for you: files that came inside the bundle are used from
   the project's own folder; for the others the app looks among the files your other projects already use for one
