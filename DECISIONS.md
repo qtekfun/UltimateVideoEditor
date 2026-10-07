@@ -3,6 +3,14 @@
 Choices made autonomously while the owner was away. Append-only; each entry says what was chosen, why, and
 the alternative, so any of them can be reversed cheaply.
 
+## 2026-10-07 · Fades and the volume curve on the timeline (owner: "I cannot find where to fade in or out, I want volume curves")
+**Found:** fades (`ClipAudio.fadeInFrames/fadeOutFrames`, equal power) and a keyframed volume (`audio.gainDb`) already existed end to end (model, mixer, export, split/trim) but only as two sliders and a diamond inside a collapsed "Sound tools" section, and nothing was drawn on the timeline.
+**Chosen:** (1) draw them: the native canvas shades the fade ramps, draws the volume line over the waveform and, for the selected clip of an audio lane, two white circles in the top corners and a dot per point; (2) edit them there: drag a circle for a fade, double tap to add a point, drag a dot, double tap a dot to remove it; (3) a fade shape (equal power, linear, logarithmic) in the sheet, which now opens by itself for audio-lane clips and has "Add point at playhead" and "Clear". One pure function (`core/fade_math.h`) gives the gain of a fade at a sample and the mixer is its only caller, so preview, export and offline renders agree; Kotlin mirrors it and both are tested on the same numbers.
+**Wire:** the shape is two bits in the lane-count word of the audio clip block (no snapshot version bump, zero = old behaviour); the canvas gets a version 9 trailer. Project JSON gets `audio.fadeShape` only when it is not equal power, so old projects and old readers are unaffected.
+**Handles only on the selected clip of an audio lane:** on video lanes a circle in the corner would fight the clip drag and trim gestures (another change is reworking video-lane drags), and thumbnails fill that space. Video clips still get the fades, shape and curve from the sheet and see them drawn, read-only. **Alternative:** handles on every clip when selected; cheap to add later by setting `editable` for video lanes in `EditorViewModel.snapshotOf` once the drag code settles.
+**Curve semantics kept:** a point is dB on a clip frame, linear in dB between points (what the mixer already did). The first point pins the fixed volume at both ends so adding one dot does not change the rest of the clip. The bottom edge of the lane is silence (-96 dB); 0 dB is a detent. **Not done:** a smoothing/curve-type per segment on the canvas (the sheet's keyframe tools still offer ease and Bezier), a numeric text field for the fade length (the slider shows seconds and frames), handles on video lanes.
+**Tests:** see SPECS 5.37.
+
 ## 2026-10-03 · A/V sync: native preview clock re-anchored from the audio clock
 **Chosen:** while playing, the native compositor advances all layers on its own monotonic clock
 (`PreviewEngine.playScene`); the editor re-anchors it only when the composition changes or the heard audio

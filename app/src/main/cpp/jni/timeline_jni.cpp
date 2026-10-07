@@ -4,6 +4,8 @@
 #include <jni.h>
 
 #include <atomic>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -241,14 +243,18 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetLaneScale)(JNIEnv*, jobject, jlong handle
     if (TimelineHandle* h = from(handle)) h->renderer->setLaneScale(scale);
 }
 
-// Returns {kind, trackIndex, clipKey, frame}.
+// Returns {kind, trackIndex, clipKey, frame, index, dbTenths}; dbTenths is the gain under the finger in tenths of a dB,
+// or kNoDb when the touch is not in a lane.
+constexpr jlong kNoDb = INT64_MIN;
+
 JNIEXPORT jlongArray JNICALL JNI_FN(nativeHitTest)(JNIEnv* env, jobject, jlong handle, jfloat x, jfloat y) {
     TimelineHandle* h = from(handle);
     if (h == nullptr) return nullptr;
     const auto r = h->renderer->hitTest(x, y);
-    const jlong out[4] = {static_cast<jlong>(r.kind), r.trackIndex, r.clipKey, r.frame};
-    jlongArray arr = env->NewLongArray(4);
-    if (arr != nullptr) env->SetLongArrayRegion(arr, 0, 4, out);
+    const jlong out[6] = {static_cast<jlong>(r.kind), r.trackIndex, r.clipKey, r.frame, r.index,
+                          r.hasDb ? static_cast<jlong>(std::lround(r.db * 10.0f)) : kNoDb};
+    jlongArray arr = env->NewLongArray(6);
+    if (arr != nullptr) env->SetLongArrayRegion(arr, 0, 6, out);
     return arr;
 }
 

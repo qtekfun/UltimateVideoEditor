@@ -12,6 +12,7 @@ import com.ultimatevideo.uveditor.data.model.TrackAudioDto
 import com.ultimatevideo.uveditor.domain.AudioRole
 import com.ultimatevideo.uveditor.domain.BusCompressor
 import com.ultimatevideo.uveditor.domain.ClipAudio
+import com.ultimatevideo.uveditor.domain.FadeShape
 import com.ultimatevideo.uveditor.domain.ClipEq
 import com.ultimatevideo.uveditor.domain.Denoise
 import com.ultimatevideo.uveditor.domain.VoiceFx
@@ -202,7 +203,7 @@ object TimelineMapper {
                 ?: throw ProjectError.Corrupt("clip $clipId has unknown voice effect '${v.preset}'")
             VoiceFx(preset, v.values)
         }
-        return ClipAudio(dto.pan, dto.fadeInFrames, dto.fadeOutFrames, eq, denoise, dto.normalizeDb, dto.targetLufs, voice)
+        return ClipAudio(dto.pan, dto.fadeInFrames, dto.fadeOutFrames, eq, denoise, dto.normalizeDb, dto.targetLufs, voice, FadeShape.fromId(dto.fadeShape))
             .also { a ->
                 // Only the value ranges can be checked here; whether a fade fits the clip is part of the timeline invariants.
                 val problem = if (a.fadeInFrames < 0 || a.fadeOutFrames < 0) "negative fade" else a.problem(Long.MAX_VALUE)
@@ -221,6 +222,7 @@ object TimelineMapper {
         normalizeDb = audio.normalizeDb,
         targetLufs = audio.targetLufs,
         voice = audio.voice?.let { VoiceFxDto(it.preset.name.lowercase(), it.values) },
+        fadeShape = audio.fadeShape.takeIf { it != FadeShape.EQUAL_POWER }?.id,
     )
 
     private fun toMarker(dto: MarkerDto) = Marker(

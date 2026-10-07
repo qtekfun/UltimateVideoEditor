@@ -90,6 +90,7 @@ internal fun audioSnapshotOf(
             pan = tools.pan.toFloat(),
             userFadeInFrames = fadeIn.coerceIn(0, clip.durationFrames),
             userFadeOutFrames = fadeOut.coerceIn(0, clip.durationFrames),
+            fadeShape = tools.fadeShape.code,
             eq = eqSpecOf(tools.eq),
             denoiseStrength = denoise?.strength?.toFloat() ?: 0f,
             noiseProfile = denoise?.profile ?: emptyList(),

@@ -48,7 +48,8 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
                         const std::vector<timeline::KeyframeSnapshot>& keyframes = {}, uint32_t version = timeline::kSnapshotVersion,
                         const std::vector<timeline::RetimeSnapshot>& retimes = {},
                         const std::vector<timeline::MarkerSnapshot>& markers = {},
-                        const std::vector<timeline::LabelSnapshot>& labels = {}) {
+                        const std::vector<timeline::LabelSnapshot>& labels = {},
+                        const std::vector<timeline::ShapingSnapshot>& shaping = {}) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
     w.put<uint32_t>(version);
@@ -110,6 +111,23 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
             for (size_t i = l.text.size(); i % 4 != 0; ++i) w.put<char>(0);
         }
     }
+    if (version >= 9) {
+        w.put<int32_t>(static_cast<int32_t>(shaping.size()));
+        for (const auto& s : shaping) {
+            w.put<int64_t>(s.clipKey);
+            w.put<int32_t>(s.fadeInFrames);
+            w.put<int32_t>(s.fadeOutFrames);
+            w.put<int32_t>(s.flags);
+            w.put<int32_t>(static_cast<int32_t>(s.points.size()));
+            w.put<float>(s.baseDb);
+            w.put<int32_t>(0);
+            for (const auto& pt : s.points) {
+                w.put<int64_t>(pt.frame);
+                w.put<float>(pt.db);
+                w.put<int32_t>(0);
+            }
+        }
+    }
     return w;
 }
 
@@ -119,8 +137,8 @@ static timeline::ClipSnapshot clip(int64_t key, int track, int64_t start, int64_
 
 static void testSnapshotRoundTrip() {
     auto buf = makeSnapshot(2, {clip(7, 0, 0, 100), clip(8, 1, 50, 25)});
-    // Five trailing counts: transitions, keyframes, retimes, markers and labels.
-    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4 + 4 + 4);
+    // Six trailing counts: transitions, keyframes, retimes, markers, labels and sound shaping.
+    CHECK(buf.b.size() == timeline::kSnapshotHeaderBytes + 2 * 4 + 2 * timeline::kSnapshotClipBytes + 4 + 4 + 4 + 4 + 4 + 4);
     timeline::TimelineSnapshot s;
     CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
     CHECK(s.tracks.size() == 2 && s.clips.size() == 2);
@@ -1044,6 +1062,101 @@ static void testDropHintGeometry() {
     CHECK(r.y0 == lay.trackTop(0) - 10.0f);
 }
 
+
+// ---- sound shaping: fades and the volume curve on the canvas ----
+static timeline::ShapingSnapshot shapingOf(int64_t key, int32_t fadeIn, int32_t fadeOut, bool editable, float baseDb,
+                                           std::vector<timeline::ShapingPoint> points = {}) {
+    timeline::ShapingSnapshot s;
+    s.clipKey = key;
+    s.fadeInFrames = fadeIn;
+    s.fadeOutFrames = fadeOut;
+    s.flags = editable ? timeline::kShapingEditable : 0;
+    s.baseDb = baseDb;
+    s.points = std::move(points);
+    return s;
+}
+
+static void testShapingSnapshot() {
+    auto c = clip(1, 0, 10, 100);
+    auto buf = makeSnapshot(1, {c}, {}, {}, timeline::kSnapshotVersion, {}, {}, {},
+                            {shapingOf(1, 12, 30, true, -3.0f, {{0, 0.0f}, {40, -12.5f}})});
+    timeline::TimelineSnapshot s;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    const timeline::ShapingSnapshot* sh = s.shapingOf(1);
+    CHECK(sh != nullptr && sh->fadeInFrames == 12 && sh->fadeOutFrames == 30 && sh->editable() && sh->baseDb == -3.0f);
+    CHECK(sh != nullptr && sh->points.size() == 2 && sh->points[1].frame == 40 && sh->points[1].db == -12.5f);
+    CHECK(s.shapingOf(2) == nullptr);
+    // An older snapshot has none; an older writer's version-8 bytes still parse.
+    auto old = makeSnapshot(1, {c}, {}, {}, 8);
+    CHECK(timeline::parseSnapshot(old.b.data(), old.b.size(), &s) == core::Status::Ok && s.shaping.empty());
+    // Bad input: a point out of order, a negative fade, a count the buffer cannot hold.
+    for (auto bad : {shapingOf(1, 0, 0, true, 0.0f, {{5, 0.0f}, {5, 1.0f}}), shapingOf(1, -1, 0, true, 0.0f),
+                     shapingOf(1, 0, 0, true, 0.0f, {{-1, 0.0f}})}) {
+        auto b = makeSnapshot(1, {c}, {}, {}, timeline::kSnapshotVersion, {}, {}, {}, {bad});
+        CHECK(timeline::parseSnapshot(b.b.data(), b.b.size(), &s) == core::Status::BadSnapshot);
+    }
+    auto truncated = buf;
+    truncated.b.resize(truncated.b.size() - 4);
+    CHECK(timeline::parseSnapshot(truncated.b.data(), truncated.b.size(), &s) == core::Status::BadSnapshot);
+}
+
+static void testShapingGeometry() {
+    // The scale: 0 dB sits a fifth of the way down; the ends clamp; the editor's 0.1 dB unit survives a round trip.
+    const float top = 100.0f, h = 64.0f;
+    const float zero = timeline::dbToY(0.0f, top, h);
+    CHECK(zero > timeline::shapeAreaTop(top, h) && zero < timeline::shapeAreaBottom(top, h));
+    CHECK(timeline::dbToY(100.0f, top, h) == timeline::shapeAreaTop(top, h));
+    CHECK(timeline::dbToY(-100.0f, top, h) == timeline::shapeAreaBottom(top, h));
+    CHECK(timeline::yToDb(timeline::shapeAreaTop(top, h) - 50.0f, top, h) == timeline::kEnvMaxDb);
+    CHECK(timeline::yToDb(timeline::shapeAreaBottom(top, h) + 50.0f, top, h) == timeline::kEnvMinDb);
+    for (float db : {-30.0f, -12.5f, -3.0f, 0.0f, 4.5f}) CHECK(std::fabs(timeline::yToDb(timeline::dbToY(db, top, h), top, h) - db) <= 0.1f);
+    CHECK(timeline::dbToY(-6.0f, top, h) > timeline::dbToY(0.0f, top, h));  // quieter is lower
+
+    // Handles: a corner with no fade rests just inside it; a fade moves it along.
+    const auto lay = timeline::Layout::forDensity(1.0f);
+    auto none = timeline::fadeHandles(100.0, 300.0, 2.0, 0, 0, top, lay);
+    CHECK(none.inX > 100.0f && none.inX < 120.0f && none.outX < 300.0f && none.outX > 280.0f);
+    auto faded = timeline::fadeHandles(100.0, 300.0, 2.0, 20, 30, top, lay);
+    CHECK(faded.inX == 140.0f && faded.outX == 240.0f && faded.y > top);
+}
+
+static void testShapingHitTest() {
+    auto c = clip(1, 0, 10, 100);
+    c.selected = c.primary = true;
+    auto other = clip(2, 1, 10, 100);
+    auto buf = makeSnapshot(2, {c, other}, {}, {}, timeline::kSnapshotVersion, {}, {}, {},
+                            {shapingOf(1, 20, 0, true, 0.0f, {{30, -6.0f}}), shapingOf(2, 0, 0, false, 0.0f, {{30, -6.0f}})});
+    timeline::TimelineSnapshot s;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    timeline::Viewport vp;
+    vp.pxPerFrame = 2.0;
+    const auto lay = timeline::Layout::forDensity(1.0f);
+    const float laneTop = lay.trackTop(0), laneH = lay.trackHeight;
+
+    // A point is grabbed on the curve, with its index; the dB under the finger is reported either way.
+    const float px = static_cast<float>(vp.frameToX(10 + 30)), py = timeline::dbToY(-6.0f, laneTop, laneH);
+    auto r = timeline::hitTest(s, vp, lay, px + 3.0f, py - 2.0f);
+    CHECK(r.kind == timeline::HitKind::VolumePoint && r.clipKey == 1 && r.index == 0 && r.hasDb);
+    // The fade-in circle: at x(start + 20 frames), near the top. Fade-out has none (0) and rests inside the right corner.
+    const auto h = timeline::fadeHandles(vp.frameToX(10), vp.frameToX(110), vp.pxPerFrame, 20, 0, laneTop, lay);
+    r = timeline::hitTest(s, vp, lay, h.inX, h.y);
+    CHECK(r.kind == timeline::HitKind::FadeInHandle && r.clipKey == 1);
+    r = timeline::hitTest(s, vp, lay, h.outX, h.y);
+    CHECK(r.kind == timeline::HitKind::FadeOutHandle && r.clipKey == 1);
+    // Away from them the body and the trim edges behave as before, and the body reports the gain under the finger.
+    r = timeline::hitTest(s, vp, lay, vp.frameToX(10 + 60), laneTop + laneH * 0.7f);
+    CHECK(r.kind == timeline::HitKind::Clip && r.hasDb && std::fabs(r.db - timeline::yToDb(laneTop + laneH * 0.7f, laneTop, laneH)) < 1e-4f);
+    r = timeline::hitTest(s, vp, lay, vp.frameToX(10) + 3.0f, laneTop + laneH * 0.9f);
+    CHECK(r.kind == timeline::HitKind::ClipLeftEdge);
+    // A clip that is not editable (not selected, or a video lane) has no grabbable points or handles.
+    const float ox = static_cast<float>(vp.frameToX(10 + 30)), oy = timeline::dbToY(-6.0f, lay.trackTop(1), laneH);
+    r = timeline::hitTest(s, vp, lay, ox, oy);
+    CHECK(r.kind == timeline::HitKind::Clip && r.clipKey == 2);
+    // The ruler and empty lanes carry no gain.
+    r = timeline::hitTest(s, vp, lay, 50, 5);
+    CHECK(!r.hasDb);
+}
+
 static void testHitTest() {
     timeline::TimelineSnapshot s;
     auto buf = makeSnapshot(2, {clip(1, 0, 10, 100), clip(2, 1, 0, 5)});
@@ -1257,6 +1370,9 @@ int main() {
     testClipsInRect();
     testViewport();
     testHitTest();
+    testShapingSnapshot();
+    testShapingGeometry();
+    testShapingHitTest();
     testBottomAnchoredLanes();
     testLaneScale();
     testDropHintGeometry();

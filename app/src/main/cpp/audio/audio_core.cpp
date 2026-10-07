@@ -200,6 +200,7 @@ Status AudioCore::setSnapshotLocked(const AudioSnapshotData& data) {
         pc.eqParams = d.eq;
         pc.sampleRate = rate;
         pc.eq = bandAnimated ? dsp::EqChain::designAll(d.eq, rate) : dsp::EqChain::design(d.eq, rate);
+        pc.userFadeShape = core::fadeShapeFromWire(d.fadeShape);
         if (d.userFadeInFrames > 0) pc.userFadeInSamples = framesToSamples(d.startFrame + d.userFadeInFrames, data.fps, rate) - start;
         if (d.userFadeOutFrames > 0) {
             pc.userFadeOutSamples = end - framesToSamples(d.startFrame + d.durationFrames - d.userFadeOutFrames, data.fps, rate);

@@ -301,6 +301,8 @@ data class AudioClipSpec(
     /** The clip's own fade handles, equal power, in project frames (0 = none). */
     val userFadeInFrames: Long = 0,
     val userFadeOutFrames: Long = 0,
+    /** How both user fades ramp: 0 equal power, 1 linear, 2 logarithmic (bits 16..17 of the lane-count word). */
+    val fadeShape: Int = 0,
     val eq: EqSpec = EqSpec.FLAT,
     /** Noise suppression strength 0..1 (0 = off); [noiseProfile] must then hold [NOISE_PROFILE_BINS] magnitudes. */
     val denoiseStrength: Float = 0f,
@@ -326,6 +328,7 @@ data class AudioClipSpec(
         require(pan.isFinite() && pan in -1f..1f) { "clip $clipKey pan $pan is out of range" }
         require(userFadeInFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-in handle $userFadeInFrames" }
         require(userFadeOutFrames in 0..durationFrames) { "clip $clipKey has an invalid fade-out handle $userFadeOutFrames" }
+        require(fadeShape in 0..3) { "clip $clipKey has an invalid fade shape $fadeShape" }
         require(denoiseStrength.isFinite() && denoiseStrength in 0f..1f) { "clip $clipKey noise suppression $denoiseStrength is out of range" }
         require((denoiseStrength > 0f) == noiseProfile.isNotEmpty()) { "clip $clipKey needs a noise profile exactly when noise suppression is on" }
         require(noiseProfile.isEmpty() || noiseProfile.size == NOISE_PROFILE_BINS) { "clip $clipKey noise profile has ${noiseProfile.size} bins" }
@@ -445,7 +448,7 @@ data class AudioSnapshot(
             }
             buffer.putFloat(clip.denoiseStrength)
             buffer.putInt(clip.noiseProfile.size)
-            buffer.putInt(clip.automation.size) // lane count (reserved, always 0, before version 5)
+            buffer.putInt(clip.automation.size or (clip.fadeShape shl FADE_SHAPE_SHIFT)) // lane count in bits 0..15 (0 before version 5), fade shape in bits 16..17
         }
         // The knots of all clips follow, in clip order, then the noise profiles, then the automation lanes.
         for (clip in clips) {
@@ -494,6 +497,9 @@ data class AudioSnapshot(
 
     companion object {
         const val MAGIC = 0x53415655 // "UVAS"
+
+        /** Bit position of the fade shape in a clip block's lane-count word (see audio_snapshot.h). */
+        const val FADE_SHAPE_SHIFT = 16
         const val VERSION = 7
         const val LANE_BYTES = 16
         const val POINT_BYTES = 16

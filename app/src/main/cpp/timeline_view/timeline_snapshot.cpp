@@ -3,6 +3,7 @@
 #include "timeline_view/text_atlas.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace uv::timeline {
@@ -25,6 +26,12 @@ const RetimeSnapshot* TimelineSnapshot::retimeOf(int64_t clipKey) const {
     const auto it = std::lower_bound(retimes.begin(), retimes.end(), clipKey,
                                      [](const RetimeSnapshot& a, int64_t key) { return a.clipKey < key; });
     return it != retimes.end() && it->clipKey == clipKey ? &*it : nullptr;
+}
+
+const ShapingSnapshot* TimelineSnapshot::shapingOf(int64_t clipKey) const {
+    const auto it = std::lower_bound(shaping.begin(), shaping.end(), clipKey,
+                                     [](const ShapingSnapshot& a, int64_t key) { return a.clipKey < key; });
+    return it != shaping.end() && it->clipKey == clipKey ? &*it : nullptr;
 }
 
 const std::string* TimelineSnapshot::labelOf(int64_t clipKey) const {
@@ -82,6 +89,7 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
     const bool hasRetimes = version >= 4;
     const bool hasMarkers = version >= 5;
     const bool hasLabels = version >= 7;
+    const bool hasShaping = version >= 9;
     if (fpsNum <= 0 || fpsDen <= 0 || trackCount < 0 || clipCount < 0) return Status::BadSnapshot;
     // Reject sizes that cannot fit in the buffer before allocating. The transition count follows
     // the clips, so here only the part up to it must fit.
@@ -216,6 +224,36 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
         }
         std::sort(snap.labels.begin(), snap.labels.end(),
                   [](const LabelSnapshot& a, const LabelSnapshot& b) { return a.clipKey < b.clipKey; });
+    }
+    if (hasShaping) {
+        int32_t shapingCount = 0;
+        if (!r.read(&shapingCount) || shapingCount < 0 || static_cast<size_t>(shapingCount) > r.remaining() / kSnapshotShapingBytes) {
+            return Status::BadSnapshot;
+        }
+        snap.shaping.reserve(static_cast<size_t>(shapingCount));
+        for (int32_t i = 0; i < shapingCount; ++i) {
+            ShapingSnapshot s;
+            int32_t pointCount = 0, reserved = 0;
+            if (!r.read(&s.clipKey) || !r.read(&s.fadeInFrames) || !r.read(&s.fadeOutFrames) || !r.read(&s.flags) ||
+                !r.read(&pointCount) || !r.read(&s.baseDb) || !r.read(&reserved) || s.fadeInFrames < 0 || s.fadeOutFrames < 0 ||
+                pointCount < 0 || pointCount > kSnapshotMaxShapingPoints || !std::isfinite(s.baseDb) ||
+                static_cast<size_t>(pointCount) > r.remaining() / kSnapshotShapingPointBytes) {
+                return Status::BadSnapshot;
+            }
+            s.points.reserve(static_cast<size_t>(pointCount));
+            for (int32_t k = 0; k < pointCount; ++k) {
+                ShapingPoint p{};
+                int32_t pointReserved = 0;
+                if (!r.read(&p.frame) || !r.read(&p.db) || !r.read(&pointReserved) || p.frame < 0 || !std::isfinite(p.db) ||
+                    (!s.points.empty() && p.frame <= s.points.back().frame)) {
+                    return Status::BadSnapshot;
+                }
+                s.points.push_back(p);
+            }
+            snap.shaping.push_back(std::move(s));
+        }
+        std::sort(snap.shaping.begin(), snap.shaping.end(),
+                  [](const ShapingSnapshot& a, const ShapingSnapshot& b) { return a.clipKey < b.clipKey; });
     }
     if (!r.atEnd()) return Status::BadSnapshot;
     *out = std::move(snap);
