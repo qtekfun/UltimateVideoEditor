@@ -35,8 +35,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.changedToDown
-import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
@@ -84,6 +85,9 @@ class TrayCarry(
     val returning: Boolean = false,
 )
 
+/** One pointer of an event as the root observer sees it, in root coordinates. [newDown] is true on the event it landed. */
+data class TrayPointer(val id: Long, val x: Float, val y: Float, val pressed: Boolean, val newDown: Boolean)
+
 /**
  * Own pointer tracking for dragging a media tray tile onto the timeline (LumaFusion style), instead of the platform drag
  * and drop: see DECISIONS.md "Tray drag". The tile's gesture ([detectTrayDrag]) keeps receiving the finger's events after it
@@ -119,29 +123,39 @@ class TrayDragController {
         tiles.remove(assetId)
     }
 
-    internal fun pickUp(carry: TrayCarry) {
+    /** The pointer that picked the tile up; the root observer follows only this one. */
+    private var pointerId = -1L
+
+    /** Where a failure inside the drag is logged; replaced in tests. */
+    var logger: (String, Throwable) -> Unit = { message, error -> android.util.Log.e("UVTray", message, error) }
+
+    internal fun pickUp(carry: TrayCarry, pointer: Long) {
+        pointerId = pointer
         this.carry = carry
-        sink?.begin(carry.assetId)
+        guarded("begin") { sink?.begin(carry.assetId) }
     }
 
     internal fun move(x: Float, y: Float) {
         val current = carry ?: return
         if (current.returning) return
         carry = TrayCarry(current.assetId, current.name, current.duration, current.kind, current.thumbnail, Offset(x, y), current.home)
-        sink?.move(x, y)
+        guarded("move") { sink?.move(x, y) }
     }
 
     /** The finger lifted at [x], [y]: place on the timeline, or reorder over another tile, else fly back. */
     internal fun drop(x: Float, y: Float) {
         val current = carry ?: return
         if (current.returning) return
-        if (sink?.drop(x, y) == true) {
+        var placed = false
+        guarded("drop") { placed = sink?.drop(x, y) == true }
+        if (carry == null) return
+        if (placed) {
             carry = null
             return
         }
         val target = tileAt(x, y)?.takeIf { it != current.assetId }
         if (target != null) {
-            onReorder(current.assetId, indexOf(target))
+            guarded("reorder") { onReorder(current.assetId, indexOf(target)) }
             carry = null
         } else {
             flyBack(current, notifySink = false)
@@ -155,14 +169,64 @@ class TrayDragController {
         flyBack(current, notifySink = true)
     }
 
-    /** The ghost finished flying back. */
+    /** The ghost finished flying back (or was found stale). */
     internal fun finishReturn() {
         if (carry?.returning == true) carry = null
     }
 
+    /** Any pointer event while a ghost is flying back and a new drag is not carried: the animation callback may have been lost; clear it. */
+    internal fun finishStaleReturn() {
+        val c = carry
+        if (c != null && c.returning && System.nanoTime() / 1_000_000 - returningSince > RETURN_WATCHDOG_MS) carry = null
+    }
+
+    /** The editor is going away or something failed: end any drag at once, without animation. */
+    fun reset() {
+        val had = carry
+        carry = null
+        pointerId = -1L
+        if (had != null && !had.returning) runCatching { sink?.cancel() }
+    }
+
+    /**
+     * Feeds one pointer event, seen from the editor's root before any child (so it does not depend on the tile that started the drag
+     * still being composed), while a tile is carried. Returns true when the event must be consumed: it belongs to the drag.
+     * The lift of the carrying finger drops, a missing finger or a second one cancels, any other move moves the ghost.
+     */
+    fun onPointerEvent(samples: List<TrayPointer>): Boolean {
+        val current = carry ?: return false
+        if (current.returning) return false
+        if (samples.any { it.id != pointerId && it.newDown }) {
+            cancel()
+            return true
+        }
+        val mine = samples.firstOrNull { it.id == pointerId }
+        when {
+            mine == null -> cancel()
+            !mine.pressed -> drop(mine.x, mine.y)
+            else -> move(mine.x, mine.y)
+        }
+        return true
+    }
+
+    private var returningSince = 0L
+
     private fun flyBack(current: TrayCarry, notifySink: Boolean) {
+        returningSince = System.nanoTime() / 1_000_000
         carry = TrayCarry(current.assetId, current.name, current.duration, current.kind, current.thumbnail, current.position, current.home, returning = true)
-        if (notifySink) sink?.cancel()
+        if (notifySink) guarded("cancel") { sink?.cancel() }
+    }
+
+    /** A failure in the editor's side (the native hit-test, an intent) ends the drag cleanly instead of leaving a ghost behind. */
+    private inline fun guarded(what: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            logger("tray drag: $what failed, ending the drag", e)
+            carry = null
+            pointerId = -1L
+            runCatching { sink?.cancel() }
+        }
     }
 
     private fun tileAt(x: Float, y: Float): String? = tiles.entries.firstOrNull { (_, c) ->
@@ -171,10 +235,12 @@ class TrayDragController {
 }
 
 /**
- * The gesture of a tile: a press held for [TrayDragMachine.DEFAULT_HOLD_MS] picks the tile up (with [onPickedUp] for the haptic
- * tick), then every move of that finger is reported wherever it goes, and the lift drops. Before the hold nothing is consumed,
- * so a tap still clicks and a swipe still scrolls the tray. The caller adds this modifier after `clickable`, so the lift of a
- * drag is consumed before the click sees it.
+ * The gesture of a tile, armed phase only: a press held for [TrayDragMachine.DEFAULT_HOLD_MS] picks the tile up (with [onPickedUp]
+ * for the haptic tick). Before the hold nothing is consumed, so a tap still clicks and a swipe still scrolls the tray. After the
+ * pick up the tile is done: [TrayDragRoot] follows the finger (see [TrayDragController.onPointerEvent]).
+ *
+ * The lift is read from [androidx.compose.ui.input.pointer.PointerInputChange.pressed], never from `changedToUp()` after
+ * consuming: `changedToUp()` is false for a consumed change, which is what left the ghost stuck in 0.3.9.
  */
 internal suspend fun PointerInputScope.detectTrayDrag(
     controller: TrayDragController,
@@ -191,7 +257,6 @@ internal suspend fun PointerInputScope.detectTrayDrag(
         val id = down.id.value
         val start = rootOf(down.position)
         machine.down(id, start.x, start.y, SystemClock.uptimeMillis())
-        var carrying = false
         try {
             // Armed: watch only. The hold may run out while the finger rests, so each wait is capped by what is left of it.
             while (machine.phase == TrayDragPhase.ARMED) {
@@ -206,52 +271,28 @@ internal suspend fun PointerInputScope.detectTrayDrag(
                         val p = rootOf(change.position)
                         when {
                             change.isConsumed -> machine.interrupt()
-                            change.changedToUp() -> machine.up(id, p.x, p.y)
+                            !change.pressed -> machine.up(id, p.x, p.y)
                             else -> machine.move(id, p.x, p.y, SystemClock.uptimeMillis())
                         }
                     }
                 }
                 when (step) {
                     is TrayDragStep.PickedUp -> {
-                        carrying = true
                         onPickedUp()
-                        controller.pickUp(carryAt(Offset(step.x, step.y)))
+                        controller.pickUp(carryAt(Offset(step.x, step.y)), id)
+                        return@awaitEachGesture
                     }
                     is TrayDragStep.Cancelled, TrayDragStep.Tapped -> return@awaitEachGesture
                     else -> Unit
                 }
             }
-            // Carrying: the finger belongs to the drag until it lifts. Consuming keeps the tray from scrolling and the click from firing.
-            while (carrying) {
-                val event = awaitPointerEvent()
-                if (!controller.isCarrying) break
-                val second = event.changes.any { it.id != down.id && it.changedToDown() }
-                val change = event.changes.firstOrNull { it.id == down.id }
-                event.changes.forEach { it.consume() }
-                if (second) {
-                    machine.secondPointer()
-                    controller.cancel()
-                    carrying = false
-                    break
-                }
-                if (change == null) break
-                val p = rootOf(change.position)
-                when (if (change.changedToUp()) machine.up(id, p.x, p.y) else machine.move(id, p.x, p.y, SystemClock.uptimeMillis())) {
-                    is TrayDragStep.Dropped -> {
-                        carrying = false
-                        controller.drop(p.x, p.y)
-                    }
-                    is TrayDragStep.Moved -> controller.move(p.x, p.y)
-                    else -> Unit
-                }
-            }
         } finally {
-            // The tile left composition, the system cancelled the touch, or the loop ended early: never leave a drag half done.
-            if (carrying) controller.cancel()
+            // Nothing to undo: once the tile is picked up the editor's root observer owns the finger (a disposed tile cannot kill the drag).
         }
     }
 }
 
+private const val RETURN_WATCHDOG_MS = 400L
 private val GhostSize = 96.dp
 private val GhostLift = 56.dp
 
@@ -320,5 +361,36 @@ fun TrayDragGhost(controller: TrayDragController, modifier: Modifier = Modifier)
                 )
             }
         }
+    }
+}
+
+/**
+ * The editor's root. Sees every pointer event before its children (initial pass) and, while a tile is carried, follows the finger that
+ * picked it up: moves, lift (drop), a missing or second finger (cancel). It consumes those events so the tray does not scroll and no
+ * click fires. Also owns the ghost, and ends any drag when the editor leaves composition.
+ */
+@Composable
+fun TrayDragRoot(controller: TrayDragController, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    androidx.compose.runtime.DisposableEffect(controller) { onDispose { controller.reset() } }
+    Box(
+        modifier
+            .onGloballyPositioned { origin = it.positionInRoot() }
+            .pointerInput(controller) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        if (controller.carry == null) continue
+                        val samples = event.changes.map {
+                            TrayPointer(it.id.value, it.position.x + origin.x, it.position.y + origin.y, it.pressed, it.changedToDownIgnoreConsumed())
+                        }
+                        if (controller.onPointerEvent(samples)) event.changes.forEach { it.consume() }
+                        else controller.finishStaleReturn()
+                    }
+                }
+            },
+    ) {
+        content()
+        TrayDragGhost(controller, Modifier.fillMaxSize())
     }
 }
