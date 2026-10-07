@@ -323,6 +323,7 @@ class EditorViewModel(
             is EditorIntent.Multicam -> multicamController.handle(intent.intent)
             is EditorIntent.TapTimeline -> tap(intent.hit)
             is EditorIntent.SetPlayhead -> seekTo(intent.frame)
+            EditorIntent.ScrubStarted -> scrubStarted()
             is EditorIntent.DragStart -> dragStart(intent.hit)
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone)
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
@@ -896,6 +897,17 @@ class EditorViewModel(
     private fun jumpTo(frame: Long) {
         pausePlayback()
         setPlayhead(frame)
+    }
+
+    /**
+     * The user swiped the timeline while it was playing: stop where the playhead is on screen (no jump to the audio clock,
+     * which can be a frame or two ahead of the last tick) and park the output there, so the preview re-anchors on that frame.
+     * Playing again is the user's Play press. Nothing happens when paused.
+     */
+    private fun scrubStarted() {
+        if (!state.value.isPlaying) return
+        pausePlayback()
+        playbackOutput?.seek(state.value.playhead.value)
     }
 
     private fun pausePlayback() {
