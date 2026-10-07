@@ -17,6 +17,7 @@
 #include "audio/retime_source.h"
 #include "audio/spectral_denoise.h"
 #include "audio/voice_fx.h"
+#include "core/fade_math.h"
 
 namespace uv::audio {
 
@@ -133,6 +134,7 @@ struct PreparedClip {
     float pan = 0.0f;
     int64_t userFadeInSamples = 0;   // the clip's own fade handles (equal power)
     int64_t userFadeOutSamples = 0;
+    core::FadeShape userFadeShape = core::FadeShape::EqualPower;
     dsp::EqChain eq;                 // coefficients, designed once at the output rate (all five band stages when a lane drives a band)
     // Keyframed gain, pan and EQ band gains (empty when nothing is animated). While any lane exists the
     // clip is mixed in short chunks that re-evaluate the lanes; `eqParams` and `sampleRate` redesign a band

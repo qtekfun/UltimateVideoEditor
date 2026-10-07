@@ -278,6 +278,20 @@ class AudioSnapshotMappingTest {
     }
 
     @Test
+    fun `the fade shape goes to the mixer and the default stays equal power`() {
+        fun shapeOf(shape: com.ultimatevideo.uveditor.domain.FadeShape) = snapshot(
+            withAudio(
+                timeline(track("v1", clip("c", 0, 100, asset = "a"))), "c",
+                com.ultimatevideo.uveditor.domain.ClipAudio(fadeInFrames = 10, fadeShape = shape),
+            ),
+            asset("a", true),
+        ).clips.single().fadeShape
+        assertEquals(0, shapeOf(com.ultimatevideo.uveditor.domain.FadeShape.EQUAL_POWER))
+        assertEquals(1, shapeOf(com.ultimatevideo.uveditor.domain.FadeShape.LINEAR))
+        assertEquals(2, shapeOf(com.ultimatevideo.uveditor.domain.FadeShape.LOGARITHMIC))
+    }
+
+    @Test
     fun `where a transition already ramps an edge the clip fade handle is dropped`() {
         val base = timeline(track("v1", clip("c1", 0, 100, asset = "a"), clip("c2", 100, 100, srcIn = 50, asset = "a")))
         val faded = withAudio(withAudio(base, "c1", com.ultimatevideo.uveditor.domain.ClipAudio(fadeInFrames = 10, fadeOutFrames = 10)), "c2", com.ultimatevideo.uveditor.domain.ClipAudio(fadeInFrames = 10, fadeOutFrames = 10))

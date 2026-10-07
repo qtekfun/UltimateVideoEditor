@@ -126,4 +126,19 @@ class AudioMapperTest {
         assertEquals(90.0, eq.highPassHz, 0.0)
         assertEquals(ClipEq.DEFAULT_BANDS, eq.bands)
     }
+
+    @Test
+    fun `the fade shape survives a round trip and an unknown or missing one reads as equal power`() {
+        val start = TimelineMapper.toTimeline(project(listOf(TrackDto("m", "audio", 0, listOf(clipDto("n", 0))))))
+        for (shape in com.ultimatevideo.uveditor.domain.FadeShape.entries) {
+            val edited = TimelineOps.setClipAudio(start, "n", ClipAudio(fadeInFrames = 10, fadeShape = shape)).getOrFail()
+            val written = json.encodeToString(TimelineMapper.toDto(project(emptyList()), edited, emptyList()))
+            val reloaded = TimelineMapper.toTimeline(json.decodeFromString<ProjectDto>(written))
+            assertEquals(shape, reloaded.trackOfClip("n")!!.clip("n")!!.audio.fadeShape)
+            // Equal power is the default and is not written, so projects without the field are unchanged.
+            assertEquals(shape != com.ultimatevideo.uveditor.domain.FadeShape.EQUAL_POWER, written.contains("fadeShape"))
+        }
+        val unknown = project(listOf(TrackDto("m", "audio", 0, listOf(clipDto("n", 0, ClipAudioDto(fadeInFrames = 5, fadeShape = "from-a-newer-build"))))))
+        assertEquals(com.ultimatevideo.uveditor.domain.FadeShape.EQUAL_POWER, TimelineMapper.toTimeline(unknown).trackOfClip("n")!!.clip("n")!!.audio.fadeShape)
+    }
 }

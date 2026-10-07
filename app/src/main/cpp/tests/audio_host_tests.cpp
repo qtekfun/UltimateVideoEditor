@@ -22,6 +22,7 @@
 #include "audio/resampler.h"
 #include "audio/retime_source.h"
 #include "core/crossfade_math.h"
+#include "core/fade_math.h"
 
 using namespace uv;
 using namespace uv::audio;
@@ -229,7 +230,8 @@ static Buf makeAudioSnapshot(int32_t fpsNum, int32_t fpsDen, const std::vector<A
         }
         w.put<float>(c.denoiseStrength);
         w.put<int32_t>(static_cast<int32_t>(c.noiseProfile.size()));
-        w.put<uint32_t>(static_cast<uint32_t>(c.lanes.size()));
+        w.put<uint32_t>(static_cast<uint32_t>(c.lanes.size()) |
+                        (static_cast<uint32_t>(c.fadeShape) << kAudioSnapshotFadeShapeShift));
     }
     for (const auto& c : clips) {
         for (const RetimeKnot& k : c.knots) {
@@ -1434,6 +1436,87 @@ static void testPanFadesAndGainInTheMixer() {
     g_spec = FakeSpec{};
 }
 
+
+// ------------------------------------------------------------------ fade shapes (core/fade_math.h)
+
+// Golden values; domain/FadeCurve.kt is tested against the same numbers (FadeCurveTest).
+static void testFadeShapeMath() {
+    using core::FadeShape;
+    for (FadeShape shape : {FadeShape::EqualPower, FadeShape::Linear, FadeShape::Logarithmic}) {
+        CHECK(core::fadeShapeGain(shape, 0.0) == 0.0f && core::fadeShapeGain(shape, 1.0) == 1.0f);
+        float previous = 0.0f;
+        for (int i = 1; i < 100; ++i) {  // strictly rising inside the fade
+            const float g = core::fadeShapeGain(shape, i / 100.0);
+            CHECK(g > previous && g < 1.0f);
+            previous = g;
+        }
+    }
+    CHECK_NEAR(core::fadeShapeGain(FadeShape::EqualPower, 0.5), 0.70710678, 1e-6);
+    CHECK_NEAR(core::fadeShapeGain(FadeShape::Linear, 0.25), 0.25, 1e-7);
+    CHECK_NEAR(core::fadeShapeGain(FadeShape::Logarithmic, 0.5), (std::pow(10.0, -1.5) - 0.001) / 0.999, 1e-6);
+    CHECK_NEAR(core::fadeShapeGain(FadeShape::Logarithmic, 0.9), 0.5007, 1e-3);
+    // An unknown wire value falls back to equal power.
+    CHECK(core::fadeShapeFromWire(3) == FadeShape::EqualPower && core::fadeShapeFromWire(-1) == FadeShape::EqualPower);
+    // Equal power fades match the transition ramps bit for bit in meaning (power sums to 1 against the mirrored fade).
+    for (int64_t k : {0, 5, 17, 39}) {
+        const float in = core::fadeInShapeGain(FadeShape::EqualPower, k, 40);
+        const float out = core::fadeOutShapeGain(FadeShape::EqualPower, k, 40);
+        CHECK_NEAR(in * in + out * out, 1.0, 1e-5);
+        CHECK_NEAR(in, core::crossfadeFadeInGain(k, 40), 1e-6);
+        CHECK_NEAR(core::fadeOutShapeGain(FadeShape::EqualPower, k, 40), core::crossfadeFadeOutGain(k, 40), 1e-6);
+    }
+    // Fade-out is the fade-in played backwards (linear: sums to 1), silent past the end, neutral for length 0.
+    CHECK_NEAR(core::fadeOutShapeGain(FadeShape::Linear, 10, 40) + core::fadeInShapeGain(FadeShape::Linear, 10, 40), 1.0, 1e-6);
+    CHECK(core::fadeOutShapeGain(FadeShape::Linear, 40, 40) == 0.0f && core::fadeOutShapeGain(FadeShape::Linear, 3, 0) == 1.0f);
+    // The combined factor on a clip 100 samples long: fade-in 10, fade-out 20.
+    CHECK(core::fadeGainAt(FadeShape::Linear, 10, 20, 100, 50) == 1.0f);
+    CHECK_NEAR(core::fadeGainAt(FadeShape::Linear, 10, 20, 100, 4), 0.45, 1e-6);
+    CHECK_NEAR(core::fadeGainAt(FadeShape::Linear, 10, 20, 100, 90), 0.475, 1e-6);
+    CHECK(core::fadeGainAt(FadeShape::Linear, 0, 0, 100, 0) == 1.0f);
+    // Overlapping fades multiply and never exceed 1.
+    for (int64_t s = 0; s < 10; ++s) CHECK(core::fadeGainAt(FadeShape::EqualPower, 10, 10, 10, s) <= 1.0f);
+}
+
+// The mixer applies the shape: preview, export and the offline render all go through it.
+static void testFadeShapesInTheMixer() {
+    g_spec = FakeSpec{};
+    g_spec.constant = 0.5f;
+    const int64_t len = 30 * 1600, fade = 10 * 1600;
+    for (int shape : {0, 1, 2}) {
+        AudioClipDesc c = toolClip(1, 0, 30);
+        c.userFadeInFrames = 10;
+        c.userFadeOutFrames = 10;
+        c.fadeShape = shape;
+        const std::vector<float> out = playFor(snap30({c}), 1.0);
+        const auto fs = static_cast<core::FadeShape>(shape);
+        for (int64_t k : {int64_t{1000}, int64_t{8000}, int64_t{15000}}) {
+            CHECK_NEAR(out[2 * k], 0.5 * core::fadeInShapeGain(fs, k, fade), 1e-4);
+        }
+        CHECK_NEAR(out[2 * 24000], 0.5, 1e-5);
+        for (int64_t k : {len - 12000, len - 5000, len - 100}) {
+            CHECK_NEAR(out[2 * k], 0.5 * core::fadeOutShapeGain(fs, k - (len - fade), fade), 1e-4);
+        }
+    }
+    // The shape travels through the snapshot and is clamped to the known ones on use.
+    AudioClipDesc c = toolClip(1, 0, 30);
+    c.fadeShape = 2;
+    const Buf b = makeAudioSnapshot(30, 1, {c});
+    AudioSnapshotData parsed;
+    CHECK(parseAudioSnapshot(b.b.data(), b.b.size(), &parsed) == Status::Ok && parsed.clips[0].fadeShape == 2);
+    // Fades with a keyframed volume (the chunked path) use the same function.
+    AudioClipDesc animated = toolClip(1, 0, 30);
+    animated.userFadeInFrames = 10;
+    animated.fadeShape = 1;
+    AutoLane lane;
+    lane.param = AutoParam::GainDb;
+    lane.points = {AutoPoint{0, 0.0f}, AutoPoint{29, 0.0f}};
+    animated.lanes.push_back(lane);
+    const std::vector<float> out = playFor(snap30({animated}), 1.0);
+    CHECK_NEAR(out[2 * 8000], 0.5 * core::fadeInShapeGain(core::FadeShape::Linear, 8000, fade), 1e-4);
+    CHECK_NEAR(out[2 * 24000], 0.5, 1e-4);
+    g_spec = FakeSpec{};
+}
+
 static void testEqInTheMixer() {
     g_spec = FakeSpec{};
     g_spec.sineHz = 1000.0;
@@ -2260,6 +2343,7 @@ int main() {
     testMixerPlacementAndGain();
     testOverlapSumsAndClips();
     testCrossfadeGains();
+    testFadeShapeMath();
     testSilenceOutsideClipsAndEof();
     testResamplingPath();
     testSeekPauseAndClock();
@@ -2284,6 +2368,7 @@ int main() {
     testRetimeChangeStartsANewSource();
     testSnapshotV4Parsing();
     testPanFadesAndGainInTheMixer();
+    testFadeShapesInTheMixer();
     testEqInTheMixer();
     testTrackVolumeMuteAndCompressor();
     testDuckingInTheMixer();

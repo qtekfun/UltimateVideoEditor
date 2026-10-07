@@ -181,7 +181,7 @@ data class VoiceFx(val preset: VoicePreset, val values: List<Double>) {
 data class ClipAudio(
     /** Balance: -1 hard left, 0 untouched, 1 hard right. */
     val pan: Double = 0.0,
-    /** The clip's own fade handles, in clip frames (equal-power ramps); 0 = none. */
+    /** The clip's own fade handles, in clip frames (ramps shaped by [fadeShape]); 0 = none. */
     val fadeInFrames: Long = 0,
     val fadeOutFrames: Long = 0,
     val eq: ClipEq = ClipEq.FLAT,
@@ -196,6 +196,8 @@ data class ClipAudio(
      * animated is applied when released and makes the engine decode the clip again.
      */
     val voice: VoiceFx? = null,
+    /** How both fade handles ramp (see [FadeCurve]); only matters while a fade is set. */
+    val fadeShape: FadeShape = FadeShape.EQUAL_POWER,
 ) {
     val isNeutral: Boolean get() = this == NONE
 

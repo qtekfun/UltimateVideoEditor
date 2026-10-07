@@ -290,7 +290,7 @@ class EditorViewModel(
         // Typing in the title field is only provisional: any other action first makes it final.
         if (intent !is EditorIntent.UpdateTitle && intent !is EditorIntent.EndTitleEdit && intent !is EditorIntent.LayerGesture) endTitleEdit(commit = true)
         // A key drag in the keyframe lane is provisional until released.
-        if (intent !is EditorIntent.UpdateParamKey && intent !is EditorIntent.EndParamKeyEdit) endParamKeyEdit(commit = true)
+        if (intent !is EditorIntent.UpdateParamKey && intent !is EditorIntent.EndParamKeyEdit && !isShapeDragStep(intent)) endParamKeyEdit(commit = true)
         // Same for an effect slider: it stays provisional until released or until something else happens.
         if (intent !is EditorIntent.UpdateEffect && intent !is EditorIntent.UpdateGrade && intent !is EditorIntent.UpdateMask &&
             intent !is EditorIntent.EndFxEdit
@@ -299,7 +299,7 @@ class EditorViewModel(
         }
         // And for an audio slider (pan, EQ, track volume, ducking).
         if (intent !is EditorIntent.UpdateClipAudio && intent !is EditorIntent.UpdateTrackAudio &&
-            intent !is EditorIntent.UpdateDucking && intent !is EditorIntent.EndAudioEdit
+            intent !is EditorIntent.UpdateDucking && intent !is EditorIntent.EndAudioEdit && !isShapeDragStep(intent)
         ) {
             endAudioEdit(commit = true)
         }
@@ -447,6 +447,7 @@ class EditorViewModel(
             EditorIntent.Back -> flush(thenClose = true)
             is SelectionIntent -> selectionIntent(intent)
             is LaneDragIntent -> laneDragIntent(intent)
+            is AudioShapeIntent -> audioShapeIntent(intent)
             is QualifierIntent -> qualifierIntent(intent)
             is LibraryIntent -> libraryIntent(intent)
             is QuickEditIntent -> quickEditIntent(intent)
@@ -556,7 +557,14 @@ class EditorViewModel(
         val markerLabels = timeline.markers.mapIndexedNotNull { index, marker ->
             ClipLabels.clean(marker.name.orEmpty()).takeIf { it.isNotEmpty() }?.let { SnapshotLabel(SnapshotLabel.markerKey(index), it) }
         }
-        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels + markerLabels, trackFlags)
+        val shaping = timeline.tracks.flatMap { track ->
+            if (track.type == TrackType.TITLE) return@flatMap emptyList()
+            track.clips.mapNotNull { clip ->
+                val editable = AudioShapeGesture.isEditable(clip, track.type, isPrimary = clip.id == state.selectedClipId)
+                AudioShapeGesture.snapshotOf(clip, clipKeys.keyFor(clip.id), editable)
+            }
+        }
+        return TimelineSnapshot(state.fps.num, state.fps.den, tracks, clips, transitions, keyframes, retimes, markers, labels + markerLabels, shaping, trackFlags)
     }
 
     // region loading and saving
@@ -811,6 +819,7 @@ class EditorViewModel(
             // A tap on a lane header selects the lane (the up/down and remove buttons then act on it); a long press drags it.
             HitKind.LANE_HEADER -> reduce { copy(selectedTrackId = timeline.tracks.getOrNull(hit.trackIndex)?.id ?: selectedTrackId) }
             // Above the lanes (room left by the bottom-anchored stack) a tap is a tap on nothing; OUTSIDE only occurs mid-drag.
+            HitKind.FADE_IN_HANDLE, HitKind.FADE_OUT_HANDLE, HitKind.VOLUME_POINT -> Unit
             HitKind.NONE, HitKind.ABOVE_LANES, HitKind.OUTSIDE ->
                 if (!state.value.selectMode) reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
         }
@@ -1778,6 +1787,73 @@ class EditorViewModel(
         if (commit && changed && execute(command)) return
         reduce { copy(dragPreview = null, audioSessionActive = false) }
     }
+
+    // region sound shaping on the canvas (fade circles, volume curve)
+
+    /** The drag of a fade circle or curve point in progress: the clip and the gesture. */
+    private var shapeDrag: Pair<String, AudioShapeGesture.Drag>? = null
+
+    /** The steps of a shaping drag keep the provisional audio and key edits they make alive between moves. */
+    private fun isShapeDragStep(intent: EditorIntent) = intent is AudioShapeIntent.Move || intent is AudioShapeIntent.End
+
+    private fun shapeClip(hit: TimelineHit): Pair<String, Clip>? {
+        val clipId = clipKeys.idFor(hit.clipKey) ?: return null
+        if (clipId != state.value.selectedClipId) return null
+        val track = history.timeline.trackOfClip(clipId) ?: return null
+        val clip = track.clip(clipId) ?: return null
+        return if (AudioShapeGesture.isEditable(clip, track.type, isPrimary = true)) clipId to clip else null
+    }
+
+    private fun audioShapeIntent(intent: AudioShapeIntent) {
+        when (intent) {
+            is AudioShapeIntent.Start -> {
+                val (clipId, clip) = shapeClip(intent.hit) ?: return
+                shapeDrag = AudioShapeGesture.Drag.begin(intent.hit, clip)?.let { clipId to it }
+            }
+            is AudioShapeIntent.Move -> {
+                val (clipId, drag) = shapeDrag ?: return
+                val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
+                when (val action = drag.move(intent.hit)) {
+                    is AudioShapeGesture.Action.SetFades -> {
+                        val audio = clip.audio.copy(fadeInFrames = action.fadeIn, fadeOutFrames = action.fadeOut)
+                        updateAudioEdit("clip:$clipId", EditCommand.SetClipAudioAt(clipId, audio, null))
+                    }
+                    is AudioShapeGesture.Action.MovePoint -> updateParamKey(ParamIds.GAIN_DB, action.fromFrame, action.toFrame, action.db)
+                    null -> Unit
+                }
+            }
+            is AudioShapeIntent.End -> {
+                shapeDrag = null
+                endAudioEdit(intent.commit)
+                endParamKeyEdit(intent.commit)
+            }
+            is AudioShapeIntent.DoubleTap -> {
+                val (clipId, clip) = shapeClip(intent.hit) ?: return
+                when (intent.hit.kind) {
+                    HitKind.VOLUME_POINT -> clip.paramKeys(ParamIds.GAIN_DB).getOrNull(intent.hit.index)?.let {
+                        execute(EditCommand.RemoveParamKey(clipId, ParamIds.GAIN_DB, it.frame))
+                    }
+                    HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> intent.hit.dbTenths?.let { tenths ->
+                        val frame = intent.hit.frame - clip.timelineStart.value
+                        execute(EditCommand.PasteParamKeys(clipId, ParamIds.GAIN_DB, AudioShapeGesture.keysForNewPoint(clip, frame, tenths / 10.0)))
+                    }
+                    else -> Unit
+                }
+            }
+            AudioShapeIntent.AddPointAtPlayhead -> withSelection { clipId ->
+                val clip = selectedParamClip() ?: return@withSelection
+                val frame = state.value.selectedFrame
+                if (frame == null) {
+                    emit(EditorEffect.ShowMessage("Move the playhead inside the clip to add a volume point"))
+                    return@withSelection
+                }
+                val here = (clip.paramValueAt(ParamIds.GAIN_DB, frame) ?: clip.gainDb).coerceIn(ClipGain.MIN_DB, ClipGain.MAX_DB)
+                execute(EditCommand.PasteParamKeys(clipId, ParamIds.GAIN_DB, AudioShapeGesture.keysForNewPoint(clip, frame, here, snap = false)))
+            }
+        }
+    }
+
+    // endregion
 
     private fun resetClipAudio() = withSelection { clipId ->
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection

@@ -80,6 +80,7 @@ class TimelineSurfaceView(
     private val editing: () -> TimelineEditing? = { null },
     private val dropTarget: () -> TimelineDropTarget? = { null },
     private val selecting: () -> TimelineSelecting? = { null },
+    private val shaping: () -> TimelineShaping? = { null },
 ) : SurfaceView(context), SurfaceHolder.Callback {
 
     private var hovering = false
@@ -156,6 +157,9 @@ class TimelineSurfaceView(
     private var marquee = false
     private var dragging = false
 
+    // A fade circle or volume point of the selected audio clip grabbed with the finger: the drag moves it instead of scrolling.
+    private var shapingActive = false
+
     // A lane picked up by its header (long press): the finger then moves the lane instead of scrolling. The platform
     // gesture detector stops reporting scrolls after a long press, so the moves are read from the touch events.
     private var laneDragging = false
@@ -207,7 +211,7 @@ class TimelineSurfaceView(
             }
 
             override fun onLongPress(e: MotionEvent) {
-                if (dragging || marquee || laneDragging) return
+                if (dragging || marquee || laneDragging || shapingActive) return
                 val hit = engine.hitTest(e.x, e.y)
                 if (hit.kind == HitKind.LANE_HEADER) {
                     val lanes = editing() ?: return
@@ -228,11 +232,14 @@ class TimelineSurfaceView(
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 if (scaleDetector.isInProgress || laneDragging) return true
-                if (!dragging && !marquee) {
-                    tryStartDrag()
-                    if (!dragging) tryStartMarquee()
+                if (!dragging && !marquee && !shapingActive) {
+                    tryStartShaping()
+                    if (!shapingActive) tryStartDrag()
+                    if (!dragging && !shapingActive) tryStartMarquee()
                 }
-                if (dragging) {
+                if (shapingActive) {
+                    shaping()?.onDragMove(engine.hitTest(e2.x, e2.y))
+                } else if (dragging) {
                     dragX = e2.x
                     dragY = e2.y
                     editing()?.onDragMove(engine.hitTest(e2.x, e2.y))
@@ -249,7 +256,13 @@ class TimelineSurfaceView(
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (!scaleDetector.isInProgress && !dragging && scrubGate.onFling(velocityX, velocityY)) editing()?.onScrub()
                 // Finger velocity is opposite to the scroll offset direction.
-                if (!scaleDetector.isInProgress && !dragging) engine.fling(-velocityX)
+                if (!scaleDetector.isInProgress && !dragging && !shapingActive) engine.fling(-velocityX)
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val target = shaping() ?: return false
+                target.onDoubleTap(engine.hitTest(e.x, e.y))
                 return true
             }
 
@@ -283,6 +296,15 @@ class TimelineSurfaceView(
         dragging = true
         handler.onDragStart(hit)
         postOnAnimation(edgeScroll)
+    }
+
+    private fun tryStartShaping() {
+        val hit = downHit ?: return
+        val target = shaping() ?: return
+        if (!target.canDrag(hit)) return
+        shapingActive = true
+        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        target.onDragStart(hit)
     }
 
     /** In select mode a drag that starts on empty lane space draws a selection rectangle instead of scrolling. */
@@ -331,6 +353,10 @@ class TimelineSurfaceView(
                 dragY = event.y
                 editing()?.onDragMove(engine.hitTest(event.x, event.y))
             }
+        }
+        if (shapingActive && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
+            shapingActive = false
+            shaping()?.onDragEnd(commit = event.actionMasked == MotionEvent.ACTION_UP)
         }
         if (marquee && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
             marquee = false
