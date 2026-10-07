@@ -62,6 +62,7 @@ internal fun audioSnapshotOf(
     val indexOfTrack = mixerTracks.withIndex().associate { (i, t) -> t.id to i }
     val specs = timeline.renderClips().mapNotNull { clip ->
         if (clip.kind == RenderKind.TITLE) return@mapNotNull null
+        if (clip.soundDetached) return@mapNotNull null // its sound is an audio-lane clip now, or was removed on purpose
         val asset = withAudio[clip.assetId] ?: return@mapNotNull null
         val trackIndex = indexOfTrack[clip.trackId] ?: return@mapNotNull null
         val knots = retimeKnotsOf(clip)
