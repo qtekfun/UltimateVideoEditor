@@ -240,7 +240,7 @@ panel on the left.
 ### Gestures
 
 - **Tap** a clip to select it (yellow outline and a handle at each end, the edges you can drag to trim). Tap an empty lane to select that track.
-- **Drag the ruler or the red playhead** to scrub.
+- **Drag the ruler or the red playhead** to scrub. While the project is playing, **swiping the timeline sideways** (a drag or a fling along the time axis, not a clip drag) also stops playback at that moment, with the picture and sound stopped on the frame the playhead shows, and then scrolls as usual; press Play to continue. A mostly vertical swipe (scrolling the lanes) does not stop it, and a plain tap on the ruler jumps the playhead and keeps playing.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
 - **Pinch** on the timeline to zoom the time axis. Spread your fingers **vertically** instead to make the lanes taller or shorter (between half and three times the default height); the lane under your fingers stays put. Whichever way the fingers spread most at the start decides. The Layout sheet's Small / Medium / Large chips set the lane height too, and the Fit button restores the all-lanes view.
 - **Drag** on an empty area to scroll, **fling** to coast.

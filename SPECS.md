@@ -264,7 +264,11 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   that finished opening), or (b) the heard frame differs from where the native clock should be by more than
   `DRIFT_THRESHOLD_FRAMES` (2 frames; `PreviewAnchor`, JVM-tested). Where no clip is under the playhead (a gap
   or the end) the native clock is paused and the last frame stays up. `setScene` (paused, scrubbing, editing)
-  stops native playback. Known limit: the first frames of an incoming clip at a cut are not pre-rolled, so a
+  stops native playback. **Taking control of the transport.** While playing, these stop playback (view model `pausePlayback`, output
+  paused, `setScene` at the playhead the user sees): dragging the playhead or the ruler, a sideways swipe or fling on the
+  timeline content (`ScrubGate`, then `EditorIntent.ScrubStarted`; it seeks the output to the displayed playhead, never to the
+  audio clock), Previous / Next clip boundary (`jumpTo`) and Split at playhead. Only Play resumes. A tap on the ruler seeks and
+  keeps playing. Known limit: the first frames of an incoming clip at a cut are not pre-rolled, so a
   cut may stall for a frame or two while its decoder seeks.
 - **Offscreen use (export).** `GlPipeline::drawScene(layers, canvasW, canvasH, targetW, targetH)` composites into
   whatever framebuffer is bound, without binding, swapping or waiting. To render a frame for the encoder:
