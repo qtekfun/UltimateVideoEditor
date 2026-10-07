@@ -335,8 +335,8 @@ class EditorViewModel(
             is EditorIntent.AddTrack -> addTrack(intent.type)
             EditorIntent.RemoveSelectedTrack -> removeSelectedTrack()
             is EditorIntent.MoveSelectedTrack -> moveSelectedTrack(intent.delta)
-            EditorIntent.SeekPrevious -> seekTo(previousEditPoint())
-            EditorIntent.SeekNext -> seekTo(nextEditPoint())
+            EditorIntent.SeekPrevious -> jumpTo(previousEditPoint())
+            EditorIntent.SeekNext -> jumpTo(nextEditPoint())
             EditorIntent.Undo -> undo()
             EditorIntent.Redo -> redo()
             EditorIntent.ToggleInspector -> toggleInspector()
@@ -886,6 +886,15 @@ class EditorViewModel(
         pausePlayback()
         setPlayhead(frame)
         if (wasPlaying) startPlayback()
+    }
+
+    /**
+     * Go to a clip boundary: playback stops at that moment (it does not resume, unlike [seekTo]) and the playhead and the
+     * output land exactly on [frame]. Pressing it with no boundary left in that direction still stops playback.
+     */
+    private fun jumpTo(frame: Long) {
+        pausePlayback()
+        setPlayhead(frame)
     }
 
     private fun pausePlayback() {
