@@ -116,16 +116,12 @@ class TimelineEngine(
     fun zoomBy(factor: Float, focusX: Float) = NativeTimeline.nativeZoomBy(live(), factor, focusX)
     fun fling(velocityX: Float) = NativeTimeline.nativeFling(live(), velocityX)
 
-    /** Vertical pinch: multiplies the lane height by [factor] (clamped to 0.5x..3x the default) around [focusY]. */
-    fun zoomLanesBy(factor: Float, focusY: Float) = NativeTimeline.nativeZoomLanesBy(live(), factor, focusY)
-
-    /** Refits the time axis to the project length while it is still following it; lanes follow on their own. */
+    /** Refits the time axis to the project length while it is still following it. */
     fun followContent() = NativeTimeline.nativeFollowContent(live())
 
     /**
-     * The "Fit" button: zooms the time axis so the whole project fits and the lanes to the largest height at which all of them
-     * fit the panel (as many as the minimum height allows, then they scroll). Both follow the panel and the project until the
-     * user zooms that axis by hand.
+     * The "Fit" button: zooms the time axis so the whole project fits. It keeps following the panel and the project length until
+     * the user zooms by hand. Lane heights are not touched: they are the layout sheet's preset.
      */
     fun fitToContent() = NativeTimeline.nativeFitToContent(live())
 

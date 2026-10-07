@@ -50,11 +50,7 @@ public:
     void ensureVisible(int64_t frame);
     void scrollBy(float dx, float dy);
     void zoomBy(float factor, float focusX);
-    // Vertical pinch: multiplies the lane height by `factor` (clamped, see lane_zoom.h) and keeps the lane stack point under
-    // `focusY` (view pixels) in place. Leaves the lane fit mode.
-    void zoomLanesBy(float factor, float focusY);
-    // Zooms to show the whole timeline and fits every lane in the panel (as many as the minimum height allows), and
-    // resumes following both on resize and when lanes are added or removed.
+    // Zooms the time axis to show the whole timeline and resumes following it on resize. Lane heights are not touched.
     void fitToContent();
     // Refits the time axis to the project length if it is still following it (the timeline length changed).
     void followContent();
