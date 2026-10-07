@@ -1,6 +1,6 @@
 package com.ultimatevideo.uveditor.ui.editor
 
-import com.ultimatevideo.uveditor.engine.timeline.TimelineEngine
+import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.ui.editor.tray.RootBounds
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayAutoScroll
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragSink
@@ -14,7 +14,8 @@ import com.ultimatevideo.uveditor.ui.editor.tray.sampleTimeline
  * and commit the drop as one undo step. Near the timeline's edges it scrolls it, like a clip drag does.
  */
 internal class TimelineTrayDrop(
-    private val engine: TimelineEngine,
+    private val hitTest: (Float, Float) -> TimelineHit,
+    private val scrollBy: (Float, Float) -> Unit,
     private val onIntent: (EditorIntent) -> Unit,
     private val density: Float,
 ) : TrayDragSink {
@@ -67,13 +68,13 @@ internal class TimelineTrayDrop(
             nowMs,
         )
         if (dx == 0f && dy == 0f) return
-        engine.scrollBy(dx, dy)
+        scrollBy(dx, dy)
         // The content moved under a still finger: the frame and lane under it changed.
         hover()
     }
 
     private fun hover() {
-        val sample = sampleTimeline(lastX, lastY, bounds, engine::hitTest)
+        val sample = sampleTimeline(lastX, lastY, bounds, hitTest)
         if (sample == null) {
             if (over) onIntent(EditorIntent.TrayDragLeave)
             over = false
