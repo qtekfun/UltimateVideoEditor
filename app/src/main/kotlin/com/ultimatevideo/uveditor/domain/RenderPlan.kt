@@ -55,6 +55,11 @@ data class RenderClip(
     val transitionIn: TransitionLook? = null,
     /** The look of the transition this clip goes out with, or null when it has none. */
     val transitionOut: TransitionLook? = null,
+    /**
+     * True for a video clip whose own sound was detached ([Clip.audioDetached]): it contributes no audio to the mix, in the
+     * preview and in the export alike. Its sound, if any, is a clip on an audio lane.
+     */
+    val soundDetached: Boolean = false,
 ) {
     val endFrame: Long get() = startFrame + durationFrames
 
@@ -217,6 +222,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                 smooth = clip.smoothSlowMo && clip.hasMedia,
                 transitionIn = incoming?.let { TransitionLook(it.type, it.direction, it.durationFrames) },
                 transitionOut = outgoing?.let { TransitionLook(it.type, it.direction, it.durationFrames) },
+                soundDetached = clip.audioDetached && track.type == TrackType.VIDEO,
             )
         }
     }

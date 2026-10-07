@@ -284,6 +284,17 @@ data class Clip(
      * A parameter without a track keeps its static value. The pose is animated by [keyframes] instead.
      */
     val params: List<ParamTrack> = emptyList(),
+    /**
+     * True for a video clip whose own sound was detached: it is silent, and any sound that goes with it is a clip on an
+     * audio lane (see [ClipLinks]). The clip's [gainDb], [audio] and [params] stay as they were so that restoring the
+     * embedded sound brings back the same mix.
+     */
+    val audioDetached: Boolean = false,
+    /**
+     * Shared by a video clip and the audio clip detached from it while they are linked (an edit of one is applied to the
+     * other, see [ClipLinks.settle]); null when the clip is on its own. Exactly two clips share an id.
+     */
+    val linkId: String? = null,
 ) {
     /** True for a clip that plays media with a length of its own (not a title, photo or sticker). */
     val hasMedia: Boolean get() = title == null && still == null
@@ -422,6 +433,7 @@ data class Timeline(
                 ClipGain.problem(clip.gainDb)?.let { violations += "clip ${clip.id} $it" }
                 clip.fx.problem()?.let { violations += "clip ${clip.id} fx: $it" }
                 violations += clip.paramProblems().map { "clip ${clip.id} $it" }
+                if (clip.audioDetached && !(track.type == TrackType.VIDEO && clip.hasMedia)) violations += "clip ${clip.id} has detached audio but is not a video clip"
                 if (track.type == TrackType.AUDIO && !clip.fx.isNeutral) violations += "audio clip ${clip.id} has visual effects"
                 when {
                     track.type == TrackType.TITLE && clip.title == null -> violations += "clip ${clip.id} on a title track has no title"
@@ -440,6 +452,7 @@ data class Timeline(
             if (!seenTransitionIds.add(transition.id)) violations += "duplicate transition id ${transition.id}"
             transitionProblem(transition)?.let { violations += "transition ${transition.id}: $it" }
         }
+        violations += ClipLinks.violations(this)
         violations += MarkerOps.violations(markers)
         violations += MulticamOps.violations(this)
         return violations
