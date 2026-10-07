@@ -1731,3 +1731,12 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 **Alternative:** a shared group id on every operation (many code paths, easy to miss one), or silencing with `gainDb = -96` (cannot be told from a user's mute, and a restore would lose the old volume).
 **Not done:** the default setting "Put video audio on an audio track" when inserting a clip (nice-to-have; it touches the insert and drop code another change is reworking). A transition on a detached clip still crossfades the picture only; the audio clip keeps its own fades. The timeline canvas still draws the waveform on the video clip.
 **Tests:** `ClipLinksTest`, `DetachedAudioSnapshotTest`, `DetachedAudioMapperTest`, `ToolbarGuideTest`; SPECS 5.38.
+
+## Overnight decisions, 2026-10-08 (release 0.3.11)
+
+- **Tap on the ruler while playing keeps playing.** A tap on the ruler jumps and playback continues (an existing test pins it). Swiping the timeline, dragging the playhead and the previous/next clip boundary buttons do stop playback. Reason: a ruler tap is a "jump to there" gesture people use during playback to loop over a spot; revisit if the owner finds it surprising.
+- **Waveform cost accepted without a device measurement.** #165 draws about 2-3x the vertices per audio clip (capped near 13k). Merged because the cap bounds the worst case; the owner should run `scripts/perf-timeline.sh` and, if it costs too much, drop the outline layer first.
+- **Bundle export and movie export never run together.** #164 refuses a second long job and names the running one instead of queueing.
+- **CI apt hangs.** `apt-get install ffmpeg` hung three times and cost an hour each. The test-job step now has a 5 minute limit and may fail without failing the job (the test skips itself without ffmpeg); the QA self-test needs ffmpeg, so it retries three times with a time limit per attempt.
+- **PRs are merged with CI green after merging master into their branch.** No force-push: a conflicting PR gets `git merge origin/master` and a local build and unit-test run before the push.
+- **Not done:** the "put video audio on an audio track when inserting" default from #170, taller audio lanes, a transition fading the audio of a detached clip, no waveform on a detached video clip. All need the owner's call on how insertion should behave.
