@@ -270,6 +270,8 @@ class TemplateWizardViewModel(
         return MediaAssetDto(
             id = id, uri = uri, durationFrames = frames, nativeFpsNum = num, nativeFpsDen = den, colorSpace = probed.colorSpace,
             hasVideo = probed.hasVideo, hasAudio = probed.hasAudio, displayName = probed.displayName,
+            videoWidth = probed.videoWidth, videoHeight = probed.videoHeight, videoBitrate = probed.videoBitrate,
+            videoCodec = probed.videoCodec, tenBit = probed.tenBit,
         )
     }
 
