@@ -57,7 +57,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import com.ultimatevideo.uveditor.ui.editor.tray.MediaTray
 import com.ultimatevideo.uveditor.ui.editor.tray.RootBounds
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragController
-import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragGhost
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragRoot
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayState
 import com.ultimatevideo.uveditor.ui.editor.tray.TrayTab
 import com.ultimatevideo.uveditor.ui.editor.tray.trayItems
@@ -555,7 +555,7 @@ fun EditorScreen(
         }
     }
     // Dragging a tile onto the timeline: the tray tracks the finger, the sink turns it into timeline drops (see DECISIONS.md "Tray drag").
-    val trayDropBounds = remember(viewModel, engine) { TimelineTrayDrop(engine, viewModel::onIntent, density) }
+    val trayDropBounds = remember(viewModel, engine) { TimelineTrayDrop(engine::hitTest, engine::scrollBy, viewModel::onIntent, density) }
     val trayDrag = remember(trayDropBounds) {
         TrayDragController().also { controller ->
             controller.sink = trayDropBounds
@@ -728,7 +728,7 @@ fun EditorScreen(
         LocalProxyUi provides proxyHolder,
         LocalProxyIntent provides proxyVm::onIntent,
     ) {
-    Box(Modifier.fillMaxSize()) {
+    TrayDragRoot(trayDrag, Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = {
             FrameSnackbarHost(
@@ -876,8 +876,6 @@ fun EditorScreen(
             }
         }
     }
-    // Above everything, touchless: the tile being dragged from the tray.
-    TrayDragGhost(trayDrag, Modifier.fillMaxSize())
     }
     }
 }

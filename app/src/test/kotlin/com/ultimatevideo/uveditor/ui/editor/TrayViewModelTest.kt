@@ -12,7 +12,14 @@ import com.ultimatevideo.uveditor.data.model.ProjectSettingsDto
 import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.DropKind
+import androidx.compose.ui.geometry.Offset
+import com.ultimatevideo.uveditor.engine.timeline.HitKind
+import com.ultimatevideo.uveditor.engine.timeline.TimelineHit
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
+import com.ultimatevideo.uveditor.ui.editor.tray.RootBounds
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayCarry
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayDragController
+import com.ultimatevideo.uveditor.ui.editor.tray.TrayPointer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -260,6 +267,62 @@ class TrayViewModelTest {
         h.move(104, lane = 1)
         assertEquals(DropKind.INSERT, h.state.dropHint?.kind)
         assertNull(h.state.dragOverlay)
+    }
+
+    // The whole chain of a tile drag below the gesture: root pointer samples -> controller -> TimelineTrayDrop -> intents -> editor.
+    private fun Harness.carryTo(hit: (Float, Float) -> TimelineHit, bounds: RootBounds?, path: List<Pair<Float, Float>>, lift: Boolean = true): TrayDragController {
+        val drop = TimelineTrayDrop(hit, { _, _ -> }, vm::onIntent, density = 1f)
+        drop.bounds = bounds
+        val controller = TrayDragController()
+        controller.sink = drop
+        controller.logger = { _, e -> throw e }
+        controller.pickUp(TrayCarry("vid", "vid", "", AssetKind.VIDEO, null, Offset(path.first().first, path.first().second), Offset.Zero), 7L)
+        for ((x, y) in path) assertTrue(controller.onPointerEvent(listOf(TrayPointer(7L, x, y, pressed = true, newDown = false))))
+        if (lift) controller.onPointerEvent(listOf(TrayPointer(7L, path.last().first, path.last().second, pressed = false, newDown = false)))
+        return controller
+    }
+
+    private val timelineBounds = RootBounds(0f, 100f, 1000f, 700f)
+
+    @Test
+    fun `lifting the finger over the base cut inserts the carried asset and clears the ghost`() = runTest(dispatcher) {
+        val h = harness()
+                val c = h.carryTo({ x, _ -> TimelineHit(HitKind.CLIP, 1, 0L, x.toLong()) }, timelineBounds, listOf(50f to 400f, 104f to 400f))
+        assertNull(c.carry)
+        assertEquals(3, h.clips("v1").size)
+        assertEquals(100L, h.clips("v1")[1].timelineStart.value)
+        assertNull(h.state.dropHint)
+    }
+
+    @Test
+    fun `lifting over free overlay space overwrites there`() = runTest(dispatcher) {
+        val h = harness()
+        val c = h.carryTo({ x, _ -> TimelineHit(HitKind.EMPTY_TRACK, 0, 0L, x.toLong()) }, timelineBounds, listOf(150f to 300f))
+        assertNull(c.carry)
+        assertEquals(listOf(150L), h.clips("v2").map { it.timelineStart.value }.filter { it == 150L })
+        assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+    }
+
+    @Test
+    fun `lifting outside the timeline places nothing and the ghost still ends`() = runTest(dispatcher) {
+        val h = harness()
+        val before = h.state.timeline
+        val c = h.carryTo({ x, _ -> TimelineHit(HitKind.CLIP, 1, 0L, x.toLong()) }, timelineBounds, listOf(500f to 50f))
+        assertEquals(before, h.state.timeline)
+        assertTrue(c.carry?.returning == true)
+        c.finishReturn()
+        assertNull(c.carry)
+        assertNull(h.state.dropHint)
+    }
+
+    @Test
+    fun `a timeline whose bounds are not known yet cancels instead of sticking`() = runTest(dispatcher) {
+        val h = harness()
+        val before = h.state.timeline
+        val c = h.carryTo({ x, _ -> TimelineHit(HitKind.CLIP, 1, 0L, x.toLong()) }, null, listOf(104f to 400f))
+        assertEquals(before, h.state.timeline)
+        c.finishReturn()
+        assertNull(c.carry)
     }
 
     @Test
