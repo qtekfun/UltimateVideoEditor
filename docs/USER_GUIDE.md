@@ -89,7 +89,7 @@ no access to it. A format taken from a clip is not remembered for next time.
 
 From top to bottom:
 
-1. **Top bar**: back, project name, the **layout** button, undo, redo and export.
+1. **Top bar**: back, project name, the **?** guide button, the **layout** button, undo, redo and export.
 2. **Preview**: the current frame.
 3. **Divider handle**: the small grey pill under the preview (see [Layout](#layout)).
 4. **Transport and toolbar**: timecode, previous / play-pause / next, a fit button and the tools below
@@ -132,7 +132,16 @@ sideways and a tablet each keep theirs).
 
 ## Toolbar icons
 
-Every icon has a text description: long press it to see its name, or use a screen reader. In order:
+**Not sure what a symbol does?** Three ways to find out:
+
+- **In the app, offline:** tap the **?** button in the top bar of the editor, or open **About, privacy and help**, then **Toolbar guide**.
+  It lists every symbol with its own picture, what it does and when it is available, grouped by where it sits, plus the
+  gestures. Type in the search box to narrow it down. It is part of the app, so it always matches your version.
+- **On the web:** [Toolbar symbols](https://qtekfun.github.io/UltimateVideoEditor/icons.html) shows the same list, and **About, then Online guide**
+  opens the whole guide in your browser. (The app itself stays offline: your browser fetches the page after you tap.)
+- **As a PDF:** each release page on GitHub has this guide as a PDF for reading without a connection.
+
+Every icon also has a text description: long press it to see its name, or use a screen reader. In order:
 
 | Icon | Name | What it does |
 |---|---|---|
