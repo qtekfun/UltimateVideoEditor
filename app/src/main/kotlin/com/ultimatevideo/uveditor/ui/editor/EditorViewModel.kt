@@ -44,6 +44,11 @@ import com.ultimatevideo.uveditor.engine.timeline.EnvelopeResult
 import com.ultimatevideo.uveditor.engine.timeline.EnvelopeSource
 import com.ultimatevideo.uveditor.engine.timeline.NoEnvelopeSource
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipLinks
+import com.ultimatevideo.uveditor.domain.DetachAudio
+import com.ultimatevideo.uveditor.domain.RelinkClips
+import com.ultimatevideo.uveditor.domain.RestoreEmbeddedAudio
+import com.ultimatevideo.uveditor.domain.UnlinkClip
 import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.Denoise
 import com.ultimatevideo.uveditor.domain.retime
@@ -422,6 +427,10 @@ class EditorViewModel(
             is EditorIntent.SetSpeedKeys -> withSelection { clipId -> execute(EditCommand.SetSpeedRamp(clipId, intent.keys)) }
             EditorIntent.ToggleSmoothSlowMo -> toggleSmoothSlowMo()
             EditorIntent.FreezeFrame -> freezeFrame()
+            EditorIntent.DetachAudio -> detachAudio()
+            EditorIntent.UnlinkAudio -> withSelection { execute(UnlinkClip(it)) }
+            is EditorIntent.RelinkAudio -> relinkAudio(intent.realign)
+            EditorIntent.RestoreEmbeddedAudio -> restoreEmbeddedAudio()
             is EditorIntent.SetSafeZone -> reduce { copy(safeZone = intent.platform) }
             EditorIntent.ShowCanvasDialog -> reduce { copy(canvasDialogOpen = true) }
             EditorIntent.DismissCanvasDialog -> reduce { copy(canvasDialogOpen = false) }
@@ -2925,6 +2934,49 @@ class EditorViewModel(
         }
         execute(EditCommand.SetSpeedRamp(clipId, ramp))
     }
+
+    // region detached audio (SPECS 5.38)
+
+    private fun linkInfo(clipId: String): ClipLinks.LinkInfo? {
+        val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return null
+        val hasAudio = state.value.assets.firstOrNull { it.id == clip.assetId }?.hasAudio == true
+        return ClipLinks.infoFor(history.timeline, clipId, hasAudio)
+    }
+
+    private fun detachAudio() = withSelection { clipId ->
+        val timeline = history.timeline
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId)
+        if (clip == null || linkInfo(clipId)?.canDetach != true) {
+            emit(EditorEffect.ShowMessage("Select a video clip that has sound to detach its audio"))
+            return@withSelection
+        }
+        val laneId = ClipLinks.audioTrackFor(timeline, clip) ?: uniqueTrackId(timeline.tracks, "track-a")
+        execute(DetachAudio(clipId, "audio-${idGenerator()}", laneId, linked = true))
+    }
+
+    private fun relinkAudio(realign: Boolean) = withSelection { clipId ->
+        val info = linkInfo(clipId)
+        val candidate = info?.relinkCandidateId
+        if (info == null || candidate == null) {
+            emit(EditorEffect.ShowMessage("No unlinked clip of the same media to link with"))
+            return@withSelection
+        }
+        val (video, audio) = if (info.isVideo) clipId to candidate else candidate to clipId
+        execute(RelinkClips(video, audio, realign))
+    }
+
+    private fun restoreEmbeddedAudio() = withSelection { clipId ->
+        val timeline = history.timeline
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
+        val video = if (timeline.trackOfClip(clipId)?.type == TrackType.VIDEO) clip else ClipLinks.partnerOf(timeline, clip)?.second
+        if (video == null || !video.audioDetached) {
+            emit(EditorEffect.ShowMessage("Select a video clip whose sound was detached"))
+            return@withSelection
+        }
+        execute(RestoreEmbeddedAudio(video.id))
+    }
+
+    // endregion
 
     private fun freezeFrame() = withSelection { clipId ->
         val track = history.timeline.trackOfClip(clipId) ?: return@withSelection

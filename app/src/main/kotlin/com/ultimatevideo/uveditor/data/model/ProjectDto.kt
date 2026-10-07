@@ -261,6 +261,10 @@ data class ClipDto(
     val stabilise: StabiliseDto? = null,
     /** Keyframes of single parameters (effect values, volume, pan, EQ gains); absent when nothing is animated. */
     val params: List<ParamTrackDto> = emptyList(),
+    /** True for a video clip whose own sound was detached onto an audio lane (SPECS 5.38); absent in older projects. */
+    val audioDetached: Boolean = false,
+    /** Shared by a video clip and the audio clip detached from it while they are linked; absent when the clip is on its own. */
+    val linkId: String? = null,
 )
 
 /** Settings of the stabiliser: [strength] 0..1 and [crop] (`tight`, `medium` or `full`). */

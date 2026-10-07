@@ -102,6 +102,9 @@ internal object EditorIcons {
     /** Two arrows meeting in the middle: closes the gap before the selected clip. */
     val CloseGap = icon("CloseGap", "M2,11h6V8l4,4 -4,4v-3H2zM22,11h-6V8l-4,4 4,4v-3h6z")
 
+    /** A picture bar over a music note: detaches the sound of the selected video clip onto an audio lane. */
+    val DetachAudio = icon("DetachAudio", "M3,3h18v8H3zM10,13v5.27A2.5,2.5 0 1,0 12,20.5V15h4v-2z")
+
     /** A smiling face: opens the sticker picker. */
     val Sticker = icon(
         "Sticker",

@@ -250,6 +250,24 @@ panel on the left.
 - On a selected **audio clip**: **drag the white circles** in its corners for fades, **double tap** it to add a volume point, **drag a dot** to shape the volume (see [Fades and volume on an audio clip](#fades-and-volume-on-an-audio-clip)).
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
 
+### Detach the audio of a video clip
+
+A video clip plays its own sound. To cut, move or delete that sound on its own, select the clip and tap **Detach audio** (the
+picture-over-note icon in the editing tool row). The sound becomes a clip on the first audio lane with room (a new lane is added when
+there is none), at the same frames and from the same part of the file, and the video clip goes silent.
+
+- The two stay **linked**: moving, trimming, splitting, changing the speed or deleting the video clip does the same to its audio, and
+  the other way round, all as one undo step. If the audio cannot follow (it would land on another audio clip) the edit is refused with
+  a message.
+- Open **Adjust clip** and the **Linked audio** block: **Unlink** makes the two independent. Then you can cut the audio into pieces,
+  delete pieces, move it or trim it without touching the picture.
+- **Delete the audio clip** (linked or not) and the picture stays, silent. Use **Restore embedded audio** (on the video clip, or on
+  its linked audio) to give the clip its own sound back; the linked audio clip is removed.
+- **Relink** joins a video clip with an audio clip of the same file that is not linked (select either one). If the audio plays early or
+  late against the picture, the block says by how many frames; **Relink and realign** moves the audio back into sync first.
+- Preview and export play exactly the same mix. Volume, pan, fades and EQ of the video clip are copied to the audio clip when you
+  detach; from then on use the audio clip's own controls.
+
 ### Fades and volume on an audio clip
 
 Select a clip on an **audio lane**. Two **white circles** appear in its top corners and the clip shows its volume

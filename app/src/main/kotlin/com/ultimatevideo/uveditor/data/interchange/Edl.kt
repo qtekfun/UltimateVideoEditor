@@ -98,7 +98,7 @@ object Edl {
     ) {
         val channel = when {
             trackType == TrackType.AUDIO -> "AA"
-            asset != null && asset.hasAudio && asset.hasVideo -> "B"
+            asset != null && asset.hasAudio && asset.hasVideo && !clip.audioDetached -> "B"
             else -> "V"
         }
         val span = clip.sourceSpan

@@ -48,6 +48,7 @@ import com.ultimatevideo.uveditor.data.model.TrackDto
 import com.ultimatevideo.uveditor.data.model.TransformDto
 import com.ultimatevideo.uveditor.data.model.TransitionDto
 import com.ultimatevideo.uveditor.domain.Clip
+import com.ultimatevideo.uveditor.domain.ClipLinks
 import com.ultimatevideo.uveditor.domain.ClipTransform
 import com.ultimatevideo.uveditor.domain.FrameIndex
 import com.ultimatevideo.uveditor.domain.Interpolation
@@ -116,9 +117,11 @@ object TimelineMapper {
             project.motionTracks.map(::toMotionTrack),
             project.multicams.map(::toMulticam),
         )
-        val violations = timeline.invariantViolations()
+        // A link whose partner is missing (an interrupted save, a hand-edited file) only means the clip is on its own; it must not stop the project opening.
+        val settled = ClipLinks.withoutBrokenLinks(timeline)
+        val violations = settled.invariantViolations()
         if (violations.isNotEmpty()) throw ProjectError.Corrupt("invalid timeline: ${violations.first()}")
-        return timeline
+        return settled
     }
 
     fun toDto(base: ProjectDto, timeline: Timeline, assets: List<MediaAssetDto>): ProjectDto {
@@ -267,6 +270,8 @@ object TimelineMapper {
         audio = dto.audio?.let { toClipAudio(dto.id, it) } ?: ClipAudio.NONE,
         stabilise = dto.stabilise?.let { toStabilise(dto.id, it) },
         params = dto.params.map { toParamTrack(dto.id, it) },
+        audioDetached = dto.audioDetached,
+        linkId = dto.linkId,
     )
 
     private fun toInterpolation(clipId: String, name: String): Interpolation = when (name) {
@@ -506,6 +511,8 @@ object TimelineMapper {
             audio = clip.audio.takeUnless { it.isNeutral }?.let(::toClipAudioDto),
             stabilise = clip.stabilise?.let { StabiliseDto(strength = it.strength, crop = it.crop.id) },
             params = clip.params.map(::toParamTrackDto),
+            audioDetached = clip.audioDetached,
+            linkId = clip.linkId,
         )
 
     private const val COLOR_HEX_LENGTH = 8
