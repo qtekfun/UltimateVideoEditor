@@ -39,6 +39,8 @@ class HubViewModel(
     private val mediaFolders: com.ultimatevideo.uveditor.data.interchange.MediaFolderSettings? = null,
     /** The process-wide export (see ExportCenter); the bar at the bottom mirrors it. Null in tests that do not need it. */
     private val exportJobs: ExportJobHost? = null,
+    /** The process-wide project backup (see ExportCenter); its bar mirrors it, and exporting a bundle starts it. Null runs the backup inside this screen (tests). */
+    private val bundleJobs: com.ultimatevideo.uveditor.ui.export.BundleJobHost? = null,
 ) : MviViewModel<HubState, HubIntent, HubEffect>(HubState()) {
 
     /** Read once, before this process marks anything: what the previous run left open. */
@@ -57,6 +59,7 @@ class HubViewModel(
         // Read from the process-wide state, not from anything this screen did: the bar is right after the screen is left and
         // entered again, after rotation, and when the export was started from an editor.
         exportJobs?.let { jobs -> viewModelScope.launch { jobs.state.collect { job -> reduce { copy(exportBar = exportBarFor(job)) } } } }
+        bundleJobs?.let { jobs -> viewModelScope.launch { jobs.state.collect { job -> reduce { copy(bundleBar = com.ultimatevideo.uveditor.ui.export.bundleViewFor(job)) } } } }
         onIntent(HubIntent.LoadEngineInfo)
         onIntent(HubIntent.Refresh)
     }
@@ -183,9 +186,13 @@ class HubViewModel(
                     emit(HubEffect.LaunchBundleExportPicker(dialog.project.id, "${dialog.project.name}.uvbundle", dialog.draft.choice))
                 }
             }
-            is HubIntent.ExportBundleTo -> launchProjectOp {
-                val result = projects.exportBundle(intent.projectId, intent.uri, intent.choice)
-                emit(HubEffect.ShowMessage(bundleExportMessage(intent.choice, result)))
+            is HubIntent.ExportBundleTo -> if (bundleJobs != null) {
+                startBundleJob(bundleJobs, intent)
+            } else {
+                launchProjectOp {
+                    val result = projects.exportBundle(intent.projectId, intent.uri, intent.choice)
+                    emit(HubEffect.ShowMessage(bundleExportMessage(intent.choice, result)))
+                }
             }
             HubIntent.DismissImportNotes -> reduce { copy(importNotes = null) }
 
@@ -214,9 +221,26 @@ class HubViewModel(
             HubIntent.DismissExportBar -> exportJobs?.acknowledge()
             HubIntent.ShareExport -> (state.value.exportBar as? ExportBar.Finished)?.let { emit(HubEffect.ShareExport(it.uri)) }
             HubIntent.OpenExportProject -> state.value.exportBar?.let { emit(HubEffect.OpenExport(it.projectId)) }
+            HubIntent.CancelBundle -> bundleJobs?.cancel()
+            HubIntent.DismissBundleBar -> bundleJobs?.acknowledge()
+            HubIntent.ShowBundleDetails -> bundleJobs?.showDetails()
+            HubIntent.ShareBundle -> state.value.bundleBar?.takeIf { it.canShare }?.uri?.let { emit(HubEffect.ShareBundle(it)) }
             HubIntent.DismissDialogs ->
                 reduce { copy(newProjectDraft = null, renameDraft = null, deleteTarget = null, bundleExport = null) }
         }
+    }
+
+    /**
+     * Hands the backup to the process-wide executor, which keeps running when this screen is left, and which refuses (with words)
+     * while a movie export or another backup runs. The progress dialog opens by itself; the bar and the notification follow.
+     */
+    private fun startBundleJob(jobs: com.ultimatevideo.uveditor.ui.export.BundleJobHost, intent: HubIntent.ExportBundleTo) {
+        val name = state.value.projects.firstOrNull { it.id == intent.projectId }?.name ?: "project"
+        val job = com.ultimatevideo.uveditor.ui.export.BundleJob(intent.projectId, name, intent.uri) { observer ->
+            projects.exportBundle(intent.projectId, intent.uri, intent.choice, observer = observer)
+        }
+        val refused = jobs.start(job) as? com.ultimatevideo.uveditor.ui.export.BundleStart.Refused ?: return
+        emit(HubEffect.ShowMessage(refused.reason))
     }
 
     private fun suggestedName(existing: List<ProjectSummary>): String =

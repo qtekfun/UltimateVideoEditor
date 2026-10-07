@@ -16,6 +16,7 @@ import com.ultimatevideo.uveditor.domain.AnimationTiming
 import com.ultimatevideo.uveditor.domain.EditMarker
 import com.ultimatevideo.uveditor.domain.MoveMarker
 import com.ultimatevideo.uveditor.ui.editor.tray.usageCounts
+import com.ultimatevideo.uveditor.ui.export.BundleStart
 import com.ultimatevideo.uveditor.ui.library.BundleExportDraft
 import com.ultimatevideo.uveditor.ui.library.BundleExportText
 import com.ultimatevideo.uveditor.ui.library.Library
@@ -1378,9 +1379,43 @@ class EditorViewModel(
         execute(EditCommand.RemoveTrack(track.id))
     }
 
-    private fun splitAtPlayhead() = withSelection { clipId ->
-        val track = history.timeline.trackOfClip(clipId) ?: return@withSelection
-        execute(EditCommand.Split(track.id, state.value.playhead, "$clipId~${idGenerator()}"))
+    /**
+     * Cuts the selected clip, or every selected clip that spans the playhead, at the playhead (one undo step). The cut frame is
+     * read before anything else because the playhead keeps moving while playing. Afterwards playback is paused and the
+     * playhead sits exactly on the cut, the first frame of the right-hand part (LumaFusion pauses there too), the preview
+     * shows that frame, and the selection moves to the right-hand parts so the next cut can follow without selecting again.
+     */
+    private fun splitAtPlayhead() = withSelection { primary ->
+        val cut = state.value.playhead
+        val timeline = history.timeline
+        val selected = state.value.selection
+        fun splitOf(trackId: String, clip: Clip) = clip.id to EditCommand.Split(trackId, cut, "${clip.id}~${idGenerator()}")
+        val spanning = selected.mapNotNull { id ->
+            val track = timeline.trackOfClip(id) ?: return@mapNotNull null
+            track.clip(id)?.takeIf { cut > it.timelineStart && cut < it.timelineEnd }?.let { splitOf(track.id, it) }
+        }
+        // None of the selected clips is under the playhead: the clip under it on the primary clip's lane is cut, as always.
+        val commands = spanning.ifEmpty {
+            val track = timeline.trackOfClip(primary)
+            listOfNotNull(track?.clips?.firstOrNull { cut > it.timelineStart && cut < it.timelineEnd }?.let { splitOf(track.id, it) })
+        }
+        if (commands.isEmpty()) {
+            // Nothing to cut: let the command say why ("Move the playhead inside the selected clip").
+            execute(EditCommand.Split(timeline.trackOfClip(primary)?.id ?: return@withSelection, cut, "$primary~${idGenerator()}"))
+            return@withSelection
+        }
+        val command = commands.singleOrNull()?.second ?: EditCommand.Batch(commands.map { it.second })
+        if (!execute(command)) return@withSelection
+        val rightOf = commands.associate { (id, split) -> id to split.newClipId } // the new id is the right-hand part
+        pausePlayback()
+        reduce {
+            copy(
+                playhead = cut,
+                selectedClipId = rightOf[primary] ?: primary,
+                selectedClipIds = if (selected.size > 1) selected.mapTo(LinkedHashSet()) { rightOf[it] ?: it } else emptySet(),
+            )
+        }
+        playbackOutput?.seek(cut.value)
     }
 
     private fun dragStart(hit: TimelineHit) {
@@ -3378,6 +3413,13 @@ class EditorViewModel(
                 if (dirty && !persist()) throw IOException("the project could not be saved first")
                 val choice = pendingBundleChoice ?: BundleChoice(includeMedia = kind == InterchangeKind.BUNDLE_WITH_MEDIA)
                 pendingBundleChoice = null
+                // A long job that outlives this editor: its dialog, the project list's bar and the notification show how far it is
+                // and how it ended, so nothing here waits for the copy.
+                when (val started = interchange.startBundleExport(projectId, project.name, uri, choice)) {
+                    BundleStart.Started -> return "Backup started: progress is shown on screen and in the notification"
+                    is BundleStart.Refused -> throw IOException(started.reason)
+                    null -> Unit
+                }
                 val result = interchange.exportBundle(projectId, uri, choice)
                 return BundleExportText.exportMessage("Bundle written", choice, result)
             }

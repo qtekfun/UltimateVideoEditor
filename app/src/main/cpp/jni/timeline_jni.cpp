@@ -165,10 +165,6 @@ JNIEXPORT void JNICALL JNI_FN(nativeZoomBy)(JNIEnv*, jobject, jlong handle, jflo
     if (TimelineHandle* h = from(handle)) h->renderer->zoomBy(factor, focusX);
 }
 
-JNIEXPORT void JNICALL JNI_FN(nativeZoomLanesBy)(JNIEnv*, jobject, jlong handle, jfloat factor, jfloat focusY) {
-    if (TimelineHandle* h = from(handle)) h->renderer->zoomLanesBy(factor, focusY);
-}
-
 JNIEXPORT void JNICALL JNI_FN(nativeFollowContent)(JNIEnv*, jobject, jlong handle) {
     if (TimelineHandle* h = from(handle)) h->renderer->followContent();
 }
