@@ -20,6 +20,7 @@
 #include <set>
 #include <vector>
 
+#include "decode/frame_rate.h"
 #include "decode/pending_policy.h"
 #include "decode/seek_policy.h"
 
@@ -97,7 +98,8 @@ public:
             } else {
                 now_ = std::max(now_, tConsumer);
                 if (drawing) {  // draw finished: evict, move on
-                    for (auto it = cache_.begin(); it != cache_.end() && *it < consumerSource;) it = cache_.erase(it);
+                    // export_engine evictBefore: the newest held frame stays when everything held is older (it is the stand-in).
+                    for (auto it = cache_.begin(); it != cache_.end() && *it < consumerSource && std::next(it) != cache_.end();) it = cache_.erase(it);
                     ++result_.consumed;
                     ++next;
                     drawing = false;
@@ -496,6 +498,95 @@ void windowOfAbsentFramesDoesNotStall() {
     CHECK(rc.timedOut);
 }
 
+// ---- Mixed frame rates, as the export of a 60 fps project with 30, 27 and VFR clips meets them -------------------------------------------
+// Frames present in a stream of `num`/`den` fps on a 60 fps timeline, by the production pts -> frame rule (round half up, integer maths).
+std::vector<int64_t> streamOn60(int64_t num, int64_t den, int64_t frames, int64_t jitterUs = 0) {
+    std::vector<int64_t> out;
+    for (int64_t i = 0;; ++i) {
+        int64_t pts = uv::decode::frameToPtsUs(i, {num, den});
+        // Deterministic VFR jitter: up to +-jitterUs, never reordering the pictures.
+        if (jitterUs != 0) pts += ((i * 5) % 7 - 3) * jitterUs / 3;
+        const int64_t frame = uv::decode::ptsUsToFrame(pts, {60, 1});
+        if (frame >= frames) break;
+        if (out.empty() || frame > out.back()) out.push_back(frame);  // two pictures on one timeline frame: the exporter shows the first
+    }
+    return out;
+}
+
+SimParams streamParams(int64_t num, int64_t den, int64_t jitterUs, double drawMs = 8.0) {
+    SimParams p;
+    p.frames = 600;
+    p.gop = 60;
+    p.decodeMs = 8.0;
+    p.seekMs = 60.0;
+    p.drawMs = drawMs;
+    p.streamFrames = streamOn60(num, den, p.frames, jitterUs);
+    return p;
+}
+
+// pts -> frame ties: 24 fps on a 60 fps timeline puts every second picture on an exact .5 (1.5, 3.5, ...), 30 fps never does.
+void ptsTiesRoundHalfUpAndStayMonotonic() {
+    using uv::decode::Rational;
+    CHECK(uv::decode::ptsUsToFrame(25000, Rational{60, 1}) == 2);  // 1.5 -> 2
+    CHECK(uv::decode::ptsUsToFrame(24999, Rational{60, 1}) == 1);  // just below the tie
+    CHECK(uv::decode::ptsUsToFrame(75000, Rational{60, 1}) == 5);  // 4.5 -> 5
+    CHECK(uv::decode::ptsUsToFrame(0, Rational{60, 1}) == 0);
+    for (const int64_t num : {24, 25, 27, 30, 48}) {
+        int64_t previous = -1;
+        for (int64_t i = 0; i < 5000; ++i) {
+            const int64_t frame = uv::decode::ptsUsToFrame(uv::decode::frameToPtsUs(i, {num, 1}), {60, 1});
+            CHECK(frame >= previous);  // never goes back
+            CHECK(frame >= (i * 60) / num && frame <= (i * 60) / num + 1);
+            previous = frame;
+        }
+    }
+    // The round trip at the timeline's own rate is the identity.
+    for (int64_t f = 0; f < 5000; ++f) CHECK(uv::decode::ptsUsToFrame(uv::decode::frameToPtsUs(f, {60, 1}), {60, 1}) == f);
+    CHECK(uv::decode::ptsUsToFrame(uv::decode::frameToPtsUs(7, {30000, 1001}), {30000, 1001}) == 7);
+}
+
+void tieAndJitteredStreamsDoNotSeekPerMissingFrame() {
+    struct Case {
+        const char* name;
+        int64_t num, den, jitterUs;
+    };
+    // 24 fps hits exact .5 ties; 27 fps has uneven gaps (2, 2, 3 ...); the VFR cases drift +-5 ms around their nominal rate.
+    const Case cases[] = {{"24 fps (exact ties) on 60", 24, 1, 0}, {"27 fps on 60", 27, 1, 0},
+                          {"30 fps VFR +-5 ms on 60", 30, 1, 5000}, {"27 fps VFR +-5 ms on 60", 27, 1, 5000},
+                          {"23.976 on 60", 24000, 1001, 0}};
+    for (const Case& c : cases) {
+        SimParams p = streamParams(c.num, c.den, c.jitterUs);
+        const SimResult r = simulate(p);
+        report(c.name, p, r);
+        CHECK(!r.timedOut);
+        CHECK(r.consumed == p.frames);
+        CHECK(r.seeks == 1);  // the first one only
+        CHECK(r.wrongSubstitutes == 0);
+        CHECK(r.lost == 0);
+        CHECK(r.fps() >= 0.6 * idealFps(p));  // gaps cost a little, a seek per gap would cost a lot
+        p.markGaps = false;
+        const SimResult before = simulate(p);
+        CHECK(before.seeks > 50);  // the model still reproduces the old thrash, so this test would notice a regression
+    }
+}
+
+// Two decoders at once (a 30 fps and a 27 fps clip stacked as two layers): the consumer draws both for every timeline frame, so each
+// decoder sees a consumer that is twice as slow. Each must still seek once. (Each decoder is modelled on its own; the shared file lock
+// and codec contention of a device are what scripts/qa-smoke.sh measures.)
+void twoDecodersEachSeekOnce() {
+    for (const double drawMs : {16.0, 24.0}) {
+        for (const int64_t rate : {30, 27}) {
+            SimParams p = streamParams(rate, 1, 0, drawMs);
+            const SimResult r = simulate(p);
+            report("two layers, one decoder's view", p, r);
+            CHECK(!r.timedOut);
+            CHECK(r.consumed == p.frames);
+            CHECK(r.seeks == 1);
+            CHECK(r.wrongSubstitutes == 0);
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -508,6 +599,9 @@ int main() {
     lowRateClipsDoNotSeekPerMissingFrame();
     lowRateClipJumpSeeksOnce();
     windowOfAbsentFramesDoesNotStall();
+    ptsTiesRoundHalfUpAndStayMonotonic();
+    tieAndJitteredStreamsDoNotSeekPerMissingFrame();
+    twoDecodersEachSeekOnce();
     if (g_failures == 0) std::puts("all decode simulation tests passed");
     return g_failures == 0 ? 0 : 1;
 }
