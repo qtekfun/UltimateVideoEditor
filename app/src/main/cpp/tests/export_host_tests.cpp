@@ -519,7 +519,22 @@ void stillAlphaIsForcedOpaque() {
     CHECK_EQ(px[6], 60);
 }
 
+void stillGuardRefusesFlatPicturesWithLayers() {
+    uint8_t flat[16] = {0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255};
+    CHECK(isUniformRgba(flat, 4));
+    uint8_t one[4] = {1, 2, 3, 4};
+    CHECK(isUniformRgba(one, 1));
+    flat[15] = 254;  // the last pixel differs in alpha only
+    CHECK(!isUniformRgba(flat, 4));
+    uint8_t lit[8] = {0, 0, 0, 255, 0, 1, 0, 255};
+    CHECK(!isUniformRgba(lit, 2));
+    CHECK(stillLooksEmpty(1, true));    // video layer, nothing came out: refuse
+    CHECK(!stillLooksEmpty(0, true));   // a gap is legitimately black
+    CHECK(!stillLooksEmpty(3, false));  // real picture
+}
+
 int main() {
+    stillGuardRefusesFlatPicturesWithLayers();
     stillAlphaIsForcedOpaque();
     stillCropIsValidatedAgainstTheSurface();
     stillReadbackUsesTheLowerLeftOrigin();
