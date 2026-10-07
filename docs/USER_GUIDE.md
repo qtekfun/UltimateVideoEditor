@@ -150,7 +150,7 @@ Every icon also has a text description: long press it to see its name, or use a 
 | ⬆ | Export movie | Opens the export dialog. |
 | ⏮ / ▶ / ⏭ | Previous boundary, Play / Pause, Next boundary | Boundaries are clip starts and ends. Play follows the audio clock. |
 | 🖼 (picture) | Save frame as image | Saves the picture under the playhead as a JPEG in Pictures/ultimateVE with one tap, see [Saving a frame as an image](#saving-a-frame-as-an-image). |
-| ⤢ | Fit the whole project and all lanes | Zooms the time axis so the whole project fits, and the lane heights to the largest size at which every lane is visible (never taller than 3x or shorter than half the default; with very many lanes as many as fit, and the rest scroll). Both keep following the panel (rotation) and the lanes you add until you zoom that axis by hand. |
+| ⤢ | Fit the whole project | Zooms the time axis so the whole project fits. It keeps following the panel (rotation) and the project length until you pinch. The lane heights are not changed: they are fixed by the Layout sheet's Small / Medium / Large chips, and lanes that do not fit the panel scroll vertically. |
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
 | ✂ | Split at playhead | Cuts the selected clip in two. |
@@ -242,7 +242,7 @@ panel on the left.
 - **Tap** a clip to select it (yellow outline and a handle at each end, the edges you can drag to trim). Tap an empty lane to select that track.
 - **Drag the ruler or the red playhead** to scrub.
 - **Drag a selected clip** to move it. Drag its **left or right edge** to trim.
-- **Pinch** on the timeline to zoom the time axis. Spread your fingers **vertically** instead to make the lanes taller or shorter (between half and three times the default height); the lane under your fingers stays put. Whichever way the fingers spread most at the start decides. The Layout sheet's Small / Medium / Large chips set the lane height too, and the Fit button restores the all-lanes view.
+- **Pinch** on the timeline to zoom the time axis (only the time axis, whichever way the fingers spread). The lane height does not change by gesture: the Layout sheet's Small / Medium / Large chips set it.
 - **Drag** on an empty area to scroll, **fling** to coast.
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
 

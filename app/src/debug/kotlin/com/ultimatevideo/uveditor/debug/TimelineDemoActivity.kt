@@ -55,10 +55,7 @@ class TimelineDemoActivity : ComponentActivity() {
         // `--ef zoom <factor>` zooms in at start (adb cannot pinch), e.g. to exercise finer thumbnail levels.
         val zoom = intent.getFloatExtra("zoom", 1f)
         if (zoom != 1f) engine.zoomBy(zoom, 0f)
-        // `--ef vzoom <factor>` zooms the lane heights (about the panel's lower third) and `--ez fit true` presses "Fit"
-        // (time axis and lanes); `--ei lanes <n>` sets the number of lanes (default 5). adb cannot pinch either.
-        val vzoom = intent.getFloatExtra("vzoom", 1f)
-        if (vzoom != 1f) engine.zoomLanesBy(vzoom, 600f)
+        // `--ez fit true` presses "Fit" (the time axis only).
         if (intent.getBooleanExtra("fit", false)) engine.fitToContent()
 
         setContent {
