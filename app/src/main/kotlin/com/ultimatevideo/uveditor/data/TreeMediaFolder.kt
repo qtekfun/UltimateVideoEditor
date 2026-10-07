@@ -7,42 +7,107 @@ import android.provider.DocumentsContract
 import android.system.ErrnoException
 import android.system.Os
 import android.util.Log
+import com.ultimatevideo.uveditor.data.interchange.LayoutSummary
+import com.ultimatevideo.uveditor.data.interchange.MediaChild
 import com.ultimatevideo.uveditor.data.interchange.MediaFolder
 import com.ultimatevideo.uveditor.data.interchange.MediaFolderSettings
+import com.ultimatevideo.uveditor.data.interchange.MediaLayout
 import com.ultimatevideo.uveditor.data.interchange.MediaTarget
 import java.io.IOException
 import java.io.OutputStream
 
-/** A folder picked with the system folder picker; files are created and read through the document provider. */
-class TreeMediaFolder(context: Context, private val tree: Uri) : MediaFolder {
-    private val resolver = context.contentResolver
-    private val treeId = DocumentsContract.getTreeDocumentId(tree)
-    private val root = DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
+/**
+ * A folder of a Storage Access Framework tree (the one the user picked, or a folder inside it); files and folders are
+ * created and read through the document provider.
+ */
+class TreeMediaFolder private constructor(
+    private val context: Context,
+    private val tree: Uri,
+    private val documentId: String,
+) : MediaFolder {
+    /** The tree the user picked, at its top. */
+    constructor(context: Context, tree: Uri) : this(context, tree, DocumentsContract.getTreeDocumentId(tree))
 
-    override fun fileNames(): Set<String> {
-        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId)
+    private val resolver = context.contentResolver
+
+    /** The address of this folder's document, usable as the starting point of a document picker. */
+    val documentUri: Uri = DocumentsContract.buildDocumentUriUsingTree(tree, documentId)
+
+    override val name: String? get() = label()
+
+    override fun children(): List<MediaChild> {
+        val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
         val cursor = try {
-            resolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            resolver.query(
+                uri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE),
+                null, null, null,
+            )
         } catch (e: SecurityException) {
             throw IOException("access to the media folder was revoked", e)
         } catch (e: IllegalArgumentException) {
             throw IOException("the media folder is not available", e)
         } ?: throw IOException("the media folder is not available")
         return cursor.use {
-            val names = HashSet<String>()
-            while (it.moveToNext()) it.getString(0)?.let(names::add)
-            names
+            val list = ArrayList<MediaChild>()
+            while (it.moveToNext()) {
+                val n = it.getString(0) ?: continue
+                list += MediaChild(n, it.getString(1) == DocumentsContract.Document.MIME_TYPE_DIR)
+            }
+            list
         }
     }
 
-    override fun create(name: String, mimeType: String): MediaTarget {
-        val doc = try {
-            DocumentsContract.createDocument(resolver, root, mimeType, name)
+    override fun openFolder(name: String): MediaFolder {
+        val id = childId(name) ?: throw IOException("the folder $name is not in the media folder")
+        return TreeMediaFolder(context, tree, id)
+    }
+
+    override fun createFolder(name: String): MediaFolder {
+        val doc = createChild(DocumentsContract.Document.MIME_TYPE_DIR, name)
+        return TreeMediaFolder(context, tree, DocumentsContract.getDocumentId(doc))
+    }
+
+    override fun delete(): Boolean = try {
+        DocumentsContract.deleteDocument(resolver, documentUri)
+    } catch (e: IOException) {
+        Log.w(TAG, "could not remove the folder: ${e.message}")
+        false
+    } catch (e: SecurityException) {
+        Log.w(TAG, "could not remove the folder: ${e.message}")
+        false
+    }
+
+    private fun childId(name: String): String? {
+        val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
+        val cursor = try {
+            resolver.query(
+                uri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null, null, null,
+            )
         } catch (e: SecurityException) {
             throw IOException("access to the media folder was revoked", e)
-        } catch (e: IllegalStateException) {
-            throw IOException("the media folder refused the file $name", e)
-        } ?: throw IOException("the media folder could not create $name")
+        } catch (e: IllegalArgumentException) {
+            throw IOException("the media folder is not available", e)
+        } ?: throw IOException("the media folder is not available")
+        return cursor.use {
+            var found: String? = null
+            while (found == null && it.moveToNext()) if (it.getString(1) == name) found = it.getString(0)
+            found
+        }
+    }
+
+    private fun createChild(mimeType: String, name: String): Uri = try {
+        DocumentsContract.createDocument(resolver, documentUri, mimeType, name)
+    } catch (e: SecurityException) {
+        throw IOException("access to the media folder was revoked", e)
+    } catch (e: IllegalStateException) {
+        throw IOException("the media folder refused $name", e)
+    } ?: throw IOException("the media folder could not create $name")
+
+    override fun create(name: String, mimeType: String): MediaTarget {
+        val doc = createChild(mimeType, name)
         return object : MediaTarget {
             override val uri: String = doc.toString()
 
@@ -73,7 +138,7 @@ class TreeMediaFolder(context: Context, private val tree: Uri) : MediaFolder {
 
     /** The name of the folder, or null when it cannot be read. */
     fun label(): String? = try {
-        resolver.query(root, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+        resolver.query(documentUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
         }
     } catch (e: SecurityException) {
@@ -93,6 +158,9 @@ class TreeMediaFolder(context: Context, private val tree: Uri) : MediaFolder {
 class PreferencesMediaFolderSettings(private val context: Context) : MediaFolderSettings {
     private val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
+    /** Folders created only to open the backup picker there; removed again when nothing was saved. */
+    private var backupsCreated: List<MediaFolder> = emptyList()
+
     override fun treeUri(): String? = prefs.getString(KEY_TREE, null)
 
     override fun label(): String? = treeUri()?.let { TreeMediaFolder(context, Uri.parse(it)).label() }
@@ -107,7 +175,38 @@ class PreferencesMediaFolderSettings(private val context: Context) : MediaFolder
     /** The folder as an opener for the importer, or null when none is chosen. */
     fun folder(): MediaFolder? = treeUri()?.let { TreeMediaFolder(context, Uri.parse(it)) }
 
+    override fun summary(): LayoutSummary? {
+        val chosen = folder() ?: return null
+        return try {
+            MediaLayout.describe(chosen)
+        } catch (e: IOException) {
+            Log.w(TAG, "cannot read the media folder: ${e.message}")
+            null
+        }
+    }
+
+    override fun backupsPickerUri(): String? {
+        val chosen = folder() ?: return null
+        return try {
+            val created = ArrayList<MediaFolder>()
+            val backups = MediaLayout.path(chosen, MediaLayout.PROJECT_BACKUPS).ensure(created)
+            backupsCreated = created
+            (backups as? TreeMediaFolder)?.documentUri?.toString()
+        } catch (e: IOException) {
+            // The picker still works, it just opens where it did last.
+            Log.w(TAG, "cannot prepare the backups folder: ${e.message}")
+            null
+        }
+    }
+
+    override fun backupsPickerDone(saved: Boolean) {
+        val created = backupsCreated
+        backupsCreated = emptyList()
+        if (!saved) MediaLayout.discardEmpty(created)
+    }
+
     private companion object {
+        const val TAG = "MediaFolder"
         const val FILE = "media_folder"
         const val KEY_TREE = "tree_uri"
     }

@@ -1030,10 +1030,15 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
   tree (`MediaFolderSettings`, `PreferencesMediaFolderSettings`, `OpenDocumentTree`, persisted read and write permission, kept
   out of the permission trim). `TreeMediaFolder` lists names, creates documents through `DocumentsContract`, writes by stream and
   reads free space with `fstatvfs` on the new file's descriptor (unknown free space does not block; a failing write is reported).
+  The files are not put in that folder itself but in `<folder>/ultimateVE/Media/<project name>/` (`MediaLayout`: the root is reused when
+  the chosen folder is called `ultimateVE` or holds one, ignoring case; every folder is created on first use; the project folder name is
+  cleaned and unique among its siblings). `.uvbundle` exports open the save picker in `ultimateVE/Project-Backups` (created on use, removed again
+  if the picker is cancelled and it is empty). Footage from earlier imports stays loose in the chosen folder, untouched. Not written, so never
+  created: `LibraryMedia`, `ReversedMedia`, `UserMedia` (DECISIONS.md, "Media folder layout"). About shows the effective path and counts.
   Files get their own names, and a taken name (ignoring case) gets " (2)", " (3)" before the extension (`MediaFileNames`), so
   nothing in the folder is replaced. The project references them by their `content://` document URIs like any imported media. With
   no folder chosen, `ProjectError.MediaFolderRequired` makes the hub explain why and ask for one, then continue the import. A folder
-  that cannot be read or written, a full volume and a cancel remove the files this import created and leave no project; deleting a
+  that cannot be read or written, a full volume and a cancel remove the files this import created and the folders it made (while empty) and leave no project; deleting a
   project never deletes files in the folder. A standalone `.lfarchive` needs no folder: its media are missing (their address points at a
   file that does not exist) and the normal Relink flow links them. After each file is copied the optional `probeMedia` hook reads its
   real duration, frame rate, colour space and streams into the asset.

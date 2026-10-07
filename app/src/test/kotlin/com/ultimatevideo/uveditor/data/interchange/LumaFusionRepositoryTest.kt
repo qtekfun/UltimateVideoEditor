@@ -52,33 +52,6 @@ class LumaFusionRepositoryTest {
         }
     }
 
-    /** A folder backed by a directory; [free] and [failListing] model a full or unplugged drive. */
-    private inner class FakeFolder(val dir: File, var free: Long? = null, var failListing: Boolean = false, var failCreate: Boolean = false) : MediaFolder {
-        init {
-            dir.mkdirs()
-        }
-
-        override fun fileNames(): Set<String> {
-            if (failListing) throw IOException("unplugged")
-            return dir.list().orEmpty().toSet()
-        }
-
-        override fun create(name: String, mimeType: String): MediaTarget {
-            if (failCreate) throw IOException("read-only")
-            val file = File(dir, name)
-            check(file.createNewFile()) { "the import must not reuse a name: $name" }
-            return object : MediaTarget {
-                override val uri = "content://fake/$name"
-
-                override fun openOutput(): OutputStream = file.outputStream()
-
-                override fun freeBytes() = free
-
-                override fun delete() = file.delete()
-            }
-        }
-    }
-
     private fun repo(folder: MediaFolder?, probe: ((String) -> ProbedMedia?)? = null) = ProjectRepository(
         rootDir = File(tmp.root, "projects"),
         transferIO = io,
@@ -120,15 +93,16 @@ class LumaFusionRepositoryTest {
 
     @Test
     fun `a package unpacks its footage into the chosen folder and the project points at it`() = runBlocking {
-        val folder = FakeFolder(File(tmp.root, "media"))
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
         val footage = bytes(3000)
         val progress = ArrayList<ImportProgress>()
         val report = repo(folder).importWithReport(pack("p", mapOf("clip1.MOV" to footage))) { progress += it }
         val lf = checkNotNull(report.lumaFusion)
         assertEquals(1, lf.mediaCopied)
         assertTrue(lf.missing.isEmpty())
-        assertEquals("content://fake/clip1.MOV", report.project.mediaLibrary.single().uri)
-        assertTrue(footage.contentEquals(File(folder.dir, "clip1.MOV").readBytes()))
+        assertEquals("content://fake/ultimateVE/Media/Test project/clip1.MOV", report.project.mediaLibrary.single().uri)
+        assertTrue(footage.contentEquals(File(folder.dir, "ultimateVE/Media/Test project/clip1.MOV").readBytes()))
+        assertEquals(listOf("ultimateVE"), folder.dir.list().orEmpty().toList()) // nothing loose in the chosen folder
         assertEquals(2, report.project.tracks.single().clips.size)
         assertEquals(listOf("id-2"), projectDirs()) // no scratch folder left
         assertEquals(footage.size.toLong(), progress.last().doneBytes)
@@ -136,16 +110,34 @@ class LumaFusionRepositoryTest {
     }
 
     @Test
-    fun `an existing file is never replaced and a second import gets a suffixed copy`() = runBlocking {
-        val folder = FakeFolder(File(tmp.root, "media"))
-        File(folder.dir, "clip1.MOV").writeBytes(byteArrayOf(9, 9, 9))
+    fun `each import gets its own project folder and files already in the chosen folder are never touched`() = runBlocking {
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
+        File(folder.dir, "clip1.MOV").writeBytes(byteArrayOf(9, 9, 9)) // an earlier import, loose in the chosen folder
         val uri = pack("p", mapOf("clip1.MOV" to bytes(100)))
         val r = repo(folder)
         val first = r.importWithReport(uri)
         val second = r.importWithReport(uri)
-        assertEquals("content://fake/clip1 (2).MOV", first.project.mediaLibrary.single().uri)
-        assertEquals("content://fake/clip1 (3).MOV", second.project.mediaLibrary.single().uri)
+        assertEquals("content://fake/ultimateVE/Media/Test project/clip1.MOV", first.project.mediaLibrary.single().uri)
+        assertEquals("content://fake/ultimateVE/Media/Test project (2)/clip1.MOV", second.project.mediaLibrary.single().uri)
         assertEquals(listOf<Byte>(9, 9, 9), File(folder.dir, "clip1.MOV").readBytes().toList())
+    }
+
+    @Test
+    fun `a folder that is already named ultimateVE is used as the root and not nested`() = runBlocking {
+        val folder = FakeMediaFolder(File(tmp.root, "ultimateVE"))
+        val report = repo(folder).importWithReport(pack("p", mapOf("clip1.MOV" to bytes(100))))
+        assertEquals("content://fake/Media/Test project/clip1.MOV", report.project.mediaLibrary.single().uri)
+        assertTrue(File(folder.dir, "Media/Test project/clip1.MOV").isFile)
+        assertFalse(File(folder.dir, "ultimateVE").exists())
+    }
+
+    @Test
+    fun `an ultimateVE folder that already exists inside the chosen one is reused whatever its case`() = runBlocking {
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
+        File(folder.dir, "ULTIMATEVE/Media").mkdirs()
+        repo(folder).importWithReport(pack("p", mapOf("clip1.MOV" to bytes(100))))
+        assertEquals(listOf("ULTIMATEVE"), folder.dir.list().orEmpty().toList())
+        assertTrue(File(folder.dir, "ULTIMATEVE/Media/Test project/clip1.MOV").isFile)
     }
 
     @Test
@@ -157,28 +149,28 @@ class LumaFusionRepositoryTest {
 
     @Test
     fun `an unavailable folder gives a clear error and no project`() {
-        val folder = FakeFolder(File(tmp.root, "media"), failListing = true)
+        val folder = FakeMediaFolder(File(tmp.root, "media"), failListing = true)
         val uri = pack("p", mapOf("clip1.MOV" to bytes(100)))
         val e = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo(folder).importWithReport(uri) } }
         assertTrue(e.message!!.contains("media folder is not available"))
         assertTrue(projectDirs().isEmpty())
-        val readOnly = FakeFolder(File(tmp.root, "ro"), failCreate = true)
+        val readOnly = FakeMediaFolder(File(tmp.root, "ro"), failCreate = true)
         assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo(readOnly).importWithReport(uri) } }
     }
 
     @Test
     fun `too little free space is reported before anything is copied`() {
-        val folder = FakeFolder(File(tmp.root, "media"), free = 10)
+        val folder = FakeMediaFolder(File(tmp.root, "media"), free = 10)
         val uri = pack("p", mapOf("clip1.MOV" to bytes(100)))
         val e = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo(folder).importWithReport(uri) } }
         assertTrue(e.message!!.contains("Not enough free space"))
-        assertTrue(folder.dir.list().orEmpty().isEmpty())
+        assertTrue(folder.dir.list().orEmpty().isEmpty()) // the folders this import made are gone too
         assertTrue(projectDirs().isEmpty())
     }
 
     @Test
     fun `cancelling removes the partial file and the project`() = runBlocking {
-        val folder = FakeFolder(File(tmp.root, "media"))
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
         val uri = pack("p", mapOf("clip1.MOV" to bytes(6 * 1024 * 1024)))
         val r = repo(folder)
         var job: Job? = null
@@ -186,28 +178,50 @@ class LumaFusionRepositoryTest {
         job.start()
         job.join()
         assertTrue(job.isCancelled)
-        assertTrue(folder.dir.list().orEmpty().isEmpty())
+        assertTrue(folder.dir.list().orEmpty().isEmpty()) // partial file, project folder, Media and ultimateVE: all created by this import
         assertTrue(projectDirs().isEmpty())
     }
 
     @Test
+    fun `cancelling keeps the folders that were there before and removes only the one it made`() = runBlocking {
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
+        File(folder.dir, "ultimateVE/Media/Old project").mkdirs()
+        File(folder.dir, "ultimateVE/Media/Old project/a.MOV").writeBytes(byteArrayOf(1))
+        val uri = pack("p", mapOf("clip1.MOV" to bytes(6 * 1024 * 1024)))
+        val r = repo(folder)
+        var job: Job? = null
+        job = launch(UnconfinedTestDispatcher(), start = kotlinx.coroutines.CoroutineStart.LAZY) { r.importWithReport(uri) { job?.cancel() } }
+        job.start()
+        job.join()
+        assertEquals(listOf("Old project"), File(folder.dir, "ultimateVE/Media").list().orEmpty().toList())
+        assertTrue(File(folder.dir, "ultimateVE/Media/Old project/a.MOV").isFile)
+    }
+
+    @Test
+    fun `a package with no footage in it creates no folders`() = runBlocking {
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
+        repo(folder).importWithReport(pack("p", emptyMap()))
+        assertTrue(folder.dir.list().orEmpty().isEmpty())
+    }
+
+    @Test
     fun `deleting the project keeps the files in the users folder`() = runBlocking {
-        val folder = FakeFolder(File(tmp.root, "media"))
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
         val r = repo(folder)
         val report = r.importWithReport(pack("p", mapOf("clip1.MOV" to bytes(100))))
         r.delete(report.project.id)
-        assertTrue(File(folder.dir, "clip1.MOV").isFile)
+        assertTrue(File(folder.dir, "ultimateVE/Media/Test project/clip1.MOV").isFile)
         assertTrue(projectDirs().isEmpty())
     }
 
     @Test
     fun `the real length rate and colour of the unpacked file replace the estimate`() = runBlocking {
-        val folder = FakeFolder(File(tmp.root, "media"))
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
         val probed = ProbedMedia(durationMicros = 10_000_000, fpsNum = 30, fpsDen = 1, colorSpace = "Rec2020-HLG", hasVideo = true, hasAudio = false)
         val asked = ArrayList<String>()
         val report = repo(folder) { uri -> asked += uri; probed }.importWithReport(pack("p", mapOf("clip1.MOV" to bytes(100))))
         val asset = report.project.mediaLibrary.single()
-        assertEquals(listOf("content://fake/clip1.MOV"), asked)
+        assertEquals(listOf("content://fake/ultimateVE/Media/Test project/clip1.MOV"), asked)
         assertEquals(300L, asset.durationFrames)
         assertEquals(30, asset.nativeFpsNum)
         assertEquals("Rec2020-HLG", asset.colorSpace)
@@ -221,7 +235,7 @@ class LumaFusionRepositoryTest {
                 LfFixture.track(0, 0, anchor = true, clips = listOf(ClipSpec("a", "clip1.MOV", 0, 600), ClipSpec("b", "other.MOV", 600, 600))),
             ),
         )
-        val folder = FakeFolder(File(tmp.root, "media"))
+        val folder = FakeMediaFolder(File(tmp.root, "media"))
         val report = repo(folder).importWithReport(pack("p", mapOf("clip1.MOV" to bytes(100)), two))
         assertEquals(1, report.lumaFusion!!.mediaCopied)
         assertEquals(listOf("other.MOV"), report.lumaFusion.missing)
