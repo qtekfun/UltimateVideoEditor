@@ -590,6 +590,9 @@ check** button) and then one of:
   never says "checked": play the end of the movie before relying on it.
 - **Verification skipped (cancelled)** when you pressed **Skip check**.
 
+Under the result the summary also says how long it took: **Exported in 28:11, checked in 4 s** (the movie itself, then the check of the file). It appears in
+the dialog, the project list bar and the notification.
+
 The check takes a few seconds, also for a long 4K movie, because it only decodes the start and the end. If the exporter had to repeat
 frames that could not be decoded, that note is shown together with the verdict, never instead of it. The check is part of the export and
 cannot be switched off.
