@@ -43,6 +43,7 @@ internal object NativeTimeline {
 
     /** Colours of the canvas, from `Palette.nativeColours()`. */
     external fun nativeSetPalette(handle: Long, argb: IntArray)
+    external fun nativeSetWaveformScale(handle: Long, scale: Int)
 
     /** Copies a text bitmap (premultiplied RGBA, w*h*4 bytes) into the canvas's atlas under [hash]; callable from any thread. */
     external fun nativeLabelPut(handle: Long, hash: Long, buffer: ByteBuffer, width: Int, height: Int, colour: Boolean): Int

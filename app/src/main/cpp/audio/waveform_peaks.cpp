@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace uv::audio {
@@ -10,7 +11,7 @@ namespace uv::audio {
 namespace {
 
 constexpr uint32_t kMagic = 0x4B505655;  // "UVPK"
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;
 
 uint32_t samplesPerPeakAt(int level) {
     uint32_t spp = kBaseSamplesPerPeak;
@@ -27,18 +28,34 @@ PeakBuilder::PeakBuilder(uint32_t sampleRate, int channels)
     for (int i = 0; i < kLevelCount; ++i) out_.levels[i].samplesPerPeak = samplesPerPeakAt(i);
 }
 
-void PeakBuilder::pushPeak(int level, int16_t mn, int16_t mx) {
+void PeakBuilder::pushPeak(int level, int16_t mn, int16_t mx, double sumSq, uint64_t samples) {
     auto& lv = out_.levels[level];
-    lv.data.push_back(mn);
-    lv.data.push_back(mx);
+    // The finest level is dropped for good once it would pass kMaxFineLevelFrames, so a very long source never holds it.
+    if (level == 0 && !fineDropped_) {
+        lv.data.push_back(mn);
+        lv.data.push_back(mx);
+        if (static_cast<int64_t>(lv.count()) * lv.samplesPerPeak > kMaxFineLevelFrames) {
+            lv.data = {};
+            fineDropped_ = true;
+        }
+    } else if (level > 0) {
+        lv.data.push_back(mn);
+        lv.data.push_back(mx);
+        if (lv.samplesPerPeak >= kFirstRmsSamplesPerPeak) {
+            const double meanSq = samples > 0 ? sumSq / static_cast<double>(samples) : 0.0;
+            lv.rms.push_back(static_cast<int16_t>(std::min(32767.0, std::round(std::sqrt(meanSq)))));
+        }
+    }
     if (level + 1 >= kLevelCount) return;
     Acc& a = acc_[level + 1];
     a.min = std::min(a.min, mn);
     a.max = std::max(a.max, mx);
+    a.sumSq += sumSq;
+    a.samples += samples;
     if (++a.filled == kLevelRatio) {
-        const int16_t cmn = a.min, cmx = a.max;
+        const Acc done = a;
         a = Acc{};
-        pushPeak(level + 1, cmn, cmx);
+        pushPeak(level + 1, done.min, done.max, done.sumSq, done.samples);
     }
 }
 
@@ -47,16 +64,20 @@ void PeakBuilder::addInterleaved(const int16_t* samples, size_t frames) {
     for (size_t f = 0; f < frames; ++f) {
         const int16_t* s = samples + f * channels_;
         int16_t lo = s[0], hi = s[0];
+        int loudest = s[0];
         for (int c = 1; c < channels_; ++c) {
             lo = std::min(lo, s[c]);
             hi = std::max(hi, s[c]);
+            if (std::abs(static_cast<int>(s[c])) > std::abs(loudest)) loudest = s[c];
         }
         a.min = std::min(a.min, lo);
         a.max = std::max(a.max, hi);
+        a.sumSq += static_cast<double>(loudest) * static_cast<double>(loudest);
+        ++a.samples;
         if (++a.filled == kBaseSamplesPerPeak) {
-            const int16_t mn = a.min, mx = a.max;
+            const Acc done = a;
             a = Acc{};
-            pushPeak(0, mn, mx);
+            pushPeak(0, done.min, done.max, done.sumSq, done.samples);
         }
     }
     totalFrames_ += static_cast<int64_t>(frames);
@@ -67,12 +88,54 @@ PeakPyramid PeakBuilder::finish() {
     for (int level = 0; level < kLevelCount; ++level) {
         Acc a = acc_[level];
         acc_[level] = Acc{};
-        if (a.any()) pushPeak(level, a.min, a.max);
+        if (a.any()) pushPeak(level, a.min, a.max, a.sumSq, a.samples);
     }
     out_.totalFrames = totalFrames_;
     PeakPyramid result = std::move(out_);
     out_ = PeakPyramid{};
     return result;
+}
+
+size_t levelForColumn(const PeakPyramid& p, int64_t samplesPerColumn) {
+    size_t li = 0;
+    bool found = false;
+    for (size_t i = 0; i < p.levels.size(); ++i) {
+        if (p.levels[i].count() == 0) continue;
+        if (!found) {
+            li = i;  // the finest level there is, if every present level is wider than a column
+            found = true;
+        }
+        if (static_cast<int64_t>(p.levels[i].samplesPerPeak) <= samplesPerColumn) li = i;
+    }
+    return li;
+}
+
+PeakStat reducePeaks(const PeakPyramid& p, int64_t startFrame, int64_t endFrame) {
+    PeakStat out;
+    if (p.levels.empty() || endFrame <= startFrame) return out;
+    if (endFrame <= 0 || startFrame >= p.totalFrames) return out;
+    const PeakLevel& lv = p.levels[levelForColumn(p, endFrame - startFrame)];
+    const int64_t spp = lv.samplesPerPeak;
+    const int64_t n = static_cast<int64_t>(lv.count());
+    if (spp <= 0 || n <= 0) return out;
+    const int64_t first = std::max<int64_t>(0, startFrame) / spp;
+    const int64_t last = std::min<int64_t>(n - 1, (std::min<int64_t>(endFrame, p.totalFrames) - 1) / spp);
+    if (first > last) return out;
+    int16_t mn = INT16_MAX, mx = INT16_MIN;
+    double sumSq = 0.0, weight = 0.0;
+    for (int64_t k = first; k <= last; ++k) {
+        mn = std::min(mn, lv.data[static_cast<size_t>(k) * 2]);
+        mx = std::max(mx, lv.data[static_cast<size_t>(k) * 2 + 1]);
+        // The last peak of the source may be partial; weight by the samples it really covers.
+        const double w = static_cast<double>(std::min<int64_t>(spp, p.totalFrames - k * spp));
+        const double r = static_cast<size_t>(k) < lv.rms.size() ? lv.rms[static_cast<size_t>(k)] : 0;
+        sumSq += r * r * w;
+        weight += w;
+    }
+    out.min = mn;
+    out.max = mx;
+    out.rms = static_cast<int16_t>(weight > 0.0 ? std::min(32767.0, std::sqrt(sumSq / weight)) : 0.0);
+    return out;
 }
 
 void queryPeaks(const PeakPyramid& p, int64_t startFrame, int64_t endFrame, int columns, int16_t* outMinMax) {
@@ -82,32 +145,13 @@ void queryPeaks(const PeakPyramid& p, int64_t startFrame, int64_t endFrame, int 
     }
     if (columns <= 0 || endFrame <= startFrame || p.levels.empty()) return;
     const int64_t span = endFrame - startFrame;
-    const int64_t perColumn = std::max<int64_t>(1, span / columns);
-
-    // Coarsest level whose peak is no wider than one column.
-    size_t li = 0;
-    for (size_t i = 0; i < p.levels.size(); ++i) {
-        if (static_cast<int64_t>(p.levels[i].samplesPerPeak) <= perColumn) li = i;
-    }
-    const PeakLevel& lv = p.levels[li];
-    const int64_t spp = lv.samplesPerPeak;
-    const int64_t n = static_cast<int64_t>(lv.count());
-
     for (int i = 0; i < columns; ++i) {
         const int64_t c0 = startFrame + span * i / columns;
         int64_t c1 = startFrame + span * (i + 1) / columns;
         if (c1 <= c0) c1 = c0 + 1;
-        if (c1 <= 0 || c0 >= p.totalFrames) continue;
-        const int64_t first = std::max<int64_t>(0, c0) / spp;
-        const int64_t last = std::min<int64_t>(n - 1, (std::min<int64_t>(c1, p.totalFrames) - 1) / spp);
-        if (first > last) continue;
-        int16_t mn = INT16_MAX, mx = INT16_MIN;
-        for (int64_t k = first; k <= last; ++k) {
-            mn = std::min(mn, lv.data[k * 2]);
-            mx = std::max(mx, lv.data[k * 2 + 1]);
-        }
-        outMinMax[i * 2] = mn;
-        outMinMax[i * 2 + 1] = mx;
+        const PeakStat s = reducePeaks(p, c0, c1);
+        outMinMax[i * 2] = s.min;
+        outMinMax[i * 2 + 1] = s.max;
     }
 }
 
@@ -122,10 +166,31 @@ float referenceLevel(const PeakPyramid& p) {
     return std::max(peak, kMinReferenceLevel);
 }
 
-float displayAmplitude(float amplitude, float reference) {
-    const float x = std::min(1.0f, std::fabs(amplitude) / std::max(reference, kMinReferenceLevel));
-    const float shaped = std::sqrt(x);
-    return amplitude < 0.0f ? -shaped : shaped;
+float referenceLevel(const PeakPyramid& p, int64_t startFrame, int64_t endFrame) {
+    if (p.levels.empty() || endFrame <= startFrame) return referenceLevel(p);
+    const PeakLevel& lv = p.levels.back();
+    const int64_t spp = lv.samplesPerPeak;
+    const int64_t n = static_cast<int64_t>(lv.count());
+    if (spp <= 0 || n <= 0 || endFrame <= 0 || startFrame >= p.totalFrames) return kMinReferenceLevel;
+    const int64_t first = std::max<int64_t>(0, startFrame) / spp;
+    const int64_t last = std::min<int64_t>(n - 1, (std::min<int64_t>(endFrame, p.totalFrames) - 1) / spp);
+    float peak = 0.0f;
+    for (int64_t k = first; k <= last; ++k) {
+        peak = std::max(peak, std::fabs(static_cast<float>(lv.data[static_cast<size_t>(k) * 2])) / 32768.0f);
+        peak = std::max(peak, std::fabs(static_cast<float>(lv.data[static_cast<size_t>(k) * 2 + 1])) / 32768.0f);
+    }
+    return std::max(peak * kClipReferenceHeadroom, kMinReferenceLevel);
+}
+
+float waveHeight(float amplitude, float reference, WaveScale scale) {
+    const float ref = std::max(reference, kMinReferenceLevel);
+    const float x = std::fabs(amplitude) / ref;
+    if (!(x > 0.0f)) return 0.0f;
+    if (scale == WaveScale::Decibel) {
+        const float db = 20.0f * std::log10(x);  // 0 dB at the reference, negative below
+        return std::clamp((db + kWaveDbRange) / kWaveDbRange, 0.0f, 1.0f);
+    }
+    return std::min(1.0f, x);
 }
 
 core::Status savePeaks(const std::string& path, const PeakPyramid& p) {
@@ -145,6 +210,7 @@ core::Status savePeaks(const std::string& path, const PeakPyramid& p) {
         w(&lv.samplesPerPeak, sizeof(uint32_t));
         w(&count, sizeof(count));
         if (count > 0) w(lv.data.data(), lv.data.size() * sizeof(int16_t));
+        if (count > 0 && lv.samplesPerPeak >= kFirstRmsSamplesPerPeak) w(lv.rms.data(), lv.rms.size() * sizeof(int16_t));
     }
     good = (std::fclose(f) == 0) && good;
     if (!good || std::rename(tmp.c_str(), path.c_str()) != 0) {
@@ -183,7 +249,10 @@ core::Status loadPeaks(const std::string& path, PeakPyramid* out) {
             break;
         }
         lv.data.resize(static_cast<size_t>(count) * 2);
+        const bool withRms = lv.samplesPerPeak >= kFirstRmsSamplesPerPeak;
+        if (withRms) lv.rms.resize(count);
         if (count > 0) r(lv.data.data(), lv.data.size() * sizeof(int16_t));
+        if (count > 0 && withRms) r(lv.rms.data(), lv.rms.size() * sizeof(int16_t));
         p.levels.push_back(std::move(lv));
     }
     std::fclose(f);

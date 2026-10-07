@@ -28,6 +28,7 @@
 #include "timeline_view/snap_guide.h"
 #include "timeline_view/text_atlas.h"
 #include "timeline_view/timeline_theme.h"
+#include "timeline_view/wave_columns.h"
 
 #define LOG_TAG "uv_timeline"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -44,6 +45,7 @@ using Color = Rgba;
 // transitions, a missing file), so they stay fixed. Everything else is in TimelineTheme (timeline_theme.h).
 constexpr Color kMarqueeAlpha{0.0f, 0.0f, 0.0f, 0.16f};  // fill alpha of the marquee over the theme's primary colour
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
+constexpr Color kWaveOutline{0.0f, 0.0f, 0.0f, 0.42f};  // one pixel around the waveform envelope, separating it from the clip colour
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kClipLabel{1.0f, 1.0f, 1.0f, 0.92f};
 constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
@@ -245,6 +247,7 @@ struct TimelineRenderer::State {
     // vertical pinch zoom was removed, see DECISIONS "No vertical zoom"). Fixed until the preset changes.
     float laneScale = 1.0f;
     std::weak_ptr<thumb::ThumbnailService> thumbs;
+    audio::WaveScale waveScale = audio::WaveScale::Linear;  // how waveform amplitudes become heights (the layout sheet's choice)
 
     ANativeWindow* requestedWindow = nullptr;
     bool windowRequestPending = false;
@@ -1016,6 +1019,17 @@ void TimelineRenderer::setLaneScale(float scale) {
     wake();
 }
 
+void TimelineRenderer::setWaveformScale(int scale) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const audio::WaveScale next = audio::waveScaleFromInt(scale);
+        if (state_->waveScale == next) return;
+        state_->waveScale = next;
+        state_->dirty = true;
+    }
+    wake();
+}
+
 void TimelineRenderer::setPalette(const uint32_t* argb, size_t count) {
     if (argb == nullptr || count != kNativeColourCount) return;  // a mismatch keeps the colours it had
     {
@@ -1244,6 +1258,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     bool moreLabels = false;
     bool freedLabels = false;
     std::weak_ptr<thumb::ThumbnailService> thumbWeak;
+    audio::WaveScale waveScale = audio::WaveScale::Linear;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         State& s = *state_;
@@ -1282,6 +1297,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         height = s.height;
         playhead = s.playhead;
         thumbWeak = s.thumbs;
+        waveScale = s.waveScale;
         // Text bitmaps from Kotlin: take what the per-frame budget allows (always at least one) to place and upload.
         if (!s.pendingLabels.empty()) {
             size_t budget = kLabelUploadBytesPerFrame, take = 0, taken = 0;
@@ -1385,7 +1401,6 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         g.rect(0, top + layout.trackHeight - hair, W, top + layout.trackHeight, th.ruler);
     }
 
-    const float colW = std::max(1.0f, 2.0f * density);
     const float cornerR = 4.0f * density;
     const float headerStrip = 18.0f * density;
     // While clips are dragged or trimmed they are drawn in a second pass, over the others and with a soft shadow, so they
@@ -1494,7 +1509,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             g.setClip(0, layout.rulerHeight, W, H);
         }
 
-        // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling.
+        // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling. Per column (see
+        // wave_columns.h): a dark outline, the min..max envelope and, lighter, the RMS band, around a one-pixel centre line.
         if (c.assetKey >= 0 && lookup_ && !(retime != nullptr && retime->freeze())) {
             if (auto peaks = lookup_(c.assetKey)) {
                 // Without thumbnails the waveform gets the whole body below the header; with them it
@@ -1502,39 +1518,60 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 const float wTop = hasThumbs ? ibottom - kWaveStripFraction * (ibottom - bodyTop) : bodyTop;
                 const float mid = (wTop + ibottom) * 0.5f;
                 const float half = (ibottom - wTop) * 0.5f - 1.0f;
-                g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, itop), std::min(W, ix1), ibottom);
-                const Color wave = mix(base, white, 0.6f);
+                const float visLeft = std::max(0.0f, ix0), visRight = std::min(W, ix1);
+                g.setClip(visLeft, std::max(layout.rulerHeight, itop), visRight, ibottom);
+                const Color envelope = hasThumbs ? withAlpha(mix(base, white, 0.7f), 0.8f) : mix(base, white, 0.45f);
+                const Color inner = hasThumbs ? withAlpha(white, 0.95f) : mix(base, white, 0.88f);
+                const Color centre = withAlpha(hasThumbs ? white : mix(base, white, 0.6f), 0.4f);
                 if (hasThumbs) {
                     g.rect(ix0, wTop, ix1, ibottom, kWaveScrim);
                 } else {
-                    // A soft shading under the waveform and a centre line, so a quiet passage still reads as audio.
+                    // A soft shading under the waveform.
                     g.rectGradient(ix0, wTop, ix1, ibottom, scaled(base, 0.95f), scaled(base, 0.62f));
-                    g.rect(ix0, mid - hair * 0.5f, ix1, mid + hair * 0.5f, withAlpha(wave, 0.35f));
                 }
-                const double ppf = vp.pxPerFrame;
-                const int64_t firstCol = static_cast<int64_t>(std::floor((std::max(0.0f, ix0) + vp.scrollX) / colW));
-                const int64_t lastCol = static_cast<int64_t>(std::floor((std::min(W, ix1) + vp.scrollX) / colW));
-                const float reference = audio::referenceLevel(*peaks);
-                for (int64_t col = firstCol; col <= lastCol; ++col) {
-                    const int64_t f0 = static_cast<int64_t>(std::floor(col * colW / ppf)) - c.startFrame;
-                    const int64_t f1 = static_cast<int64_t>(std::floor((col + 1) * colW / ppf)) - c.startFrame;
-                    const int64_t r0 = std::clamp<int64_t>(f0, 0, c.durationFrames);
-                    const int64_t r1 = std::clamp<int64_t>(std::max(f1, f0 + 1), 0, c.durationFrames);
-                    if (r1 <= r0) continue;
+                g.rect(ix0, mid - hair * 0.5f, ix1, mid + hair * 0.5f, centre);
+                if (visRight > visLeft) {
+                    const double ppf = vp.pxPerFrame;
+                    const float colW = waveColumnWidth(visRight - visLeft, density);
+                    const int64_t firstCol = waveFirstColumn(visLeft, vp.scrollX, colW);
+                    const int64_t lastCol = waveLastColumn(visRight, vp.scrollX, colW);
                     const int64_t rate = peaks->sampleRate;
-                    // A retimed clip covers its source range at its average speed (a reversed one from the end).
-                    const int64_t a = retimeBoundary(retime, c.durationFrames, r0);
-                    const int64_t b = retimeBoundary(retime, c.durationFrames, r1);
-                    const int64_t s0 = (c.sourceInFrame + std::min(a, b)) * rate * c.sourceFpsDen / c.sourceFpsNum;
-                    int64_t s1 = (c.sourceInFrame + std::max(a, b)) * rate * c.sourceFpsDen / c.sourceFpsNum;
-                    s1 = std::max(s1, s0 + 1);
-                    int16_t mm[2];
-                    audio::queryPeaks(*peaks, s0, s1, 1, mm);
-                    // Normalised to the media's loudest sample so quiet audio still has visible shape.
-                    const float lo = std::min(0.0f, audio::displayAmplitude(mm[0] / 32768.0f, reference));
-                    const float hi = std::max(0.0f, audio::displayAmplitude(mm[1] / 32768.0f, reference));
-                    const float x = static_cast<float>(col * colW - vp.scrollX);
-                    g.rect(x, mid - hi * half - 0.5f, x + colW, mid - lo * half + 0.5f, wave);
+                    // The clip's own loudest level is the reference, so a quiet clip is lifted to a legible size.
+                    const int64_t srcSpan = retime != nullptr ? retime->sourceSpanFrames : c.durationFrames;
+                    const int64_t refStart = c.sourceInFrame * rate * c.sourceFpsDen / c.sourceFpsNum;
+                    const int64_t refEnd = (c.sourceInFrame + srcSpan) * rate * c.sourceFpsDen / c.sourceFpsNum;
+                    const float reference = audio::referenceLevel(*peaks, refStart, refEnd);
+                    for (int64_t col = firstCol; col <= lastCol; ++col) {
+                        int64_t s0, s1;
+                        if (retime == nullptr) {
+                            // Sub-frame positions: zoomed in, a column is a fraction of a frame.
+                            s0 = waveSampleAtColumn(col, colW, vp.scrollX, ppf, c.startFrame, c.durationFrames, c.sourceInFrame, rate,
+                                                    c.sourceFpsNum, c.sourceFpsDen);
+                            s1 = waveSampleAtColumn(col + 1, colW, vp.scrollX, ppf, c.startFrame, c.durationFrames, c.sourceInFrame,
+                                                    rate, c.sourceFpsNum, c.sourceFpsDen);
+                        } else {
+                            // A retimed clip covers its source range at its average speed (a reversed one from the end).
+                            const int64_t f0 = static_cast<int64_t>(std::floor(col * colW / ppf)) - c.startFrame;
+                            const int64_t f1 = static_cast<int64_t>(std::floor((col + 1) * colW / ppf)) - c.startFrame;
+                            const int64_t r0 = std::clamp<int64_t>(f0, 0, c.durationFrames);
+                            const int64_t r1 = std::clamp<int64_t>(std::max(f1, f0 + 1), 0, c.durationFrames);
+                            if (r1 <= r0) continue;
+                            const int64_t a = retimeBoundary(retime, c.durationFrames, r0);
+                            const int64_t b = retimeBoundary(retime, c.durationFrames, r1);
+                            s0 = (c.sourceInFrame + std::min(a, b)) * rate * c.sourceFpsDen / c.sourceFpsNum;
+                            s1 = (c.sourceInFrame + std::max(a, b)) * rate * c.sourceFpsDen / c.sourceFpsNum;
+                        }
+                        if (s1 <= s0 && retime == nullptr) continue;  // a column outside the clip (both ends clamp to the same sample)
+                        const WaveColumn wc = waveColumn(*peaks, s0, s1, reference, waveScale);
+                        if (wc.up <= 0.0f && wc.down <= 0.0f) continue;  // silence: the centre line only
+                        const float x = static_cast<float>(col * colW - vp.scrollX);
+                        const float yTop = mid - wc.up * half, yBottom = mid + wc.down * half;
+                        g.rect(x, yTop - hair, x + colW, yBottom + hair, kWaveOutline);
+                        g.rect(x, yTop, x + colW, yBottom, envelope);
+                        if (wc.rms * half >= 1.0f) {
+                            g.rect(x, mid - std::min(wc.rms, wc.up) * half, x + colW, mid + std::min(wc.rms, wc.down) * half, inner);
+                        }
+                    }
                 }
                 g.setClip(0, layout.rulerHeight, W, H);
             }
