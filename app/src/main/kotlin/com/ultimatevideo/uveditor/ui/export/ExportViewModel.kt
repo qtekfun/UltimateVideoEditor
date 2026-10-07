@@ -213,7 +213,7 @@ class ExportViewModel(
             }
             is ExportJobState.Done -> {
                 mirrored = job
-                reduce { copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Done(job.uri, job.fileName, job.note, job.verification)) }
+                reduce { copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Done(job.uri, job.fileName, job.note, job.verification, job.exportMs, job.verifyMs)) }
             }
             is ExportJobState.Failed -> {
                 mirrored = job

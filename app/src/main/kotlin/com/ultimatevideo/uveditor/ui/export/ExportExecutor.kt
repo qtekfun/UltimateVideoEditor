@@ -45,6 +45,7 @@ class ExportExecutor(
     private var cancelRequested = false
     private var finishNote = "" // set by the engine just before it finishes: frames that had to be repeated
     private var completed = false
+    private var startedAt = 0L // clock() when the running job started, for the time shown in the summary
     private var expectation: VerifyExpectation? = null // what the running job promised about its file
     private var signatures: List<FrameSignature> = emptyList() // taken by the engine while exporting
 
@@ -56,6 +57,7 @@ class ExportExecutor(
             job = next
             cancelRequested = false
             completed = false
+            startedAt = running.startedAtMs
             estimator = null
             expectation = null
             signatures = emptyList()
@@ -183,10 +185,13 @@ class ExportExecutor(
             job = null
         }
         finished?.close()
+        val exportMs = (clock() - startedAt).coerceAtLeast(0)
         if (error == null) {
             val name = io.displayName(source.outputUri) ?: suggestedFileName(source.projectName)
+            val verifyStart = clock()
             val verification = verify(source, promised, probes)
-            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name, note, verification)
+            val verifyMs = if (verification == null) 0 else (clock() - verifyStart).coerceAtLeast(0)
+            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name, note, verification, exportMs, verifyMs)
             return
         }
         val removed = io.deleteOutput(source.outputUri)

@@ -59,6 +59,7 @@ internal fun ExportBarView(bar: ExportBar, onIntent: (HubIntent) -> Unit) {
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    if (bar.result.timing.isNotEmpty()) Text(bar.result.timing, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                         TextButton(onClick = { onIntent(HubIntent.ShareExport) }) { Text("Share") }
                         TextButton(onClick = { onIntent(HubIntent.DismissExportBar) }) { Text("Dismiss") }

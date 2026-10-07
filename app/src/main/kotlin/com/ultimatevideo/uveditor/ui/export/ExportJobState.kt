@@ -34,6 +34,9 @@ sealed interface ExportJobState {
         val fileName: String,
         val note: String = "",
         val verification: VerificationOutcome? = null,
+        /** Wall time of the export itself (start to the finished file) and of the check of that file, for the summary. */
+        val exportMs: Long = 0,
+        val verifyMs: Long = 0,
     ) : ExportJobState
 
     /** [error] is null only when the engine reported a failure without a reason. */
