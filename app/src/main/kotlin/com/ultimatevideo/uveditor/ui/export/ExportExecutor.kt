@@ -5,6 +5,9 @@ import com.ultimatevideo.uveditor.engine.export.ExportException
 import com.ultimatevideo.uveditor.engine.export.ExportHandle
 import com.ultimatevideo.uveditor.engine.export.ExportListener
 import com.ultimatevideo.uveditor.engine.export.ExportRunner
+import com.ultimatevideo.uveditor.engine.verify.FrameSignature
+import com.ultimatevideo.uveditor.engine.verify.VerificationOutcome
+import com.ultimatevideo.uveditor.engine.verify.VerifyExpectation
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +32,8 @@ class ExportExecutor(
     private val ioDispatcher: CoroutineDispatcher,
     private val clock: () -> Long = System::currentTimeMillis,
     private val onStarted: () -> Unit = {},
+    /** Checks the finished file (first and last frames, structure); null skips the check, which only tests do. */
+    private val verifier: ExportVerifier? = null,
 ) : ExportJobHost {
     private val mutableState = MutableStateFlow<ExportJobState>(ExportJobState.Idle)
     override val state: StateFlow<ExportJobState> = mutableState.asStateFlow()
@@ -40,6 +45,8 @@ class ExportExecutor(
     private var cancelRequested = false
     private var finishNote = "" // set by the engine just before it finishes: frames that had to be repeated
     private var completed = false
+    private var expectation: VerifyExpectation? = null // what the running job promised about its file
+    private var signatures: List<FrameSignature> = emptyList() // taken by the engine while exporting
 
     /** Starts [next]; false when an export is already running (nothing is touched then). */
     fun start(next: ExportJob): Boolean {
@@ -50,6 +57,8 @@ class ExportExecutor(
             cancelRequested = false
             completed = false
             estimator = null
+            expectation = null
+            signatures = emptyList()
             mutableState.value = running
         }
         onStarted()
@@ -80,6 +89,10 @@ class ExportExecutor(
         val started = try {
             val request = next.prepare()
             synchronized(lock) {
+                expectation = VerifyExpectation(
+                    request.totalFrames, request.settings.fpsNum, request.settings.fpsDen,
+                    hasAudio = request.audioSnapshot != null, hdr = request.settings.hdr,
+                )
                 estimator = ExportEstimator(
                     totalFrames = request.totalFrames,
                     movieSeconds = request.totalFrames * request.settings.fpsDen.toDouble() / request.settings.fpsNum,
@@ -93,6 +106,10 @@ class ExportExecutor(
 
                     override fun onNote(note: String) {
                         synchronized(lock) { finishNote = note }
+                    }
+
+                    override fun onSignatures(signatures: List<FrameSignature>) {
+                        synchronized(lock) { this@ExportExecutor.signatures = signatures }
                     }
 
                     override fun onFinished(error: ExportException?) {
@@ -125,14 +142,38 @@ class ExportExecutor(
         }
     }
 
+    /**
+     * Looks at the closed file: the state stays [ExportJobState.Running] (now `verifying`) so the dialog, the notification and
+     * the service go on showing it, and Cancel skips the check. Never throws and never returns "fine" when it could not look.
+     */
+    private fun verify(source: ExportJob, promised: VerifyExpectation?, probes: List<FrameSignature>): VerificationOutcome? {
+        val check = verifier ?: return null
+        val cancelled = { synchronized(lock) { cancelRequested } }
+        if (cancelled()) return VerificationOutcome.Skipped
+        if (promised == null) return VerificationOutcome.CouldNotVerify("the export's settings were not recorded")
+        mutableState.update { if (it is ExportJobState.Running) it.copy(progressPermille = 0, verifying = true, estimate = ExportEstimate()) else it }
+        return try {
+            check.verify(VerifyTarget(source.outputUri, promised, probes), cancelled) { permille ->
+                mutableState.update { if (it is ExportJobState.Running && it.verifying) it.copy(progressPermille = permille) else it }
+            }
+        } catch (e: RuntimeException) {
+            VerificationOutcome.CouldNotVerify("the check failed (${e.javaClass.simpleName}: ${e.message})")
+        }
+    }
+
     /** Releases the engine (joins its thread), removes the output unless it succeeded, then publishes the outcome. */
     private fun finish(error: ExportException?) {
         val finished: ExportHandle?
         val source: ExportJob
         val note: String
+        val promised: VerifyExpectation?
+        val probes: List<FrameSignature>
         synchronized(lock) {
             if (completed) return
             completed = true
+            promised = expectation
+            probes = signatures
+            signatures = emptyList()
             note = finishNote
             finishNote = ""
             estimator = null
@@ -144,7 +185,8 @@ class ExportExecutor(
         finished?.close()
         if (error == null) {
             val name = io.displayName(source.outputUri) ?: suggestedFileName(source.projectName)
-            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name, note)
+            val verification = verify(source, promised, probes)
+            mutableState.value = ExportJobState.Done(source.projectId, source.projectName, source.outputUri, name, note, verification)
             return
         }
         val removed = io.deleteOutput(source.outputUri)

@@ -60,6 +60,37 @@ struct ListenerRef {
     jmethodID onProgress = nullptr;
     jmethodID onFinished = nullptr;
     jmethodID loadPicture = nullptr;  // optional: (I[I)Ljava/nio/ByteBuffer;
+    jmethodID onSignatures = nullptr;  // optional: ([J[S)V, {frame, ptsUs} per signature and 3 * kSigCells values each
+
+    void signatures(const std::vector<uv::encode::FrameSignature>& sigs) const {
+        JNIEnv* env = envForCurrentThread(vm);
+        if (env == nullptr || onSignatures == nullptr) return;
+        constexpr size_t kPer = 3 * static_cast<size_t>(uv::encode::kSigCells);
+        std::vector<jlong> meta;
+        std::vector<jshort> values;
+        meta.reserve(sigs.size() * 2);
+        values.reserve(sigs.size() * kPer);
+        for (const auto& sig : sigs) {
+            if (sig.y.size() != static_cast<size_t>(uv::encode::kSigCells) || sig.cb.size() != sig.y.size() || sig.cr.size() != sig.y.size()) continue;
+            meta.push_back(sig.frame);
+            meta.push_back(sig.ptsUs);
+            for (const auto* plane : {&sig.y, &sig.cb, &sig.cr}) {
+                for (uint16_t v : *plane) values.push_back(static_cast<jshort>(v));
+            }
+        }
+        jlongArray m = env->NewLongArray(static_cast<jsize>(meta.size()));
+        jshortArray d = env->NewShortArray(static_cast<jsize>(values.size()));
+        if (m == nullptr || d == nullptr) {
+            env->ExceptionClear();
+            return;
+        }
+        env->SetLongArrayRegion(m, 0, static_cast<jsize>(meta.size()), meta.data());
+        env->SetShortArrayRegion(d, 0, static_cast<jsize>(values.size()), values.data());
+        env->CallVoidMethod(listener, onSignatures, m, d);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        env->DeleteLocalRef(m);
+        env->DeleteLocalRef(d);
+    }
 
     // Asks the listener for the still behind `key`. The returned direct buffer is kept alive by `out->hold` until the
     // caller has uploaded it, then its local reference is deleted. False when the listener has none or it is unusable.
@@ -439,6 +470,8 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     handle->listener->onFinished = env->GetMethodID(cls, "onFinished", "(ILjava/lang/String;)V");
     handle->listener->loadPicture = env->GetMethodID(cls, "loadPicture", "(I[I)Ljava/nio/ByteBuffer;");
     if (handle->listener->loadPicture == nullptr) env->ExceptionClear();  // optional: stills may all be uploaded up front
+    handle->listener->onSignatures = env->GetMethodID(cls, "onSignatures", "([J[S)V");
+    if (handle->listener->onSignatures == nullptr) env->ExceptionClear();  // optional: no verification then
     env->DeleteLocalRef(cls);
     if (handle->listener->onProgress == nullptr || handle->listener->onFinished == nullptr) {
         env->DeleteGlobalRef(handle->listener->listener);
@@ -450,6 +483,9 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     if (pictureBudget > 0) params.pictureBudgetBytes = pictureBudget;
     if (ref->loadPicture != nullptr) {
         params.pictureLoader = [ref](uint32_t key, uv::encode::PictureData* out) { return ref->pictureFor(key, out); };
+    }
+    if (ref->onSignatures != nullptr) {
+        params.signatureSink = [ref](std::vector<uv::encode::FrameSignature> sigs) { ref->signatures(sigs); };
     }
     handle->job = std::make_unique<ExportJob>(
         std::move(params), [ref](int32_t permille) { ref->progress(permille); },

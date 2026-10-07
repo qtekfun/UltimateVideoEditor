@@ -576,6 +576,23 @@ Tap the export icon, choose resolution, frame rate, codec (H.264 or HEVC), bitra
 shown while it renders; you can cancel (the partial file is removed) and share the file when it finishes.
 Export is refused, with the clips named, if some media is missing.
 
+**Checking the saved file.** When the movie is written, the app does not just say "done": it opens the saved file again, in the background,
+and checks that it is complete. The dialog, the notification and the project list say **Verifying...** (with a percentage and a **Skip
+check** button) and then one of:
+
+- **Checked: the video is complete (18000 frames, 10:00)**. The file has the number of frames and the length it should have, its
+  sound is as long as its picture, nothing in it is cut off or empty, the first second and the last three seconds decode without an
+  error, and the first and last pictures look roughly like the ones that were sent to the encoder.
+- **WARNING: the last N frames look damaged** (or **missing**, or "did not pass the check") with the checks that failed, for example
+  "decoding: the decoder stopped at frame 17981 of 18000". The file is **kept**: you decide whether to use it. **Export again** takes you
+  back to the settings; the damaged file stays where it is until you delete it.
+- **Could not check the file** when the check itself could not run (for example no decoder on the phone could read the file back). This
+  never says "checked": play the end of the movie before relying on it.
+- **Verification skipped (cancelled)** when you pressed **Skip check**.
+
+The check takes a few seconds, also for a long 4K movie, because it only decodes the start and the end. If the exporter had to repeat
+frames that could not be decoded, that note is shown together with the verdict, never instead of it. The check is part of the export and
+cannot be switched off.
 **The dialog starts on settings that keep your clips' quality.** It looks at the video clips that are on the timeline (not at
 unused files in the library, photos or titles) and picks the smallest bitrate choice that is at least as high as the best of them
 (a clip at 80 Mbit/s selects 80 Mbps, one at 52 Mbit/s selects 80 Mbps, 40 selects 50). It switches to HEVC when a clip is HEVC,

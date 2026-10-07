@@ -296,10 +296,10 @@ check_probe() {
 # $1 id prefix, $2 project, $3 expected frames, $4 fps, $5 clips, $6 seconds per clip, $7 audio spec "label:clipIndex ..."
 check_project_export() {
     local pre="$1" project="$2" frames="$3" fps="$4" clips="$5" per="$6" audio="$7"
-    want "$pre-FPS" || want "$pre-AUD" || want FGS || want "$pre-TAGS" || return 0
+    want "$pre-FPS" || want "$pre-AUD" || want FGS || want "$pre-TAGS" || want "$pre-VERIFY" || return 0
     export_project "$pre" "$project"
     if [ -z "$ex_file" ]; then
-        for c in FPS AUD TAGS; do want "$pre-$c" && record "$pre-$c" D1 "export of $project" FAIL "export failed: $ex_result"; done
+        for c in FPS AUD TAGS VERIFY; do want "$pre-$c" && record "$pre-$c" D1 "export of $project" FAIL "export failed: $ex_result"; done
         want FGS && record FGS D4 "export foreground service" FAIL "export failed: $ex_result"
         return 0
     fi
@@ -315,6 +315,7 @@ check_project_export() {
         done
     fi
     if want "$pre-TAGS"; then assert "$pre-TAGS" D6 "$project: SDR tags bt709" tags "$ex_file" --kind sdr; fi
+    if want "$pre-VERIFY"; then assert "$pre-VERIFY" D10 "$project: the app verified its own file" verification --result "$ex_result" --expect verified; fi
     if want "$pre-SEEK" || want "$pre-FPS"; then
         assert "$pre-SEEK" D5 "$project: no stall, bounded seeks" seeks "$ex_log" --seconds "$ex_seconds" --clips "$clips"
     fi
@@ -354,6 +355,7 @@ check_hlg() {
             record EXP-HLG D6 "HLG export offered iff it works" FAIL "the probe says no HDR but an HLG export succeeded (the probe differs from the exporter's format)"
         else
             assert EXP-HLG D6 "HLG export tags (hvc1 Main10, bt2020nc, HLG, tv)" tags "$ex_file" --kind hlg
+            if want VERIFY-HLG; then assert VERIFY-HLG D10 "HLG export verified by the app (10-bit signatures)" verification --result "$ex_result" --expect verified; fi
         fi
     elif echo "$ex_result" | grep -qi "UNSUPPORTED"; then
         if [ "$hdr_probe" = "true" ]; then
@@ -363,6 +365,24 @@ check_hlg() {
         fi
     else
         record EXP-HLG D6 "HLG export" FAIL "$ex_result"
+    fi
+}
+
+# Deliberately damaged exports: the app's verification must flag each of them. The harness (QaExportActivity --es damage <mode>) damages the
+# finished file between the end of the export and the verification, so a check that does not look at the file, or is skipped, shows here.
+check_verify_damage() {
+    want VERIFY-DAMAGE || return 0
+    local mode bad="" good="" out
+    for mode in zero2mb zerotail garble; do
+        EXPORT_TIMEOUT=240 export_project "dmg_$mode" qaquick --es damage "$mode"
+        if ! echo "$ex_result" | grep -q '^OK'; then bad="$bad $mode(export: $(echo "$ex_result" | cut -c1-60))"; continue; fi
+        out="$(python3 "$qa/check-export.py" verification --result "$ex_result" --expect warning 2>&1 | tail -1)"
+        case "$out" in OK*) good="$good $mode" ;; *) bad="$bad $mode(${out#FAIL })" ;; esac
+    done
+    if [ -z "$bad" ]; then
+        record VERIFY-DAMAGE D10 "damaged exports are flagged by the verification" PASS "flagged:$good"
+    else
+        record VERIFY-DAMAGE D10 "damaged exports are flagged by the verification" FAIL "$(echo "$bad" | cut -c1-200)"
     fi
 }
 
@@ -627,7 +647,7 @@ if full; then
     fi
 fi
 check_hlg
-if full; then check_rotation; check_frame; fi
+if full; then check_rotation; check_frame; check_verify_damage; fi
 check_footer
 check_thumbnails
 check_save_frame_ui

@@ -3,6 +3,7 @@ package com.ultimatevideo.uveditor.ui.export
 import com.ultimatevideo.uveditor.engine.export.ExportErrorCode
 import com.ultimatevideo.uveditor.engine.export.ExportException
 import com.ultimatevideo.uveditor.engine.export.ExportRequest
+import com.ultimatevideo.uveditor.engine.verify.VerificationOutcome
 
 /**
  * What the process-wide [ExportExecutor] is doing. The export dialog and the notification of the foreground service
@@ -18,10 +19,22 @@ sealed interface ExportJobState {
         val progressPermille: Int,
         val startedAtMs: Long,
         val estimate: ExportEstimate = ExportEstimate(),
+        /** The movie is finished and the file is being checked; [progressPermille] is then the check's progress. */
+        val verifying: Boolean = false,
     ) : ExportJobState
 
-    /** [note] is empty unless the movie was not exact (some frames repeated). */
-    data class Done(override val projectId: String, val projectName: String, val uri: String, val fileName: String, val note: String = "") : ExportJobState
+    /**
+     * [note] is empty unless the movie was not exact (some frames repeated). [verification] is what the post-export check of
+     * the file found; null only when no verifier is installed (tests).
+     */
+    data class Done(
+        override val projectId: String,
+        val projectName: String,
+        val uri: String,
+        val fileName: String,
+        val note: String = "",
+        val verification: VerificationOutcome? = null,
+    ) : ExportJobState
 
     /** [error] is null only when the engine reported a failure without a reason. */
     data class Failed(override val projectId: String, val projectName: String, val error: ExportException?, val leftoverNote: String = "") : ExportJobState

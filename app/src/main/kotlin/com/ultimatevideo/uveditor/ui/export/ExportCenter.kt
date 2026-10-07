@@ -23,13 +23,16 @@ object ExportCenter {
         instance?.let { return it }
         val app = context.applicationContext
         return synchronized(this) {
-            instance ?: ExportExecutor(
-                io = ContentResolverExportIO(app),
-                runner = NativeExportRunner(),
-                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-                ioDispatcher = Dispatchers.IO,
-                onStarted = { startService(app) },
-            ).also { instance = it }
+            instance ?: ContentResolverExportIO(app).let { io ->
+                ExportExecutor(
+                    io = io,
+                    runner = NativeExportRunner(),
+                    scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                    ioDispatcher = Dispatchers.IO,
+                    onStarted = { startService(app) },
+                    verifier = DeviceExportVerifier(io),
+                ).also { instance = it }
+            }
         }
     }
 

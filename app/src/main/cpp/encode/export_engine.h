@@ -17,6 +17,7 @@
 
 #include "core/error.h"
 #include "encode/export_math.h"
+#include "encode/frame_signature.h"
 #include "encode/still_math.h"
 
 namespace uv::encode {
@@ -91,6 +92,9 @@ struct ExportParams {
     std::vector<std::pair<int64_t, int>> assetFds;
     // Audio snapshot (audio/audio_snapshot.h layout); empty means the movie has no audio track.
     std::vector<uint8_t> audioSnapshot;
+    // Called once on the export thread after the muxer has finalised the file (before the done sink), with the signatures
+    // of the probed frames (encode/frame_signature.h) for the app's post-export verification. Not called on failure.
+    std::function<void(std::vector<FrameSignature>)> signatureSink;
     int outputFd = -1;  // read/write, seekable; owned by the job
     std::optional<StillTarget> still;  // set: render one frame to memory instead of exporting a movie
 };
