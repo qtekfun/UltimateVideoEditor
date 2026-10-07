@@ -687,7 +687,7 @@ the primary. Every plain tap, empty-space tap and ClearSelection resets `selecte
 never come back. Intents live in `SelectionIntent` (a sealed sub-interface of `EditorIntent`).
 
 Gestures (Kotlin, `TimelineSurfaceView`): in select mode a tap toggles a clip and a drag that starts on empty lane
-space draws a marquee; a long press toggles a clip in any mode. The marquee rectangle is native state
+space draws a marquee; a long press toggles a clip in any mode, and holding then moving (past the touch slop, without lifting) picks the clip up and drags it (`PressDrag`): a clip that was not selected is selected by the hold, one that was is only toggled off when the finger lifts without having moved. The marquee rectangle is native state
 (`nativeSetMarquee`), and on release `nativeClipsInRect` returns the clip keys it touches (`clipsInRect` in
 `hit_test.cpp`, host-tested; the ruler never counts). Dragging any selected clip with more than one selected moves
 the group (`GroupMove`, snapped as a block by `GroupOps.snappedDelta`; the lane delta counts lanes of the same

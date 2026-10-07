@@ -243,7 +243,7 @@ panel on the left.
 
 - **Select mode** (dotted-square button, highlighted while on): tap clips to add or remove them, and drag on
   empty lane space to draw a rectangle that adds every clip it touches. Tapping empty space keeps the selection.
-- **Long press** a clip in any mode to add it to the selection (or remove it again). A plain tap on a clip goes
+- **Long press** a clip in any mode to add it to the selection (or remove it again). Keep the finger down and move it to drag the clip straight away; a clip that was already selected stays selected when you drag it. A plain tap on a clip goes
   back to just that clip.
 - The clip chosen last has the **yellow** outline: it is the one the inspector edits. The others are outlined
   in **blue**.
