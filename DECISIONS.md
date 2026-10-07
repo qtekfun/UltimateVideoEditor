@@ -1546,3 +1546,23 @@ log shows the plan, the layers and the first pixel.
 **Context:** nine defects reached the user in a few days (a silent export from PCM audio, black saved frames, photos reported as thumbnail errors, the export service crashing on Android 17, a decoder stall on 30/27 fps clips plus a stale debug property that hid the fix, HLG not offered, a typed-in engine version, EACCES on picked packages, rotation applied twice). Each was a thing a test could have caught.
 **Chosen:** host and JVM guards for what a JVM can see (`app/src/test/kotlin/.../qa`, `MovAudioScanTableTest`, `LumaFusionPackageGuardTest`, the decode simulation for mixed frame rates, `engine_version_tests.cpp`), and `scripts/qa-smoke.sh` for what needs the phone. Every defect found on a device now gets a regression test in the same change; a device-only one gets a scripted check in the smoke runner (CLAUDE.md, Testing rules; docs/QA.md).
 **Found while writing them:** `debug.uveditor.export_enc_flags=0` switched the 4x export speed-up off in any build, the same trap as `decode_gap`; it is removed and a test allow-lists the debug properties the code may read. The exporter also evicted the stand-in frame at the end of a clip that ends two or more timeline frames after its last picture (24 fps on a 60 fps timeline), so each later frame seeked back and decoded a GOP again; the newest held frame is now kept (the simulation reproduces and guards it).
+
+## 2026-10-07 · Export: layers hidden behind a full-canvas video layer are not decoded or drawn
+
+**Context.** A layer that covers the whole canvas with full opacity hides everything below it, but the exporter decoded and drew those layers anyway.
+In the real 11:54 4K60 HLG project (`Review IPhone 18 Pro Max`, 42,891 frames) a full-scale B-roll clip (IMG_0650/0656/0657, six `VID*.mp4`, all 3840x2160) sits on
+lane v2 above the full-scale base clip IMG_0014.mov (4K60 HEVC 10-bit HLG, 3.7 GB) on v1.
+**Offline count (project.json, `scripts/`-free analysis; the engine decides at run time from the real decoded size):** 9,869 frames (23.0%) have a full,
+opaque, effect-free video clip above another video; with the 2 s rule below 8,463 frames (19.7%, 141 s of movie) are skipped, and in all of them the hidden clip is IMG_0014.
+**Decision.** `encode/occlusion_math.h` (`coversCanvas`, `opaqueLook`, `minCullFrames`, host tests in `export_host_tests.cpp`): the topmost video layer that is opaque (opacity 1
+after the crossfade), normal blend, no mask, no effect, no rotation and whose quad reaches all four canvas edges (1e-5 NDC, 0.02 px at 4K) hides every layer beneath it; those are not
+fetched and not drawn. Pictures and titles never hide anything (a PNG may have alpha). The decision is made per frame from the geometry the draw would use, so a cover that is scaled
+down, rotated, faded or of another aspect simply is not one. Plain code path, no switch in production; `ExportSettings.skipHiddenLayers` (default true, bit 0x200 on the JNI codec int)
+exists for the debug harness only (`ExportDemoActivity --ez keep_hidden true`) and a run that keeps hidden layers logs a warning.
+**The 2 s rule.** The cover must still have at least 2 s to run (`minCullFrames`). Skipping stops 2 s before the cover ends, so the hidden clip's decoder (shut down after 2 s of
+idleness) is re-opened and decodes while the cover is still shown: no stall and no seek storm when the cover ends, and a cover shorter than 2 s never skips anything. Cost: the last
+2 s of every cover are decoded as before; saving per cover = its length minus 2 s... plus the first part. Audio is not part of the video layer plan and is untouched.
+Also in this change: all layers' decoder targets are set before the first fetch waits (`setTarget` is idempotent), and `debug.uveditor.export_perf` prints a per-section
+table (video layers / picture layers / skipped layers: frames, seconds, fps) at the end of an export.
+**Parity.** To be filled by the device runs (framemd5 with and without skipping for the cases of `--es layout cover --es case full|resume|small|fade|opacity|short|zoom`).
+**Measured.** Pending (the Pixel was in use by another app when this was written).
