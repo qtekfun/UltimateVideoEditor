@@ -67,13 +67,7 @@ class ExportService : Service() {
             }
     }
 
-    /** Android 15 added the media processing type; before that the closest declared one is data sync. */
-    private fun foregroundType(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        }
+    private fun foregroundType(): Int = foregroundTypeFor(Build.VERSION.SDK_INT)
 
     /** Android 15+ (API 35): the system stops a media processing service after its daily budget (6 h) and expects a prompt stop. */
     override fun onTimeout(startId: Int, fgsType: Int) {
@@ -150,3 +144,15 @@ class ExportService : Service() {
         private val PLACEHOLDER = ExportNotificationModel("Exporting", "Starting…", null, true, ongoing = true, showCancel = true)
     }
 }
+
+/**
+ * The foreground service type to start the export service with on [sdk]. Never 0: Android 17 rejects a type of none
+ * (InvalidForegroundServiceTypeException), and a type must be one the manifest declares and holds a permission for
+ * (`ExportServiceDeclarationTest` checks both). Android 15 added media processing; before that the closest is data sync.
+ */
+internal fun foregroundTypeFor(sdk: Int): Int =
+    if (sdk >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+    } else {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+    }

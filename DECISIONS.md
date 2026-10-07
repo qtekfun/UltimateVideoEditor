@@ -1454,8 +1454,8 @@ of the proxy is consistent). The synthetic content is `testsrc2`, a worst case f
 
 **Context.** Profiling a 4K export showed the render thread waiting about 20 ms per frame for decoded frames even when the decoders were trivially
 light (one 1280x720 proxy layer on a 4K canvas still gave 32 fps), while the same layer at 720p output ran 65 fps. The wait follows the encoder's load.
-**Decision.** `setVideoFormat` sets `KEY_PRIORITY` 1 (non real time) and `KEY_OPERATING_RATE` max, which an offline export may do. `setprop debug.uveditor.export_enc_flags 0`
-turns it off for comparisons.
+**Decision.** `setVideoFormat` sets `KEY_PRIORITY` 1 (non real time) and `KEY_OPERATING_RATE` max, which an offline export may do. The comparison switch
+`debug.uveditor.export_enc_flags` that this entry first added was removed again (it could silently turn the 4x speed-up off; see "No debug switch").
 **Measured (Pixel 8, 4K HEVC 35 Mbps output, `ExportDemoActivity`):** one 4K H.264 30 fps layer, 600 frames: 17.9 s (33.5 fps) to 9.3 s (64 fps; decode bound);
 one 720p layer upscaled to 4K, 360 frames: 11.5 s to 3.45 s (104 fps); a 4K canvas with a third-size proxy layer: 31.7 to 124 fps; three such layers 37 to 95 fps; three 4K H.264
 layers (decode bound) 30 to 35 fps. The decoded frames are identical with and without (framemd5 equal for both A/B pairs; the files differ only in the container tail),
@@ -1509,3 +1509,8 @@ metadata): every frame saved correctly. The user's installed app is the 0.3.0 de
 had a stale `debug.uveditor.decode_gap=0` property left by an A/B run, which #129 removed; the cause is therefore most likely that build and
 property rather than the editor wiring, but this is not proven. If it still happens with this build, the guard reports it and the `UVFrame`
 log shows the plan, the layers and the first pixel.
+
+## 2026-10-07 · A safety net for defects that only show on a device
+**Context:** nine defects reached the user in a few days (a silent export from PCM audio, black saved frames, photos reported as thumbnail errors, the export service crashing on Android 17, a decoder stall on 30/27 fps clips plus a stale debug property that hid the fix, HLG not offered, a typed-in engine version, EACCES on picked packages, rotation applied twice). Each was a thing a test could have caught.
+**Chosen:** host and JVM guards for what a JVM can see (`app/src/test/kotlin/.../qa`, `MovAudioScanTableTest`, `LumaFusionPackageGuardTest`, the decode simulation for mixed frame rates, `engine_version_tests.cpp`), and `scripts/qa-smoke.sh` for what needs the phone. Every defect found on a device now gets a regression test in the same change; a device-only one gets a scripted check in the smoke runner (CLAUDE.md, Testing rules; docs/QA.md).
+**Found while writing them:** `debug.uveditor.export_enc_flags=0` switched the 4x export speed-up off in any build, the same trap as `decode_gap`; it is removed and a test allow-lists the debug properties the code may read. The exporter also evicted the stand-in frame at the end of a clip that ends two or more timeline frames after its last picture (24 fps on a 60 fps timeline), so each later frame seeked back and decoded a GOP again; the newest held frame is now kept (the simulation reproduces and guards it).
