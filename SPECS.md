@@ -1416,6 +1416,20 @@ engine, so it is what an export would contain at that frame.
   frame-numbered source from `scripts/check-retime-export.py gen`, reads each frame's number back from the PNG, and exports the same
   project for an ffmpeg comparison.
 
+### 5.36 Toolbar guide (in app, online, PDF)
+
+Every symbol of the editor is described in one registry, `ui/editor/guide/ToolbarGuide.kt`: id, section (where it sits), the
+toolbar's own `ImageVector`, name, one-line help and when it is available, plus the gestures. `ToolbarGuideScreen` lists it with a
+search box; it opens from the **?** button of the editor's top bar (a full-screen dialog, so the editor and its native views stay
+alive underneath) and from About, Help. `ToolbarGuideTest` scans the sources: an `EditorIcons.*` / `SelectionIcons.*` icon that
+a screen uses and the registry lacks fails the build, and so does an entry for an icon nothing uses or a duplicate id.
+Adding a toolbar button therefore means adding its line to the registry.
+The same registry feeds the website: `scripts/gen-site.py` reads `ToolbarGuide.kt` and the icon path data and writes an inline-SVG
+`icons.html` (so the web shows the app's symbols), converts `docs/*.md` with pandoc and writes the site that `.github/workflows/pages.yml`
+deploys. About, Help has an **Online guide** button that opens `AboutController.ONLINE_GUIDE_URL` through `ACTION_VIEW`; the app
+fetches nothing and has no INTERNET permission (`OfflineGuaranteeTest` stays green). The release workflow prints the generated user
+guide to `ultimateVE-<version>-user-guide.pdf` (best effort, `continue-on-error`). Decision: DECISIONS.md, "Toolbar documentation".
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
