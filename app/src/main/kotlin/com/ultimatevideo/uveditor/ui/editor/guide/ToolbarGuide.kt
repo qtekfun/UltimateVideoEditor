@@ -48,10 +48,10 @@ internal object ToolbarGuide {
         GuideEntry("redo", GuideSection.TOP_BAR, EditorIcons.Redo, "Redo", "Brings back what Undo took away.", "You have just undone something."),
         GuideEntry("export", GuideSection.TOP_BAR, EditorIcons.Export, "Export movie", "Opens the export dialog: resolution, frame rate, codec and destination.", "Playback is stopped and no other export is running."),
 
-        GuideEntry("prev", GuideSection.TRANSPORT, EditorIcons.SkipPrevious, "Previous clip boundary", "Jumps the playhead to the previous clip start or end. In the inspector's keyframe rows the same arrow jumps to the previous keyframe.", ""),
+        GuideEntry("prev", GuideSection.TRANSPORT, EditorIcons.SkipPrevious, "Previous clip boundary", "Jumps the playhead to the previous clip start or end and stops playback if it was playing. In the inspector's keyframe rows the same arrow jumps to the previous keyframe.", ""),
         GuideEntry("play", GuideSection.TRANSPORT, EditorIcons.Play, "Play", "Starts playback from the playhead. The sound is the clock, so picture and sound stay together.", ""),
         GuideEntry("pause", GuideSection.TRANSPORT, EditorIcons.Pause, "Pause", "Stops playback. This button replaces Play while the project is playing.", ""),
-        GuideEntry("next", GuideSection.TRANSPORT, EditorIcons.SkipNext, "Next clip boundary", "Jumps the playhead to the next clip start or end. In the inspector's keyframe rows the same arrow jumps to the next keyframe.", ""),
+        GuideEntry("next", GuideSection.TRANSPORT, EditorIcons.SkipNext, "Next clip boundary", "Jumps the playhead to the next clip start or end and stops playback if it was playing. In the inspector's keyframe rows the same arrow jumps to the next keyframe.", ""),
         GuideEntry("save-frame", GuideSection.TRANSPORT, EditorIcons.FrameImage, "Save frame as image", "Saves the picture under the playhead as a PNG or JPEG, for a thumbnail or a cover.", ""),
         GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, "Fit the whole project", "Zooms the time axis so the whole project is visible. Track heights do not change (the layout sheet sets them). This is not fullscreen: double tap the preview for that.", ""),
 

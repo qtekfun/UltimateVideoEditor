@@ -151,7 +151,7 @@ Every icon also has a text description: long press it to see its name, or use a 
 | ← | Back | Saves and returns to the hub. Refused with a dialog if saving keeps failing. |
 | ↶ / ↷ | Undo / Redo | Steps through every edit. Each drag, drop and inspector change is one step. |
 | ⬆ | Export movie | Opens the export dialog. |
-| ⏮ / ▶ / ⏭ | Previous boundary, Play / Pause, Next boundary | Boundaries are clip starts and ends. Play follows the audio clock. |
+| ⏮ / ▶ / ⏭ | Previous boundary, Play / Pause, Next boundary | Boundaries are clip starts and ends. Pressing a boundary button while playing stops playback and puts the playhead exactly on the boundary; press Play to continue. Play follows the audio clock. |
 | 🖼 (picture) | Save frame as image | Saves the picture under the playhead as a JPEG in Pictures/ultimateVE with one tap, see [Saving a frame as an image](#saving-a-frame-as-an-image). |
 | ⤢ | Fit the whole project | Zooms the time axis so the whole project fits. It keeps following the panel (rotation) and the project length until you pinch. The lane heights are not changed: they are fixed by the Layout sheet's Small / Medium / Large chips, and lanes that do not fit the panel scroll vertically. |
 | + | Import media | Adds videos, photos or audio at the playhead (needs a track selected for overlays). |
