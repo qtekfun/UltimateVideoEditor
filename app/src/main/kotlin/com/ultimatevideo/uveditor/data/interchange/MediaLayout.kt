@@ -33,15 +33,27 @@ object MediaLayout {
         return MediaFileNames.unique(cleaned, taken)
     }
 
-    /** Removes the folders in [created] (outermost first) that are still empty, innermost first; never one that holds anything. */
-    fun discardEmpty(created: List<MediaFolder>) {
+    /**
+     * Removes the folders in [created] (outermost first) that are still empty, innermost first; never one that holds
+     * anything. What stopped it is passed to [report], so a folder that stays is never a silent failure.
+     */
+    fun discardEmpty(created: List<MediaFolder>, report: (String) -> Unit = {}) {
         for (folder in created.asReversed()) {
-            val empty = try {
-                folder.children().isEmpty()
+            val label = folder.name
+            val left = try {
+                folder.children().size
             } catch (e: IOException) {
-                false
+                report("cannot list $label: ${e.message}")
+                return
             }
-            if (!empty || !folder.delete()) return
+            if (left > 0) {
+                report("$label is kept: it holds $left entries")
+                return
+            }
+            if (folder.delete()) report("$label removed") else {
+                report("$label could not be removed")
+                return
+            }
         }
     }
 
