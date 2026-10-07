@@ -11,6 +11,8 @@ Clip source ranges are in project frames, as everywhere in the app (a 30 fps cli
   qahlg     30 fps, HLG project, one HLG clip
   qarot     30 fps, 720x1280 portrait, one clip with a 90 degree container rotation
   qaphotos  30 fps: two photos and a video, each photo used several times (the thumbnail path)
+  qadrag    30 fps: three 2 s clips on the base lane v2 (the lowest video lane: c0 c1 c2, frames 0-180), one 1 s clip c3 on the overlay lane v1 at frame 60, and an
+            unused asset ("QA drag tray") for the tray drag checks (scripts/qa-smoke.sh UI-DRAG-CLIP, UI-DRAG-TRAY)
 """
 import json
 import os
@@ -73,4 +75,10 @@ video_clip = {"id": "pv", "assetId": "aac", "timelineStartFrame": cursor, "sourc
 write(project("qaphotos", "QA photos", 1280, 720, 30, SDR,
               [photo("jpg", "photo.jpg", 30), photo("png", "photo.png", 30), asset("aac", "avc_aac_30.mp4", 30)],
               [{"id": "v1", "type": "video", "order": 0, "clips": photo_clips + [video_clip]}]))
+drag_assets = [asset("a1", "avc_aac_30.mp4", 30), asset("a2", "vfr30.mp4", 30), asset("a3", "hevc_aac_30.mp4", 30)]
+drag_base = [{"id": "c%d" % i, "assetId": a, "timelineStartFrame": i * 60, "sourceInFrame": 0, "sourceOutFrame": 60}
+             for i, a in enumerate(["a1", "a2", "a1"])]
+drag_overlay = [{"id": "c3", "assetId": "a2", "timelineStartFrame": 60, "sourceInFrame": 0, "sourceOutFrame": 30}]
+write(project("qadrag", "QA drag", 1280, 720, 30, SDR, drag_assets,
+              [{"id": "v1", "type": "video", "order": 0, "clips": drag_overlay}, {"id": "v2", "type": "video", "order": 1, "clips": drag_base}]))
 print("wrote", ", ".join(sorted(os.listdir(out_dir))))
