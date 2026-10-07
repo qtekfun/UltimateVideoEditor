@@ -81,7 +81,7 @@ harness exports a file without UI: `am start -n com.ultimatevideo.uveditor/.debu
 [--es codec avc|hevc] [--ei w 1280 --ei h 720 --ei fps 30] [--es layout single|split|layers]`, then `ffprobe` the pulled file; the outcome is
 written to `<out>.result.txt` (see the class comment). Exported audio is shifted earlier by the AAC encoder delay (`kAacDelaySamples`).
 
-Save frame as image (SPECS 5.35): `FrameDemoActivity` (debug) renders frames of a three-clip project from the `scripts/check-retime-export.py gen` source through `NativeFrameRenderer` and reads each frame's number back (`--es mode frames --es frames 0,37,60`); `--es mode export` writes the same project as `frame_export.mp4` for an ffmpeg comparison. `still_math.h` is covered by `uv_export_host_tests`.
+Save frame as image (SPECS 5.35): `scripts/check-frame-export.sh <serial>` runs the checks below; `FrameDemoActivity` (debug) renders frames of a three-clip project from the `scripts/check-retime-export.py gen` source through `NativeFrameRenderer` and reads each frame's number back (`--es mode frames --es frames 0,37,60`); `--es mode export` writes the same project as `frame_export.mp4` for an ffmpeg comparison. `still_math.h` is covered by `uv_export_host_tests`.
 
 A/V drift: `scripts/av-drift-test.sh <serial> [minutes]` generates a beep+flash clip, seeds a project of N copies
 (app-private `files/projects/avdrift`, needs a debug build for `run-as`), and logs tag `UVSync` while you open it and play

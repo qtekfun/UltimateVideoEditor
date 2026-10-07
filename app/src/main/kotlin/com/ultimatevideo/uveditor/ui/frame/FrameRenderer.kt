@@ -6,9 +6,7 @@ import com.ultimatevideo.uveditor.domain.FrameRate
 import com.ultimatevideo.uveditor.domain.TitleContent
 import com.ultimatevideo.uveditor.domain.Timeline
 import com.ultimatevideo.uveditor.domain.lutKeys
-import com.ultimatevideo.uveditor.domain.stillframe.FrameRenderPlan
-import com.ultimatevideo.uveditor.domain.stillframe.FrameSource
-import com.ultimatevideo.uveditor.domain.stillframe.timelineOfClip
+import com.ultimatevideo.uveditor.domain.stillframe.isUniformPicture
 import com.ultimatevideo.uveditor.domain.toDirectBuffer
 import com.ultimatevideo.uveditor.engine.export.ExportCodec
 import com.ultimatevideo.uveditor.engine.export.ExportErrorCode
@@ -32,13 +30,14 @@ import com.ultimatevideo.uveditor.ui.export.buildExportPlan
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import android.util.Log
 import java.io.IOException
 import java.nio.ByteBuffer
 
 /** A frame that could not be drawn, with the reason for the user. */
 class StillFrameException(message: String) : Exception(message)
 
-/** What to draw: [frame] of [timeline] (the whole project or one clip alone), as [plan] says. */
+/** What to draw: [frame] of [timeline] on a surface of [width] x [height] (the whole picture, letterboxed from the project canvas). */
 class FrameRenderJob(
     val timeline: Timeline,
     val assets: List<MediaAssetDto>,
@@ -46,7 +45,8 @@ class FrameRenderJob(
     val projectWidth: Int,
     val projectHeight: Int,
     val frame: Long,
-    val plan: FrameRenderPlan,
+    val width: Int,
+    val height: Int,
     val missingAssetIds: Set<String>,
 )
 
@@ -95,6 +95,8 @@ class NativeFrameRenderer(
     private val titleRasterizer: TitleRasterizer,
     private val stillRasterizer: StillRasterizer,
     private val lutLoader: (Int) -> CubeLut? = { null },
+    /** Where the plan and the result of each frame are logged (tag UVFrame on a device). */
+    private val log: (String) -> Unit = { Log.i(TAG, it) },
 ) : FrameRenderer {
 
     override suspend fun render(job: FrameRenderJob): RenderedFrame {
@@ -122,12 +124,28 @@ class NativeFrameRenderer(
         }
         val still = checkNotNull(request.still)
         still.pixels.rewind()
+        // Hard guard: a frame with visible layers must not come out as one flat colour (nothing drawn or read). Never save that.
+        val layers = request.videoClips.size
+        val uniform = isUniformPicture(still.pixels, still.cropWidth, still.cropHeight)
+        log("frame ${job.frame} fps ${job.fps.num}/${job.fps.den} ${still.cropWidth}x${still.cropHeight} layers $layers uniform=$uniform first=${firstPixel(still.pixels)}")
+        if (layers > 0 && uniform) {
+            throw StillFrameException("The picture came out as one flat colour although the frame has video. Nothing was saved; try again.")
+        }
         return RenderedFrame(still.cropWidth, still.cropHeight, still.pixels)
+    }
+
+    private fun firstPixel(buffer: ByteBuffer): String {
+        val v = buffer.duplicate()
+        return "%02x%02x%02x%02x".format(v.get(0), v.get(1), v.get(2), v.get(3))
     }
 
     private fun prepare(job: FrameRenderJob): ExportRequest {
         val plan = buildFramePlan(job.timeline, job.assets, job.fps, job.projectWidth, job.projectHeight, job.frame)
             ?: throw StillFrameException("There is nothing to save yet. Add a clip to the timeline.")
+        log(
+            "plan frame ${job.frame} project ${job.projectWidth}x${job.projectHeight} fps ${job.fps.num}/${job.fps.den} covering " +
+                plan.clips.joinToString { "[start ${it.startFrame} len ${it.durationFrames} srcIn ${it.sourceInFrame} layer ${it.layer} asset ${it.assetKey} title ${it.titleKey}]" },
+        )
         val missing = plan.assetKeys.keys.filter { it in job.missingAssetIds }
         if (missing.isNotEmpty()) {
             throw StillFrameException("The media of a clip at this frame is missing. Relink it in the editor first.")
@@ -159,13 +177,12 @@ class NativeFrameRenderer(
             opened.values.forEach(io::close)
             throw ExportException(ExportErrorCode.IO_ERROR, "Cannot open a media file: ${e.message}")
         }
-        val out = job.plan
-        val pixels = ByteBuffer.allocateDirect(out.outWidth * out.outHeight * BYTES_PER_PIXEL)
+        val pixels = ByteBuffer.allocateDirect(job.width * job.height * BYTES_PER_PIXEL)
         return ExportRequest(
             // The picture is drawn at the project's frame rate, so the output frame is the project frame.
             settings = ExportSettings(
-                width = out.renderWidth,
-                height = out.renderHeight,
+                width = job.width,
+                height = job.height,
                 fpsNum = job.fps.num,
                 fpsDen = job.fps.den,
                 codec = ExportCodec.H264,
@@ -184,17 +201,12 @@ class NativeFrameRenderer(
             titles = titleImages,
             pictureProvider = pictures.takeIf { plan.stills.isNotEmpty() },
             luts = job.timeline.lutKeys().mapNotNull { key -> lutLoader(key)?.let { ExportLut(key, it.size, it.toDirectBuffer()) } },
-            still = StillFrameTarget(job.frame, out.cropX, out.cropY, out.outWidth, out.outHeight, pixels),
+            still = StillFrameTarget(job.frame, 0, 0, job.width, job.height, pixels),
         )
     }
 
     private companion object {
         const val BYTES_PER_PIXEL = 4
+        const val TAG = "UVFrame"
     }
-}
-
-/** The timeline a [FrameRenderJob] draws from: the whole project, or the selected clip alone. */
-internal fun frameTimeline(source: FrameSource, timeline: Timeline, selectedClipId: String?): Timeline? = when (source) {
-    FrameSource.WHOLE_PICTURE -> timeline
-    FrameSource.SELECTED_CLIP -> selectedClipId?.let { timelineOfClip(timeline, it) }
 }
