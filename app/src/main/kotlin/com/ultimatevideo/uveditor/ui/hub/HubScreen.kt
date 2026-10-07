@@ -96,10 +96,14 @@ fun HubScreen(
         if (uri != null && id != null) viewModel.onIntent(HubIntent.ExportTo(id, uri.toString()))
     }
     var pendingBundle by remember { mutableStateOf<Pair<String, BundleChoice>?>(null) }
+    // Opens the picker in ultimateVE/Project-Backups of the media folder when one is chosen.
+    val backupsHint = remember(context) { com.ultimatevideo.uveditor.data.PreferencesMediaFolderSettings(context.applicationContext) }
+    val bundleContract = remember { CreateDocumentAt("application/octet-stream") }
     val bundleLauncher = rememberLauncherForActivityResult(
         // A generic type keeps the suggested ".uvbundle" name (a zip type makes Android add ".zip").
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
+        bundleContract,
     ) { uri ->
+        backupsHint.backupsPickerDone(saved = uri != null)
         val pending = pendingBundle
         pendingBundle = null
         if (uri != null && pending != null) viewModel.onIntent(HubIntent.ExportBundleTo(pending.first, uri.toString(), pending.second))
@@ -124,6 +128,8 @@ fun HubScreen(
                 }
                 is HubEffect.LaunchBundleExportPicker -> {
                     pendingBundle = effect.projectId to effect.choice
+                    // Creating the folder talks to the document provider: off the main thread.
+                    bundleContract.initialUri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backupsHint.backupsPickerUri() }
                     bundleLauncher.launch(effect.suggestedFileName)
                 }
                 is HubEffect.OpenEditor -> onOpenProject(effect.projectId)
@@ -222,7 +228,9 @@ internal fun HubContent(
                 Text(
                     "This LumaFusion package contains the footage of the project. It is copied into a folder you choose, " +
                         "on this device or on a USB drive or SD card, so you can see and manage the files. " +
-                        "Deleting the project later does not delete them. You can change the folder in About, under Media folder.",
+                        "ultimateVE creates its own subfolder called ultimateVE inside that folder, and puts the footage in ultimateVE/Media, " +
+                        "in one folder named after the project. Nothing is put loose in the folder you pick. " +
+                        "Deleting the project later does not delete the files. You can change the folder in About, under Media folder.",
                 )
             },
             confirmButton = { TextButton(onClick = { onIntent(HubIntent.ChooseMediaFolder) }) { Text("Choose folder") } },
@@ -476,4 +484,15 @@ private fun TextDialog(
         confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank() && !nameTaken) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** The system "save as" picker, opened at [initialUri] (a document of a tree the app may use) when that is set. */
+private class CreateDocumentAt(mimeType: String) : ActivityResultContracts.CreateDocument(mimeType) {
+    var initialUri: String? = null
+
+    override fun createIntent(context: android.content.Context, input: String): android.content.Intent {
+        val intent = super.createIntent(context, input)
+        initialUri?.let { intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(it)) }
+        return intent
+    }
 }
