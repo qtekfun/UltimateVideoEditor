@@ -110,7 +110,12 @@ class ExportViewModel(
         // An HDR project exports as HDR (HEVC Main10 HLG) when the device can; otherwise as SDR, HLG clips tone-mapped.
         val projectHdr = newInput.colorSpace.isHdr
         val hdrAvailable = projectHdr && hdrSupport.supportsHlgExport(resolution.width, resolution.height, rates.first().num, rates.first().den)
-        val codec = if (hdrAvailable) ExportCodec.HEVC else state.value.codec
+        val defaultCodec = if (hdrAvailable) ExportCodec.HEVC else state.value.codec
+        // The defaults follow the clips actually on the timeline: the best of them is kept without loss unless the user changes it.
+        val sources = usedSources(newInput.timeline, newInput.assets)
+        val recommendation = recommendExport(resolution.width, resolution.height, rates.first(), sources, defaultCodec)
+        val codec = recommendation.codec
+        val movieFrames = newInput.timeline.tracks.flatMap { it.clips }.maxOfOrNull { it.timelineEnd.value } ?: 0L
         reduce {
             copy(
                 visible = true,
@@ -123,10 +128,15 @@ class ExportViewModel(
                 resolution = resolution,
                 frameRates = rates,
                 frameRate = rates.first(),
-                bitrateMbps = suggestedBitrateMbps(resolution.width, resolution.height, rates.first(), codec),
+                bitrateMbps = recommendation.bitrateMbps,
                 phase = ExportPhase.Configuring,
                 preset = null,
                 projectAspect = aspectLabelOf(newInput.projectWidth, newInput.projectHeight),
+                sources = sources,
+                recommendation = recommendation,
+                movieFrames = movieFrames,
+                projectFps = newInput.fps,
+                freeBytes = io.freeBytes(),
             )
         }
     }
@@ -217,7 +227,7 @@ class ExportViewModel(
         }
     }
 
-    /** Changing the size, rate or codec re-suggests a bitrate for the new settings. */
+    /** Changing the size, rate or codec re-suggests the bitrate that keeps the clips' quality at the new settings. */
     private fun editSettings(change: ExportState.() -> ExportState) {
         if (state.value.isRunning) return
         reduce {
@@ -232,8 +242,12 @@ class ExportViewModel(
             if (resolution == null || rate == null) {
                 next.copy(phase = ExportPhase.Configuring)
             } else {
+                val bitrate = recommendedBitrateMbps(resolution.width, resolution.height, rate, next.codec, next.sources)
+                val fresh = recommendExport(resolution.width, resolution.height, rate, next.sources, next.codec)
                 next.copy(
-                    bitrateMbps = suggestedBitrateMbps(resolution.width, resolution.height, rate, next.codec),
+                    bitrateMbps = bitrate,
+                    // The codec hint stays what the clips suggested at open; the rate hint follows the chosen settings.
+                    recommendation = fresh.copy(bitrateMbps = bitrate, codec = next.recommendation?.codec ?: fresh.codec),
                     phase = ExportPhase.Configuring,
                 )
             }

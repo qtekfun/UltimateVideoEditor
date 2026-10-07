@@ -5,6 +5,8 @@ import com.ultimatevideo.uveditor.data.MediaImportException
 import com.ultimatevideo.uveditor.data.MediaCaches
 import com.ultimatevideo.uveditor.data.MediaImporter
 import com.ultimatevideo.uveditor.data.MediaProblem
+import com.ultimatevideo.uveditor.data.lacksVideoFacts
+import com.ultimatevideo.uveditor.data.withVideoFacts
 import com.ultimatevideo.uveditor.data.MissingMedia
 import com.ultimatevideo.uveditor.data.interchange.BundleChoice
 import com.ultimatevideo.uveditor.data.interchange.Edl
@@ -592,7 +594,8 @@ class EditorViewModel(
      * their clips stay on the timeline, marked, while the preview, the mixer and the thumbnail workers
      * leave them alone, and the user is offered Relink. Probing also repairs two things in place:
      * projects saved before `hasVideo`/`hasAudio` existed read as "has both" (a file without an audio
-     * track would reach the mixer and fail), and projects saved before names were kept lack a file name.
+     * track would reach the mixer and fail), projects saved before names were kept lack a file name, and projects saved before the
+     * export dialog read the source's size, bit rate and codec lack those (it falls back to fixed defaults for them).
      * Reading a file also re-takes its persisted permission where Android allows it.
      */
     private suspend fun verifyAssets(loaded: List<MediaAssetDto>) {
@@ -607,7 +610,8 @@ class EditorViewModel(
         }
         val stale = probed.filter { (id, media) ->
             state.value.assets.firstOrNull { it.id == id }?.let {
-                (it.hasVideo to it.hasAudio) != (media.hasVideo to media.hasAudio) || (it.displayName == null && media.displayName != null)
+                (it.hasVideo to it.hasAudio) != (media.hasVideo to media.hasAudio) || (it.displayName == null && media.displayName != null) ||
+                    it.lacksVideoFacts(media)
             } == true
         }
         // Apply to the current list: media may have been imported while probing.
@@ -617,6 +621,7 @@ class EditorViewModel(
                 assets = if (stale.isEmpty()) assets else assets.map { asset ->
                     stale[asset.id]?.let { media ->
                         asset.copy(hasVideo = media.hasVideo, hasAudio = media.hasAudio, displayName = asset.displayName ?: media.displayName)
+                            .withVideoFacts(media)
                     } ?: asset
                 },
             )
@@ -672,6 +677,12 @@ class EditorViewModel(
                     hasVideo = probed.hasVideo,
                     hasAudio = probed.hasAudio,
                     displayName = probed.displayName ?: old.displayName,
+                    // The replacement file is what gets exported: its facts, not the old file's.
+                    videoWidth = probed.videoWidth,
+                    videoHeight = probed.videoHeight,
+                    videoBitrate = probed.videoBitrate,
+                    videoCodec = probed.videoCodec,
+                    tenBit = probed.tenBit,
                 )
             }
             // Waveforms and thumbnails were made from the old file; the new key makes the native side start over.
@@ -3066,6 +3077,11 @@ class EditorViewModel(
             hasVideo = probed.hasVideo,
             hasAudio = probed.hasAudio,
             displayName = probed.displayName,
+            videoWidth = probed.videoWidth,
+            videoHeight = probed.videoHeight,
+            videoBitrate = probed.videoBitrate,
+            videoCodec = probed.videoCodec,
+            tenBit = probed.tenBit,
         )
         reduce { copy(assets = assets + asset) }
         scheduleSave()
