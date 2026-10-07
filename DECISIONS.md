@@ -1435,7 +1435,7 @@ so a failure deletes it (like the export does) rather than drawing first and ask
 **Verified on a device:** the engine and encoder with `FrameDemoActivity` on the Pixel 8 (frame numbers, ffmpeg comparison, HLG, fill, JPEG
 search, ICC/sRGB tags); the dialog, the document picker and the Share sheet were not driven (the phone's screen was off).
 
-## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in)
+## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in) (SUPERSEDED: removed on 2026-10-07, see "Quality-first" below)
 
 **Context.** A 4K export with several 4K layers at once is decode-bound: the hardware decoders are shared. A layer shown in a third of the canvas
 needs no more than a 1280x720 picture.
