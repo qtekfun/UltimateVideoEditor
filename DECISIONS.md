@@ -1435,7 +1435,7 @@ so a failure deletes it (like the export does) rather than drawing first and ask
 **Verified on a device:** the engine and encoder with `FrameDemoActivity` on the Pixel 8 (frame numbers, ffmpeg comparison, HLG, fill, JPEG
 search, ICC/sRGB tags); the dialog, the document picker and the Share sheet were not driven (the phone's screen was off).
 
-## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in)
+## 2026-10-06 · Faster export: proxies for layers shown no larger than their proxy (opt-in) (SUPERSEDED: removed on 2026-10-07, see "Quality-first" below)
 
 **Context.** A 4K export with several 4K layers at once is decode-bound: the hardware decoders are shared. A layer shown in a third of the canvas
 needs no more than a 1280x720 picture.
@@ -1555,3 +1555,10 @@ log shows the plan, the layers and the first pixel.
 **Decision:** not built. A pool with eviction, an aggregate-throughput bound and shared-file-lock care is a lot of delicate code for at most 2%; occlusion culling and copying untouched stretches are bigger levers.
 **Cheap idea left (not done, about 1%):** open the next clip's decoder (codec creation only) on another thread a second before the cut, hiding the creation latency but not the decode from the key frame.
 **Future option:** per-start counters under `UVExportPerf` (open time and setTarget-to-first-frame time per decoder open and per jump, plus a total) were written on branch `perf/decoder-reuse-prime` (commit d4cc69d, local, off by default, no new property) and not merged; worth reviving if a device run is wanted to turn the estimate into a measurement.
+
+
+## 2026-10-07 · Quality-first: no proxy-assisted export, and no export mode that recompresses footage unnecessarily
+**Context:** the owner's videos exist to show the camera and video quality of phones. The "Use proxies for small layers" export option (PR #122) decoded layers shown at or below proxy size from the 720p proxy; it never upscaled, but it added a generation of lossy compression to those layers (about 43 dB PSNR on synthetic content, unmeasured on real footage).
+**Chosen:** the option is removed (code, dialog toggle, planner, tests, docs); exports always read the original media. Proxies stay what they were made for: smooth editing and preview, never final output.
+**Rule:** an export speed-up is acceptable only if the output pixels are identical (or the stretch is copied bit-exactly). Anything that recompresses source footage an extra time, lowers resolution, or changes colour handling is out, even as an opt-in default-off option, because the shipped result is the product here. Speed work therefore focuses on decoding fewer wasted frames, overlapping work, and copying untouched stretches without re-encoding (smart export, phase 1 feasibility in progress), all verified for exact or bit-identical output.
+**Alternatives rejected:** a 1080p proxy for half-size layers (same generation loss), a near-lossless intermediate (large disk cost and time, still re-encodes), keeping the option off by default (a toggle that silently lowers quality has no place in this app).
