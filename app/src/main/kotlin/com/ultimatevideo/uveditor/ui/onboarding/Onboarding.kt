@@ -49,8 +49,8 @@ object Tips {
         ),
         Tip(
             title = "Export and get help",
-            body = "Tap the arrow at the top right to export an MP4. Long-press any icon to see its name, and open " +
-                "About from the hub menu for the guide, privacy and these tips again.",
+            body = "Tap the arrow at the top right to export an MP4. Long-press any icon to see its name, or tap the ? at the top of the editor for a guide to every symbol. " +
+                "About in the hub menu has the guide, privacy and these tips again.",
         ),
     )
 }

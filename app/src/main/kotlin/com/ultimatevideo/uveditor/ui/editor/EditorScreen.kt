@@ -916,6 +916,17 @@ private fun EditorMain(
     LibraryOverlays(state) { viewModel.onIntent(it) }
     LocalProxyUi.current?.let { ProxySheetHost(it, LocalProxyIntent.current) }
     var scopesOpen by remember { mutableStateOf(false) }
+    var guideOpen by rememberSaveable { mutableStateOf(false) }
+    if (guideOpen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { guideOpen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                com.ultimatevideo.uveditor.ui.editor.guide.ToolbarGuideScreen(onClose = { guideOpen = false })
+            }
+        }
+    }
     if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {
@@ -931,6 +942,7 @@ private fun EditorMain(
                 maxLines = 1,
                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
+            ToolButton(EditorIcons.Help, "Toolbar guide: what every symbol and gesture does") { guideOpen = true }
             ToolButton(EditorIcons.LayoutPanes, "Layout: presets, panels, track height and dividers", onClick = onOpenLayout)
             ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
             ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
