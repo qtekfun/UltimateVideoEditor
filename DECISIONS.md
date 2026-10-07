@@ -1561,8 +1561,24 @@ down, rotated, faded or of another aspect simply is not one. Plain code path, no
 exists for the debug harness only (`ExportDemoActivity --ez keep_hidden true`) and a run that keeps hidden layers logs a warning.
 **The 2 s rule.** The cover must still have at least 2 s to run (`minCullFrames`). Skipping stops 2 s before the cover ends, so the hidden clip's decoder (shut down after 2 s of
 idleness) is re-opened and decodes while the cover is still shown: no stall and no seek storm when the cover ends, and a cover shorter than 2 s never skips anything. Cost: the last
-2 s of every cover are decoded as before; saving per cover = its length minus 2 s... plus the first part. Audio is not part of the video layer plan and is untouched.
+2 s of every cover are decoded as before, so a cover of length L saves the decode of L minus 2 s (nothing when L is under 2 s). Audio is not part of the video layer plan and is untouched.
 Also in this change: all layers' decoder targets are set before the first fetch waits (`setTarget` is idempotent), and `debug.uveditor.export_perf` prints a per-section
 table (video layers / picture layers / skipped layers: frames, seconds, fps) at the end of an export.
-**Parity.** To be filled by the device runs (framemd5 with and without skipping for the cases of `--es layout cover --es case full|resume|small|fade|opacity|short|zoom`).
-**Measured.** Pending (the Pixel was in use by another app when this was written).
+**Parity (Pixel 8, `scripts/check-hidden-layers.sh <serial> parity`, 1280x720 30 fps SDR, 240 frames, framemd5 of the output with skipping on against `--ez keep_hidden true`).**
+Cases (base under a top clip, same 20 s H.264 source at different offsets): `full` (181 draws skipped; the last 2 s are drawn by the rule), `resume` (cover in the middle, 61 skipped,
+the base resumes), `fade` (60-frame fade-in, 121 skipped only after the fade), `zoom` (scale 1.2 and 20 px shift, 181 skipped), `small` (scale 0.5), `opacity` (0.99), `short`
+(cover of 1 s) and `aspect` (square canvas, 16:9 source): the last four skip nothing, as they must. All eight are frame-for-frame identical (240/240 md5).
+Noise caveat found on the way: the hardware encoder is not always deterministic. Twice in about 20 pairs the last 1-2 frames differed (PSNR 52.7 and 56.7 dB) with identical code paths (case `short`,
+nothing skipped on either side), and the file sizes of repeated runs differ by a few tens of kB; a rerun of the same pair was identical. So a mismatch is judged by frames and PSNR, not by file hash.
+Not tested on a device: an HLG output (the culling decision does not depend on the colour space), a cover in a different media slot of a real project.
+**Measured (Pixel 8, `... time`, a 31 s excerpt of IMG_0014.mov stream-copied (4K60 HEVC 10-bit HLG, 53 Mbps) used for both layers, full cover for 1200 frames, HEVC 35 Mbps 4K60 output
+(SDR tone-mapped), 2 runs interleaved, the app was not in the foreground, mapas had focus; thermal not recorded):**
+
+| skipping | run 1 | run 2 | fps | hidden draws skipped |
+|---|---|---|---|---|
+| off | 27.7 s | 27.6 s | 43.4 | 0 |
+| on | 19.3 s | 19.3 s | 62.0 | 1081 of 1200 |
+
+That is 1.43x on a stretch where a 4K60 10-bit clip is hidden, about 7.8 ms per skipped frame. On the real project 8,463 frames qualify (19.7%), which at this rate is about 66 s of the 32 min
+baseline (3.4%); the real covers are lighter than this synthetic cover (the base is the 95 Mbps clip), so the saving there can be larger or smaller; a real-project run was not made.
+`debug.uveditor.export_cull` from the first version of this change no longer exists (a stale value of it is harmless).
