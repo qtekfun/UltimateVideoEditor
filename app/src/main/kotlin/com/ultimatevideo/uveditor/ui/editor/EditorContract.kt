@@ -10,7 +10,9 @@ import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipAudio
 import com.ultimatevideo.uveditor.domain.Ducking
 import com.ultimatevideo.uveditor.domain.TrackAudio
+import com.ultimatevideo.uveditor.domain.DropChoice
 import com.ultimatevideo.uveditor.domain.DropHint
+import com.ultimatevideo.uveditor.domain.DropPlan
 import com.ultimatevideo.uveditor.ui.editor.tray.AssetKind
 import com.ultimatevideo.uveditor.domain.ClipDeletion
 import com.ultimatevideo.uveditor.domain.ClipMask
@@ -71,6 +73,10 @@ data class EditorState(
      * refers to a lane of [visibleTimeline].
      */
     val dropHint: DropHint? = null,
+    /** The user's override of the drop action while a clip is dragged (the mode chip); [DropChoice.AUTO] again after every drag. */
+    val dropChoice: DropChoice = DropChoice.AUTO,
+    /** True while the drop is an insert or an overwrite the user may switch, so the timeline shows the mode chip. */
+    val dropChoiceOffered: Boolean = false,
     /** The clips being dragged or trimmed and the frame an edge snapped to, drawn by the timeline while the drag lasts. */
     val dragOverlay: DragOverlay? = null,
     val assets: List<MediaAssetDto> = emptyList(),
@@ -321,7 +327,15 @@ sealed interface EditorIntent : UiIntent {
 
     data class DragStart(val hit: TimelineHit) : EditorIntent
     /** [trackIndex] is the lane under the finger in the timeline being shown (-1 over a gap or nothing). */
-    data class DragMove(val frame: Long, val trackIndex: Int, val zone: DragZone = DragZone.LANES) : EditorIntent
+    data class DragMove(
+        val frame: Long,
+        val trackIndex: Int,
+        val zone: DragZone = DragZone.LANES,
+        /** How many frames a fingertip covers at the current zoom: how close to a cut still counts as at the cut. */
+        val reachFrames: Long = DropPlan.INSERT_RADIUS_FRAMES,
+    ) : EditorIntent
+    /** Switches the dragged clip's drop between insert and overwrite (the mode chip, or a tap with a second finger). */
+    data object FlipDropChoice : EditorIntent
     data class DragEnd(val commit: Boolean) : EditorIntent
 
     /** A drag of an asset from the media tray started; a clip for it is prepared and nothing is placed yet. */
