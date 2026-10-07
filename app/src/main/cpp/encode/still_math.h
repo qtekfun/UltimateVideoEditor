@@ -45,4 +45,18 @@ inline void forceOpaque(uint8_t* rgba, int64_t pixels) {
     for (int64_t i = 0; i < pixels; ++i) rgba[i * 4 + 3] = 255;
 }
 
+// True when every RGBA pixel equals the first one: a picture nothing was drawn into (or that was drawn flat black) is uniform,
+// real footage never is.
+inline bool isUniformRgba(const uint8_t* rgba, int64_t pixels) {
+    if (pixels <= 1) return true;
+    for (int64_t i = 1; i < pixels; ++i) {
+        if (std::memcmp(rgba, rgba + i * 4, 4) != 0) return false;
+    }
+    return true;
+}
+
+// The guard of a saved frame: a frame that has visible layers must not come out uniform. A frame without layers (a gap) is
+// legitimately black and is never retried or refused here.
+inline bool stillLooksEmpty(int64_t layerCount, bool uniform) { return layerCount > 0 && uniform; }
+
 }  // namespace uv::encode

@@ -9,14 +9,40 @@ import java.util.Locale
  * tree (so the files are visible to the user and can sit on a USB drive or an SD card); in tests it is a directory.
  */
 interface MediaFolder {
-    /** Names of the files already in the folder. @throws IOException when the folder cannot be read (removed drive, permission revoked). */
+    /** The folder's name as a person knows it, or null when it cannot be read. */
+    val name: String? get() = null
+
+    /** What the folder holds, files and folders. @throws IOException when the folder cannot be read (removed drive, permission revoked). */
     @Throws(IOException::class)
-    fun fileNames(): Set<String>
+    fun children(): List<MediaChild>
+
+    /** Names of everything in the folder (a new file must not take the name of a folder either). */
+    @Throws(IOException::class)
+    fun fileNames(): Set<String> = children().mapTo(HashSet()) { it.name }
 
     /** Creates an empty file called [name] (already unique in the folder). @throws IOException when it cannot be created. */
     @Throws(IOException::class)
     fun create(name: String, mimeType: String): MediaTarget
+
+    /** The folder called [name] (ignoring case) inside this one, or null when there is none. */
+    @Throws(IOException::class)
+    fun findFolder(name: String): MediaFolder? =
+        children().firstOrNull { it.isFolder && it.name.equals(name, ignoreCase = true) }?.let { openFolder(it.name) }
+
+    /** Opens the existing child folder [name]. */
+    @Throws(IOException::class)
+    fun openFolder(name: String): MediaFolder
+
+    /** Creates the folder [name] inside this one (the name is free). @throws IOException when it cannot be created. */
+    @Throws(IOException::class)
+    fun createFolder(name: String): MediaFolder
+
+    /** Removes this folder (empty or not); false when that failed. Callers only use it on a folder they just created. */
+    fun delete(): Boolean
 }
+
+/** An entry of a [MediaFolder]. */
+data class MediaChild(val name: String, val isFolder: Boolean)
 
 /** A file created in a [MediaFolder]. */
 interface MediaTarget {
@@ -85,7 +111,7 @@ object MediaFileNames {
 }
 
 /** Where the user's media folder is stored and chosen; the app implements it with preferences and a persisted tree permission. */
-interface MediaFolderSettings {
+interface MediaFolderSettings : BackupsPickerHint {
     /** The tree address of the folder, or null when none is chosen. */
     fun treeUri(): String?
 
@@ -94,4 +120,16 @@ interface MediaFolderSettings {
 
     /** Remembers [treeUri] as the folder (and keeps permission to it). */
     fun set(treeUri: String)
+
+    /** The effective `<folder>/ultimateVE` path and what it holds (reads the folder: call off the main thread), or null. */
+    fun summary(): LayoutSummary? = null
+}
+
+/** What the document picker for backups needs from the media folder; the defaults do nothing (no folder chosen). */
+interface BackupsPickerHint {
+    /** Makes sure `ultimateVE/Project-Backups` exists and returns the address the picker should open at, or null. */
+    fun backupsPickerUri(): String? = null
+
+    /** The picker closed: [saved] is false when nothing was written, so a folder created only for it is removed again. */
+    fun backupsPickerDone(saved: Boolean) = Unit
 }

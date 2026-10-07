@@ -102,6 +102,11 @@ fun AboutScreen(
                 var folderLabel by remember { mutableStateOf(mediaFolder.label()) }
                 var hasFolder by remember { mutableStateOf(mediaFolder.treeUri() != null) }
                 var folderError by remember { mutableStateOf<String?>(null) }
+                var layout by remember { mutableStateOf<com.ultimatevideo.uveditor.data.interchange.LayoutSummary?>(null) }
+                // Reading the folder goes through the document provider: keep it off the main thread.
+                androidx.compose.runtime.LaunchedEffect(folderLabel, hasFolder) {
+                    layout = if (hasFolder) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { mediaFolder.summary() } else null
+                }
                 val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
                     if (uri != null) {
                         try {
@@ -116,7 +121,9 @@ fun AboutScreen(
                 }
                 Text("Media folder for imported packages")
                 Text(
-                    "Footage that comes inside a LumaFusion package is copied here, so you can see and manage the files (a USB drive or SD card works too). Deleting a project never deletes these files.",
+                    "ultimateVE keeps its files in its own subfolder, called ultimateVE, inside the folder you choose (nothing is put loose in the folder itself). " +
+                        "Footage that comes inside a LumaFusion package is copied to ultimateVE/Media, in one folder per project, so you can see and manage the files (a USB drive or SD card works too). " +
+                        "Project backups (.uvbundle) open the file picker in ultimateVE/Project-Backups. Deleting a project never deletes these files.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -126,6 +133,22 @@ fun AboutScreen(
                         else -> "A folder is set but cannot be read now (drive unplugged or access removed). Choose it again."
                     },
                 )
+                layout?.let { summary ->
+                    Text("Files go to: ${summary.path}")
+                    if (!summary.rootExists) {
+                        Text("Nothing there yet: the subfolders are created when they are first used.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    for (category in summary.categories) {
+                        val what = if (category.name == com.ultimatevideo.uveditor.data.interchange.MediaLayout.MEDIA) "project folders" else "files"
+                        Text("${category.name}: ${category.items} $what", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (summary.looseFiles > 0) {
+                        Text(
+                            "${summary.looseFiles} files from earlier imports are directly in the chosen folder. They stay where they are, because projects point at them.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
                 folderError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 OutlinedButton(onClick = { picker.launch(null) }) { Text(if (hasFolder) "Change" else "Choose folder") }
             }
