@@ -626,6 +626,92 @@ check_drag_clip() {
     fi
 }
 
+# ---- UI-DRAG-TRAY ---------------------------------------------------------------------------------------------------------------
+# Lane centres above the bottom of the timeline canvas, in dp: the lanes sit on the bottom (an empty audio lane, the base, the overlay).
+BASE_LANE_DP=104
+OVERLAY_LANE_DP=170
+# "<lane>:<clip>:<asset>@<start>+<length>" of every clip of the QA drag project the editor saved.
+tray_state() {
+    adb_ shell "run-as $pkg cat files/projects/qadrag/project.json" 2> /dev/null | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+print(" ".join("%s:%s:%s@%d+%d" % (t["id"], c["id"], c["assetId"], c["timelineStartFrame"], c["sourceOutFrame"] - c["sourceInFrame"]) for t in p["tracks"] for c in t["clips"]))'
+}
+# Opens the seeded QA drag project with the media tray at half height and finds the unused asset's tile (hevc_aac_30.mp4, asset a3).
+# Sets tl_l tl_t tl_r tl_b (the timeline canvas) and tile_x tile_y (the tile's centre).
+tray_prepare() {
+    open_qadrag || return 1
+    ui_tap_text "Media tab" || return 2
+    sleep 2
+    drag_geometry || return 3
+    local pos
+    pos="$(ui_find "hevc_aac_30.mp4")"
+    [ -n "$pos" ] || return 4
+    read -r tile_x tile_y <<< "$pos"
+}
+# x of timeline frame $1 of the 180 frame project; the timeline fits the project to its width.
+tray_x() { echo $((tl_l + (tl_r - tl_l) * $1 / 180)); }
+
+check_drag_tray() {
+    want UI-DRAG-TRAY || return 0
+    local what="a media tray tile held and dragged onto the timeline is placed: inserted on the base, overwritten on an overlay"
+    ui_prepare || { record UI-DRAG-TRAY D9 "$what" SKIP "no UI (--no-ui or locked screen)"; return 0; }
+    local density rc base_y over_y after
+    density="$(adb_ shell wm density | grep -o '[0-9]*$' | tail -1)"
+    tray_prepare
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) record UI-DRAG-TRAY D9 "$what" SKIP "could not open the seeded project 'QA drag' (focus $(focus | cut -c1-80))"; return 0 ;;
+        2) record UI-DRAG-TRAY D9 "$what" FAIL "no Media tab in the editor"; return 0 ;;
+        3) record UI-DRAG-TRAY D9 "$what" SKIP "no timeline canvas found in the UI dump"; return 0 ;;
+        *) record UI-DRAG-TRAY D9 "$what" FAIL "no tile for the unused asset hevc_aac_30.mp4 in the tray"; return 0 ;;
+    esac
+    if ! in_front; then record UI-DRAG-TRAY D9 "$what" SKIP "focus left the app"; return 0; fi
+    base_y=$((tl_b - BASE_LANE_DP * density / 160))
+    over_y=$((tl_b - OVERLAY_LANE_DP * density / 160))
+    # 1. Hold the tile 0.5 s, glide to the cut between the second and third base clip (frame 120), release: an insert.
+    touch "$tile_x" "$tile_y" "$(tray_x 120)" "$base_y" 500 900 || true
+    sleep 4
+    after="$(tray_state)"
+    if [ -z "$after" ]; then record UI-DRAG-TRAY D9 "$what" SKIP "the seeded project could not be read back"; return 0; fi
+    if ! echo "$after" | python3 -c '
+import sys
+clips = {}
+for item in sys.stdin.read().split():
+    lane, cid, rest = item.split(":", 2)
+    asset, span = rest.split("@")
+    start, length = map(int, span.split("+"))
+    clips[cid] = (lane, asset, start, length)
+new = [c for c in clips.values() if c[1] == "a3"]
+ok = len(new) == 1 and new[0][0] == "v2" and new[0][2] == 120 and clips["c2"][2] == 120 + new[0][3] and clips["c1"][2] == 60 and clips["c0"][2] == 0
+sys.exit(0 if ok else 1)'; then
+        record UI-DRAG-TRAY D9 "$what" FAIL "dropping the tile at the cut between the 2nd and 3rd base clip did not insert it there: $after"
+        return 0
+    fi
+    # 2. A fresh project: hold, glide to free space of the overlay lane (frame 130), release: an overwrite on that lane, base untouched.
+    tray_prepare || { record UI-DRAG-TRAY D9 "$what" SKIP "could not reopen the project for the second drop"; return 0; }
+    in_front || { record UI-DRAG-TRAY D9 "$what" SKIP "focus left the app"; return 0; }
+    touch "$tile_x" "$tile_y" "$(tray_x 130)" "$over_y" 500 900 || true
+    sleep 4
+    after="$(tray_state)"
+    if echo "$after" | python3 -c '
+import sys
+clips = {}
+for item in sys.stdin.read().split():
+    lane, cid, rest = item.split(":", 2)
+    asset, span = rest.split("@")
+    start, length = map(int, span.split("+"))
+    clips[cid] = (lane, asset, start, length)
+new = [c for c in clips.values() if c[1] == "a3"]
+ok = len(new) == 1 and new[0][0] == "v1" and 115 <= new[0][2] <= 145 and [clips[k][2] for k in ("c0", "c1", "c2", "c3")] == [0, 60, 120, 60]
+sys.exit(0 if ok else 1)'; then
+        record UI-DRAG-TRAY D9 "$what" PASS "inserted at frame 120 of the base (the 3rd clip moved by its length), then placed on the overlay lane near frame 130 with the base unchanged"
+    else
+        record UI-DRAG-TRAY D9 "$what" FAIL "the insert worked but the drop on the overlay lane near frame 130 did not land there: $after"
+    fi
+}
+
 # ---- run ------------------------------------------------------------------------------------------------------------------------
 adb_ shell input keyevent KEYCODE_WAKEUP > /dev/null 2>&1
 need_files
@@ -652,6 +738,7 @@ check_footer
 check_thumbnails
 check_save_frame_ui
 check_drag_clip
+check_drag_tray
 if full; then
     check_export_dialog "QA quick" sdr
     check_export_dialog "QA HLG" hlg

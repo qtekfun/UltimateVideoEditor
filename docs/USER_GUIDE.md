@@ -191,14 +191,21 @@ panel on the left.
   for HDR files, **×N** when the file is used N times on the timeline, and a red **Missing** cover when the
   file cannot be read (relink it from the banner).
 - **Import** (the first tile): adds files to the tray without putting them on the timeline.
-- **Add at the playhead**: tap a tile. Stickers and templates are also added with a tap.
-- **Drag onto the timeline**: long-press a tile and drag. While you drag, the timeline shows what releasing
-  will do, exactly like moving a clip: near a cut on the base track a vertical bar means **Insert**; over a
+- **Add at the playhead**: tap a tile, or tap the **+** on it (screen readers: the tile's "Add to timeline"
+  action). Stickers and templates are also added with a tap.
+- **Drag onto the timeline**: press and hold a tile for a third of a second (you feel a tick) and it lifts: a
+  small copy of it (picture, name, length) follows your finger anywhere on the screen, and on a phone the tray
+  fades so the timeline above it is easy to reach. Keep the finger down and move it over the timeline. While you
+  drag, the timeline shows what releasing will do, exactly like moving a clip: near a cut on the base track a vertical bar means **Insert**; over a
   base clip a tinted range means **Overwrite**; on an overlay, audio or title lane a tinted range shows where
   the clip lands (and replaces what it covers); above the top lane a green placeholder means a **new lane**;
   a red tint (wrong kind of lane, for instance audio on a video lane, or far outside) means **cancel**. The
-  timeline scrolls when you hold near its sides. Release to drop; undo removes it in one step.
-- **Reorder**: long-press a tile and drop it on another tile of the tray to change the order of the library.
+  timeline scrolls when you hold near its sides (sideways) or its top and bottom (through the lanes), after a
+  short pause so that crossing an edge on the way in does not make it jump; a thin line shows when the clip's
+  start or end snaps to the playhead, a marker or another clip. Release to drop; undo removes it in one step.
+  To change your mind, release outside the timeline (the copy flies back to its tile), put a second finger
+  down, or press Back. Moving the finger before the hold is over scrolls the tray as usual.
+- **Reorder**: hold a tile and drop it on another tile of the tray to change the order of the library.
 - **Files from other apps**: on tablets and in split screen you can drag videos, photos or audio from another
   app (for example Files) onto the tray, to add them to the library, or onto the timeline, to place them where
   you drop. If the source does not allow keeping access, the files work in this session and may need to be

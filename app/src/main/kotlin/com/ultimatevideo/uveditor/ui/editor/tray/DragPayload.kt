@@ -23,15 +23,8 @@ fun kindForMime(mime: String?): AssetKind? = when {
 /** The placeable kinds among the MIME types of a drag, in order (a drag of plain text has none). */
 fun kindsOfMimes(mimes: List<String>): List<AssetKind> = mimes.mapNotNull(::kindForMime)
 
-/** Whether a drag carries an asset id from the tray (as opposed to files from another app). */
-fun ClipDescription.isTrayAsset(): Boolean = label?.toString() == ASSET_DRAG_LABEL
-
 /** The MIME types a drag declares. */
 fun ClipDescription.mimes(): List<String> = (0 until mimeTypeCount).map { getMimeType(it) }
-
-/** The asset id a tray drag carries, or null if the payload is something else. */
-fun ClipData.trayAssetId(): String? =
-    if (description.isTrayAsset() && itemCount > 0) getItemAt(0).text?.toString()?.takeIf { it.isNotBlank() } else null
 
 /** Every URI of a drag from another app, in order. */
 fun ClipData.uris(): List<String> = (0 until itemCount).mapNotNull { getItemAt(it).uri?.toString() }
