@@ -1491,6 +1491,38 @@ transcoding the audio at import (copies and rewrites the user's media).
 **Chosen:** the switch is removed; gap marking is always on. A/B comparisons use two builds, not a property that can outlive the run.
 **Rule:** a debug property must never switch off a correctness or speed fix in a build that other people (or later sessions) use; diagnostics that stay (`export_perf`, `timeline_stats`, `atlas_bytes`) only add logging or shrink caches in debug builds. Scripts that set a debug property must reset it in a trap on exit.
 
+## 2026-10-07 · Media folder layout: the app makes its own `ultimateVE` subfolder
+**Context:** the chosen "Media folder" received loose files (the footage of every imported LumaFusion package, e.g. 122 files directly in the user's Movies/LFImport), and two packages with the same file names produced " (2)" copies. LumaFusion instead creates its own folder in the one the user picks and sorts what it writes below it (`LibraryMedia`, `media`, `Project-Backups`, `ReversedMedia`, `UserMedia`).
+**Chosen:** the root is literally `ultimateVE` inside the chosen folder. A chosen folder that is already called `ultimateVE`, or that already holds one (any case), is reused: no `ultimateVE/ultimateVE`. Every folder is created on first use (`MediaLayout`, `FolderPath.ensure`), so an empty one never appears; only what the app writes is listed here.
+| Folder | Written? | Why |
+|---|---|---|
+| `ultimateVE/Media/<project>/` | yes | Footage unpacked from `.lfpackage` imports (the only copy of media the app makes). One subfolder per import, named after the project (cleaned, unique among its siblings: "Name (2)"), as LumaFusion keeps a folder per project. Two packages with the same file names cannot collide, and deleting one folder removes one project's footage. The " (2)" suffix for files still applies, per subfolder. |
+| `ultimateVE/Project-Backups/` | yes, on first `.uvbundle` export | The save picker opens there (`EXTRA_INITIAL_URI`, a document of the chosen tree). The folder is created when the picker opens and removed again if the picker is cancelled and the folder is still empty. The user can still save elsewhere. No "Back up now" button was added. |
+| `LibraryMedia` | no | LUTs, fonts, looks, title presets and templates are app-private (`filesDir`), not user-visible, and stay so. |
+| `ReversedMedia` | no | Reverse playback is a retime mapping (`domain/Retime.kt`); no reversed copy is ever written. |
+| `UserMedia` | no | The app records nothing (no voice-over). Saved frames go to Pictures/ultimateVE through MediaStore and exported movies go where the system picker is pointed: both stay as they are. |
+**Migration:** none. Files from imports made before this change are directly in the chosen folder and projects reference them by `content://` URI; they are never moved, renamed or deleted. About shows how many such files sit there. New imports use the subfolder.
+**Cleanup:** a cancel or failure deletes the files written, then the folders this import created, innermost first and only while empty (`MediaLayout.discardEmpty`); an `ultimateVE` or `Media` folder that existed before is never removed. A package without footage creates nothing. Deleting a project never deletes user files.
+**Alternatives:** one flat `ultimateVE/Media` (name collisions between projects, no per-project cleanup); copying LumaFusion's five folders up front (empty folders that mean nothing here).
+**Found on the Pixel 8 (ExternalStorageProvider):** `DocumentsContract.deleteDocument` right after a cancelled copy throws `IllegalStateException("Failed to delete")` (the media scanner has the file), and a second call on the then-missing document throws `IllegalArgumentException`. The first version of the cleanup let that escape, which skipped the folder removal and left an empty `Media/<project>` folder (the exception was swallowed because the job was cancelled). `TreeMediaFolder.delete` now retries and never throws; `MediaLayout.discardEmpty` reports what it kept or removed to the import log (tag `UVImport`).
+**Not verified:** how each third-party document provider treats `EXTRA_INITIAL_URI` (the picker may ignore it).
+
+## 2026-10-07 · Toolbar documentation: in the app first, a website and a PDF as extras
+**Context:** the editor has about 30 icon-only buttons and people did not know what they do. `docs/USER_GUIDE.md` had an icon table with
+characters standing in for the icons, which is hard to match with what is on screen, is not searchable on a phone and can drift from the app.
+**Chosen:** (1) **In the app, primary.** A Toolbar guide screen (About, Help; and a ? button in the editor's top bar) draws each symbol
+with the toolbar's own `ImageVector`, with name, what it does, when it is enabled, grouped by where it sits, plus the gestures and a search box.
+It works offline, always matches the installed version, and is where a person stuck on a button already is. It is built from one registry and a
+JVM test fails when an editor icon has no entry, so it cannot go stale silently. Long-press tooltips already existed and stay.
+(2) **Website, secondary.** A GitHub Pages site generated from `docs/` and the same registry gives search-engine reach, links to share in
+a forum or a support answer, and room to read on a big screen. It is built by a stdlib Python script plus pandoc with no CDN, font or analytics,
+and the app only links to it with `ACTION_VIEW` on a tap (no INTERNET permission, no fetch by the app). (3) **PDF, tertiary.** The user guide printed by
+headless Chrome in the release workflow is attached to the release for people who want a file to keep offline; it is best effort and never blocks a release.
+**Alternatives:** PDF only (not searchable on a phone, stale the day after, a second thing to open); website only (needs a connection, can describe a
+different version than the one installed, and an offline-by-design app should not send its users to the network for basic help); an embedded WebView
+(banned by the offline guarantee test and a bigger attack surface); a coach-marks overlay on every button (noisy, more UI to maintain).
+**Rule:** a new toolbar button needs a line in `ToolbarGuide.kt`; the test enforces it. Pages must be enabled once by hand (`docs/RELEASE.md`).
+
 ## 2026-10-07 · Save frame as image: one tap, no dialog, into Pictures/ultimateVE
 **Context:** the first version (a dialog with source, size presets, fit/fill, PNG/JPEG and a document picker) was too much for the common
 case and, on the user's 4K HLG project, produced an image that was completely black. LumaFusion saves a frame with one tap.

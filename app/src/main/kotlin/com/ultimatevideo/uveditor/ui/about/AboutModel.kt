@@ -86,6 +86,9 @@ class AboutController(
 
     companion object {
         const val REPOSITORY_URL = "https://github.com/qtekfun/UltimateVideoEditor"
+
+        /** The user guide on GitHub Pages. Only ever opened in the browser by a tap (ACTION_VIEW); the app fetches nothing. */
+        const val ONLINE_GUIDE_URL = "https://qtekfun.github.io/UltimateVideoEditor/"
         const val LICENCE_NAME = "GNU General Public License v3.0"
 
         fun formatBytes(bytes: Long, locale: java.util.Locale = java.util.Locale.getDefault()): String = when {

@@ -1030,10 +1030,15 @@ with a `tracks` array and `attributes.appVersion` is a standalone `.lfarchive`. 
   tree (`MediaFolderSettings`, `PreferencesMediaFolderSettings`, `OpenDocumentTree`, persisted read and write permission, kept
   out of the permission trim). `TreeMediaFolder` lists names, creates documents through `DocumentsContract`, writes by stream and
   reads free space with `fstatvfs` on the new file's descriptor (unknown free space does not block; a failing write is reported).
+  The files are not put in that folder itself but in `<folder>/ultimateVE/Media/<project name>/` (`MediaLayout`: the root is reused when
+  the chosen folder is called `ultimateVE` or holds one, ignoring case; every folder is created on first use; the project folder name is
+  cleaned and unique among its siblings). `.uvbundle` exports open the save picker in `ultimateVE/Project-Backups` (created on use, removed again
+  if the picker is cancelled and it is empty). Footage from earlier imports stays loose in the chosen folder, untouched. Not written, so never
+  created: `LibraryMedia`, `ReversedMedia`, `UserMedia` (DECISIONS.md, "Media folder layout"). About shows the effective path and counts.
   Files get their own names, and a taken name (ignoring case) gets " (2)", " (3)" before the extension (`MediaFileNames`), so
   nothing in the folder is replaced. The project references them by their `content://` document URIs like any imported media. With
   no folder chosen, `ProjectError.MediaFolderRequired` makes the hub explain why and ask for one, then continue the import. A folder
-  that cannot be read or written, a full volume and a cancel remove the files this import created and leave no project; deleting a
+  that cannot be read or written, a full volume and a cancel remove the files this import created and the folders it made (while empty) and leave no project; deleting a
   project never deletes files in the folder. A standalone `.lfarchive` needs no folder: its media are missing (their address points at a
   file that does not exist) and the normal Relink flow links them. After each file is copied the optional `probeMedia` hook reads its
   real duration, frame rate, colour space and streams into the asset.
@@ -1402,6 +1407,20 @@ exporter's own engine, so it is what an export would contain at that frame. No d
   (request built for one frame, flat picture refused, gap not refused, errors, missing media), `StillFrameViewModelTest` (one tap, naming,
   refusals, failures, cancel, share/open); native `uv_export_host_tests` (`still_math.h`, the guard). Device: `debug/FrameDemoActivity`
   (`--es mode frames|export`, `--ei cw/ch/fps`, `--es colour hlg`) and the steps in `docs/QA` of the pull request.
+
+### 5.36 Toolbar guide (in app, online, PDF)
+
+Every symbol of the editor is described in one registry, `ui/editor/guide/ToolbarGuide.kt`: id, section (where it sits), the
+toolbar's own `ImageVector`, name, one-line help and when it is available, plus the gestures. `ToolbarGuideScreen` lists it with a
+search box; it opens from the **?** button of the editor's top bar (a full-screen dialog, so the editor and its native views stay
+alive underneath) and from About, Help. `ToolbarGuideTest` scans the sources: an `EditorIcons.*` / `SelectionIcons.*` icon that
+a screen uses and the registry lacks fails the build, and so does an entry for an icon nothing uses or a duplicate id.
+Adding a toolbar button therefore means adding its line to the registry.
+The same registry feeds the website: `scripts/gen-site.py` reads `ToolbarGuide.kt` and the icon path data and writes an inline-SVG
+`icons.html` (so the web shows the app's symbols), converts `docs/*.md` with pandoc and writes the site that `.github/workflows/pages.yml`
+deploys. About, Help has an **Online guide** button that opens `AboutController.ONLINE_GUIDE_URL` through `ACTION_VIEW`; the app
+fetches nothing and has no INTERNET permission (`OfflineGuaranteeTest` stays green). The release workflow prints the generated user
+guide to `ultimateVE-<version>-user-guide.pdf` (best effort, `continue-on-error`). Decision: DECISIONS.md, "Toolbar documentation".
 
 ## 6. Timeline operations (specification for tests)
 
