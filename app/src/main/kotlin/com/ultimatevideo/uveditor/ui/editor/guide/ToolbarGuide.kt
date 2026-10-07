@@ -107,7 +107,7 @@ internal object ToolbarGuide {
         GuideGesture("drag-clip", "Drag a selected clip", "Moves it. Edges snap to neighbours, the playhead and markers. Dropping on the base track near a cut inserts it, over a clip overwrites it. While your finger is down a chip shows Insert or Overwrite: tap it, or tap anywhere with a second finger, to switch."),
         GuideGesture("drop-mode", "Tap with a second finger while dragging", "Switches the drop between Insert (opens a gap, later clips move right) and Overwrite (replaces what the clip covers). The timeline shows the result before you let go."),
         GuideGesture("trim", "Drag a clip's edge", "Trims it. The handles at the ends of the selected clip are the edges to drag."),
-        GuideGesture("scrub", "Drag the ruler or the red playhead", "Scrubs through the project."),
+        GuideGesture("scrub", "Drag the ruler or the red playhead", "Scrubs through the project. Swiping along the timeline while it plays, or dragging the playhead, stops playback so you can look around; press Play to continue."),
         GuideGesture("pinch-time", "Pinch the timeline", "Zooms the time axis, whichever way your fingers spread. Track height does not change by gesture; the layout sheet sets it."),
         GuideGesture("scroll", "Drag on empty timeline space", "Scrolls the timeline; a fling keeps it coasting."),
         GuideGesture("long-press-clip", "Long press a clip", "Adds it to the selection (or removes it) without select mode."),
