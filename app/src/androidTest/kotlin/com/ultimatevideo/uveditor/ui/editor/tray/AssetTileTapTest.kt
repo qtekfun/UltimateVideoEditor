@@ -1,6 +1,8 @@
 package com.ultimatevideo.uveditor.ui.editor.tray
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
@@ -29,18 +31,51 @@ class AssetTileTapTest {
         colorSpace = "sdr", displayName = "clip.mp4",
     )
 
-    private fun show(onAdd: (String) -> Unit, onDragStart: (String) -> Unit = {}) {
+    private val controller = TrayDragController()
+
+    private fun show(onAdd: (String) -> Unit) {
         compose.setContent {
             MaterialTheme {
-                Box(Modifier.size(160.dp)) {
-                    AssetTile(
-                        item = TrayItem(asset, AssetKind.VIDEO, "clip.mp4", usage = 0, missing = false),
-                        assets = listOf(asset), onAdd = onAdd, onAssetDragStart = onDragStart,
-                        onReorder = { _, _ -> }, grid = true,
-                    )
+                TrayDragRoot(controller, Modifier.fillMaxSize()) {
+                    Box(Modifier.size(160.dp)) {
+                        AssetTile(
+                            item = TrayItem(asset, AssetKind.VIDEO, "clip.mp4", usage = 0, missing = false),
+                            onAdd = onAdd, drag = controller, grid = true,
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private class RecordingSink : TrayDragSink {
+        val calls = mutableListOf<String>()
+        override fun begin(assetId: String) { calls += "begin:$assetId" }
+        override fun move(x: Float, y: Float) { calls += "move" }
+        override fun drop(x: Float, y: Float): Boolean { calls += "drop"; return true }
+        override fun cancel() { calls += "cancel" }
+        override fun frame(nowMs: Long) = Unit
+    }
+
+    /** The real touch sequence: down, hold past 300 ms, move out of the tile, up. The drop must arrive and the ghost must be gone. */
+    @Test fun holdMoveAndLiftDropsAndClearsTheGhost() {
+        val sink = RecordingSink()
+        controller.sink = sink
+        val added = mutableListOf<String>()
+        show(onAdd = { added += it })
+        compose.onNodeWithContentDescription("Tap to add", substring = true).performTouchInput {
+            down(center)
+            advanceEventTime(500)
+            moveTo(center + Offset(400f, 300f))
+            advanceEventTime(50)
+            moveTo(center + Offset(420f, 320f))
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals("begin:a1", sink.calls.first())
+        assertEquals("drop", sink.calls.last())
+        assertEquals(null, controller.carry)
+        assertEquals(emptyList<String>(), added)
     }
 
     @Test fun tapAddsTheClip() {
