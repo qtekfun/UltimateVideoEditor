@@ -525,6 +525,7 @@ fun EditorScreen(
                 viewModel.onIntent(EditorIntent.DragMove(hit.frame, hit.trackIndex, dragZoneOf(hit), reachFrames))
             override fun onDropModeTap() = viewModel.onIntent(EditorIntent.FlipDropChoice)
             override fun onDragEnd(commit: Boolean) = viewModel.onIntent(EditorIntent.DragEnd(commit))
+            override fun onScrub() = viewModel.onIntent(EditorIntent.ScrubStarted)
             override fun onLaneDragStart(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Start(hit))
             override fun onLaneDragMove(hit: TimelineHit) = viewModel.onIntent(LaneDragIntent.Move(hit))
             override fun onLaneDragEnd(commit: Boolean) = viewModel.onIntent(LaneDragIntent.End(commit))

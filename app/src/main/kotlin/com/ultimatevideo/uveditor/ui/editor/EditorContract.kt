@@ -322,6 +322,9 @@ sealed interface EditorIntent : UiIntent {
     data class TapTimeline(val hit: TimelineHit) : EditorIntent
     data class SetPlayhead(val frame: Long) : EditorIntent
 
+    /** A swipe along the time axis began on the timeline content: playback, if running, stops where it is (see [ScrubGate]). */
+    data object ScrubStarted : EditorIntent
+
     data class DragStart(val hit: TimelineHit) : EditorIntent
     /** [trackIndex] is the lane under the finger in the timeline being shown (-1 over a gap or nothing). */
     data class DragMove(
