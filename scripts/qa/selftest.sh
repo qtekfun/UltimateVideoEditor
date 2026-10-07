@@ -56,7 +56,9 @@ expect fail "HLG file is not SDR" tags "$work/hlg.mp4" --kind sdr
 ff -f lavfi -i "testsrc2=size=320x180:rate=30:duration=2" -c:v libx264 -pix_fmt yuv420p "$work/land.mp4"
 ff -display_rotation 90 -i "$work/land.mp4" -c copy "$work/rot.mp4"
 ff -i "$work/rot.mp4" -vf scale=360:640 -c:v libx264 -pix_fmt yuv420p "$work/rot_once.mp4"
-ff -noautorotate -i "$work/rot.mp4" -vf scale=360:640 -c:v libx264 -pix_fmt yuv420p "$work/rot_never.mp4"
+# The unrotated landscape picture stretched to portrait: what an export that ignored the container rotation looks like.
+# (Built from the original file, not with -noautorotate: that flag behaves differently across ffmpeg versions and made CI flaky.)
+ff -i "$work/land.mp4" -vf scale=360:640 -c:v libx264 -pix_fmt yuv420p "$work/rot_never.mp4"
 ff -i "$work/rot.mp4" -vf "scale=360:640,hflip,vflip" -c:v libx264 -pix_fmt yuv420p "$work/rot_twice.mp4"
 expect pass "rotated once" rotation "$work/rot_once.mp4" --source "$work/rot.mp4" --index 30
 expect fail "container rotation ignored" rotation "$work/rot_never.mp4" --source "$work/rot.mp4" --index 30

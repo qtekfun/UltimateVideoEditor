@@ -56,6 +56,9 @@ class ExportViewModelTest {
         val deleted = mutableListOf<String>()
         var failOn: String? = null
         val names = mutableMapOf<String, String>()
+        var free: Long? = null
+
+        override fun freeBytes(): Long? = free
 
         override fun displayName(uri: String): String? = names[uri]
 
@@ -120,6 +123,83 @@ class ExportViewModelTest {
         timeline = timeline(track("v1", *(if (withClip) arrayOf(clip("c1", 0, 90, asset = "a")) else emptyArray()))),
         assets = listOf(asset("a")),
     )
+
+    private fun sourceInput(mbps: Double?, width: Int = 3840, height: Int = 2160, codec: String = "avc", canvas: Pair<Int, Int> = 3840 to 2160) = ExportInput(
+        projectId = "p1",
+        projectName = "My movie",
+        projectWidth = canvas.first,
+        projectHeight = canvas.second,
+        fps = FrameRate(30, 1),
+        timeline = timeline(track("v1", clip("c1", 0, 300, asset = "a"))),
+        assets = listOf(
+            asset("a").copy(
+                videoWidth = width, videoHeight = height, videoCodec = codec, hasAudio = true,
+                videoBitrate = mbps?.let { (it * 1_000_000).toLong() },
+            ),
+        ),
+    )
+
+    @Test
+    fun `the dialog starts on the bit rate that covers the best clip`() {
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(sourceInput(80.0)))
+        assertEquals(80, vm.state.value.bitrateMbps)
+
+        val vm52 = viewModel()
+        vm52.onIntent(ExportIntent.Open(sourceInput(52.0, codec = "hevc")))
+        assertEquals(80, vm52.state.value.bitrateMbps)
+        assertEquals(ExportCodec.HEVC, vm52.state.value.codec)
+        assertEquals(52.0, vm52.state.value.recommendation!!.sourceMbps!!, 0.001)
+    }
+
+    @Test
+    fun `without a known bit rate the dialog keeps today's defaults`() {
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(sourceInput(null)))
+        assertEquals(suggestedBitrateMbps(3840, 2160, FrameRate(30, 1), ExportCodec.H264), vm.state.value.bitrateMbps)
+        assertEquals(ExportCodec.H264, vm.state.value.codec)
+    }
+
+    @Test
+    fun `the user can change what the clips suggested`() {
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(sourceInput(80.0)))
+        vm.onIntent(ExportIntent.SelectCodec(ExportCodec.H264))
+        vm.onIntent(ExportIntent.SelectBitrate(20))
+        assertEquals(20, vm.state.value.bitrateMbps)
+        assertEquals(ExportCodec.H264, vm.state.value.codec)
+    }
+
+    @Test
+    fun `choosing a smaller size recomputes the rate for it`() {
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(sourceInput(80.0)))
+        val hd = vm.state.value.resolutions.first { it.shortSide == 1080 }
+        vm.onIntent(ExportIntent.SelectResolution(hd))
+        // A quarter of the pixels needs about a quarter of the rate.
+        assertEquals(20, vm.state.value.bitrateMbps)
+    }
+
+    @Test
+    fun `the size estimate follows the bit rate`() {
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(sourceInput(80.0)))
+        // 300 frames at 30 fps is 10 s: (80 + 0.192) Mbit/s * 10 s / 8 * 1.01
+        val big = vm.state.value.sizeEstimate!!.bytes
+        assertEquals(101_242_400.0, big.toDouble(), 1_000.0)
+        vm.onIntent(ExportIntent.SelectBitrate(8))
+        val small = vm.state.value.sizeEstimate!!.bytes
+        assertTrue(small < big / 5)
+    }
+
+    @Test
+    fun `an empty timeline has no estimate and the free space is carried`() {
+        io.free = 5_000_000_000
+        val vm = viewModel()
+        vm.onIntent(ExportIntent.Open(input(withClip = false)))
+        assertNull(vm.state.value.sizeEstimate)
+        assertEquals(5_000_000_000, vm.state.value.freeBytes)
+    }
 
     private fun ExportViewModel.openAndStart(output: String = "content://out/movie.mp4") {
         onIntent(ExportIntent.Open(input()))

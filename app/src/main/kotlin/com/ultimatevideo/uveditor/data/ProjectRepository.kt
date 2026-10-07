@@ -371,7 +371,7 @@ class ProjectRepository(
                         colorSpace = real.colorSpace,
                         hasVideo = real.hasVideo,
                         hasAudio = real.hasAudio,
-                    )
+                    ).withVideoFacts(real)
                 }
             }
             val finalProject = conversion.project.copy(id = id, name = name, mediaLibrary = library)

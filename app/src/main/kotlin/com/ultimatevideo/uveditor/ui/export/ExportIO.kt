@@ -2,7 +2,9 @@ package com.ultimatevideo.uveditor.ui.export
 
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.os.ParcelFileDescriptor
+import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import java.io.FileNotFoundException
@@ -27,6 +29,12 @@ interface ExportIO {
 
     /** The name the document has on disk (the user may have renamed it in the picker), or null when unknown. */
     fun displayName(uri: String): String? = null
+
+    /**
+     * Free bytes of the device's shared storage, where the document picker starts, or null when unknown. The user may still pick a
+     * folder on another volume (an SD card or a cloud provider), whose space is not known to the app, so this is a hint only.
+     */
+    fun freeBytes(): Long? = null
 
     /** Removes a partly written output; true when it is gone (or already was), false when the provider refused. */
     fun deleteOutput(uri: String): Boolean
@@ -64,6 +72,12 @@ class ContentResolverExportIO(private val context: Context) : ExportIO {
         } catch (e: IOException) {
             // Closing failed: the descriptor is gone either way and there is nothing to retry.
         }
+    }
+
+    override fun freeBytes(): Long? = try {
+        StatFs(Environment.getExternalStorageDirectory().path).availableBytes
+    } catch (e: IllegalArgumentException) {
+        null // The storage is not mounted: no figure rather than a wrong one.
     }
 
     override fun deleteOutput(uri: String): Boolean = try {

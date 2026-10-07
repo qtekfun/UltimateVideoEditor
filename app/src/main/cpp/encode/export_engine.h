@@ -76,6 +76,7 @@ struct ExportParams {
     // Main10. Needs a ten-bit encoder surface; the job fails with UnsupportedFormat when the device
     // cannot provide one (the app checks codec support first and offers an SDR export instead).
     bool hdr = false;
+    bool skipHiddenLayers = true;  // layers behind a layer that covers the canvas are not decoded or drawn
     int32_t videoBitrate = 0;
     int32_t audioBitrate = 192000;
     int64_t totalFrames = 0;

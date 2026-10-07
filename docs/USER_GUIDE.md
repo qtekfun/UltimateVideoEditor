@@ -593,6 +593,21 @@ check** button) and then one of:
 The check takes a few seconds, also for a long 4K movie, because it only decodes the start and the end. If the exporter had to repeat
 frames that could not be decoded, that note is shown together with the verdict, never instead of it. The check is part of the export and
 cannot be switched off.
+**The dialog starts on settings that keep your clips' quality.** It looks at the video clips that are on the timeline (not at
+unused files in the library, photos or titles) and picks the smallest bitrate choice that is at least as high as the best of them
+(a clip at 80 Mbit/s selects 80 Mbps, one at 52 Mbit/s selects 80 Mbps, 40 selects 50). It switches to HEVC when a clip is HEVC,
+10-bit or HDR, or needs more than H.264 should carry. The size stays the project's. When the export is smaller than the clip (for
+example 1080p from 4K footage) the rate scales with the pixels, so 80 Mbit/s of 4K selects 20 Mbps at 1080p. A line under the
+Bitrate chips says what it did ("Your clips go up to 52 Mbps: 80 Mbps keeps their quality") and the suggested chips are marked
+"recommended". You can change anything; picking a lower bitrate shows that some quality is lost. If a clip is above the highest
+choice (80 Mbps) the line says so. When the app does not know a clip's bitrate (projects made by an older version learn it the next
+time they are opened, LumaFusion imports use the figure in the archive when it has one), the usual defaults are used.
+
+**Estimated size.** The dialog shows "Estimated size: about 3.1 GB (2.5 to 3.4 GB)" under the settings and updates it as you change
+resolution, frame rate, codec, dynamic range or bitrate. It is the bitrate times the movie's length plus the audio; the encoder aims
+at the bitrate, so the real file is usually close but can be smaller (quiet scenes) or a little bigger. If the estimate is more than
+90% of the free space of the phone's storage, a warning says it may not fit. (If you save to an SD card or a cloud folder, the
+free space of that place is not known to the app.)
 
 **Leaving the app during an export.** The export keeps running if you press Home, switch to another app, rotate the
 screen, go back to the project list or the screen turns off. While it runs, a quiet notification "Exporting <project>" shows the

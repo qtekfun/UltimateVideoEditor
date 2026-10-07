@@ -191,8 +191,10 @@ private fun Progress(phase: ExportPhase.Running) {
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
+    // The size estimate stays in view under the scrolling settings, so every change shows its effect.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Column(
-        modifier = Modifier.verticalScroll(rememberScrollState()),
+        modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Section("Upload to") {
@@ -256,16 +258,58 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
                 FilterChip(
                     selected = codec == state.codec,
                     onClick = { onIntent(ExportIntent.SelectCodec(codec)) },
-                    label = { Text(codec.label) },
+                    label = { Recommendable(codec.label, state.recommendation?.takeIf { it.fromSources }?.codec == codec) },
                 )
             }
         }
         Section("Bitrate") {
+            val recommendation = state.recommendation?.takeIf { it.fromSources }
             for (mbps in bitrateChoicesMbps()) {
                 FilterChip(
                     selected = mbps == state.bitrateMbps,
                     onClick = { onIntent(ExportIntent.SelectBitrate(mbps)) },
-                    label = { Text("$mbps Mbps") },
+                    label = { Recommendable("$mbps Mbps", recommendation?.bitrateMbps == mbps) },
+                )
+            }
+        }
+        state.recommendation?.let { recommendation ->
+            bitrateAdvice(recommendation, state.sources, state.bitrateMbps)?.let { advice ->
+                Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    SizeLine(state)
+    }
+}
+
+/** A chip label that says "recommended" in small type when the clips suggested this choice. */
+@Composable
+private fun Recommendable(label: String, recommended: Boolean) {
+    if (recommended) {
+        Column {
+            Text(label)
+            Text("recommended", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        }
+    } else {
+        Text(label)
+    }
+}
+
+/** The live size estimate, with the range the encoder's rate control allows and a warning when it might not fit. */
+@Composable
+private fun SizeLine(state: ExportState) {
+    val estimate = state.sizeEstimate ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "Estimated size: about ${formatBytes(estimate.bytes)} (${formatBytes(estimate.lowBytes)} to ${formatBytes(estimate.highBytes)})",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        state.freeBytes?.let { free ->
+            if (exceedsFreeSpace(estimate, free)) {
+                Text(
+                    "This may not fit: ${formatBytes(free)} free on this device's storage.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
