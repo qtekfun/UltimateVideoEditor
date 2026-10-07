@@ -30,7 +30,10 @@ interface TimelineEditing {
     fun onDragStart(hit: TimelineHit)
 
     /** [hit] is the hit-test at the current finger position; only its frame and track are meaningful. */
-    fun onDragMove(hit: TimelineHit)
+    fun onDragMove(hit: TimelineHit, reachFrames: Long)
+
+    /** A second finger tapped while a clip is dragged: switch the drop between insert and overwrite. */
+    fun onDropModeTap() {}
     fun onDragEnd(commit: Boolean)
 
     /** A lane header was long-pressed: the lane is picked up. [hit] is a `LANE_HEADER` hit-test. */
@@ -171,7 +174,7 @@ class TimelineSurfaceView(
             val dx = edgeScrollSpeed(dragX, width.toFloat(), resources.displayMetrics.density)
             if (dx != 0f) {
                 engine.scrollBy(dx, 0f)
-                editing()?.onDragMove(engine.hitTest(dragX, dragY))
+                editing()?.onDragMove(engine.hitTest(dragX, dragY), reachAt(dragX, dragY))
             }
             postOnAnimation(this)
         }
@@ -229,7 +232,7 @@ class TimelineSurfaceView(
                 if (dragging) {
                     dragX = e2.x
                     dragY = e2.y
-                    editing()?.onDragMove(engine.hitTest(e2.x, e2.y))
+                    editing()?.onDragMove(engine.hitTest(e2.x, e2.y), reachAt(e2.x, e2.y))
                 } else if (marquee) {
                     engine.setMarquee(downX, downY, e2.x, e2.y)
                 } else {
@@ -267,6 +270,30 @@ class TimelineSurfaceView(
         systemGestureExclusionRects = listOf(Rect(0, 0, right - left, minOf(bottom - top, limit)))
     }
 
+    private val modeTap = SecondFingerTap(slopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+
+    private fun readDropModeTap(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN ->
+                modeTap.onPointerDown(event.getPointerId(event.actionIndex), event.getX(event.actionIndex), event.getY(event.actionIndex), event.eventTime)
+            MotionEvent.ACTION_MOVE ->
+                for (i in 0 until event.pointerCount) modeTap.onMove(event.getPointerId(i), event.getX(i), event.getY(i))
+            MotionEvent.ACTION_POINTER_UP ->
+                if (modeTap.onPointerUp(event.getPointerId(event.actionIndex), event.eventTime)) {
+                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    editing()?.onDropModeTap()
+                }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> modeTap.reset()
+        }
+    }
+
+    /** Frames a fingertip covers at the finger, from the frames under two points a reach apart (follows the zoom). */
+    private fun reachAt(x: Float, y: Float): Long {
+        val reachPx = DropReach.REACH_DP * resources.displayMetrics.density
+        val other = if (x + reachPx <= width) x + reachPx else x - reachPx
+        return DropReach.frames(engine.hitTest(x, y).frame, engine.hitTest(other, y).frame)
+    }
+
     private fun tryStartDrag() {
         val hit = downHit ?: return
         val handler = editing() ?: return
@@ -293,8 +320,10 @@ class TimelineSurfaceView(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        scaleDetector.onTouchEvent(event)
+        // A second finger during a clip drag switches insert / overwrite; it is not a pinch.
+        if (!dragging) scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
+        if (dragging) readDropModeTap(event)
         if (laneDragging) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_MOVE -> editing()?.onLaneDragMove(engine.hitTest(event.x, event.y))
@@ -320,7 +349,7 @@ class TimelineSurfaceView(
             if (dragging && event.actionMasked == MotionEvent.ACTION_MOVE) {
                 dragX = event.x
                 dragY = event.y
-                editing()?.onDragMove(engine.hitTest(event.x, event.y))
+                editing()?.onDragMove(engine.hitTest(event.x, event.y), reachAt(event.x, event.y))
             }
         }
         if (marquee && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
