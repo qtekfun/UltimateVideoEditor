@@ -23,16 +23,36 @@ class PeaksFileTest {
 
     private fun <T : Any> present(value: T?): T = checkNotNull(value) { "expected a value" }
 
-    /** A "UVPK" v1 file with one level: [clicks] every 60/bpm seconds starting at [first]. */
-    private fun write(name: String, seconds: Double, bpm: Double, first: Double, magic: Int = 0x4B505655, cut: Int = 0): File {
+    /**
+     * A "UVPK" file with one level: clicks every 60/bpm seconds starting at [first]. Version 2 has the RMS block after the
+     * level's min/max pairs, as the native writer does.
+     */
+    private fun write(
+        name: String,
+        seconds: Double,
+        bpm: Double,
+        first: Double,
+        magic: Int = 0x4B505655,
+        cut: Int = 0,
+        version: Int = 1,
+        fineLevel: Boolean = false,
+    ): File {
         val sampleRate = 48_000
         val samplesPerPeak = 64
         val count = (seconds * sampleRate / samplesPerPeak).toInt()
         val period = 60.0 / bpm
-        val buffer = ByteBuffer.allocate(24 + 8 + count * 4).order(ByteOrder.LITTLE_ENDIAN)
-        buffer.putInt(magic).putInt(1).putInt(sampleRate)
+        val rmsBytes = if (version >= 2) count * 2 else 0
+        val fineCount = if (fineLevel) count * 4 else 0
+        val fineBytes = if (fineLevel) 8 + fineCount * 4 else 0
+        val buffer = ByteBuffer.allocate(24 + fineBytes + 8 + count * 4 + rmsBytes).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.putInt(magic).putInt(version).putInt(sampleRate)
         buffer.putLong((seconds * sampleRate).toLong())
-        buffer.putInt(1)
+        buffer.putInt(if (fineLevel) 2 else 1)
+        if (fineLevel) {
+            // The 16 samples per peak level the native writer puts first: pairs only, no RMS. Loud, so reading it by mistake shows.
+            buffer.putInt(16).putInt(fineCount)
+            repeat(fineCount) { buffer.putShort(-30000).putShort(30000) }
+        }
         buffer.putInt(samplesPerPeak).putInt(count)
         for (i in 0 until count) {
             val t = i * samplesPerPeak.toDouble() / sampleRate
@@ -40,6 +60,7 @@ class PeaksFileTest {
             val amplitude = ((0.02 + 0.9 * exp(-since / 0.05)) * 32767).toInt().coerceAtMost(32767)
             buffer.putShort((-amplitude).toShort()).putShort(amplitude.toShort())
         }
+        if (version >= 2) repeat(count) { buffer.putShort(1000) }
         val file = File(dir, name)
         file.writeBytes(buffer.array().copyOf(buffer.capacity() - cut))
         return file
@@ -54,6 +75,21 @@ class PeaksFileTest {
         val grid = present(BeatDetector.analyze(window.envelope))
         assertEquals(120.0, grid.bpm, 2.0)
         assertEquals(250_000.0, grid.beatsMicros.first().toDouble(), 25_000.0)
+    }
+
+    @Test
+    fun `a version 2 file with the rms block reads the same as version 1`() {
+        val v1 = present(PeaksFile.readWindow(write("g1.peaks", 30.0, 120.0, 0.25), 0, 30_000_000))
+        val v2 = present(PeaksFile.readWindow(write("g2.peaks", 30.0, 120.0, 0.25, version = 2), 0, 30_000_000))
+        assertEquals(v1.envelope.binsPerSecond, v2.envelope.binsPerSecond, 1e-9)
+        assertEquals(v1.envelope.durationSeconds, v2.envelope.durationSeconds, 1e-9)
+        assertEquals(120.0, present(BeatDetector.analyze(v2.envelope)).bpm, 2.0)
+        // The 16 sample level in front is skipped: the envelope is the 64 sample one, as before the finer level existed.
+        val fine = present(PeaksFile.readWindow(write("g4.peaks", 30.0, 120.0, 0.25, version = 2, fineLevel = true), 0, 30_000_000))
+        assertEquals(750.0, fine.envelope.binsPerSecond, 1e-9)
+        assertEquals(120.0, present(BeatDetector.analyze(fine.envelope)).bpm, 2.0)
+        // A file from a future version is not guessed at.
+        assertNull(PeaksFile.readWindow(write("g3.peaks", 10.0, 120.0, 0.0, version = 3), 0, 10_000_000))
     }
 
     @Test
