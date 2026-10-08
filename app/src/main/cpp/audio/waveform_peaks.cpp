@@ -24,6 +24,7 @@ uint32_t samplesPerPeakAt(int level) {
 PeakBuilder::PeakBuilder(uint32_t sampleRate, int channels)
     : channels_(std::max(1, channels)) {
     out_.sampleRate = sampleRate;
+    out_.channels = channels_;
     out_.levels.resize(kLevelCount);
     for (int i = 0; i < kLevelCount; ++i) out_.levels[i].samplesPerPeak = samplesPerPeakAt(i);
 }
@@ -233,7 +234,7 @@ core::Status loadPeaks(const std::string& path, PeakPyramid* out) {
     r(header, sizeof(header));
     r(&p.totalFrames, sizeof(p.totalFrames));
     r(&levelCount, sizeof(levelCount));
-    if (!good || header[0] != kMagic || header[1] != kVersion || levelCount == 0 || levelCount > 16) {
+    if (!good || header[0] != kMagic || header[1] != kVersion || levelCount == 0 || levelCount > 16 || header[2] == 0 || p.totalFrames <= 0) {
         std::fclose(f);
         return Status::UnsupportedFormat;
     }

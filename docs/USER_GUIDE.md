@@ -282,6 +282,10 @@ panel on the left.
 
 ### Detach the audio of a video clip
 
+A clip's waveform has four looks. While the sound is still being read there is only a faint straight line; when it is ready the light
+envelope grows from the bottom edge; a clip whose sound really is silent shows a flat line at the bottom; and a **dashed line** across the
+strip means the sound could not be read for that clip (it still plays and edits as usual; reopening the project tries again).
+
 A video clip plays its own sound. To cut, move or delete that sound on its own, select the clip and tap **Detach audio** (the
 picture-over-note icon in the editing tool row). The sound becomes a clip on the first audio lane with room (a new lane is added when
 there is none), at the same frames and from the same part of the file, and the video clip goes silent. The video clip stops
