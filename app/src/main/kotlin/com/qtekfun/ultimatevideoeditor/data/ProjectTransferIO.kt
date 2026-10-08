@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.data.asIoFailure
 import android.content.ContentResolver
 import android.net.Uri
 import java.io.ByteArrayInputStream
@@ -48,23 +49,23 @@ interface ProjectTransferIO {
 
 class ContentResolverTransferIO(private val resolver: ContentResolver) : ProjectTransferIO {
     override fun read(uri: String): ByteArray {
-        val stream = resolver.openInputStream(Uri.parse(uri))
+        val stream = asIoFailure(uri) { resolver.openInputStream(Uri.parse(uri)) }
             ?: throw FileNotFoundException("Cannot open $uri for reading")
         return stream.use { it.readBytes() }
     }
 
     override fun write(uri: String, bytes: ByteArray) {
         // "wt" truncates so overwriting a longer file does not leave trailing bytes.
-        val stream = resolver.openOutputStream(Uri.parse(uri), "wt")
+        val stream = asIoFailure(uri) { resolver.openOutputStream(Uri.parse(uri), "wt") }
             ?: throw FileNotFoundException("Cannot open $uri for writing")
         stream.use { it.write(bytes) }
     }
 
     override fun openInput(uri: String): InputStream =
-        resolver.openInputStream(Uri.parse(uri)) ?: throw FileNotFoundException("Cannot open $uri for reading")
+        asIoFailure(uri) { resolver.openInputStream(Uri.parse(uri)) } ?: throw FileNotFoundException("Cannot open $uri for reading")
 
     override fun openSeekable(uri: String): SeekableDocument? {
-        val pfd = resolver.openFileDescriptor(Uri.parse(uri), "r") ?: return null
+        val pfd = asIoFailure(uri) { resolver.openFileDescriptor(Uri.parse(uri), "r") } ?: return null
         // Positional reads on the descriptor itself: re-opening /proc/self/fd/N by path is refused (EACCES) for files that
         // the provider serves through FUSE (Downloads), so nothing may be opened again by path.
         val channel = java.io.FileInputStream(pfd.fileDescriptor).channel
@@ -75,5 +76,5 @@ class ContentResolverTransferIO(private val resolver: ContentResolver) : Project
     }
 
     override fun openOutput(uri: String): OutputStream =
-        resolver.openOutputStream(Uri.parse(uri), "wt") ?: throw FileNotFoundException("Cannot open $uri for writing")
+        asIoFailure(uri) { resolver.openOutputStream(Uri.parse(uri), "wt") } ?: throw FileNotFoundException("Cannot open $uri for writing")
 }

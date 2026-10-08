@@ -88,6 +88,13 @@ own executor and foreground service), `FrameDemoActivity`, `HdrProbeDemoActivity
 | D7 | "Engine v0.1.0" hard-coded | `VersionWiringTest` (Gradle to CMake to `engineVersion()`, no literal), `engine_version_tests.cpp` built with the real versionName by `run-native-tests.sh` | `ENV-1`, `UI-VER` |
 | D8 | Importing a package from the picker failed with EACCES: the reader reopened `/proc/self/fd/N` by path, which Android refuses for files served through FUSE | `PlatformPitfallsTest` bans `/proc/self/fd` and `/dev/fd` paths in Kotlin | **not covered** (see below) |
 | D9 | The LumaFusion import turned clips twice: the decoder already applies the container rotation and `videoRotation` records the same orientation | `LumaFusionPackageGuardTest`, `LumaFusionImportTest` (no rotation is imported) | `EXP-ROT` |
+| D11 | Opening a project whose footage is on a USB drive that is not connected crashed the app (`IllegalArgumentException: Failed to determine if <volume>:<path> is child of ...`, thrown by ExternalStorageProvider from `ContentResolver.openFileDescriptor` and not caught: only `FileNotFoundException` and `SecurityException` were) | `MediaAccessTest` (every provider-gone exception, including that exact message, becomes a typed `MediaImportException` / null / `IOException` at the one boundary `MediaAccess.kt`; a bug such as a NullPointerException is not hidden), `MissingVolumeOpenViewModelTest` (each failure kind opens the project with the files flagged missing, and nothing is playable before the check finished), `CrashReportTest` (rotation, five reports at most) | **not scripted** (needs a real removable volume): manual check below |
+
+**Manual check, D11 ("unplug the USB drive, open the project").** On the suffixed QA build or the release: 1. open a project whose clips
+are on the USB drive, close it. 2. Unplug the drive. 3. Open the project from the hub. Expected: the editor opens, the Missing media
+banner lists the files, the preview and the filmstrips of those clips stay empty, no crash. 4. Tap Export: it refuses and names the
+missing files. 5. Plug the drive in again and reopen the project: the files are found again. 6. Also unplug the drive while the project is
+open and press play: the clip shows nothing, the app stays up. About, "Last crash report" must still say no crash was recorded.
 
 ## What is not covered
 

@@ -59,6 +59,8 @@ class AndroidClipPeeker(
             }
         } catch (e: IOException) {
             throw MediaImportException("Cannot open the selected picture", e, MediaProblem.UNREADABLE)
+        } catch (e: IllegalArgumentException) {
+            throw MediaImportException("Cannot open the selected picture", e, MediaProblem.UNREADABLE)
         } catch (e: SecurityException) {
             throw MediaImportException("No permission to read the selected picture", e, MediaProblem.PERMISSION_LOST)
         }

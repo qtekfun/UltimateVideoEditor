@@ -11,7 +11,8 @@ app is collected. This is a hard rule of the project, not a setting.
 - **No analytics, no telemetry, no crash-reporting service, no advertising.** There is no SDK for any of these in the
   app, and nothing is sent anywhere. If the app crashes it writes a short text report **on your device only** (exception types,
 shortened messages with any file path, name or content address removed, stack frames, app version, phone model and Android
-version). You can read, copy, share or delete it in About; it only leaves the phone if you tap Share.
+version). The five latest reports are kept (`last-crash.txt`, `last-crash.1.txt` ... `last-crash.4.txt`). You can read, copy, share
+or delete them in About; they only leave the phone if you tap Share, through the standard share sheet.
 - **No AI or machine-learning features** and no models, downloaded or bundled. Captions are typed by you or imported
   from a subtitle file; features that would need a model or a server are out of scope for the project.
 - **No third-party services.** The app depends only on open-source libraries that run inside it (Android Jetpack,
@@ -28,7 +29,7 @@ All of it is on your device, in the app's private storage unless you export it y
 | Waveform and thumbnail caches | App-private cache folders | Speed; safe to delete |
 | 3D LUT library | App-private storage | LUT files you imported |
 | Preferences (layout, last choices, whether the first-run tips were shown) | App-private preferences | Remember your settings |
-| Last crash report (`files/crash/last-crash.txt`, at most 64 KB) | App-private storage | Lets you share a bug report if you choose (it also summarises a native crash or ANR the system recorded for the app: no media or project names); deletable in About |
+| Last crash reports (`files/crash/last-crash.txt` and four older ones, at most 64 KB each) | App-private storage | Lets you share a bug report if you choose (it also summarises a native crash or ANR the system recorded for the app: no media or project names); deletable in About |
 | Your media | **Not copied**: projects keep a `content://` reference | Saves space; you stay in control |
 
 Exports are written only where you choose with the system file picker.
