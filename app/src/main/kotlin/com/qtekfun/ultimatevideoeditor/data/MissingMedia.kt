@@ -75,7 +75,7 @@ object MissingMedia {
         return decoded.substringAfterLast('/').substringAfterLast(':')
     }
 
-    private fun percentDecode(text: String): String {
+    internal fun percentDecode(text: String): String {
         if ('%' !in text) return text
         val out = java.io.ByteArrayOutputStream(text.length)
         var i = 0
@@ -91,6 +91,16 @@ object MissingMedia {
             }
         }
         return String(out.toByteArray(), Charsets.UTF_8)
+    }
+
+    /**
+     * The folder trail a document URI carries, last piece the file name (`primary:Movies/trip/a.mp4` gives
+     * Movies, trip, a.mp4). Providers that hide the path in an opaque id (`msf:1234`) give just that id.
+     */
+    fun pathOfUri(uri: String): List<String> {
+        val id = percentDecode(uri.substringAfterLast('/'))
+        val afterVolume = if (':' in id) id.substringAfter(':') else id
+        return afterVolume.split('/').filter { it.isNotBlank() }
     }
 
     /** The furthest source position, in microseconds, that any clip of [assetId] reads up to. */
@@ -115,6 +125,36 @@ sealed interface RelinkVerdict {
 
     /** It can be used; [warnings] list differences worth knowing about (possibly none). */
     data class Accepted(val warnings: List<String>) : RelinkVerdict
+}
+
+/** Turns a probed replacement file into the library entry that replaces the old one; shared by every relink path. */
+object RelinkApply {
+    /**
+     * The entry for [old] after it is pointed at [uri] (probed as [probed]), or null when the file is too short to use.
+     * The replacement is what gets exported, so its facts replace the old file's.
+     */
+    fun relinked(old: MediaAssetDto, probed: ProbedMedia, uri: String, projectFps: FrameRate): MediaAssetDto? {
+        if (probed.isImage) return old.copy(uri = uri, displayName = probed.displayName ?: old.displayName)
+        // Audio-only files have no native frame rate; use the project's.
+        val (num, den) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else projectFps.num to projectFps.den
+        val durationFrames = FrameRate(num, den).microsToFrames(probed.durationMicros)
+        if (durationFrames <= 0) return null
+        return old.copy(
+            uri = uri,
+            durationFrames = durationFrames,
+            nativeFpsNum = num,
+            nativeFpsDen = den,
+            colorSpace = probed.colorSpace,
+            hasVideo = probed.hasVideo,
+            hasAudio = probed.hasAudio,
+            displayName = probed.displayName ?: old.displayName,
+            videoWidth = probed.videoWidth,
+            videoHeight = probed.videoHeight,
+            videoBitrate = probed.videoBitrate,
+            videoCodec = probed.videoCodec,
+            tenBit = probed.tenBit,
+        )
+    }
 }
 
 object RelinkCheck {

@@ -32,6 +32,14 @@ class PermissionTrimTest {
     }
 
     @Test
+    fun `a folder permission is kept while a project refers to a file inside it`() {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AMovies"
+        val file = "$tree/document/primary%3AMovies%2Fa.mp4"
+
+        assertEquals(listOf("content://x/tree/other"), PermissionTrim.unused(listOf(tree, "content://x/tree/other"), setOf(file)))
+    }
+
+    @Test
     fun `well under the limit nothing is released`() {
         val uris = FakeUris(limit = 100, held = (1..50).map { "u$it" })
 

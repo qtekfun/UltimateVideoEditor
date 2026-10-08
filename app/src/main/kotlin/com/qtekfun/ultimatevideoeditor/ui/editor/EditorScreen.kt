@@ -597,6 +597,11 @@ fun EditorScreen(
         if (uri != null && assetId != null) viewModel.onIntent(EditorIntent.RelinkAsset(assetId, uri.toString()))
     }
 
+    // The folder to look in for every missing file; the app keeps read access to it (taken by the scanner).
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.onIntent(EditorIntent.RelinkFromFolder(uri.toString()))
+    }
+
     // Where an export to another tool is written: the kind is remembered while the picker is open.
     var interchangeKind by remember { mutableStateOf<InterchangeKind?>(null) }
     val onInterchangeUri = { uri: Uri? ->
@@ -619,6 +624,7 @@ fun EditorScreen(
                     relinkTarget = effect.assetId
                     relinkPicker.launch(arrayOf("video/*", "audio/*", "image/*"))
                 }
+                EditorEffect.LaunchFolderPicker -> folderPicker.launch(null)
                 is EditorEffect.LaunchInterchangePicker -> {
                     interchangeKind = effect.kind
                     if (effect.mime == ZIP_MIME) zipPicker.launch(effect.suggestedFileName) else filePicker.launch(effect.suggestedFileName)
@@ -958,7 +964,9 @@ private fun EditorMain(
             }
         }
     }
-    if (state.relinkOpen && state.missingAssets.isNotEmpty()) RelinkDialog(state.missingAssets) { viewModel.onIntent(it) }
+    if (state.relinkOpen && (state.missingAssets.isNotEmpty() || state.folderRelink !is FolderRelinkUi.Idle)) {
+        RelinkDialog(state.missingAssets, state.folderRelink) { viewModel.onIntent(it) }
+    }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {
         // Fullscreen: only the rows above and below the preview/timeline block go (they hold no native view).
