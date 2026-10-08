@@ -564,7 +564,7 @@ the playhead on a marker (within two frames) opens that marker instead of adding
 undo step.
 
 **Edit a marker.** Tap the marker's flag on the ruler (the touch area is about 40 dp wide, bigger than the
-flag). A small panel opens under the ruler with:
+flag). The playhead jumps onto that marker and a small panel opens under the ruler with:
 
 - a **name** (one line, up to 40 characters) and a **note** (several lines, up to 200 characters). When the
   timeline is zoomed in far enough, the name is written next to the flag, in the system font (accents, symbols and emoji
