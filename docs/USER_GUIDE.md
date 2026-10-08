@@ -267,6 +267,13 @@ there is none), at the same frames and from the same part of the file, and the v
   late against the picture, the block says by how many frames; **Relink and realign** moves the audio back into sync first.
 - Preview and export play exactly the same mix. Volume, pan, fades and EQ of the video clip are copied to the audio clip when you
   detach; from then on use the audio clip's own controls.
+- A **transition** between two video clips whose sound is detached crossfades the sound too: the two audio clips overlap and fade
+  over the same frames as the pictures, just like the embedded sound of a plain clip. (This needs the audio clip to start or end at
+  the same frame as its picture; an audio clip you slid out of sync, or unlinked, keeps its own edges and fades.)
+- To have this done for every new clip, open the **Layout** sheet and turn on **Put video audio on an audio track**. From then on a
+  video clip that has sound arrives already detached and linked, whether you tap it in the media tray, drag it onto the timeline,
+  drop a file or import it; undo removes the clip and its audio together. It is off by default and applies to the whole app, not to
+  one project. Photos, silent videos and audio files are placed as before, and pasting or duplicating copies a clip as it is.
 
 ### Fades and volume on an audio clip
 
