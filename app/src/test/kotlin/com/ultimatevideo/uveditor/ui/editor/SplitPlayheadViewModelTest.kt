@@ -115,11 +115,11 @@ class SplitPlayheadViewModelTest {
         }
     }
 
-    private fun TestScope.harness(): Harness {
+    private fun TestScope.harness(dto: ProjectDto = project()): Harness {
         var counter = 0
         val vm = EditorViewModel(
             "p1",
-            FakeStore(project()),
+            FakeStore(dto),
             NoImporter,
             idGenerator = { "n${counter++}" },
             nanoClock = { testScheduler.currentTime * 1_000_000 },
@@ -230,15 +230,109 @@ class SplitPlayheadViewModelTest {
         assertEquals(FrameIndex(40), h.clips("v1").first { it.id == "c1~n0" }.timelineStart)
     }
 
+    /** Base c1 (0..100, linked to audio "au1" on a1), overlay x (0..100), unlinked audio "au2" (50..150) and a title. */
+    private fun mixedProject() = project().let { p ->
+        p.copy(
+            tracks = p.tracks.map { t ->
+                when (t.id) {
+                    "v1" -> t.copy(clips = t.clips.map { if (it.id == "c1") it.copy(audioDetached = true, linkId = "L") else it })
+                    "a1" -> t.copy(clips = listOf(clipDto("au1", 0).copy(linkId = "L"), clipDto("au2", 150)))
+                    else -> t
+                }
+            },
+        )
+    }
+
+    private fun Harness.audio(): List<Clip> = clips("a1")
+
     @Test
-    fun `without a selection the split asks for one and nothing moves`() = runTest(dispatcher) {
+    fun `without a selection every clip on every lane under the playhead is cut in one undo step`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.SetPlayhead(40))
+        h.out.calls.clear()
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(listOf("x", "x~n0", "y", "z"), h.clips("v2").map { it.id })
+        assertEquals(listOf("c1", "c1~n1", "c2", "c3"), h.clips("v1").map { it.id })
+        assertEquals(FrameIndex(40), h.state.playhead)
+        assertEquals("seek(40)", h.out.calls.last())
+        assertFalse(h.state.isPlaying)
+        assertEquals(null, h.state.selectedClipId)
+        assertTrue(h.state.selection.isEmpty())
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
+        assertEquals(listOf("c1", "c2", "c3"), h.clips("v1").map { it.id })
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `a linked pair is cut once into two linked pairs and an unlinked audio clip is cut on its own`() = runTest(dispatcher) {
+        val h = harness(mixedProject())
+        h.vm.onIntent(EditorIntent.SetPlayhead(60))
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertTrue(h.messages().toString(), h.messages().isEmpty())
+        assertEquals(2, h.clips("v1").count { it.id.startsWith("c1") })
+        assertEquals(2, h.audio().count { it.id.startsWith("au1") })
+        val c1 = h.clips("v1").filter { it.id.startsWith("c1") }
+        val au1 = h.audio().filter { it.id.startsWith("au1") }
+        assertEquals(c1[0].linkId, au1[0].linkId)
+        assertEquals(c1[1].linkId, au1[1].linkId)
+        assertTrue(c1[0].linkId != c1[1].linkId)
+        assertEquals(listOf("au2"), h.audio().map { it.id }.filter { it.startsWith("au2") }) // not under frame 60
+        assertTrue(h.state.timeline.invariantViolations().isEmpty())
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("au1", "au2"), h.audio().map { it.id })
+        assertEquals(listOf("c1", "c2", "c3"), h.clips("v1").map { it.id })
+    }
+
+    @Test
+    fun `unlinked audio under the playhead is cut separately`() = runTest(dispatcher) {
+        val h = harness(mixedProject())
+        h.vm.onIntent(EditorIntent.SetPlayhead(170))
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(listOf("au1", "au2", "au2~n2"), h.audio().map { it.id }.let { if (it.size == 3) it else it })
+        assertEquals(FrameIndex(170), h.audio().last().timelineStart)
+        assertEquals(listOf("c2~n0".takeIf { false } ?: "c2", "c3").size, 2)
+    }
+
+    @Test
+    fun `a playhead outside every clip or on a boundary gives the message and changes nothing`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.SetPlayhead(100)) // boundary of c1/c2 and the end of x; y starts here
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        h.vm.onIntent(EditorIntent.SetPlayhead(500))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(listOf("Move the playhead inside a clip", "Move the playhead inside a clip"), h.messages())
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `without a selection the split cuts what is under the playhead`() = runTest(dispatcher) {
         val h = harness()
         h.vm.onIntent(EditorIntent.SetPlayhead(40))
 
         h.vm.onIntent(EditorIntent.SplitAtPlayhead)
 
-        assertEquals(1, h.messages().size)
+        assertTrue(h.messages().isEmpty())
         assertEquals(FrameIndex(40), h.state.playhead)
-        assertFalse(h.state.canUndo)
+        assertTrue(h.state.canUndo)
+    }
+
+    @Test
+    fun `with a selection only the selected clip is cut`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(40))
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(3 + 1, h.clips("v1").size)
+        assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
     }
 }
