@@ -1,6 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
+import com.qtekfun.ultimatevideoeditor.domain.ClipTransform
+import com.qtekfun.ultimatevideoeditor.domain.MissingMediaCard
 import com.qtekfun.ultimatevideoeditor.domain.FrameIndex
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.RenderKind
@@ -25,7 +28,8 @@ internal const val LANE_STRIDE = 1 shl 20
  * The layers the preview composites at [playhead], bottom first, from the same render plan the
  * exporter and the mixer use: a transition shows as two layers of one track, the outgoing clip
  * opaque and the incoming one fading in over it; titles are layers without media. Clips whose
- * media is unknown or has no picture are left out. Empty in a gap on every track.
+ * media is unknown or has no picture are left out; a clip of one of the [unreadable] files shows a "Media missing" card in
+ * its place (the preview only; see [MissingMediaCard]). Empty in a gap on every track.
  */
 internal fun previewRequestsAt(
     timeline: Timeline,
@@ -48,7 +52,7 @@ internal fun previewRequestsWithSources(
     sourceOf: (MediaAssetDto) -> ResolvedSource,
     assetKeyOf: (String) -> Int,
 ): List<PreviewRequest> =
-    previewRequestsOnCanvas(timeline, assets, fps, playhead, DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, sourceOf, assetKeyOf)
+    previewRequestsOnCanvas(timeline, assets, fps, playhead, DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, sourceOf, assetKeyOf = assetKeyOf)
 
 /** Canvas the transition looks assume when the caller does not say (only tests and previews of a bare timeline). */
 internal const val DEFAULT_CANVAS_WIDTH = 1920
@@ -66,9 +70,21 @@ internal fun previewRequestsOnCanvas(
     canvasWidth: Int,
     canvasHeight: Int,
     sourceOf: (MediaAssetDto) -> ResolvedSource,
+    unreadable: List<MediaAssetDto> = emptyList(),
     assetKeyOf: (String) -> Int,
 ): List<PreviewRequest> {
     val assetsById = assets.associateBy { it.id }
+    val unreadableById = unreadable.associateBy { it.id }
+    // Stands in for a clip whose file cannot be read: a card with the name, drawn where the picture would be (preview only).
+    fun card(asset: MediaAssetDto, transform: ClipTransform) = PreviewRequest(
+        assetKey = 0,
+        uri = "",
+        sourceFrame = 0,
+        fpsNum = fps.num,
+        fpsDen = fps.den,
+        transform = transform,
+        title = MissingMediaCard.contentFor(MissingMedia.nameOf(asset), canvasWidth, canvasHeight),
+    )
     return visualClipsAt(timeline.renderClips(), playhead.value).mapNotNull { clip ->
         val transform = clip.appearanceAt(playhead.value, canvasWidth, canvasHeight)
         when (clip.kind) {
@@ -89,6 +105,7 @@ internal fun previewRequestsOnCanvas(
             RenderKind.VIDEO -> if (clip.still != null) {
                 clip.assetId?.let { id ->
                     // A photo is drawn from its file, a sticker from its built-in art; neither has a decoder.
+                    if (clip.still == StillKind.PHOTO && id !in assetsById) return@let unreadableById[id]?.let { card(it, transform) }
                     val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: return@let null else id)
                         // An animated GIF or WebP shows the animation frame of this project frame, looping.
                         .let { base ->
@@ -112,7 +129,9 @@ internal fun previewRequestsOnCanvas(
                 }
             } else {
                 val asset = clip.assetId?.let(assetsById::get)
-                if (asset == null || !asset.hasVideo) {
+                if (asset == null) {
+                    clip.assetId?.let(unreadableById::get)?.takeIf { it.hasVideo }?.let { card(it, transform) }
+                } else if (!asset.hasVideo) {
                     null
                 } else {
                     val source = sourceOf(asset)
