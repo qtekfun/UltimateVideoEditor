@@ -67,7 +67,7 @@ Section numbers are stable: other documents refer to them (for example `SPECS 5.
 ```
 app/                        Android app module (Compose UI, MVI, navigation)
   src/main/kotlin/com/qtekfun/ultimatevideoeditor/
-    ui/hub/        Project hub (list, new project dialog, clone/rename/delete/import/export)
+    ui/hub/        Project hub (library: continue card, storage card, list/grid, multi-select, new project dialog, clone/rename/delete/import/export)
     ui/editor/     Editor: EditorViewModel (MVI), timeline host, inspector, transport, EditorPreview/EditorAudio
     ui/preview/    Preview SurfaceView host
     ui/export/     Export dialog and ViewModel
@@ -209,6 +209,30 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   user retries or chooses to leave without saving.
 - **Session marker.** The open project id is stored (synchronously) when the editor opens and cleared when the user leaves it;
   if it is still set at the next start the hub offers to reopen that project.
+
+- **Missing-media count (`missingMedia`).** `project.json` has an optional integer `missingMedia` (default 0; absent in files written
+  before it existed, which read as 0 and are not rewritten by the hub). The editor writes the number of unreadable library files
+  (`EditorState.missingMedia.size`, once `mediaChecked`) with every save, so an edit or a relink updates it; merely opening a project
+  does not rewrite it. `ProjectSummary.missingMedia` carries it to the Projects screen, which shows "N missing". **The hub never probes
+  media**: it only reads this stored number. Unknown keys are preserved as before.
+
+### 4.2 Projects screen (hub)
+`ui/hub/`: `HubState` / `HubIntent` / `HubEffect` (MVI), pure reducers in `HubReducers.kt` and `HubSorting.kt`, composables split by
+role (`HubTopBar`, `HubCards` with `ContinueCard` and `StorageCard`, `HubList` with `SortBar`, `ProjectRow`, `ProjectPoster`,
+`SelectionBar`). All colours come from the palette (`MaterialTheme.colorScheme` built from `Palette`, and `LocalPalette` for the mark).
+- **Library**: one lazy grid for both layouts (`GridCells.Fixed(1)` with a 720 dp content width for the list, `GridCells.Adaptive(160 dp)` up to
+  1100 dp for posters). The headers (Continue, Storage, Sort bar) span the full width. Rows are dense (64x40 thumbnail with duration badge);
+  posters are 4:3.
+- **Sorting**: `ProjectSort` (LAST_EDITED, NAME, SIZE, LENGTH) with a direction; `ProjectSorting.sort` is stable in both directions, names compare
+  ignoring case, length compares time (not frames). Layout, key and direction persist in `PrefsHubViewStore` (`SharedPreferences "hub_view"`).
+- **Continue card**: `HubState.continueCard` is the interrupted-session project (resume wording) or the newest project; null while the search
+  is open, while selecting and with no projects.
+- **Storage**: `StorageScanner` (over a `DiskLister`, so it is tested with a fake) measures on `workDispatcher`: project folders (project data
+  vs. the derived folders `waveforms`, `thumbnails`, `stab`, `track`, which count as cache), the cache directory, and the proxy folder. Run at
+  start, after each list refresh (so after delete, duplicate, rename, import) and on resume. Footage and the media folder are not measured.
+- **Selection**: `HubState.selected` (non-empty = selection mode). Duplicate and Delete take the whole selection; Export bundle, Export file and
+  Rename need exactly one (`SelectionActions`); the executor allows one long export job at a time. Back leaves selection, then closes the search.
+- The engine version is shown in About (`AboutSnapshot.engineVersion`); the hub shows `engineError` only when there is one.
 
 ## 5. Architecture
 

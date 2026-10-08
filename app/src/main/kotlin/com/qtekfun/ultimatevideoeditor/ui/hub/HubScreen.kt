@@ -1,62 +1,54 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
-import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.qtekfun.ultimatevideoeditor.data.ProjectOverview
-import com.qtekfun.ultimatevideoeditor.data.ProjectSummary
 import com.qtekfun.ultimatevideoeditor.data.ProjectThumbnails
 import com.qtekfun.ultimatevideoeditor.data.UnreadableProject
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleChoice
@@ -67,8 +59,7 @@ import com.qtekfun.ultimatevideoeditor.ui.library.ImportProgressDialog
 import com.qtekfun.ultimatevideoeditor.ui.library.ImportReportDialog
 import com.qtekfun.ultimatevideoeditor.ui.templates.TemplateWizardSheet
 import com.qtekfun.ultimatevideoeditor.ui.templates.TemplateWizardViewModel
-import java.text.DateFormat
-import java.util.Date
+import kotlinx.coroutines.launch
 
 @Composable
 fun HubScreen(
@@ -177,17 +168,44 @@ internal fun HubContent(
     onTemplates: (() -> Unit)? = null,
     onOpenAbout: () -> Unit = {},
 ) {
+    val scope = rememberCoroutineScope()
+    // Back leaves selection mode first, then closes the search field; with neither open it goes on to the system.
+    BackHandler(enabled = state.handlesBack) {
+        onIntent(if (state.selecting) HubIntent.ExitSelection else HubIntent.ToggleSearch)
+    }
+    // Pick up storage changes made elsewhere (clearing caches in About, a long editing session).
+    LifecycleResumeEffect(Unit) {
+        onIntent(HubIntent.RefreshStorage)
+        onPauseOrDispose { }
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = { Text("ultimateVE") },
-                actions = { HubOverflowMenu(onImport, onOpenAbout, onTemplates) },
-            )
+            if (state.selecting) {
+                SelectionTopBar(
+                    count = state.selected.size,
+                    allSelected = state.selected.size >= state.visibleProjects.size,
+                    onClose = { onIntent(HubIntent.ExitSelection) },
+                    onSelectAll = { onIntent(HubIntent.SelectAll) },
+                )
+            } else {
+                HubTopBar(
+                    searchOpen = state.searchOpen,
+                    canSearch = state.projects.isNotEmpty(),
+                    onToggleSearch = { onIntent(HubIntent.ToggleSearch) },
+                    onImport = onImport,
+                    onOpenAbout = onOpenAbout,
+                    onTemplates = onTemplates,
+                )
+            }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { onIntent(HubIntent.ShowNewProject) }) {
-                Text("New project")
+            if (!state.selecting) {
+                ExtendedFloatingActionButton(
+                    onClick = { onIntent(HubIntent.ShowNewProject) },
+                    icon = { Icon(NewProjectIcon, contentDescription = null) },
+                    text = { Text("New project") },
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -196,25 +214,30 @@ internal fun HubContent(
             Column {
                 state.exportBar?.let { ExportBarView(it, onIntent) }
                 state.bundleBar?.let { BundleBarView(it, onIntent) }
+                if (state.selecting) {
+                    SelectionBar(state.selectionActions, onIntent) { reason -> scope.launch { snackbar.showSnackbar(reason) } }
+                }
             }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            state.resumeProject?.let { ResumeBanner(it, onIntent) }
-            if (state.showSearch) SearchBar(state, onIntent)
+            // A broken engine is worth a line; a working one is in About.
+            state.engineError?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (state.searchOpen) SearchField(state, onIntent)
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.isLoading -> Unit
-                    state.projects.isEmpty() -> WelcomeState(state.unreadable, onIntent)
-                    else -> ProjectGrid(state, onIntent, thumbnails)
+                    state.projects.isEmpty() -> WelcomeState(state.unreadable, onIntent, onImport, onTemplates)
+                    else -> ProjectLibrary(state, onIntent, thumbnails, onOpenAbout)
                 }
             }
-            Text(
-                text = state.engineError ?: state.engineVersion?.let { "Engine v$it" } ?: "Loading engine…",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 
@@ -257,86 +280,113 @@ internal fun HubContent(
             onDismiss = { onIntent(HubIntent.DismissDialogs) },
         )
     }
-    state.deleteTarget?.let { target ->
+    if (state.deleteTargets.isNotEmpty()) {
+        val targets = state.deleteTargets
         AlertDialog(
             onDismissRequest = { onIntent(HubIntent.DismissDialogs) },
-            title = { Text("Delete project?") },
-            text = { Text("\"${target.name}\" will be removed from this device. Source media is not touched.") },
+            title = { Text(if (targets.size == 1) "Delete project?" else "Delete ${targets.size} projects?") },
+            text = {
+                Text(
+                    if (targets.size == 1) "\"${targets.single().name}\" will be removed from this device. Source media is not touched."
+                    else "${targets.size} projects will be removed from this device. Source media is not touched.",
+                )
+            },
             confirmButton = { TextButton(onClick = { onIntent(HubIntent.ConfirmDelete) }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissDialogs) }) { Text("Cancel") } },
         )
     }
 }
 
-/** The one overflow menu of the top bar: importing a project file lives here, not on its own button. */
+/** The search field under the top bar; it takes the focus when it opens. */
 @Composable
-private fun HubOverflowMenu(onImport: () -> Unit, onOpenAbout: () -> Unit, onTemplates: (() -> Unit)? = null) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) { Text("⋮") }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (onTemplates != null) DropdownMenuItem(text = { Text("New from a template…") }, onClick = { open = false; onTemplates() })
-            DropdownMenuItem(text = { Text("Import project, bundle or LumaFusion package") }, onClick = { open = false; onImport() })
-            DropdownMenuItem(text = { Text("About, privacy and help") }, onClick = { open = false; onOpenAbout() })
-        }
-    }
+private fun SearchField(state: HubState, onIntent: (HubIntent) -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    OutlinedTextField(
+        value = state.query,
+        onValueChange = { onIntent(HubIntent.SearchChanged(it)) },
+        label = { Text("Search projects") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).focusRequester(focus),
+    )
 }
 
-/** Search and sorting, shown once the list is longer than a screen. */
+/**
+ * The library: Continue card, storage summary, sort bar, then the projects as dense rows or as a poster grid. One lazy
+ * grid serves both layouts (one column or adaptive columns); on a wide screen the content keeps a readable width.
+ */
 @Composable
-private fun SearchBar(state: HubState, onIntent: (HubIntent) -> Unit) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlinedTextField(
-            value = state.query,
-            onValueChange = { onIntent(HubIntent.SearchChanged(it)) },
-            label = { Text("Search projects") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Sort by", style = MaterialTheme.typography.labelMedium)
-            ProjectSort.entries.forEach { sort ->
-                FilterChip(
-                    selected = state.sort == sort,
-                    onClick = { onIntent(HubIntent.SortSelected(sort)) },
-                    label = { Text(sort.label) },
-                )
+private fun ProjectLibrary(state: HubState, onIntent: (HubIntent) -> Unit, thumbnails: ProjectThumbnails?, onOpenAbout: () -> Unit) {
+    val visible = state.visibleProjects
+    val grid = state.viewMode == HubViewMode.GRID
+    // Read once per composition: relative dates do not need to tick while the screen is open.
+    val now = remember(state.projects) { System.currentTimeMillis() }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyVerticalGrid(
+            columns = if (grid) GridCells.Adaptive(minSize = POSTER_MIN_WIDTH) else GridCells.Fixed(1),
+            modifier = Modifier.fillMaxHeight().widthIn(max = if (grid) GRID_MAX_WIDTH else LIST_MAX_WIDTH),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (grid) 16.dp else 8.dp),
+        ) {
+            state.continueCard?.let { model ->
+                item(key = "continue", span = { GridItemSpan(maxLineSpan) }) { ContinueCard(model, thumbnails, onIntent) }
+            }
+            item(key = "storage", span = { GridItemSpan(maxLineSpan) }) {
+                StorageCard(state.projects.size, state.storage, onOpenAbout)
+            }
+            item(key = "sort", span = { GridItemSpan(maxLineSpan) }) { SortBar(state, onIntent) }
+            if (visible.isEmpty()) {
+                item(key = "nomatch", span = { GridItemSpan(maxLineSpan) }) { NoMatch(state.query) }
+            }
+            items(visible, key = { it.id }) { project ->
+                val selected = project.id in state.selected
+                val bytes = state.storage?.perProject?.get(project.id)
+                if (grid) {
+                    ProjectPoster(project, now, state.selecting, selected, thumbnails, onIntent, Modifier.animateItem())
+                } else {
+                    ProjectRow(project, bytes, now, state.selecting, selected, thumbnails, onIntent, Modifier.animateItem())
+                }
+            }
+            if (state.unreadable.isNotEmpty()) {
+                item(key = "unreadable", span = { GridItemSpan(maxLineSpan) }) { UnreadableProjects(state.unreadable, onIntent) }
             }
         }
     }
 }
 
+private val POSTER_MIN_WIDTH = 160.dp
+private val LIST_MAX_WIDTH = 720.dp
+private val GRID_MAX_WIDTH = 1100.dp
+
+/** The first-run and empty-library screen: the mark, a short welcome and the ways to get a project. */
 @Composable
-private fun WelcomeState(unreadable: List<UnreadableProject>, onIntent: (HubIntent) -> Unit) {
+private fun WelcomeState(
+    unreadable: List<UnreadableProject>,
+    onIntent: (HubIntent) -> Unit,
+    onImport: () -> Unit,
+    onTemplates: (() -> Unit)?,
+) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Welcome to ultimateVE", style = MaterialTheme.typography.headlineMedium)
+        WordmarkGlyph(size = 72.dp)
+        Text("Welcome to ultimateVE", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 16.dp))
         Text(
-            "Create a project to start editing, or import one from the ⋮ menu.",
+            "Create a project to start editing, or bring one in. Your footage stays where it is; projects only point to it.",
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
-        if (unreadable.isNotEmpty()) UnreadableProjects(unreadable, onIntent)
-    }
-}
-
-/** Offers to reopen the project that was open when the app last stopped without leaving the editor. */
-@Composable
-private fun ResumeBanner(project: ProjectSummary, onIntent: (HubIntent) -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(modifier = Modifier.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "The app closed while \"${project.name}\" was open. Your edits were saved as you made them.",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f).padding(vertical = 12.dp),
-            )
-            TextButton(onClick = { onIntent(HubIntent.ResumeSession) }) { Text("Reopen") }
-            TextButton(onClick = { onIntent(HubIntent.DismissResume) }) { Text("Dismiss") }
+        Button(onClick = { onIntent(HubIntent.ShowNewProject) }, modifier = Modifier.padding(top = 20.dp)) {
+            Icon(NewProjectIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text("New project", modifier = Modifier.padding(start = 8.dp))
         }
+        OutlinedButton(onClick = onImport) { Text("Import a project") }
+        if (onTemplates != null) TextButton(onClick = onTemplates) { Text("Start from a template") }
+        if (unreadable.isNotEmpty()) UnreadableProjects(unreadable, onIntent)
     }
 }
 
@@ -363,107 +413,6 @@ private fun UnreadableProjects(unreadable: List<UnreadableProject>, onIntent: (H
             }
         }
     }
-}
-
-@Composable
-private fun ProjectGrid(state: HubState, onIntent: (HubIntent) -> Unit, thumbnails: ProjectThumbnails?) {
-    val visible = state.visibleProjects
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 300.dp),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (visible.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("No project matches \"${state.query.trim()}\".", style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-        items(visible, key = { it.id }) { project -> ProjectCard(project, onIntent, thumbnails) }
-        if (state.unreadable.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { UnreadableProjects(state.unreadable, onIntent) }
-        }
-    }
-}
-
-/** A project: the first frame of its first clip, its name, a short format line, its length and last change. */
-@Composable
-private fun ProjectCard(project: ProjectSummary, onIntent: (HubIntent) -> Unit, thumbnails: ProjectThumbnails?) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth().clickable { onIntent(HubIntent.OpenProject(project.id)) }) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ProjectThumbnail(project, thumbnails)
-            Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(project.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                val s = project.settings
-                Text(
-                    "${resolutionShortName(s.width, s.height)} · ${formatFps(s.fpsNum, s.fpsDen)} fps · ${colorSpaceShortName(s.colorSpace)}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                val length = if (project.durationFrames > 0) {
-                    ProjectOverview.formatDuration(project.durationFrames, s.fpsNum, s.fpsDen)
-                } else {
-                    "Empty"
-                }
-                Text(
-                    "$length · " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(project.lastModifiedMillis)),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            Box {
-                IconButton(
-                    onClick = { menuOpen = true },
-                    modifier = Modifier.semantics { contentDescription = "Actions for ${project.name}" },
-                ) { Text("⋮") }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    MenuItem("Rename") { menuOpen = false; onIntent(HubIntent.RequestRename(project)) }
-                    MenuItem("Duplicate") { menuOpen = false; onIntent(HubIntent.Clone(project.id)) }
-                    MenuItem("Export project file") { menuOpen = false; onIntent(HubIntent.RequestExport(project)) }
-                    // One entry: the dialog it opens asks what the bundle should hold (media files, LUTs, fonts).
-                    MenuItem("Export bundle for another phone…") { menuOpen = false; onIntent(HubIntent.RequestExportBundle(project)) }
-                    MenuItem("Delete") { menuOpen = false; onIntent(HubIntent.RequestDelete(project)) }
-                }
-            }
-        }
-    }
-}
-
-/** The cached first frame of the project, made off the main thread; a plain tile while it loads or when there is none. */
-@Composable
-private fun ProjectThumbnail(project: ProjectSummary, thumbnails: ProjectThumbnails?) {
-    val bitmap by produceState<Bitmap?>(initialValue = null, project.id, project.thumbnail) {
-        value = thumbnails?.load(project.id, project.thumbnail)
-    }
-    val shape = RoundedCornerShape(8.dp)
-    Box(
-        modifier = Modifier
-            .width(96.dp)
-            .height(64.dp)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center,
-    ) {
-        val image = bitmap
-        if (image != null) {
-            Image(
-                bitmap = image.asImageBitmap(),
-                contentDescription = "First frame of ${project.name}",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text("▶", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun MenuItem(label: String, onClick: () -> Unit) {
-    DropdownMenuItem(text = { Text(label) }, onClick = onClick)
 }
 
 @Composable

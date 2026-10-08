@@ -62,7 +62,10 @@ import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformCache
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorScreen
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorViewModel
 import com.qtekfun.ultimatevideoeditor.ui.editor.loudnessCacheIn
+import com.qtekfun.ultimatevideoeditor.ui.hub.FileDiskLister
 import com.qtekfun.ultimatevideoeditor.ui.hub.HubIntent
+import com.qtekfun.ultimatevideoeditor.ui.hub.PrefsHubViewStore
+import com.qtekfun.ultimatevideoeditor.ui.hub.StorageScanner
 import com.qtekfun.ultimatevideoeditor.ui.hub.HubScreen
 import com.qtekfun.ultimatevideoeditor.ui.hub.HubViewModel
 import com.qtekfun.ultimatevideoeditor.ui.templates.TemplateWizardViewModel
@@ -166,12 +169,21 @@ class MainActivity : ComponentActivity() {
         val clipPeeker = AndroidClipPeeker(applicationContext)
         val onboardingStore = PreferencesOnboardingStore(applicationContext)
         val appearance = PreferencesAppearanceStore(applicationContext)
+        val hubViewStore = PrefsHubViewStore(getSharedPreferences(PrefsHubViewStore.FILE, MODE_PRIVATE))
         window.setBackgroundDrawable(ColorDrawable(Palette.of(appearance.amoled).background))
         val aboutController = AboutController(
             version = AppVersion.of(this),
             crashStore = CrashReportStore(File(filesDir, "crash")),
             storage = StorageMeter(filesDir, cacheDir),
             onboarding = onboardingStore,
+            engineVersion = {
+                try {
+                    NativeEngineClient().version()
+                } catch (e: com.qtekfun.ultimatevideoeditor.engine.EngineException) {
+                    Log.w("UVEngine", "Engine version unavailable", e)
+                    null
+                }
+            },
         )
         // Android drops the oldest persisted file permissions past its limit, which would leave old projects
         // with missing media: give back the ones no project uses before that can happen.
@@ -197,6 +209,13 @@ class MainActivity : ComponentActivity() {
                                 mediaFolders = mediaFolderSettings,
                                 exportJobs = ExportCenter.executor(applicationContext),
                                 bundleJobs = bundleJobs,
+                                viewStore = hubViewStore,
+                                storageScanner = StorageScanner(
+                                    FileDiskLister(),
+                                    projectsDir = File(filesDir, "projects").path,
+                                    cacheDir = cacheDir.path,
+                                    freeBytes = { filesDir.usableSpace },
+                                ),
                             )
                         }
                     },

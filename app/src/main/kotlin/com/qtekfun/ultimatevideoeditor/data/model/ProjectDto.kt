@@ -25,6 +25,11 @@ data class ProjectDto(
     val motionTracks: List<MotionTrackDto> = emptyList(),
     /** Multicam groups (SPECS.md 9.9); absent in projects written before multicam existed. */
     val multicams: List<MulticamDto> = emptyList(),
+    /**
+     * How many library files could not be read the last time the editor checked them (SPECS.md 4.1); the Projects screen
+     * shows it without opening the project. Absent in older files, which read as 0.
+     */
+    val missingMedia: Int = 0,
 )
 
 /** A synchronised multi-angle clip; see `domain/multicam/Multicam.kt`. */

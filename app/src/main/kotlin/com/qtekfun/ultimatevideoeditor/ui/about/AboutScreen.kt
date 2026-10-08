@@ -154,6 +154,7 @@ fun AboutScreen(
             }
             Section("Version") {
                 Text("ultimateVE ${snapshot.version.display}")
+                snapshot.engineVersion?.let { Text("Engine v$it", style = MaterialTheme.typography.bodySmall) }
             }
             Section("Licence") {
                 Text("${AboutController.LICENCE_NAME}. Free software: you can redistribute it and change it under the terms of the licence, with no warranty.")

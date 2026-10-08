@@ -67,12 +67,6 @@ data class NewProjectDraft(
 
 data class RenameDraft(val projectId: String, val name: String)
 
-/** The order of the project list. */
-enum class ProjectSort(val label: String) {
-    RECENT("Recent"),
-    NAME("Name"),
-}
-
 data class HubState(
     val isLoading: Boolean = true,
     val projects: List<ProjectSummary> = emptyList(),
@@ -82,9 +76,18 @@ data class HubState(
     val resumeProject: ProjectSummary? = null,
     val newProjectDraft: NewProjectDraft? = null,
     val renameDraft: RenameDraft? = null,
-    val deleteTarget: ProjectSummary? = null,
+    /** The projects the delete confirmation names; empty when it is closed. */
+    val deleteTargets: List<ProjectSummary> = emptyList(),
     val query: String = "",
-    val sort: ProjectSort = ProjectSort.RECENT,
+    /** The search field is showing (the top bar's search icon). */
+    val searchOpen: Boolean = false,
+    val sort: ProjectSort = ProjectSort.LAST_EDITED,
+    val sortAscending: Boolean = ProjectSort.LAST_EDITED.defaultAscending,
+    val viewMode: HubViewMode = HubViewMode.LIST,
+    /** Ids of the projects ticked in selection mode; selection mode is on exactly while this is not empty. */
+    val selected: Set<String> = emptySet(),
+    /** What the app keeps on disk; null until the first scan ends. Never measured on the main thread. */
+    val storage: StorageSnapshot? = null,
     val engineVersion: String? = null,
     val engineError: String? = null,
     /** The dialog that asks what a bundle of [HubBundleExport.project] should contain, or null when closed. */
@@ -102,19 +105,34 @@ data class HubState(
 ) : UiState {
     val unreadableCount: Int get() = unreadable.size
 
-    /** Search and sorting only appear once the list is longer than a screen. */
-    val showSearch: Boolean get() = projects.size > SEARCH_THRESHOLD
+    val selecting: Boolean get() = selected.isNotEmpty()
 
-    /** The list as shown: filtered by the search text (ignoring case) and sorted. */
+    val selectedProjects: List<ProjectSummary> get() = projects.filter { it.id in selected }
+
+    /** Back closes selection mode first, then the search field. */
+    val handlesBack: Boolean get() = selecting || searchOpen
+
+    /** The list as shown: filtered by the search text (ignoring case) while the search is open, then sorted. */
     val visibleProjects: List<ProjectSummary>
         get() {
             val needle = query.trim().lowercase(Locale.ROOT)
-            val filtered = if (!showSearch || needle.isEmpty()) projects else projects.filter { it.name.lowercase(Locale.ROOT).contains(needle) }
-            return when (sort) {
-                ProjectSort.RECENT -> filtered.sortedByDescending { it.lastModifiedMillis }
-                ProjectSort.NAME -> filtered.sortedBy { it.name.lowercase(Locale.ROOT) }
-            }
+            val filtered = if (!searchOpen || needle.isEmpty()) projects else projects.filter { it.name.lowercase(Locale.ROOT).contains(needle) }
+            return ProjectSorting.sort(filtered, sort, sortAscending, storage?.perProject.orEmpty())
         }
+
+    /**
+     * The card at the top: the project that was open when the app stopped (with the "app closed" text) or else the
+     * most recently edited one. Hidden while searching, selecting and when there are no projects.
+     */
+    val continueCard: ContinueModel?
+        get() {
+            if (searchOpen || selecting || projects.isEmpty()) return null
+            resumeProject?.let { return ContinueModel(it, resume = true) }
+            return ContinueModel(projects.maxBy { it.lastModifiedMillis }, resume = false)
+        }
+
+    /** What the selection bar can do for the current selection. */
+    val selectionActions: SelectionActions get() = SelectionActions.of(selected.size)
 
     val newNameTaken: Boolean
         get() = newProjectDraft?.let { ProjectNames.isTaken(it.name, projects.map(ProjectSummary::name)) } == true
@@ -123,10 +141,35 @@ data class HubState(
         get() = renameDraft?.let { draft ->
             ProjectNames.isTaken(draft.name, projects.filter { it.id != draft.projectId }.map(ProjectSummary::name))
         } == true
+}
 
+/** The Continue card: [resume] means the app closed while [project] was open, which changes its text and buttons. */
+data class ContinueModel(val project: ProjectSummary, val resume: Boolean)
+
+/**
+ * Which actions of the selection bar are enabled for [count] ticked projects. Duplicate and delete work on several;
+ * exporting is one at a time (the app runs one long export job at once) and so is rename.
+ */
+data class SelectionActions(
+    val duplicate: Boolean,
+    val delete: Boolean,
+    val rename: Boolean,
+    val exportFile: Boolean,
+    val exportBundle: Boolean,
+    /** Why the export actions are disabled, for the tooltip; null when they are enabled. */
+    val exportDisabledReason: String?,
+) {
     companion object {
-        /** More projects than this and the hub offers search and sorting. */
-        const val SEARCH_THRESHOLD = 6
+        const val ONE_AT_A_TIME = "Export works on one project at a time. Select just one."
+
+        fun of(count: Int) = SelectionActions(
+            duplicate = count >= 1,
+            delete = count >= 1,
+            rename = count == 1,
+            exportFile = count == 1,
+            exportBundle = count == 1,
+            exportDisabledReason = if (count > 1) ONE_AT_A_TIME else null,
+        )
     }
 }
 
@@ -151,7 +194,24 @@ sealed interface HubIntent : UiIntent {
     data object ConfirmCreate : HubIntent
 
     data class SearchChanged(val text: String) : HubIntent
+    data object ToggleSearch : HubIntent
     data class SortSelected(val sort: ProjectSort) : HubIntent
+    data object ToggleSortDirection : HubIntent
+    data class ViewModeSelected(val mode: HubViewMode) : HubIntent
+
+    /** Long press on a project: selection mode starts with it ticked. */
+    data class EnterSelection(val projectId: String) : HubIntent
+    data class ToggleSelected(val projectId: String) : HubIntent
+    data object SelectAll : HubIntent
+    data object ExitSelection : HubIntent
+    data object DuplicateSelected : HubIntent
+    data object DeleteSelected : HubIntent
+    data object RenameSelected : HubIntent
+    data object ExportSelectedFile : HubIntent
+    data object ExportSelectedBundle : HubIntent
+
+    /** Measure the app's storage again (screen resumed). */
+    data object RefreshStorage : HubIntent
 
     data class OpenProject(val projectId: String) : HubIntent
     data class Clone(val projectId: String) : HubIntent
