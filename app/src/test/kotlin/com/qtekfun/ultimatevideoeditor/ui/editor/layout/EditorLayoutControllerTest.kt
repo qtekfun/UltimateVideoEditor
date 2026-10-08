@@ -6,6 +6,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarItem
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrder
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrderStore
 import org.junit.Test
 
 class EditorLayoutControllerTest {
@@ -178,5 +181,31 @@ class EditorLayoutControllerTest {
         assertEquals(WaveformScale.LINEAR, waveformScaleOf("LOGARITHMIC"))
         assertEquals(WaveformScale.DECIBEL, waveformScaleOf("DECIBEL"))
         assertEquals(WaveformScale.entries.map { it.code }.distinct().size, WaveformScale.entries.size)
+    }
+
+    @Test
+    fun `a layout saved before the audio height setting still shows Same, a fresh one 1_5x`() {
+        val store = MemoryStore()
+        assertEquals(AudioLaneHeight.TALL, EditorLayoutController(store, phone).audioLaneHeight)
+        store.saved[LayoutKey.of(phone)] = LayoutCodec.decode("pf=0.5;lane=LARGE;preset=-")!!
+        assertEquals(AudioLaneHeight.SAME, EditorLayoutController(store, phone).audioLaneHeight)
+    }
+
+    @Test
+    fun `the toolbar order is loaded, saved on change and reset`() {
+        val saved = mutableListOf<ToolbarOrder>()
+        val store = object : ToolbarOrderStore {
+            override fun loadOrder(): ToolbarOrder = ToolbarOrder.DEFAULT.move(ToolbarItem.MIXER, -3)
+            override fun saveOrder(order: ToolbarOrder) { saved += order }
+        }
+        val controller = EditorLayoutController(MemoryStore(), phone, toolbarStore = store)
+        assertEquals(ToolbarOrder.DEFAULT.move(ToolbarItem.MIXER, -3), controller.toolbarOrder)
+        controller.changeToolbar { it.withHidden(ToolbarItem.PROXY, true) }
+        assertEquals(1, saved.size)
+        controller.changeToolbar { it.withHidden(ToolbarItem.SPLIT, true) } // mandatory: no change, no write
+        assertEquals(1, saved.size)
+        controller.resetToolbar()
+        assertEquals(ToolbarOrder.DEFAULT, controller.toolbarOrder)
+        assertEquals(ToolbarOrder.DEFAULT, saved.last())
     }
 }

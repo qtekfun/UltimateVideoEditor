@@ -36,7 +36,9 @@ object LayoutCodec {
             if (at <= 0) null else part.substring(0, at).trim() to part.substring(at + 1).trim()
         }.toMap()
         if (pairs.isEmpty()) return null
-        var state = LayoutState()
+        // A saved layout without the field predates the setting, when every lane had one height: keep that (Same) for it.
+        // Only a layout that was never saved starts at the new default.
+        var state = LayoutState(audioLaneHeight = AudioLaneHeight.SAME)
         pairs["pf"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(previewFraction = it) }
         pairs["lw"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(leftWidthDp = it) }
         pairs["rw"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(rightWidthDp = it) }
