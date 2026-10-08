@@ -50,7 +50,8 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
                         const std::vector<timeline::RetimeSnapshot>& retimes = {},
                         const std::vector<timeline::MarkerSnapshot>& markers = {},
                         const std::vector<timeline::LabelSnapshot>& labels = {},
-                        const std::vector<timeline::ShapingSnapshot>& shaping = {}) {
+                        const std::vector<timeline::ShapingSnapshot>& shaping = {},
+                        const std::vector<int32_t>& trackWords = {}) {
     Buf w;
     w.put<uint32_t>(timeline::kSnapshotMagic);
     w.put<uint32_t>(version);
@@ -58,7 +59,7 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
     w.put<int32_t>(1001);
     w.put<int32_t>(tracks);
     w.put<int32_t>(static_cast<int32_t>(clips.size()));
-    for (int i = 0; i < tracks; ++i) w.put<int32_t>(0);
+    for (int i = 0; i < tracks; ++i) w.put<int32_t>(static_cast<size_t>(i) < trackWords.size() ? trackWords[static_cast<size_t>(i)] : 0);
     for (const auto& c : clips) {
         w.put<int64_t>(c.clipKey);
         w.put<int32_t>(c.trackIndex);
@@ -69,7 +70,8 @@ static Buf makeSnapshot(int tracks, const std::vector<timeline::ClipSnapshot>& c
         w.put<int32_t>(c.sourceFpsNum);
         w.put<int32_t>(c.sourceFpsDen);
         w.put<int32_t>((c.selected ? 1 : 0) | (c.hasFx ? 2 : 0) | (c.missing ? 4 : 0) | (c.primary ? 8 : 0) |
-                       (static_cast<int32_t>(c.kind) << timeline::kClipKindShift));
+                       (static_cast<int32_t>(c.kind) << timeline::kClipKindShift) | (c.audioDetached ? timeline::kClipAudioDetachedBit : 0) |
+                       (c.linked ? timeline::kClipLinkedBit : 0));
     }
     w.put<int32_t>(static_cast<int32_t>(transitions.size()));
     for (const auto& t : transitions) {
@@ -544,6 +546,34 @@ static void testClipKinds() {
     auto v7 = makeSnapshot(1, {sticker}, {}, {}, 7);
     CHECK(timeline::parseSnapshot(v7.b.data(), v7.b.size(), &s) == core::Status::Ok);
     CHECK(s.clips[0].kind == timeline::ClipKind::Default);
+}
+
+static void testClipDetachedAndLinkedFlags() {
+    auto detached = clip(1, 0, 0, 10);
+    detached.audioDetached = true;
+    detached.linked = true;
+    auto linkedOnly = clip(2, 0, 10, 10);
+    linkedOnly.linked = true;
+    auto plain = clip(3, 0, 20, 10);
+    auto all = clip(4, 0, 30, 10);
+    all.selected = all.primary = all.hasFx = all.missing = true;
+    all.kind = timeline::ClipKind::Multicam;
+    all.audioDetached = true;
+    auto buf = makeSnapshot(1, {detached, linkedOnly, plain, all});
+    timeline::TimelineSnapshot s;
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    CHECK(s.clips[0].audioDetached && s.clips[0].linked);
+    CHECK(!s.clips[1].audioDetached && s.clips[1].linked);
+    CHECK(!s.clips[2].audioDetached && !s.clips[2].linked);
+    // The new bits sit above the kind bits and disturb neither them nor the older flags.
+    CHECK(s.clips[3].audioDetached && !s.clips[3].linked && s.clips[3].kind == timeline::ClipKind::Multicam);
+    CHECK(s.clips[3].selected && s.clips[3].primary && s.clips[3].hasFx && s.clips[3].missing);
+    CHECK(s.clips[0].kind == timeline::ClipKind::Default);
+    // The format version did not change: the bits are spare in the current version and read as zero from an older one.
+    CHECK(timeline::kSnapshotVersion == 9);
+    auto v8 = makeSnapshot(1, {clip(5, 0, 0, 10)}, {}, {}, 8);
+    CHECK(timeline::parseSnapshot(v8.b.data(), v8.b.size(), &s) == core::Status::Ok);
+    CHECK(!s.clips[0].audioDetached && !s.clips[0].linked);
 }
 
 static void testLabelHashAndUtf8() {
@@ -1158,6 +1188,103 @@ static void testShapingHitTest() {
     CHECK(!r.hasDb);
 }
 
+static constexpr int32_t kAudioWord = 1;  // TrackType::Audio on the wire
+
+static void testAudioLaneHeights() {
+    // The factor stretches only audio lanes, relative to the lane height preset; out-of-range values are clamped.
+    const auto base = timeline::Layout::forDensity(1.0f, 1.4f);
+    CHECK(base.audioTrackHeight == base.trackHeight);
+    const auto tall = timeline::Layout::forDensity(1.0f, 1.0f, 2.0f);
+    CHECK(tall.trackHeight == 64.0f && tall.audioTrackHeight == 128.0f);
+    CHECK(timeline::Layout::forDensity(1.0f, 1.0f, 0.1f).audioTrackHeight == 64.0f);
+    CHECK(timeline::Layout::forDensity(1.0f, 1.0f, 50.0f).audioTrackHeight == 192.0f);
+    CHECK(timeline::Layout::forDensity(1.0f, 0.75f, 1.5f).audioTrackHeight == 72.0f);
+
+    // Lanes: video, audio, audio, video (heights 64, 128, 128, 64; gap 4).
+    timeline::TimelineSnapshot s;
+    auto buf = makeSnapshot(4, {clip(1, 0, 0, 100), clip(2, 1, 0, 100), clip(3, 2, 0, 100), clip(4, 3, 0, 100)}, {}, {},
+                            timeline::kSnapshotVersion, {}, {}, {}, {}, {0, kAudioWord, kAudioWord, 0});
+    CHECK(timeline::parseSnapshot(buf.b.data(), buf.b.size(), &s) == core::Status::Ok);
+    const auto lay = tall.withTracks(s.tracks);
+    CHECK(lay.heightOf(0) == 64.0f && lay.heightOf(1) == 128.0f && lay.heightOf(2) == 128.0f && lay.heightOf(3) == 64.0f);
+    CHECK(lay.trackTop(0) == 28.0f && lay.trackTop(1) == 28.0f + 68.0f && lay.trackTop(2) == 28.0f + 68.0f + 132.0f);
+    CHECK(lay.trackTop(3) == 28.0f + 68.0f + 132.0f * 2);
+    // The scroll extent is the sum of the real heights, not four default lanes.
+    CHECK(lay.contentHeight(4) == 28.0f + 68.0f + 132.0f * 2 + 68.0f);
+    CHECK(lay.contentHeight(4) > tall.contentHeight(4));
+    // Bottom anchoring uses the same extent: the last lane rests on the panel bottom.
+    const auto a = lay.anchoredBottom(4, 800.0f);
+    CHECK(a.inset == 800.0f - lay.contentHeight(4));
+    CHECK(a.trackTop(3) + a.heightOf(3) + a.trackGap == 800.0f);
+    // Lanes past the known ones continue at the default height; no lanes at all behaves as before.
+    CHECK(lay.trackTop(5) == lay.trackTop(3) + 2 * 68.0f);
+    CHECK(tall.trackTop(2) == 28.0f + 2 * 68.0f && tall.heightOf(1) == 64.0f);
+    CHECK(tall.withTracks(timeline::TimelineSnapshot{}.tracks).contentHeight(0) == 28.0f);
+
+    // trackAt: inside a tall lane, in a gap, above, below.
+    CHECK(lay.trackAt(-1.0, 4) == -1);
+    CHECK(lay.trackAt(0.0, 4) == 0 && lay.trackAt(64.0, 4) == 0);
+    CHECK(lay.trackAt(65.0, 4) == -1);  // gap after lane 0
+    CHECK(lay.trackAt(68.0, 4) == 1 && lay.trackAt(68.0 + 127.0, 4) == 1 && lay.trackAt(68.0 + 129.0, 4) == -1);
+    CHECK(lay.trackAt(68.0 + 132.0 + 100.0, 4) == 2);
+    CHECK(lay.trackAt(1.0e6, 4) == -1);
+
+    timeline::Viewport vp;
+    vp.pxPerFrame = 1.0;
+    // Hit tests find the clip in the lower half of a tall audio lane, which a 64 px lane would not have.
+    const float lane1 = lay.trackTop(1);
+    auto r = timeline::hitTest(s, vp, a, 60, a.trackTop(1) + 100.0f);
+    CHECK(r.kind == timeline::HitKind::Clip && r.trackIndex == 1 && r.clipKey == 2);
+    r = timeline::hitTest(s, vp, a, 60, a.trackTop(1) + 130.0f);  // gap after the tall lane
+    CHECK(r.kind == timeline::HitKind::None);
+    r = timeline::hitTest(s, vp, a, 60, a.trackTop(2) + 100.0f);
+    CHECK(r.trackIndex == 2 && r.clipKey == 3);
+    r = timeline::hitTest(s, vp, a, 60, a.trackTop(3) + 30.0f);
+    CHECK(r.trackIndex == 3 && r.clipKey == 4);
+    // The gain under the finger is read on the audio lane's own height.
+    r = timeline::hitTest(s, vp, a, 60, a.trackTop(1) + 100.0f);
+    CHECK(r.hasDb && std::fabs(r.db - timeline::yToDb(a.trackTop(1) + 100.0f, a.trackTop(1), 128.0f)) < 1e-4f);
+    CHECK(std::fabs(r.db - timeline::yToDb(a.trackTop(1) + 100.0f, a.trackTop(1), 64.0f)) > 1.0f);
+    // A layout without lanes (as the tests build them) gets the same answers: the hit test derives them from the snapshot.
+    const auto bare = tall.anchoredBottom(4, 800.0f);
+    CHECK(bare.lanes == nullptr);
+    const auto fromBare = timeline::hitTest(s, vp, tall, 60, tall.rulerHeight + 68.0f + 100.0f);
+    CHECK(fromBare.trackIndex == 1 && fromBare.clipKey == 2);
+    // Scrolling moves the taller stack the same way.
+    vp.scrollY = 68.0;
+    r = timeline::hitTest(s, vp, lay, 60, lay.trackTop(1) - 68.0f + 100.0f);
+    CHECK(r.trackIndex == 1 && r.clipKey == 2);
+    vp.scrollY = 0.0;
+
+    // The marquee reaches the whole tall lane, and not a gap's worth beyond.
+    CHECK((timeline::clipsInRect(s, vp, lay, 10, lane1 + 120.0f, 20, lane1 + 126.0f) == std::vector<int64_t>{2}));
+    CHECK(timeline::clipsInRect(s, vp, lay, 10, lane1 + 129.0f, 20, lane1 + 131.0f).empty());
+
+    // Fade handles and volume points stay inside the taller lane: the handle sits at the top, the curve scales with the height.
+    auto audioClip = clip(2, 1, 0, 100);
+    audioClip.selected = audioClip.primary = true;
+    auto shaped = makeSnapshot(2, {clip(1, 0, 0, 100), audioClip}, {}, {}, timeline::kSnapshotVersion, {}, {}, {},
+                               {shapingOf(2, 20, 0, true, 0.0f, {{30, -6.0f}})}, {0, kAudioWord});
+    timeline::TimelineSnapshot ss;
+    CHECK(timeline::parseSnapshot(shaped.b.data(), shaped.b.size(), &ss) == core::Status::Ok);
+    const auto lay2 = tall.withTracks(ss.tracks);
+    const float top2 = lay2.trackTop(1);
+    const float py = timeline::dbToY(-6.0f, top2, lay2.heightOf(1));
+    CHECK(py - timeline::dbToY(-6.0f, top2, 64.0f) > 20.0f);  // the curve spreads over the taller lane
+    r = timeline::hitTest(ss, vp, lay2, static_cast<float>(vp.frameToX(30)), py);
+    CHECK(r.kind == timeline::HitKind::VolumePoint && r.clipKey == 2 && r.index == 0);
+    const auto h = timeline::fadeHandles(vp.frameToX(0), vp.frameToX(100), vp.pxPerFrame, 20, 0, top2, lay2);
+    r = timeline::hitTest(ss, vp, lay2, h.inX, h.y);
+    CHECK(r.kind == timeline::HitKind::FadeInHandle && r.clipKey == 2);
+
+    // The drop indicator covers the real lane height.
+    timeline::DropHint hint;
+    hint.kind = timeline::DropHintKind::NewLane;
+    hint.trackIndex = 1;
+    const auto hr = timeline::dropHintRect(hint, vp, lay, 500.0f, 800.0f, 4, 2.0f);
+    CHECK(hr.valid && hr.y0 == lay.trackTop(1) && hr.y1 == lay.trackTop(1) + 128.0f);
+}
+
 static void testHitTest() {
     timeline::TimelineSnapshot s;
     auto buf = makeSnapshot(2, {clip(1, 0, 10, 100), clip(2, 1, 0, 5)});
@@ -1639,6 +1766,8 @@ int main() {
     testShapingHitTest();
     testBottomAnchoredLanes();
     testLaneScale();
+    testAudioLaneHeights();
+    testClipDetachedAndLinkedFlags();
     testDropHintGeometry();
     testPeaks();
     testViewportFit();

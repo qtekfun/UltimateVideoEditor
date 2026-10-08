@@ -254,14 +254,23 @@ struct TimelineRenderer::State {
     uint64_t windowAckGeneration = 0;
     bool looperReady = false;
 
-    void applyLaneScale(float scale) {
+    // The audio lanes' height as a multiple of the other lanes' (the layout sheet's "Audio lane height"); 1 = the same.
+    float audioFactor = 1.0f;
+
+    void applyLaneScale(float scale, float audio) {
         laneScale = (scale == scale) ? scale : 1.0f;  // NaN keeps the default; Layout clamps the range
-        layout = Layout::forDensity(density, laneScale).withHeaders(kLaneHeaderDp * density);
+        audioFactor = (audio == audio) ? audio : 1.0f;
+        layout = Layout::forDensity(density, laneScale, audioFactor).withHeaders(kLaneHeaderDp * density);
+    }
+
+    // The layout for one snapshot: per-lane heights (audio lanes can be taller), stack anchored to the panel bottom.
+    Layout layoutFor(const TimelineSnapshot& snap) const {
+        return layout.withTracks(snap.tracks).anchoredBottom(static_cast<int>(snap.tracks.size()), static_cast<float>(height));
     }
 
     void clampViewport() {
         vp.viewWidth = std::max(1, width);
-        vp.clamp(snapshot->endFrame(), layout.contentHeight(static_cast<int>(snapshot->tracks.size())), height);
+        vp.clamp(snapshot->endFrame(), layout.withTracks(snapshot->tracks).contentHeight(static_cast<int>(snapshot->tracks.size())), height);
     }
 };
 
@@ -1004,15 +1013,15 @@ std::vector<int64_t> TimelineRenderer::clipsInRect(float x0, float y0, float x1,
         std::lock_guard<std::mutex> lock(mutex_);
         snap = state_->snapshot;
         vp = state_->vp;
-        layout = state_->layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(state_->height));
+        layout = state_->layoutFor(*snap);
     }
     return uv::timeline::clipsInRect(*snap, vp, layout, x0, y0, x1, y1);
 }
 
-void TimelineRenderer::setLaneScale(float scale) {
+void TimelineRenderer::setLaneScale(float scale, float audioFactor) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_->applyLaneScale(scale);
+        state_->applyLaneScale(scale, audioFactor);
         state_->clampViewport();
         state_->dirty = true;
     }
@@ -1155,7 +1164,7 @@ HitResult TimelineRenderer::hitTest(float x, float y) const {
         std::lock_guard<std::mutex> lock(mutex_);
         snap = state_->snapshot;
         vp = state_->vp;
-        layout = state_->layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(state_->height));
+        layout = state_->layoutFor(*snap);
         playhead = state_->playhead;
         width = state_->width;
         height = state_->height;
@@ -1281,7 +1290,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         s.dirty = false;
         snap = s.snapshot;
         vp = s.vp;
-        layout = s.layout.anchoredBottom(static_cast<int>(snap->tracks.size()), static_cast<float>(s.height));
+        layout = s.layoutFor(*snap);
         th = s.theme;
         dropHint = s.dropHint;
         snapGuide = s.snapGuideFrame;
@@ -1394,11 +1403,12 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     const int trackCount = static_cast<int>(snap->tracks.size());
     for (int t = 0; t < trackCount; ++t) {
         const float top = layout.trackTop(t) - static_cast<float>(vp.scrollY);
-        if (top + layout.trackHeight < layout.rulerHeight || top > H) continue;
-        g.rect(0, top, W, top + layout.trackHeight, (t % 2 == 0) ? th.laneA : th.laneB);
+        const float laneHeight = layout.heightOf(t);
+        if (top + laneHeight < layout.rulerHeight || top > H) continue;
+        g.rect(0, top, W, top + laneHeight, (t % 2 == 0) ? th.laneA : th.laneB);
         // Hairlines on both edges so a lane reads as a band even where it is nearly the background colour.
         g.rect(0, top, W, top + hair, th.ruler);
-        g.rect(0, top + layout.trackHeight - hair, W, top + layout.trackHeight, th.ruler);
+        g.rect(0, top + laneHeight - hair, W, top + laneHeight, th.ruler);
     }
 
     const float cornerR = 4.0f * density;
@@ -1411,7 +1421,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         const bool lifted = dragging && std::binary_search(ctx.dragKeys.begin(), ctx.dragKeys.end(), c.clipKey);
         if (dragging && lifted != (pass == 1)) continue;
         const float top = layout.trackTop(c.trackIndex) - static_cast<float>(vp.scrollY);
-        const float bottom = top + layout.trackHeight;
+        const float bottom = top + layout.heightOf(c.trackIndex);
         if (bottom < layout.rulerHeight || top > H) continue;
         const double x0 = vp.frameToX(c.startFrame);
         const double x1 = vp.frameToX(c.startFrame + c.durationFrames);
@@ -1462,6 +1472,23 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         g.rect(ix0, itop, ix1, itop + header, scaled(base, 0.72f));
         g.rect(ix0, itop, ix1, itop + std::max(1.0f, 0.75f * density), Color{1.0f, 1.0f, 1.0f, 0.16f});
 
+        // A linked clip (for instance a video and the audio detached from it) carries a small chain mark at the right end of its
+        // header, so the pair reads as one. Five rectangles, only for clips wide and tall enough to show it.
+        if (c.linked && roomForLabel && ix1 - ix0 > 56.0f * density) {
+            const float s = std::min(header * 0.55f, 9.0f * density);
+            const float cy = itop + header * 0.5f;
+            const float x = ix1 - 6.0f * density - 2.0f * s;
+            const float t = std::max(1.0f, 1.2f * density);
+            const Color mark = withAlpha(white, 0.92f);
+            const Color hole = scaled(base, 0.72f);
+            for (int i = 0; i < 2; ++i) {
+                const float lx = x + i * 0.9f * s;
+                g.rect(lx, cy - s * 0.5f, lx + 1.2f * s, cy + s * 0.5f, mark);
+                g.rect(lx + t, cy - s * 0.5f + t, lx + 1.2f * s - t, cy + s * 0.5f - t, hole);
+            }
+            g.rect(x + 0.7f * s, cy - t * 0.5f, x + 1.4f * s, cy + t * 0.5f, mark);
+        }
+
         // Thumbnail filmstrip across the body. Cells are drawn from whatever tile is already in the
         // atlas (the exact one, else a finer/coarser one); missing exact tiles are requested.
         const float bodyTop = itop + header;
@@ -1511,7 +1538,8 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
 
         // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling. Per column (see
         // wave_columns.h): a dark outline, the min..max envelope and, lighter, the RMS band, around a one-pixel centre line.
-        if (c.assetKey >= 0 && lookup_ && !(retime != nullptr && retime->freeze())) {
+        // A video clip whose own sound was detached has none to show: its waveform now lives on the audio clip.
+        if (c.assetKey >= 0 && lookup_ && !c.audioDetached && !(retime != nullptr && retime->freeze())) {
             if (auto peaks = lookup_(c.assetKey)) {
                 // Without thumbnails the waveform gets the whole body below the header; with them it
                 // sits in a strip along the bottom, over a scrim so it reads against the pictures.
@@ -1581,7 +1609,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         // circles to grab (fade handles in the top corners, a dot per curve point); see audio_shaping.h.
         if (const ShapingSnapshot* shaping = snap->shapingOf(c.clipKey); shaping != nullptr && ix1 - ix0 > 8.0f) {
             g.setClip(std::max(0.0f, ix0), std::max(layout.rulerHeight, itop), std::min(W, ix1), ibottom);
-            const float laneH = layout.trackHeight;
+            const float laneH = layout.heightOf(c.trackIndex);
             const float areaTop = shapeAreaTop(top, laneH), areaBottom = shapeAreaBottom(top, laneH);
             const double ppf = vp.pxPerFrame;
             const float step = std::max(2.0f, 2.0f * density);
@@ -1774,7 +1802,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
     g.setClip(0, layout.rulerHeight, W, H);
     for (const TransitionSnapshot& t : snap->transitions) {
         const float top = layout.trackTop(t.trackIndex) - static_cast<float>(vp.scrollY);
-        const float bottom = top + layout.trackHeight;
+        const float bottom = top + layout.heightOf(t.trackIndex);
         if (bottom < layout.rulerHeight || top > H) continue;
         const float x0 = static_cast<float>(vp.frameToX(t.cutFrame - t.preFrames));
         const float x1 = static_cast<float>(vp.frameToX(t.cutFrame + t.postFrames));
@@ -1801,7 +1829,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         const float accentW = 3.0f * density;
         for (int t = 0; t < trackCount; ++t) {
             const float top = layout.trackTop(t) - static_cast<float>(vp.scrollY);
-            const float bottom = top + layout.trackHeight;
+            const float bottom = top + layout.heightOf(t);
             if (bottom < layout.rulerHeight || top > H) continue;
             const TrackSnapshot& track = snap->tracks[static_cast<size_t>(t)];
             const Color tab = t == laneDragFrom ? kHeaderDragging
@@ -1835,7 +1863,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         bool atTop = false;
         if (laneDragBarEdge(laneDragFrom, laneDragTo, trackCount, &atTop)) {
             const float top = layout.trackTop(laneDragTo) - static_cast<float>(vp.scrollY);
-            const float y = atTop ? top : top + layout.trackHeight;
+            const float y = atTop ? top : top + layout.heightOf(laneDragTo);
             const float bar = std::max(2.0f, 3.0f * density);
             g.rect(0, y - bar * 2.0f, W, y + bar * 2.0f, kLaneDragGlow);
             g.rect(0, y - bar * 0.5f, W, y + bar * 0.5f, kLaneDragBar);

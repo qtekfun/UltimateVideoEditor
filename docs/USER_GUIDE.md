@@ -122,6 +122,8 @@ sideways and a tablet each keep theirs).
     *Two panels* (tray on the left, inspector on the right; needs a window at least 600 dp wide).
   - **Track height**: Small, Medium or Large lanes, or the **-** and **+** buttons. Waveforms, thumbnails and
     keyframe diamonds scale with the lane.
+  - **Audio track height**: *Same*, *1.5x* or *2x*. Audio lanes become that much taller than the other lanes, so waveforms and the
+    fade and volume handles are easier to see and to grab. It is saved with the layout and works with any track height.
   - **Waveform scale**: *Linear* (the default: the height follows the loudness of the clip, speech and pauses stand out) or *dB*
     (quiet passages stay visible). Audio is drawn as an outline of the loudest peaks with a lighter band for the average level;
     zoom in with a pinch to see individual sounds, and a gap between words is an empty stretch around the centre line.
@@ -254,7 +256,9 @@ panel on the left.
 
 A video clip plays its own sound. To cut, move or delete that sound on its own, select the clip and tap **Detach audio** (the
 picture-over-note icon in the editing tool row). The sound becomes a clip on the first audio lane with room (a new lane is added when
-there is none), at the same frames and from the same part of the file, and the video clip goes silent.
+there is none), at the same frames and from the same part of the file, and the video clip goes silent. The video clip stops
+showing a waveform (it has no sound of its own now; the audio clip shows it), and both linked clips carry a small chain mark at the
+right end of their name strip.
 
 - The two stay **linked**: moving, trimming, splitting, changing the speed or deleting the video clip does the same to its audio, and
   the other way round, all as one undo step. If the audio cannot follow (it would land on another audio clip) the edit is refused with

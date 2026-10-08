@@ -66,6 +66,7 @@ class EditorLayoutController(
     // a divider drag; these only change when their own value does.
     val customising: Boolean by derivedStateOf { state.customising }
     val laneHeight: LaneHeight by derivedStateOf { state.laneHeight }
+    val audioLaneHeight: AudioLaneHeight by derivedStateOf { state.audioLaneHeight }
     val tray: PanelState by derivedStateOf { state.tray }
     val inspector: PanelState by derivedStateOf { state.inspector }
     val sideDocksAllowed: Boolean by derivedStateOf { window.sideDocksAllowed }

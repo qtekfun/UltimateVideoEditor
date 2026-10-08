@@ -530,6 +530,8 @@ class EditorViewModel(
                     primary = clip.id == state.selectedClipId,
                     hasFx = !clip.fx.isNeutral,
                     missing = clip.hasMedia && clip.assetId in state.missingMedia,
+                    audioDetached = clip.audioDetached,
+                    linked = clip.linkId != null,
                     kind = when {
                         clip.still == StillKind.STICKER -> SnapshotClipKind.STICKER
                         clip.still == StillKind.PHOTO -> SnapshotClipKind.IMAGE

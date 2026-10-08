@@ -26,6 +26,7 @@ object LayoutCodec {
         "tray=${state.tray.dock.name},${if (state.tray.collapsed) 1 else 0}",
         "insp=${state.inspector.dock.name},${if (state.inspector.collapsed) 1 else 0}",
         "lane=${state.laneHeight.name}",
+        "audiolane=${state.audioLaneHeight.name}",
         "preset=${state.preset?.name ?: "-"}",
     ).joinToString(";")
 
@@ -42,6 +43,7 @@ object LayoutCodec {
         panel(pairs["tray"], Panel.TRAY)?.let { state = state.copy(tray = it) }
         panel(pairs["insp"], Panel.INSPECTOR)?.let { state = state.copy(inspector = it) }
         pairs["lane"]?.let { name -> LaneHeight.entries.firstOrNull { it.name == name } }?.let { state = state.copy(laneHeight = it) }
+        pairs["audiolane"]?.let { name -> AudioLaneHeight.entries.firstOrNull { it.name == name } }?.let { state = state.copy(audioLaneHeight = it) }
         state = state.copy(preset = pairs["preset"]?.let { name -> LayoutPreset.entries.firstOrNull { it.name == name } })
         return state
     }

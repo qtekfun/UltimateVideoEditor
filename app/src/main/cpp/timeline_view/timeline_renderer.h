@@ -70,8 +70,8 @@ public:
     void setLaneDrag(int from, int to);
     // Keys of the clips intersecting a view-pixel rectangle (see clipsInRect).
     std::vector<int64_t> clipsInRect(float x0, float y0, float x1, float y1) const;
-    // Lane height as a multiple of the default (see Layout::forDensity); redraws and keeps the scroll valid.
-    void setLaneScale(float scale);
+    // Lane height as a multiple of the default, and the audio lanes' height as a multiple of that (see Layout::forDensity); redraws and keeps the scroll valid.
+    void setLaneScale(float scale, float audioFactor = 1.0f);
     HitResult hitTest(float x, float y) const;
     // The canvas colours from the app palette (kNativeColourCount ARGB values, see timeline_theme.h); other sizes are ignored.
     void setPalette(const uint32_t* argb, size_t count);

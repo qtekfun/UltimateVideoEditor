@@ -24,6 +24,10 @@ data class SnapshotClip(
     val missing: Boolean = false,
     /** What the block is, for its colour (wire version 8). */
     val kind: SnapshotClipKind = SnapshotClipKind.DEFAULT,
+    /** The clip's embedded sound was detached: the canvas draws no waveform on it (flags bit 7, no version bump). */
+    val audioDetached: Boolean = false,
+    /** The clip is linked to another (a detached sound and its picture): the canvas marks it (flags bit 8). */
+    val linked: Boolean = false,
 )
 
 /** What a clip block is, so the canvas can colour it; [DEFAULT] follows the lane type (video, audio, title). */
@@ -239,7 +243,7 @@ data class TimelineSnapshot(
             buffer.putInt(clip.sourceFpsDen)
             buffer.putInt(
                 (if (clip.selected) 1 else 0) or (if (clip.hasFx) 2 else 0) or (if (clip.missing) 4 else 0) or (if (clip.primary) 8 else 0) or
-                    (clip.kind.code shl CLIP_KIND_SHIFT),
+                    (clip.kind.code shl CLIP_KIND_SHIFT) or (if (clip.audioDetached) AUDIO_DETACHED_BIT else 0) or (if (clip.linked) LINKED_BIT else 0),
             )
         }
         buffer.putInt(transitions.size)
@@ -309,6 +313,8 @@ data class TimelineSnapshot(
 
         /** The clip kind sits in bits 4..6 of a clip's flags word (wire version 8). */
         const val CLIP_KIND_SHIFT = 4
+        const val AUDIO_DETACHED_BIT = 1 shl 7
+        const val LINKED_BIT = 1 shl 8
 
         /** The transition count that follows the clips. */
         const val TRAILER_BYTES = 4
