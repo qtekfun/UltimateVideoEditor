@@ -55,7 +55,6 @@ import com.qtekfun.ultimatevideoeditor.data.interchange.BundleChoice
 import com.qtekfun.ultimatevideoeditor.ui.export.shareBundleIntent
 import com.qtekfun.ultimatevideoeditor.ui.export.shareExportedMovie
 import com.qtekfun.ultimatevideoeditor.ui.library.BundleExportDialog
-import com.qtekfun.ultimatevideoeditor.ui.library.ImportProgressDialog
 import com.qtekfun.ultimatevideoeditor.ui.library.ImportReportDialog
 import com.qtekfun.ultimatevideoeditor.ui.templates.TemplateWizardSheet
 import com.qtekfun.ultimatevideoeditor.ui.templates.TemplateWizardViewModel
@@ -214,6 +213,7 @@ internal fun HubContent(
             Column {
                 state.exportBar?.let { ExportBarView(it, onIntent) }
                 state.bundleBar?.let { BundleBarView(it, onIntent) }
+                state.importBar?.let { ImportBarView(it, onIntent) }
                 if (state.selecting) {
                     SelectionBar(state.selectionActions, onIntent) { reason -> scope.launch { snackbar.showSnackbar(reason) } }
                 }
@@ -267,7 +267,6 @@ internal fun HubContent(
             dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissMediaFolderPrompt) }) { Text("Cancel") } },
         )
     }
-    state.importProgress?.let { progress -> ImportProgressDialog(progress) { onIntent(HubIntent.CancelImport) } }
     state.importNotes?.let { notes -> ImportReportDialog(notes) { onIntent(HubIntent.DismissImportNotes) } }
     state.renameDraft?.let { draft ->
         TextDialog(

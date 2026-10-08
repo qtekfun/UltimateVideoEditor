@@ -115,4 +115,7 @@ object ExportLaunch {
 
     /** Set when the notification belongs to a project backup: the tap shows the project list with the backup dialog, not an editor. */
     const val EXTRA_BUNDLE = "com.qtekfun.ultimatevideoeditor.export.BUNDLE"
+
+    /** Set when the notification belongs to a project import: the tap shows the import's dialog over whatever screen is open. */
+    const val EXTRA_IMPORT = "com.qtekfun.ultimatevideoeditor.export.IMPORT"
 }

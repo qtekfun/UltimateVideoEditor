@@ -208,6 +208,10 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   it to `project.json.bak` (the last good save). A corrupt or missing `project.json` is listed in the hub as unreadable;
   **Recover** restores the newest parsable of `.tmp` (an interrupted write) then `.bak` and keeps the damaged file as
   `project.json.corrupt`; **Delete** removes it.
+- **Imports leave nothing half-made.** A bundle or LumaFusion project is built in a scratch folder `.import-<id>` next to the projects
+  and appears in the list only with the one atomic rename of that folder; a failed or cancelled import removes the scratch folder
+  (and a LumaFusion import the footage it created), and `ProjectRepository.removeStaleImports()` deletes the ones a killed process left
+  (untouched for two minutes, never while an import runs). Folders starting with `.` are never listed. Progress and Cancel: 5.24.
 - **Autosave failures** show a banner with Retry, are retried quietly three times, and refuse to leave the editor until the
   user retries or chooses to leave without saving.
 - **Session marker.** The open project id is stored (synchronously) when the editor opens and cleared when the user leaves it;
@@ -1058,12 +1062,54 @@ model and sheet). Everything is local: files go through the system picker, nothi
   single leaf (anything else is `UnsafePath`); duplicate names are refused. Limits (`BundleLimits`): 20 000
   entries, 64 MB for each JSON entry, 8 MB per thumbnail, 64 GB per media file, 128 GB in total; a truncated or
   non-bundle zip becomes a typed `BundleError`, shown to the user through `ProjectError.Bundle`.
-- Importing (`ProjectRepository.importWithReport`, also what `importFrom` uses) sniffs the first four bytes
+- Importing (`ProjectRepository.importWithReport`, also what `importFrom` uses; progress and Cancel: "Import as a job" below) sniffs the first four bytes
   (`PK\x03\x04`) to tell a bundle from a project file, unpacks into a scratch folder `.import-<id>` under
   the projects folder, rewrites the project (new id when needed, "Name (2)" on a clash), points assets whose
   bytes came along at `file://<project folder>/media/<file>`, relinks the rest, writes `project.json` inside
   the scratch folder and moves the whole folder into place with one atomic rename; the scratch folder is
   always removed, so a failure leaves nothing behind. Folders starting with `.` are never listed as projects.
+- **Import as a job (`BundleImportExecutor`, #164's architecture again).** The three ways to import (a `.uvbundle`, an
+  `.lfpackage` / `.lfarchive`, a plain project file) all go through one process-wide `BundleImportExecutor`, owned by
+  `ExportCenter.imports()` next to the movie and backup executors. `HubIntent.ImportFrom` builds an `ImportJob` and calls
+  `start()`, which only flips the state to `Running` and returns (the picker's result handler never waits); the work runs on
+  `Dispatchers.IO` and the file's display name is asked from the provider there. Nothing else in the import touches the main
+  dispatcher (`RepositoryImportProgressTest` asserts the source is never read on the calling thread).
+  - **Progress.** `importWithReport(uri, observer)` takes the backup's `BundleWriteObserver`: `onStart(total, mediaCount)`,
+    `onItem`, `onBytes` (per 256 KB chunk, filled whatever the zip method) and `isCancelled`. With random access
+    (`ProjectTransferIO.openSeekable`, the picker's descriptor) the total comes from the zip's central directory before the first
+    byte: `ProjectBundle.plan` sums the entry sizes as `Long`s (zip64) and applies `BundleLimits` there, so a hostile or oversized
+    bundle is refused before anything is written. A source that cannot seek is read as a stream: no total (`onStart(0, 0)`), bytes
+    and Cancel still work. `BundleProgressTracker` throttles to about four updates a second and smooths the time left, unchanged.
+  - **Order and integrity.** An indexed bundle is read header first (`ProjectBundle.readHeader`: `bundle.json`, `project.json`
+    present, format and version accepted, project parses with `ProjectJson.decode`), then the free space is compared with the plan
+    (`ProjectError.Bundle` naming both figures), then the thumbnails, resources and media are copied (documents first, media
+    last). Every entry's copied size must equal the size its directory entry declares, else `BundleError.Corrupt` ("cut short or
+    damaged"); media is not re-read for a CRC. A plain file is read at most `maxDocumentBytes` (64 MB): a bigger file is not a project.
+  - **Lock.** The copy runs outside the store's mutex; only the quick commit (pick id and name, relink, install LUTs and fonts,
+    write `project.json`, one atomic rename) is locked. A save of another project in an open editor is not kept waiting for the
+    minutes a bundle takes (it used to be). The LumaFusion import splits the same way: the footage copy is unlocked, the final name
+    and the move are locked.
+  - **Cancel.** The executor's flag (or cancelling the calling coroutine) is read between two chunks and entries; the importer throws
+    `ImportCancelled` (a `CancellationException`), its `finally` removes the scratch folder and, for LumaFusion, the files and
+    folders it created in the media folder, and the state becomes `Cancelled`. The rename into place is the last point where Cancel
+    still means "nothing"; after it the import is done. Killed processes leave `.import-<id>` folders: `removeStaleImports()`
+    (called at start when no import runs) deletes those untouched for two minutes.
+  - **States and views.** `ImportJobState`: `Idle`, `Running(revealed)`, `Done(report, bytes, tookMs, quick)`, `Failed(message)`,
+    `Cancelled`, `NeedsMediaFolder(uri)` (the hub asks for the folder and starts again). Nothing is shown for the first 400 ms
+    (`revealed` flips after `REVEAL_AFTER_MS`; the dialog opens and `ExportService` starts only then); a job that ends earlier is
+    `Done.quick`, and the project list answers with its message (and the report dialog when LUTs or fonts failed), never a flash.
+    `importViewFor` / `importNotificationFor` build the dialog (`ImportJobDialog`, over every screen like the backup's), the bar
+    (`ImportBarView`) and the notification from the one state. Texts: step "Importing project: file 3 of 12: IMG_0014.mov", line
+    "1.8 of 7.4 GB, about 2 min left", result "Imported: Holiday (7.4 GB, 14 media files, took 4:12)"; a result with missing media, a
+    renamed project (`ImportReport.renamedFrom`), uninstalled LUTs or fonts or left-out LumaFusion settings is "Imported, with
+    notes" and lists each. `ImportJobText.failure` names the cause: storage full, permission lost, damaged or not a project,
+    file or provider gone, newer format, and always "Nothing was added to the project list."
+  - **Service and the one-job rule.** `ExportService` watches a third state and the same Cancel action; manifest, permissions and
+    `foregroundTypeFor` are untouched. `LongJobs.describe` words the refusal each of the three jobs gives the others ("Importing
+    Holiday.uvbundle", "Backing up Holiday", "Exporting Wedding"); nothing is queued.
+  - **Paths that do not exist:** the app has no intent filter for opening or sharing a project file into it (the manifest has only
+    the launcher), so the picker behind hub, top-right ⋮, Import is the only entry; the template wizard and `.uvtemplate` /
+    `.uvtitle` imports are small documents and are out of this job.
 - Auto-relink (`AutoRelink`): among the assets of the other local projects, a file matches when its name
   (ignoring case) **and** size equal the bundle's entry; a name alone never matches, unknown sizes never match,
   the first candidate wins. There is no search outside those libraries and no new permission.

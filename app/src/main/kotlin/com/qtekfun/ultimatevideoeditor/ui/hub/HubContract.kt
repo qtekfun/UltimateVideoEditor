@@ -94,8 +94,8 @@ data class HubState(
     val bundleExport: HubBundleExport? = null,
     /** What an imported bundle could not install (LUTs and fonts), listed until dismissed; null when nothing went wrong. */
     val importNotes: ImportReportNotes? = null,
-    /** Footage being unpacked from a LumaFusion package; null otherwise. */
-    val importProgress: com.qtekfun.ultimatevideoeditor.data.interchange.ImportProgress? = null,
+    /** The project import (`.uvbundle`, LumaFusion package, project file) that is running or ended and was not dismissed yet; shown in a bar like [bundleBar]. */
+    val importBar: com.qtekfun.ultimatevideoeditor.ui.export.ImportView? = null,
     /** A package needs somewhere to put its footage and no media folder is chosen: the dialog that asks for one. */
     val mediaFolderPrompt: Boolean = false,
     /** The export that is running, or that ended and was not dismissed yet (bar above the New project button); null when none. */
@@ -262,6 +262,11 @@ sealed interface HubIntent : UiIntent {
     data object DismissBundleBar : HubIntent
     data object ShareBundle : HubIntent
     data object ShowBundleDetails : HubIntent
+
+    /** The import bar's buttons: forget a finished or failed import, open the imported project, open the progress dialog. */
+    data object DismissImportBar : HubIntent
+    data object OpenImported : HubIntent
+    data object ShowImportDetails : HubIntent
 }
 
 sealed interface HubEffect : UiEffect {
