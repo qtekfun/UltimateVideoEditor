@@ -272,7 +272,9 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   timeline content (`ScrubGate`, then `EditorIntent.ScrubStarted`; it seeks the output to the displayed playhead, never to the
   audio clock), Previous / Next clip boundary (`jumpTo`) and Split at playhead. Only Play resumes. A tap on the ruler seeks and
   keeps playing. Known limit: the first frames of an incoming clip at a cut are not pre-rolled, so a
-  cut may stall for a frame or two while its decoder seeks.
+  cut may stall for a frame or two while its decoder seeks. **Split with nothing selected** cuts every clip of every track that spans the
+  playhead (one `Batch`, one undo step; linked pairs are re-linked by `ClipLinks.settle`; selection stays empty; nothing spanning gives
+  "Move the playhead inside a clip"); with a selection only the selected clips are cut.
 - **Offscreen use (export).** `GlPipeline::drawScene(layers, canvasW, canvasH, targetW, targetH)` composites into
   whatever framebuffer is bound, without binding, swapping or waiting. To render a frame for the encoder:
   bind an FBO of the export size, build `LayerDraw`s from cached frames (`GpuFrame` + `ColorMode` + container

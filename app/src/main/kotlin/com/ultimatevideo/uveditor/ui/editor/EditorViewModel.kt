@@ -1422,12 +1422,37 @@ class EditorViewModel(
     }
 
     /**
-     * Cuts the selected clip, or every selected clip that spans the playhead, at the playhead (one undo step). The cut frame is
+     * With nothing selected cuts every clip under the playhead ([splitAllAtPlayhead]); otherwise cuts the selected clip, or every selected clip that spans the playhead, at the playhead (one undo step). The cut frame is
      * read before anything else because the playhead keeps moving while playing. Afterwards playback is paused and the
      * playhead sits exactly on the cut, the first frame of the right-hand part (LumaFusion pauses there too), the preview
      * shows that frame, and the selection moves to the right-hand parts so the next cut can follow without selecting again.
      */
-    private fun splitAtPlayhead() = withSelection { primary ->
+    private fun splitAtPlayhead() {
+        if (state.value.selectedClipId == null && state.value.selection.isEmpty()) splitAllAtPlayhead() else splitSelectedAtPlayhead()
+    }
+
+    /**
+     * Nothing selected: cuts every clip of every track that spans the playhead (LumaFusion), as one undo step. A linked
+     * video+audio pair is cut by [ClipLinks.settle] after the batch (both halves are fresh, so the right-hand parts get
+     * their own link); the selection stays empty.
+     */
+    private fun splitAllAtPlayhead() {
+        val cut = state.value.playhead
+        val commands = history.timeline.tracks.flatMap { track ->
+            track.clips.filter { cut > it.timelineStart && cut < it.timelineEnd }
+                .map { EditCommand.Split(track.id, cut, "${it.id}~${idGenerator()}") }
+        }
+        if (commands.isEmpty()) {
+            emit(EditorEffect.ShowMessage("Move the playhead inside a clip"))
+            return
+        }
+        if (!execute(commands.singleOrNull() ?: EditCommand.Batch(commands))) return
+        pausePlayback()
+        reduce { copy(playhead = cut) }
+        playbackOutput?.seek(cut.value)
+    }
+
+    private fun splitSelectedAtPlayhead() = withSelection { primary ->
         val cut = state.value.playhead
         val timeline = history.timeline
         val selected = state.value.selection
