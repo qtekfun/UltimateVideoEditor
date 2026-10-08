@@ -361,4 +361,92 @@ class MarkerViewModelTest {
         assertTrue("one tap must stay under a 60 fps frame, was ${samples.max()} ms", samples.sorted()[samples.size / 2] < 16.0)
         assertEquals(250, h.state.timeline.markers.size)
     }
+
+    @Test
+    fun `a new marker sticks to the clip under the playhead, a gap leaves it free`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(90)
+        h.mark(320)
+        h.mark(700)  // past the last clip (it ends at 450)
+        val byFrame = h.state.timeline.markers.associateBy { it.frame.value }
+        assertEquals("c1", byFrame.getValue(90).anchorClipId)
+        assertEquals(90L, byFrame.getValue(90).offsetFrames)
+        assertEquals("c2", byFrame.getValue(320).anchorClipId)
+        assertEquals(20L, byFrame.getValue(320).offsetFrames)
+        assertNull(byFrame.getValue(700).anchorClipId)
+        // The first frame of c2 is c2's, not c1's.
+        h.mark(300)
+        assertEquals("c2", h.state.timeline.markers.first { it.frame.value == 300L }.anchorClipId)
+    }
+
+    @Test
+    fun `the Stick to clip switch is on for a new marker and converts both ways in one undo step`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(90)
+        val id = h.state.timeline.markers.single().id
+        h.vm.onIntent(MarkerIntent.Open(id))
+        assertTrue(h.state.markerPopup!!.stick)
+        assertTrue(h.state.markerPopup!!.canStick)
+
+        h.vm.onIntent(MarkerIntent.StickChanged(false))
+        assertTrue(h.state.timeline.markers.single().isAnchored)  // shown live, committed on close
+        assertFalse(h.state.visibleTimeline.markers.single().isAnchored)
+        h.vm.onIntent(MarkerIntent.Close)
+        assertFalse(h.state.timeline.markers.single().isAnchored)
+
+        h.vm.onIntent(MarkerIntent.Open(id))
+        assertFalse(h.state.markerPopup!!.stick)
+        h.vm.onIntent(MarkerIntent.StickChanged(true))
+        h.vm.onIntent(MarkerIntent.Close)
+        assertEquals("c1", h.state.timeline.markers.single().anchorClipId)
+
+        h.vm.onIntent(EditorIntent.Undo)
+        assertFalse(h.state.timeline.markers.single().isAnchored)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertTrue(h.state.timeline.markers.single().isAnchored)
+    }
+
+    @Test
+    fun `the switch is unavailable over a gap and for a beat marker`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(700)
+        h.vm.onIntent(MarkerIntent.Open(h.state.timeline.markers.single().id))
+        assertFalse(h.state.markerPopup!!.canStick)
+        h.vm.onIntent(MarkerIntent.StickChanged(true))
+        assertFalse(h.state.markerPopup!!.stick)
+    }
+
+    @Test
+    fun `dragging a marker onto another clip anchors it there and into a gap frees it`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(100)
+        h.vm.onIntent(EditorIntent.DragStart(h.hit(0, 100)))
+        h.vm.onIntent(EditorIntent.DragMove(330, -1, DragZone.ABOVE_LANES))
+        assertEquals("c2", h.state.visibleTimeline.markers.single().anchorClipId)
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        val moved = h.state.timeline.markers.single()
+        assertEquals("c2", moved.anchorClipId)
+        assertEquals(30L, moved.offsetFrames)
+
+        h.vm.onIntent(EditorIntent.DragStart(h.hit(0, 330)))
+        h.vm.onIntent(EditorIntent.DragMove(600, -1, DragZone.ABOVE_LANES))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertNull(h.state.timeline.markers.single().anchorClipId)
+        assertEquals(600L, h.state.timeline.markers.single().frame.value)
+
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals("c2", h.state.timeline.markers.single().anchorClipId)
+    }
+
+    @Test
+    fun `previous and next walk the resolved frames of anchored markers`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(100)
+        h.mark(320)
+        h.at(0)
+        h.vm.onIntent(MarkerIntent.SeekNext)
+        assertEquals(100L, h.state.playhead.value)
+        h.vm.onIntent(MarkerIntent.SeekNext)
+        assertEquals(320L, h.state.playhead.value)
+    }
 }

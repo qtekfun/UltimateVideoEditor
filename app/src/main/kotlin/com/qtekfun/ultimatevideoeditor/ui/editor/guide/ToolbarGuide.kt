@@ -66,7 +66,7 @@ internal object ToolbarGuide {
         GuideEntry("captions", GuideSection.ADD, EditorIcons.Captions, "Captions", "Opens the captions sheet: type captions, import a .srt or .vtt file, pick a style.", ""),
         GuideEntry("stickers", GuideSection.ADD, EditorIcons.Sticker, "Stickers", "Opens the media tray on its Stickers tab (shapes and emoji).", ""),
         GuideEntry("templates", GuideSection.ADD, EditorIcons.TextTemplate, "Titles and text templates", "Opens the media tray on its Titles tab: lower third, pop title, slide-in headline, subtitle bar.", ""),
-        GuideEntry("marker", GuideSection.ADD, EditorIcons.Flag, "Marker", "Tap: drops a marker at the playhead. Long press: previous or next marker, beat tools and marker snapping.", ""),
+        GuideEntry("marker", GuideSection.ADD, EditorIcons.Flag, "Marker", "Tap: drops a marker at the playhead; over a clip it sticks to that clip and moves with it (switch it off in the marker panel). Long press: previous or next marker, beat tools and marker snapping.", ""),
 
         GuideEntry("quick-edits", GuideSection.MEDIA, EditorIcons.Silence, "Quick edits", "Cuts the silences out of the selected clip, or reframes a clip for another canvas shape.", ""),
         GuideEntry("library", GuideSection.MEDIA, EditorIcons.Library, "Media library", "Opens the project's library: tags, notes, where each file is used, remove unused files, export a bundle. With a clip selected it opens on that clip's file.", ""),

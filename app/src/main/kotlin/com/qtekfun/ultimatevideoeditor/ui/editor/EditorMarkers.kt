@@ -13,6 +13,10 @@ data class MarkerPopup(
     val note: String,
     val color: MarkerColor?,
     val isBeat: Boolean,
+    /** "Stick to clip": the marker follows its clip when the clip moves (see `domain/MarkerAnchors`). */
+    val stick: Boolean,
+    /** False for a beat marker or one over a gap: there is no clip to stick to. */
+    val canStick: Boolean,
     val hasPrevious: Boolean,
     val hasNext: Boolean,
 )
@@ -32,6 +36,9 @@ sealed interface MarkerIntent : EditorIntent {
     data class NameChanged(val text: String) : MarkerIntent
     data class NoteChanged(val text: String) : MarkerIntent
     data class ColorChosen(val color: MarkerColor?) : MarkerIntent
+
+    /** The "Stick to clip" switch of the popup; committed with the other edits as one undo step. */
+    data class StickChanged(val stick: Boolean) : MarkerIntent
 
     /** Closes the popup, keeping the edits (one undo step when anything changed). */
     data object Close : MarkerIntent
