@@ -123,6 +123,35 @@ class EditorLayoutControllerTest {
         }
     }
 
+    private class MemoryPlacement(var enabled: Boolean = false) : VideoAudioPlacementStore {
+        var writes = 0
+
+        override fun isOn() = enabled
+
+        override fun setOn(on: Boolean) {
+            this.enabled = on
+            writes++
+        }
+    }
+
+    @Test
+    fun `video audio on a track is off by default, remembered, and survives presets and other windows`() {
+        val placement = MemoryPlacement()
+        val controller = EditorLayoutController(MemoryStore(), phone, placementStore = placement)
+        assertFalse(controller.videoAudioOnTrack)
+
+        controller.chooseVideoAudioOnTrack(true)
+        controller.chooseVideoAudioOnTrack(true) // no second write for the same value
+        assertTrue(placement.enabled)
+        assertEquals(1, placement.writes)
+
+        controller.dispatch(LayoutAction.Reset)
+        controller.onWindow(phoneSideways)
+        assertTrue(controller.videoAudioOnTrack)
+        assertTrue(EditorLayoutController(MemoryStore(), phone, placementStore = placement).videoAudioOnTrack)
+        assertFalse(NoVideoAudioPlacementStore.isOn())
+    }
+
     @Test
     fun `the waveform scale defaults to linear, is remembered, and survives presets and other windows`() {
         val waveform = MemoryWaveform()
