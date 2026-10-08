@@ -240,7 +240,7 @@ Edits for a *local-only* model (never online):
 - `CLAUDE.md`: privacy section and the Captions section ("there is no speech recognition") updated; `THIRD_PARTY_NOTICES.md`.
 - `OfflineGuaranteeTest`: keep every network check unchanged; add (a) an allow-list of model file names/hashes if a model is bundled, (b)
   a check that no model-download code exists. It must keep failing on INTERNET and on download APIs.
-- Delivery options (the owner decides): **(A) add-on app** `com.ultimatevideo.uveditor.speech` holding the models and the engine,
+- Delivery options (the owner decides): **(A) add-on app** `com.qtekfun.ultimatevideoeditor.speech` holding the models and the engine,
   exchanging audio and results with the main app through a bound service or content provider (the main app keeps zero model and zero
   network code; the add-on can be installed from a file, F-Droid or sideload, never downloading itself; Android signature permission
   to restrict callers). Pros: main app's privacy claim stays literally true, size unchanged. Cons: two installs, IPC, a second

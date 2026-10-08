@@ -18,7 +18,7 @@ AudioEngine* from(jlong h) { return reinterpret_cast<AudioEngine*>(h); }
 
 extern "C" {
 
-#define JNI_FN(name) Java_com_ultimatevideo_uveditor_engine_audio_NativeAudio_##name
+#define JNI_FN(name) Java_com_qtekfun_ultimatevideoeditor_engine_audio_NativeAudio_##name
 
 JNIEXPORT jlong JNICALL JNI_FN(nativeCreate)(JNIEnv*, jobject) {
     return reinterpret_cast<jlong>(new AudioEngine());

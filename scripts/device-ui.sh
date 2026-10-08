@@ -79,7 +79,7 @@ ui_require_unlocked() {
 
 ui_launch() {
     adb_ shell am force-stop "$pkg"
-    adb_ shell am start -n "$pkg/com.ultimatevideo.uveditor.MainActivity" >/dev/null
+    adb_ shell am start -n "$pkg/com.qtekfun.ultimatevideoeditor.MainActivity" >/dev/null
     sleep 3
 }
 

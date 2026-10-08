@@ -74,7 +74,7 @@ void notifyTiles(const std::shared_ptr<ThumbBridge>& bridge) {
 
 extern "C" {
 
-#define JNI_FN(name) Java_com_ultimatevideo_uveditor_engine_timeline_NativeThumbnails_##name
+#define JNI_FN(name) Java_com_qtekfun_ultimatevideoeditor_engine_timeline_NativeThumbnails_##name
 
 // Creates the thumbnail service for a timeline handle and connects it to the renderer.
 JNIEXPORT jint JNICALL JNI_FN(nativeAttach)(JNIEnv* env, jobject /*thiz*/, jlong handle, jobject listener) {

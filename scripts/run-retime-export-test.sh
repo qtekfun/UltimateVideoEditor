@@ -7,8 +7,8 @@ set -euo pipefail
 serial="$1"
 runs="${2:-1}"
 here="$(cd "$(dirname "$0")" && pwd)"
-# PKG: application id of the installed build (default; com.ultimatevideo.uveditor.x for a -PappIdSuffix=.x build).
-pkg="${PKG:-com.ultimatevideo.uveditor}"
+# PKG: application id of the installed build (default; com.qtekfun.ultimatevideoeditor.x for a -PappIdSuffix=.x build).
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor}"
 work="$(mktemp -d)"
 # `am instrument` restarts the app's process: never do that while someone is using the app on the device.
 if adb -s "$serial" shell dumpsys window | grep -m1 mCurrentFocus | grep -q "$pkg/"; then
@@ -23,7 +23,7 @@ adb -s "$serial" push "$work/retime_src.mp4" "$dir/retime_src.mp4" > /dev/null
 failures=0
 for i in $(seq 1 "$runs"); do
     adb -s "$serial" logcat -c
-    if adb -s "$serial" shell am instrument -w -e class com.ultimatevideo.uveditor.engine.export.RetimeExportInstrumentedTest \
+    if adb -s "$serial" shell am instrument -w -e class com.qtekfun.ultimatevideoeditor.engine.export.RetimeExportInstrumentedTest \
         $pkg.test/androidx.test.runner.AndroidJUnitRunner | tee "$work/run.txt" | grep -q "^OK"; then
         for f in retime_out.mp4 retime_expected.txt retime_segments.txt plain_out.mp4 plain_expected.txt plain_segments.txt; do
             adb -s "$serial" pull "$dir/$f" "$work/$f" > /dev/null

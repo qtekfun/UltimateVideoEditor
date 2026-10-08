@@ -18,7 +18,7 @@ using uv::encode::ExportJob;
 using uv::encode::ExportParams;
 using uv::encode::VideoClip;
 
-constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/export/ExportException";
+constexpr const char* kExceptionClass = "com/qtekfun/ultimatevideoeditor/engine/export/ExportException";
 constexpr size_t kClipLongs = 9;     // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey
 constexpr size_t kTitleInts = 5;     // key, width, height, displayWidth, displayHeight per title
 constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
@@ -167,7 +167,7 @@ void closeAll(const std::vector<std::pair<int64_t, int>>& fds, int outputFd) {
 extern "C" {
 
 // Takes ownership of every descriptor passed in, whether or not it succeeds.
-JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExport_nativeStart(
+JNIEXPORT jlong JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_export_NativeExport_nativeStart(
     JNIEnv* env, jobject /*thiz*/, jobject listener, jint width, jint height, jint fpsNum, jint fpsDen, jint projectFpsNum,
     jint projectFpsDen, jint canvasWidth, jint canvasHeight, jint codec, jint videoBitrate, jint audioBitrate,
     jlong totalFrames, jlongArray assetKeys, jintArray assetFds, jlongArray clips, jdoubleArray transforms,
@@ -495,14 +495,14 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExpo
     return reinterpret_cast<jlong>(handle.release());
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExport_nativeCancel(JNIEnv* /*env*/,
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_export_NativeExport_nativeCancel(JNIEnv* /*env*/,
                                                                                               jobject /*thiz*/,
                                                                                               jlong handle) {
     if (handle != 0) fromHandle(handle)->job->cancel();
 }
 
 // Joins the export thread: call off the main thread, and never from a listener callback.
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_export_NativeExport_nativeDestroy(JNIEnv* env,
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_export_NativeExport_nativeDestroy(JNIEnv* env,
                                                                                                jobject /*thiz*/,
                                                                                                jlong handle) {
     if (handle == 0) return;

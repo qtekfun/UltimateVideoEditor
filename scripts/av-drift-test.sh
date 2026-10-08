@@ -6,14 +6,14 @@
 # |heard frame - frame the preview should be on| and how many times the preview had to be
 # re-anchored (tag UVSync). It does not measure display or speaker latency.
 #
-# Usage: [PKG=com.ultimatevideo.uveditor[.suffix]] scripts/av-drift-test.sh <adb-serial> [minutes=5]
+# Usage: [PKG=com.qtekfun.ultimatevideoeditor[.suffix]] scripts/av-drift-test.sh <adb-serial> [minutes=5]
 # Needs: adb, ffmpeg, python3, a debug build installed (run-as). The screen must be unlocked: the script seeds the
 # project, opens it from the hub through uiautomator (dismissing the reopen offer) and presses play on its own.
 set -euo pipefail
 
 serial="${1:?usage: $0 <adb-serial> [minutes]}"
 minutes="${2:-5}"
-pkg="${PKG:-com.ultimatevideo.uveditor}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor}"
 . "$(dirname "$0")/device-ui.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

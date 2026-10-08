@@ -12,7 +12,7 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 `docs/PRIVACY.md` states it and `OfflineGuaranteeTest` enforces the technical part.
 
 ## Phase 0 — Scaffold
-- [x] Gradle Kotlin DSL project, version catalog, `com.ultimatevideo.uveditor`, minSdk 31, NDK/CMake from the command line
+- [x] Gradle Kotlin DSL project, version catalog, `com.qtekfun.ultimatevideoeditor`, minSdk 31, NDK/CMake from the command line
 - [x] Jetpack Compose + Material 3 + Navigation, theme, edge-to-edge
 - [x] `uveditor_engine` shared library with JNI, MVI base contracts, `.gitignore`, GPL-3.0 licence, README
 - [x] Unit-test and instrumented smoke-test wiring; CI (`.github/workflows/ci.yml`)
