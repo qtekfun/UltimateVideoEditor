@@ -474,7 +474,11 @@ class EditorViewModel(
             EditorIntent.RequestFolderRelink -> emit(EditorEffect.LaunchFolderPicker)
             is EditorIntent.RelinkFromFolder -> relinkFromFolder(intent.treeUri)
             EditorIntent.CancelFolderRelink -> cancelFolderRelink()
-            EditorIntent.DismissFolderRelink -> reduce { copy(folderRelink = FolderRelinkUi.Idle, relinkOpen = relinkOpen && missingMedia.isNotEmpty()) }
+            EditorIntent.DismissFolderRelink -> reduce {
+                // Back to the list keeps the session (its results and counters); only Close ends it.
+                val session = folderRelink as? FolderRelinkUi.Done
+                copy(folderRelink = session?.copy(showList = true) ?: FolderRelinkUi.Idle, relinkOpen = relinkOpen && missingMedia.isNotEmpty())
+            }
             is EditorIntent.RelinkFromCandidate -> relinkAsset(intent.assetId, intent.uri, fromFolder = true)
             is EditorIntent.RequestRelink -> emit(EditorEffect.LaunchRelinkPicker(intent.assetId))
             is EditorIntent.RelinkAsset -> relinkAsset(intent.assetId, intent.uri)
@@ -732,6 +736,9 @@ class EditorViewModel(
 
     private var folderRelinkJob: Job? = null
 
+    /** What the dialog shows again when a scan is cancelled: the earlier results if the scan was started from them, else the list. */
+    private var folderRelinkBeforeScan: FolderRelinkUi = FolderRelinkUi.Idle
+
     /**
      * Looks in the folder [treeUri] for every media file that cannot be read and relinks what it can identify, in one step
      * (SPECS 5.40). The scan and the checks run off the main thread and can be cancelled; nothing changes until they finish,
@@ -747,6 +754,10 @@ class EditorViewModel(
         }
         val fps = snapshot.fps
         val runner = FolderRelinkRunner(folderScanner, importer)
+        // A scan started from the results screen adds to those results; a cancel or an error brings them back untouched.
+        val previous = (snapshot.folderRelink as? FolderRelinkUi.Done)?.outcome
+        val resting = snapshot.folderRelink as? FolderRelinkUi.Done ?: FolderRelinkUi.Idle
+        folderRelinkBeforeScan = resting
         reduce { copy(folderRelink = FolderRelinkUi.Running(), relinkOpen = true) }
         folderRelinkJob = viewModelScope.launch {
             val outcome = try {
@@ -768,26 +779,26 @@ class EditorViewModel(
                     }
                 }
             } catch (e: FolderScanException) {
-                reduce { copy(folderRelink = FolderRelinkUi.Idle) }
+                reduce { copy(folderRelink = resting) }
                 emit(EditorEffect.ShowMessage(e.message ?: "Could not read the folder"))
                 return@launch
             } catch (e: CancellationException) {
-                reduce { copy(folderRelink = FolderRelinkUi.Idle) }
+                reduce { copy(folderRelink = resting) }
                 throw e
             }
-            applyFolderRelink(outcome)
+            applyFolderRelink(outcome, previous)
         }
     }
 
     private fun cancelFolderRelink() {
         if (folderRelinkJob?.isActive != true) return
         folderRelinkJob?.cancel()
-        reduce { copy(folderRelink = FolderRelinkUi.Idle) }
+        reduce { copy(folderRelink = folderRelinkBeforeScan) }
         emit(EditorEffect.ShowMessage("Folder scan cancelled. Nothing was changed"))
     }
 
     /** Stores every accepted match at once; items the user relinked meanwhile, or removed, are left as they are. */
-    private fun applyFolderRelink(outcome: FolderRelinkOutcome) {
+    private fun applyFolderRelink(outcome: FolderRelinkOutcome, previous: FolderRelinkOutcome?) {
         val stillMissing = state.value.missingMedia
         val present = state.value.assets.map { it.id }.toSet()
         val accepted = outcome.relinked.filter { it.old.id in present && it.old.id in stillMissing }
@@ -797,16 +808,18 @@ class EditorViewModel(
             assetKeys.rekey(r.old.id)
         }
         val replacements = accepted.associate { it.old.id to it.asset }
+        val thisScan = outcome.copy(relinked = accepted)
+        val report = if (previous == null) thisScan else thisScan.mergedInto(previous)
         reduce {
             copy(
                 assets = assets.map { replacements[it.id] ?: it },
                 missingMedia = missingMedia - replacements.keys,
-                folderRelink = FolderRelinkUi.Done(outcome.copy(relinked = accepted)),
+                folderRelink = FolderRelinkUi.Done(report),
                 relinkOpen = true,
             )
         }
         if (accepted.isNotEmpty()) scheduleSave()
-        emit(EditorEffect.ShowMessage("Relinked ${accepted.size} of ${outcome.total}"))
+        emit(EditorEffect.ShowMessage(scanSummaryText(report)))
     }
 
     private fun scheduleSave() {
