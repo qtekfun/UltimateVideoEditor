@@ -22,6 +22,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -30,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformScale
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorIcons
 import com.qtekfun.ultimatevideoeditor.ui.editor.ToolButton
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarEditorDialog
 
 /** What a panel is called in the layout controls. */
 internal fun Panel.label(): String = if (this == Panel.TRAY) "Media tray" else "Inspector"
@@ -192,6 +197,23 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                     checked = controller.videoAudioOnTrack,
                     onCheckedChange = { controller.chooseVideoAudioOnTrack(it) },
                     modifier = Modifier.semantics { contentDescription = "Put video audio on an audio track" },
+                )
+            }
+
+            var toolbarOpen by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Toolbar", style = MaterialTheme.typography.labelLarge)
+                    Text("Choose the order of the tools and which ones sit in the More menu.", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(onClick = { toolbarOpen = true }) { Text("Edit toolbar") }
+            }
+            if (toolbarOpen) {
+                ToolbarEditorDialog(
+                    order = controller.toolbarOrder,
+                    onChange = controller::changeToolbar,
+                    onReset = controller::resetToolbar,
+                    onDismiss = { toolbarOpen = false },
                 )
             }
 
