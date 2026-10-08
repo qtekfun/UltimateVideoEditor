@@ -48,6 +48,9 @@ object PreviewGeometry {
     }
 
     /** Wraps an angle into (-180, 180]. */
+    /** A quarter turn on top of the current rotation: [delta] is +90 (clockwise) or -90, the result stays in (-180, 180]. */
+    fun turnBy(degrees: Double, delta: Double): Double = normalizeDegrees(degrees + delta)
+
     fun normalizeDegrees(degrees: Double): Double {
         val wrapped = degrees.IEEErem(360.0)
         return if (wrapped <= -180.0) wrapped + 360.0 else wrapped
