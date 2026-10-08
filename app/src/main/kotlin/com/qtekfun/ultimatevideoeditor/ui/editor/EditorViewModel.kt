@@ -908,7 +908,11 @@ class EditorViewModel(
         if (hit.kind != HitKind.MARKER) closeMarkerPopup()
         when (hit.kind) {
             HitKind.RULER, HitKind.PLAYHEAD -> seekTo(hit.frame)
-            HitKind.MARKER -> history.timeline.markers.getOrNull(hit.clipKey.toInt())?.let { openMarker(it.id) }
+            // The playhead goes to the marker (the finger may be a few frames off it), then its popup opens.
+            HitKind.MARKER -> history.timeline.markers.getOrNull(hit.clipKey.toInt())?.let {
+                seekTo(it.frame.value)
+                openMarker(it.id)
+            }
             HitKind.CLIP, HitKind.CLIP_LEFT_EDGE, HitKind.CLIP_RIGHT_EDGE -> {
                 val clipId = clipKeys.idFor(hit.clipKey)
                 if (state.value.selectMode && clipId != null) {
