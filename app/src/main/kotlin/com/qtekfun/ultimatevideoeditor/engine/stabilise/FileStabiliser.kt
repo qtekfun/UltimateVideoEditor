@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.engine.stabilise
 
+import com.qtekfun.ultimatevideoeditor.data.mediaOrNull
 import android.content.ContentResolver
 import android.net.Uri
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
@@ -21,13 +22,8 @@ fun interface MediaFdOpener {
 
 /** [MediaFdOpener] on top of the system's content resolver (the files the user picked). */
 class ContentResolverFdOpener(private val resolver: ContentResolver) : MediaFdOpener {
-    override fun open(uri: String): Int? = try {
-        resolver.openFileDescriptor(Uri.parse(uri), "r")?.detachFd()
-    } catch (_: IOException) {
-        null
-    } catch (_: SecurityException) {
-        null
-    }
+    // A drive that is not connected makes the provider throw IllegalArgumentException as well as FileNotFoundException.
+    override fun open(uri: String): Int? = mediaOrNull { resolver.openFileDescriptor(Uri.parse(uri), "r")?.detachFd() }
 }
 
 /**

@@ -631,6 +631,8 @@ class EditorViewModel(
                         timeline = timeline,
                         selectedTrackId = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
                         assets = project.mediaLibrary,
+                        // Until verifyAssets has said which files are readable, nothing opens a file (see playableAssets).
+                        mediaChecked = project.mediaLibrary.isEmpty(),
                     )
                 }
                 refreshStabilise()  // a reopened project's stabilised clips need their tables again
@@ -658,6 +660,7 @@ class EditorViewModel(
             try {
                 probed[asset.id] = importer.verify(asset.uri)
             } catch (e: MediaImportException) {
+                // A drive that is not connected, a lost grant, a dead provider: the file is reported missing, not fatal.
                 missing[asset.id] = e.problem
             }
         }
@@ -671,6 +674,7 @@ class EditorViewModel(
         reduce {
             copy(
                 missingMedia = missingMedia + missing,
+                mediaChecked = true,
                 assets = if (stale.isEmpty()) assets else assets.map { asset ->
                     stale[asset.id]?.let { media ->
                         asset.copy(hasVideo = media.hasVideo, hasAudio = media.hasAudio, displayName = asset.displayName ?: media.displayName)

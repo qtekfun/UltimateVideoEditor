@@ -162,7 +162,7 @@ class ProcessExitRecorder(
 
         val summary = summarise(latest)
         val previous = store.read()
-        store.write(if (previous.isNullOrBlank()) summary else "$summary\n${"-".repeat(40)}\nEarlier report:\n$previous")
+        store.replaceLatest(if (previous.isNullOrBlank()) summary else "$summary\n${"-".repeat(40)}\nEarlier report:\n$previous")
         return true
     }
 

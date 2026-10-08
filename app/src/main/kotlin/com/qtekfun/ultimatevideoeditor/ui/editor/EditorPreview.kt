@@ -5,6 +5,8 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.qtekfun.ultimatevideoeditor.data.MediaImportException
+import com.qtekfun.ultimatevideoeditor.data.openMediaFd
 import com.qtekfun.ultimatevideoeditor.domain.ClipTransform
 import com.qtekfun.ultimatevideoeditor.domain.CubeLut
 import com.qtekfun.ultimatevideoeditor.domain.effectLutKeys
@@ -400,15 +402,12 @@ class EditorPreview(
             var softwareInfo: com.qtekfun.ultimatevideoeditor.engine.preview.AssetInfo? = null
             val error = try {
                 withContext(Dispatchers.IO) {
-                    val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(request.uri), "r")
-                        ?: throw FileNotFoundException(request.uri)
+                    val descriptor = context.contentResolver.openMediaFd(request.uri, "a media file")
                     engine.openAsset(key, descriptor, request.fpsNum, request.fpsDen)
                 }.let { info -> if (info.software) softwareInfo = info }
                 null
-            } catch (e: FileNotFoundException) {
-                "A media file is missing, so it cannot be previewed"
-            } catch (e: SecurityException) {
-                "No permission to read a media file for the preview"
+            } catch (e: MediaImportException) {
+                "A media file cannot be read, so it cannot be previewed (${e.message})"
             } catch (e: PreviewException) {
                 "This clip cannot be previewed: ${e.message}"
             }

@@ -2,6 +2,8 @@ package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import android.content.Context
 import android.net.Uri
+import com.qtekfun.ultimatevideoeditor.data.MediaImportException
+import com.qtekfun.ultimatevideoeditor.data.openMediaFd
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.AudioRole
 import com.qtekfun.ultimatevideoeditor.domain.ParamIds
@@ -300,15 +302,12 @@ class EditorAudio(
         opening += key
         scope.launch {
             val error = try {
-                val descriptor = withContext(Dispatchers.IO) {
-                    context.contentResolver.openFileDescriptor(Uri.parse(asset.uri), "r") ?: throw FileNotFoundException(asset.uri)
-                }
+                val descriptor = withContext(Dispatchers.IO) { context.contentResolver.openMediaFd(asset.uri, "a media file") }
                 descriptor.use { engine.setAsset(key, it) }
                 null
-            } catch (e: FileNotFoundException) {
-                "A media file is missing, so its audio cannot play"
-            } catch (e: SecurityException) {
-                "No permission to read a media file's audio"
+            } catch (e: MediaImportException) {
+                // A drive that is not connected, a lost grant or a dead provider: the clip plays silence.
+                "A media file cannot be read, so its audio cannot play (${e.message})"
             } catch (e: AudioException) {
                 "A clip's audio cannot be played: ${e.message}"
             }
