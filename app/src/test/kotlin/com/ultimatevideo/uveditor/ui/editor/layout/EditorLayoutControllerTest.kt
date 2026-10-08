@@ -46,6 +46,17 @@ class EditorLayoutControllerTest {
     }
 
     @Test
+    fun `the audio lane height is saved with the layout`() {
+        val store = MemoryStore()
+        val controller = EditorLayoutController(store, phone)
+        controller.dispatch(LayoutAction.SetAudioLaneHeight(AudioLaneHeight.TALLER))
+        assertEquals(1, store.writes)
+        assertEquals(AudioLaneHeight.TALLER, controller.audioLaneHeight)
+        assertEquals(AudioLaneHeight.TALLER, store.saved.getValue(LayoutKey.of(phone)).audioLaneHeight)
+        assertEquals(AudioLaneHeight.TALLER, EditorLayoutController(store, phone).audioLaneHeight)
+    }
+
+    @Test
     fun `each window class and orientation keeps its own layout`() {
         val store = MemoryStore()
         val controller = EditorLayoutController(store, phone)

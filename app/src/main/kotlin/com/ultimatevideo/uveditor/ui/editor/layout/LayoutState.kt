@@ -80,6 +80,16 @@ enum class LaneHeight(val scale: Float, val label: String) {
     LARGE(1.4f, "Large"),
 }
 
+/**
+ * How tall audio lanes are next to the other lanes: [factor] multiplies the lane height of the [LaneHeight] preset, so the
+ * waveform and the fade / volume handles have more room to see and grab. [SAME] keeps every lane one height.
+ */
+enum class AudioLaneHeight(val factor: Float, val label: String) {
+    SAME(1.0f, "Same"),
+    TALL(1.5f, "1.5x"),
+    TALLER(2.0f, "2x"),
+}
+
 enum class LayoutPreset(val label: String) {
     DEFAULT("Default"),
     TIMELINE_FOCUS("Timeline focus"),
@@ -101,6 +111,8 @@ data class LayoutState(
     val tray: PanelState = PanelState(Dock.BOTTOM),
     val inspector: PanelState = PanelState(Dock.OVERLAY),
     val laneHeight: LaneHeight = LaneHeight.MEDIUM,
+    /** Audio lanes relative to [laneHeight]; saved with it. */
+    val audioLaneHeight: AudioLaneHeight = AudioLaneHeight.SAME,
     /** The preset last applied, null once something was changed by hand. */
     val preset: LayoutPreset? = LayoutPreset.DEFAULT,
     /** Shows the dividers and handles prominently so they are easy to find; not remembered. */
@@ -209,6 +221,8 @@ sealed interface LayoutAction {
     /** One step taller (+1) or shorter (-1) through the lane heights. */
     data class StepLaneHeight(val delta: Int) : LayoutAction
 
+    data class SetAudioLaneHeight(val audioLaneHeight: AudioLaneHeight) : LayoutAction
+
     data class ApplyPreset(val preset: LayoutPreset) : LayoutAction
 
     data class SetDock(val panel: Panel, val dock: Dock) : LayoutAction
@@ -235,6 +249,7 @@ fun LayoutState.reduce(action: LayoutAction, window: WindowMetrics): LayoutState
             else copy(rightWidthDp = LayoutState.DEFAULT_SIDE_WIDTH_DP),
         )
         is LayoutAction.SetLaneHeight -> manual(copy(laneHeight = action.laneHeight))
+        is LayoutAction.SetAudioLaneHeight -> manual(copy(audioLaneHeight = action.audioLaneHeight))
         is LayoutAction.StepLaneHeight -> {
             val index = (laneHeight.ordinal + action.delta).coerceIn(0, LaneHeight.entries.lastIndex)
             manual(copy(laneHeight = LaneHeight.entries[index]))

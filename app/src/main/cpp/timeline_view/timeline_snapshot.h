@@ -28,6 +28,10 @@ struct TrackSnapshot {
 enum class ClipKind : int32_t { Default = 0, Image = 1, Sticker = 2, Multicam = 3 };
 constexpr int32_t kClipKindShift = 4;
 constexpr int32_t kClipKindMask = 7;
+// Further per-clip flag bits, spare before and read from any version (an older snapshot has them zero): bit 7 = the clip's
+// embedded audio is detached (a video clip then draws no waveform), bit 8 = the clip is linked to another (a small link mark).
+constexpr int32_t kClipAudioDetachedBit = 1 << 7;
+constexpr int32_t kClipLinkedBit = 1 << 8;
 
 struct ClipSnapshot {
     int64_t clipKey;
@@ -45,6 +49,8 @@ struct ClipSnapshot {
     // brighter than the rest; before version 6 a selected clip is its own primary.
     bool primary = false;
     ClipKind kind = ClipKind::Default;
+    bool audioDetached = false;  // flags bit7: its own sound was detached, so the block shows no waveform
+    bool linked = false;         // flags bit8: linked to another clip (edits apply to both)
 };
 
 // A transition across the cut at `cutFrame`, shown from `cutFrame - preFrames` to
@@ -134,7 +140,8 @@ struct TimelineSnapshot {
 // Wire layout (little endian), version 9 (version 8 plus a shaping trailer after the labels: i32 count, then per clip
 //   i64 clipKey, i32 fadeInFrames, i32 fadeOutFrames, i32 flags (bits 0..1 fade shape, bit 2 editable), i32 pointCount,
 //   f32 baseDb, i32 reserved (32 bytes), then pointCount x (i64 frame, f32 db, i32 reserved) (16 bytes each)),
-// version 8 (the same layout as version 7; the per-clip flags gain bits 4..6 = ClipKind, and a
+// version 8 (the same layout as version 7; the per-clip flags gain bits 4..6 = ClipKind (bit 7 = audio detached and bit 8 =
+// linked came later without a version bump: the bits were free and are read as zero from older data), and a
 // label is UTF-8 up to 96 bytes), version 7 (version 6 plus a label trailer after the markers), version 6 (the same layout as version 5; the per-clip flags gain bit3 =
 // primary selection, and a version 5 clip is primary when it is selected). Version 5 (version 4 is the same without the marker trailer, version 3
 // also without the retime trailer, version 2 also without the keyframe trailer):

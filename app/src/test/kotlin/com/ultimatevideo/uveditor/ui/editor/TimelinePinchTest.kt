@@ -50,6 +50,6 @@ class TimelinePinchTest {
         val setters = Class.forName("com.ultimatevideo.uveditor.engine.timeline.TimelineEngine", false, loader).declaredMethods
             .filter { it.name == "setLaneScale" }
         assertEquals(1, setters.size)
-        assertEquals(1, setters.single().parameterCount)
+        assertEquals(2, setters.single().parameterCount)  // the lane scale and the audio lanes' factor
     }
 }

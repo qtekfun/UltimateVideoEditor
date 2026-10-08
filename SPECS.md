@@ -233,7 +233,12 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   `TimelineRenderer::zoomBy`). There is no vertical zoom of the lanes (removed after #110, DECISIONS "No vertical zoom").
 - Lane height is one scalar, the layout sheet's Small / Medium / Large preset (0.75, 1, 1.4), set with `setLaneScale` and fed to
   `Layout::forDensity` (clamped to 0.5x to 3x of the 64 dp default lane); ruler, gaps and touch slop do not scale. All lanes
-  have the same height. Lanes that do not fit the panel scroll vertically (native `scrollBy`, clamped by `Viewport::clamp`;
+  have the same height, except audio lanes: the layout sheet's "Audio track height" (Same / 1.5x / 2x, `AudioLaneHeight`, saved in
+  `LayoutState` next to the lane height as `audiolane=`) multiplies the audio lanes only, passed as the second argument of
+  `setLaneScale(scale, audioFactor)` (clamped to 1x to 3x). `Layout` then holds per-lane geometry built from the snapshot's track
+  types (`withTracks`: `trackTop(i)`, `heightOf(i)`, `trackAt(y)`, `contentHeight(n)`); drawing, hit tests (`hitTest`, `clipsInRect`,
+  the gain under the finger, the fade handles and volume points), the drop hint, bottom anchoring and the scroll extent all go through it, so
+  they agree on where a lane is. A layout without lanes (host tests) is derived from the snapshot inside the hit tests. Lanes that do not fit the panel scroll vertically (native `scrollBy`, clamped by `Viewport::clamp`;
   the stack is anchored to the panel bottom, so with few lanes the free room is above them). The Fit button
   (`fitToContent`) fits the time axis only and turns on "follow" (a resize/rotation or a longer project refits) until the user
   pinches; it never changes lane heights. View state lives in the native renderer, survives rotation (the activity handles
@@ -1613,6 +1618,11 @@ play the sound twice.
 audio* block (video clips, and audio clips of a video's media) offers Detach audio, Unlink, Relink, Relink and realign, and Restore
 embedded audio, with the offset readout. A detached video clip hides its volume and sound tools (they are on the audio clip).
 
+**Canvas.** The timeline snapshot's per-clip flags carry bit 7 = audio detached and bit 8 = linked (spare bits, so the wire version stays
+9 and older data reads as zero). The renderer draws no waveform on a detached video clip and a small chain mark (five rectangles) at the
+right end of the name strip of every linked clip wide enough (56 dp) and with a name strip. Host test `testClipDetachedAndLinkedFlags`,
+Kotlin `TimelineSnapshotTest`.
+
 **Tests.** `ClipLinksTest` (commands; linked move, base reorder, trim, split, delete, ripple, speed, group move, duplicate; unlinked
 independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
 round trip, broken link), `ToolbarGuideTest`.
@@ -2080,7 +2090,8 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
   side panel (horizontal) on wide windows; minimum and maximum sizes; double-tap a divider to reset; haptic tick
   at the default position.
 - **Track height (done; see 5.3):** a +/- control and a choice of Small / Medium / Large lane heights (no pinch: the vertical
-  zoom was removed); waveforms, thumbnails and keyframe diamonds scale.
+  zoom was removed); waveforms, thumbnails and keyframe diamonds scale. A separate "Audio track height" choice (Same / 1.5x / 2x)
+  makes audio lanes taller.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
   toggle already exists.
