@@ -5,7 +5,7 @@ import android.view.Surface
 import com.qtekfun.ultimatevideoeditor.engine.fx.FxWire
 
 internal fun interface NativeErrorListener {
-    fun onError(code: Int, message: String)
+    fun onError(code: Int, message: String, assetKey: Long)
 }
 
 /** JNI bindings only; use [PreviewEngine]. */
@@ -262,7 +262,7 @@ class PreviewEngine private constructor(
             cacheBudgetBytes: Long = DEFAULT_CACHE_BUDGET_BYTES,
             onError: (PreviewException) -> Unit,
         ): PreviewEngine {
-            val listener = NativeErrorListener { code, message -> onError(PreviewException(code, message)) }
+            val listener = NativeErrorListener { code, message, assetKey -> onError(PreviewException(code, message, assetKey)) }
             val handle = NativePreview.nativeCreate(listener, cacheBudgetBytes)
             return PreviewEngine(handle, listener)
         }

@@ -93,6 +93,7 @@ internal fun MediaBanners(state: EditorState, onImportFont: () -> Unit = {}, onI
  * The missing-media dialog: the list of unreadable files (each with a Relink button, and one "Scan a folder" button for all),
  * the progress of a folder scan, or its results.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun RelinkDialog(missing: List<MissingAsset>, folderRelink: FolderRelinkUi, onIntent: (EditorIntent) -> Unit) {
     // One session from the first scan until Close: the scan action is "Scan a folder…" before it and "Scan another folder…" after it,
@@ -116,8 +117,13 @@ internal fun RelinkDialog(missing: List<MissingAsset>, folderRelink: FolderRelin
         confirmButton = {
             if (results) {
                 ResultsButtons(missing.isNotEmpty(), onIntent)
-            } else {
+            } else if (folderRelink is FolderRelinkUi.Running) {
                 TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text("Close") }
+            } else {
+                FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { onIntent(EditorIntent.RecheckMissingMedia) }) { Text("Check again") }
+                    TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text("Close") }
+                }
             }
         },
     )
@@ -147,8 +153,8 @@ private fun ResultsButtons(somethingMissing: Boolean, onIntent: (EditorIntent) -
 private fun MissingList(missing: List<MissingAsset>, onIntent: (EditorIntent) -> Unit) {
     Column {
         Text(
-            "These files cannot be read. Their clips are marked on the timeline and are skipped in the preview and export until you relink them. " +
-                "If you moved them together, \"Scan a folder\" finds all of them in one go.",
+            "These files cannot be read. Their clips are marked on the timeline and show \"Media missing\" in the preview; they are silent, and the export is refused until you relink them. " +
+                "If a drive was unplugged, connect it and tap \"Check again\". If you moved the files together, \"Scan a folder\" finds all of them in one go.",
             style = MaterialTheme.typography.bodySmall,
         )
         LazyColumn(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

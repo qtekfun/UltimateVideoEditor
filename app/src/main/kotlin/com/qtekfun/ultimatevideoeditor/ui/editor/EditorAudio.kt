@@ -253,6 +253,8 @@ internal fun retimeKnotsOf(clip: RenderClip): List<RetimeKnot> {
 class EditorAudio(
     private val context: Context,
     private val scope: CoroutineScope,
+    /** A clip's decode failed: the key of its media and the message. Null reports it through [onError]. */
+    private val onAssetFailure: ((assetKey: Long, message: String) -> Unit)? = null,
     private val onError: (String) -> Unit,
 ) : PlaybackOutput, AudioAnalyzer, AutoCloseable {
 
@@ -339,7 +341,10 @@ class EditorAudio(
                 // An underrun is a glitch, not a failure to report to the user on every occurrence.
                 is AudioFault.Underrun -> Unit
                 is AudioFault.Decode -> if (reportedDecodeFaults.add(fault.clipKey)) {
-                    onError("A clip's audio could not be decoded (${fault.error})")
+                    val message = "A clip's audio could not be decoded (${fault.error})"
+                    // A drive pulled during playback fails here too: the editor finds out whether the file is gone.
+                    val assetKey = latest?.clips?.firstOrNull { it.clipKey == fault.clipKey }?.assetKey
+                    if (assetKey != null && onAssetFailure != null) onAssetFailure.invoke(assetKey, message) else onError(message)
                 }
                 is AudioFault.Device -> onError("The audio device failed (${fault.error})")
             }

@@ -15,9 +15,9 @@
 -keepclassmembers class * {
     void onProgress(int);
     void onFinished(int, java.lang.String);
-    void onError(int, java.lang.String);
+    void onError(int, java.lang.String, long);
     void onWaveformReady(long, int);
-    void onThumbnailError(long, int);
+    void onThumbnailError(long, int, java.lang.String);
 }
 
 # ---- Serialization -----------------------------------------------------------------------------

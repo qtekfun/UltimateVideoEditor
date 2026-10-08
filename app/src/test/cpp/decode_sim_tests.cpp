@@ -23,6 +23,7 @@
 #include "decode/frame_rate.h"
 #include "decode/pending_policy.h"
 #include "decode/seek_policy.h"
+#include "decode/status.h"
 
 static int g_failures = 0;
 #define CHECK(cond)                                                              \
@@ -587,9 +588,21 @@ void twoDecodersEachSeekOnce() {
     }
 }
 
+// A decoder error names the asset it came from once the engine tags it; before that it names none. The editor relies on this to
+// find out which file went away when a drive is pulled while the project is open.
+void errorsCarryTheirAsset() {
+    uv::decode::Error plain{uv::decode::Status::IoError, "seek failed"};
+    CHECK(plain.asset == -1);
+    uv::decode::Error tagged = plain;
+    tagged.asset = 7;
+    CHECK(tagged.asset == 7);
+    CHECK(tagged.code == uv::decode::Status::IoError && tagged.message == "seek failed");
+}
+
 }  // namespace
 
 int main() {
+    errorsCarryTheirAsset();
     sequentialLongGopIsOneSeekAndNearIdeal();
     sequentialShortGopIsOneSeek();
     decodeBoundAndDrawBoundBothNearIdeal();
