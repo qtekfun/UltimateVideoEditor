@@ -23,7 +23,11 @@ object PermissionTrim {
     fun nearLimit(held: Int, limit: Int): Boolean = limit > 0 && held >= (limit * NEAR_LIMIT).toInt()
 
     /** Held permissions that no project refers to any more; releasing them frees slots without losing any media. */
-    fun unused(held: List<String>, referenced: Set<String>): List<String> = held.filter { it !in referenced }
+    fun unused(held: List<String>, referenced: Set<String>): List<String> =
+        held.filter { it !in referenced && referenced.none { r -> isInsideTree(r, it) } }
+
+    /** A file picked inside a folder tree (`<tree>/document/<id>`) is readable only through the tree's permission, so that must stay. */
+    private fun isInsideTree(documentUri: String, held: String): Boolean = documentUri.startsWith("$held/document/")
 }
 
 /**

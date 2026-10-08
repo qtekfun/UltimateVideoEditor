@@ -889,6 +889,25 @@ If a file was moved or its permission was lost, a banner appears in the editor a
 hatched. Tap it to **Relink** each file to a replacement (the app warns if the replacement is shorter or has a
 different frame rate or colour space). Everything else stays editable.
 
+### Relink many files at once: scan a folder
+
+If you moved a whole folder of footage, do not relink file by file. In the banner's list choose **Scan a folder...** and pick the
+folder that now holds the files (the app asks Android for read access to it and keeps that access). ultimateVE looks through that
+folder and the folders inside it, with a progress line and a **Cancel scan** button, and relinks every missing file it can
+identify, in one step. Nothing changes until the scan is done.
+
+- A file is matched by **name** (capital letters do not matter). Each match is opened and checked: it must be the same kind of
+  media (a picture never replaces a video) and be readable. Differences that do not stop it from working, such as a shorter file,
+  are listed as notes.
+- If the folder moved as a whole, the first files found show where it went and the same place is tried for the others, which
+  also settles files that share a name.
+- If several different files share a name, the app compares length and picture size. If that does not settle it, the file is
+  listed under **Several files with the same name** and you tap the one you want, or choose another file yourself. The app never
+  guesses between two different files of the same name.
+- The result says **Relinked N of M**. Files not found are listed with the reason and a **Relink** button that opens the usual
+  single-file picker.
+- Relinking is saved straight away and is **not an undo step** (the same as relinking one file). To change it, relink the file again.
+
 Each save keeps a `project.json.bak`. If a project fails to load, use **Recover** in the hub.
 
 ## About, privacy, tips and crash reports

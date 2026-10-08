@@ -53,6 +53,7 @@ import com.qtekfun.ultimatevideoeditor.data.ProjectDirMediaCaches
 import com.qtekfun.ultimatevideoeditor.data.FontRegistry
 import com.qtekfun.ultimatevideoeditor.data.LutStore
 import com.qtekfun.ultimatevideoeditor.data.ProjectRepository
+import com.qtekfun.ultimatevideoeditor.data.relink.TreeFolderScanner
 import com.qtekfun.ultimatevideoeditor.data.trimPersistedUris
 import com.qtekfun.ultimatevideoeditor.engine.NativeEngineClient
 import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformBeatSource
@@ -287,6 +288,7 @@ class MainActivity : ComponentActivity() {
                                     repository,
                                     mediaImporter,
                                     mediaCaches = ProjectDirMediaCaches(File(filesDir, "projects/$projectId")),
+                                    folderScanner = TreeFolderScanner(applicationContext),
                                     beatSource = WaveformBeatSource(WaveformCache(File(filesDir, "projects/$projectId"))),
                                     stabiliser = FileStabiliser(File(filesDir, "projects/$projectId/stab"), ContentResolverFdOpener(contentResolver)),
                                     frameSampler = AndroidFrameSampler(applicationContext),
