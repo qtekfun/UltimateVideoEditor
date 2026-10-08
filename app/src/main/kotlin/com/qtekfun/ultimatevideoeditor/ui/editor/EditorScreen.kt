@@ -42,6 +42,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.key
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -171,6 +173,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.gestures.Orientation
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedBottomBar
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarItem
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedStrip
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.DockLayout
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.DragHandle
@@ -1157,69 +1160,94 @@ private fun EditorMain(
                     }
                 }
 
+                // The tools in the order the person chose (ToolbarOrder); hidden ones wait in the More menu at the end.
+                // [after] closes that menu once a plain button has been used.
+                val proxyIntent = LocalProxyIntent.current
+                val toolbarItem: @Composable (ToolbarItem, () -> Unit) -> Unit = { item, after ->
+                    when (item) {
+                        ToolbarItem.IMPORT -> ToolButton(EditorIcons.Add, "Import media", enabled = !state.isImporting) { onImport(); after() }
+                        ToolbarItem.SPLIT -> ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
+                            viewModel.onIntent(EditorIntent.SplitAtPlayhead); after()
+                        }
+                        ToolbarItem.DETACH_AUDIO -> ToolButton(
+                            EditorIcons.DetachAudio,
+                            "Detach audio: put the selected video clip's sound on an audio lane, linked to the clip",
+                            enabled = state.selectedClipId?.let { id ->
+                                val hasAudio = state.assets.firstOrNull { it.id == state.timeline.trackOfClip(id)?.clip(id)?.assetId }?.hasAudio == true
+                                ClipLinks.infoFor(state.timeline, id, hasAudio)?.canDetach == true
+                            } == true,
+                        ) { viewModel.onIntent(EditorIntent.DetachAudio); after() }
+                        ToolbarItem.DELETE -> ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
+                            viewModel.onIntent(EditorIntent.RippleDeleteSelected); after()
+                        }
+                        ToolbarItem.MARKER -> MarkerMenu(state, viewModel::onIntent)
+                        ToolbarItem.SELECT_MODE -> SelectModeButton(state, viewModel::onIntent)
+                        ToolbarItem.CLOSE_GAP -> ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
+                            viewModel.onIntent(EditorIntent.RippleAppendSelected); after()
+                        }
+                        ToolbarItem.TITLE -> ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle); after() }
+                        ToolbarItem.CAPTIONS -> ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file") { onCaptions(); after() }
+                        ToolbarItem.STICKERS -> ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS); after() }
+                        ToolbarItem.TEMPLATES -> ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES); after() }
+                        ToolbarItem.QUICK_EDITS -> QuickEditMenu(state, viewModel::onIntent)
+                        ToolbarItem.LIBRARY -> LibraryButton(viewModel::onIntent)
+                        ToolbarItem.PROXY -> ToolButton(EditorIcons.Proxy, "Proxy media: small copies for smooth editing of heavy video; export always uses the originals") {
+                            proxyIntent(ProxyIntent.OpenSheet); after()
+                        }
+                        ToolbarItem.MIXER -> ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") {
+                            viewModel.onIntent(EditorIntent.ToggleMixer); after()
+                        }
+                        ToolbarItem.MULTICAM -> ToolButton(EditorIcons.Multicam, "Multicam: line up several cameras by their sound and cut between them") {
+                            viewModel.onIntent(EditorIntent.Multicam(MulticamIntent.Open)); after()
+                        }
+                        ToolbarItem.SCOPES -> ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
+                            scopesOpen = !scopesOpen; after()
+                        }
+                        ToolbarItem.TRANSITION -> ToolButton(
+                            EditorIcons.Transition,
+                            "Add a crossfade at the selected cut: select a clip next to another one, or put the playhead on a cut",
+                            enabled = state.transitionCut != null,
+                        ) { viewModel.onIntent(EditorIntent.AddTransition); after() }
+                        ToolbarItem.ADJUST -> ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
+                            viewModel.onIntent(EditorIntent.ToggleInspector); after()
+                        }
+                        ToolbarItem.TRACK_CONTROLS -> TrackControls(
+                            state.selectedTrackLabel,
+                            onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) },
+                            onMove = { viewModel.onIntent(EditorIntent.MoveSelectedTrack(it)) },
+                        ) {
+                            viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
+                        }
+                        ToolbarItem.CANVAS -> ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
+                            viewModel.onIntent(EditorIntent.ShowCanvasDialog); after()
+                        }
+                        ToolbarItem.SAFE_ZONE -> SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
+                    }
+                }
+                var moreOpen by remember { mutableStateOf(false) }
+                val overflow = layout.toolbarOrder.overflow
+
                 // Scrolls sideways when the buttons do not fit a narrow window.
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ToolButton(EditorIcons.Add, "Import media", enabled = !state.isImporting, onClick = onImport)
-                    ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
-                        viewModel.onIntent(EditorIntent.SplitAtPlayhead)
+                    for (item in layout.toolbarOrder.visible) key(item) { toolbarItem(item) {} }
+                    if (overflow.isNotEmpty()) {
+                        Box {
+                            ToolButton(SelectionIcons.More, "More tools: ${overflow.joinToString { it.label }}") { moreOpen = true }
+                            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                                FlowRow(
+                                    modifier = Modifier.widthIn(max = 260.dp).padding(horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    for (item in overflow) key(item) { toolbarItem(item) { moreOpen = false } }
+                                }
+                            }
+                        }
                     }
-                    ToolButton(
-                        EditorIcons.DetachAudio,
-                        "Detach audio: put the selected video clip's sound on an audio lane, linked to the clip",
-                        enabled = state.selectedClipId?.let { id ->
-                            val hasAudio = state.assets.firstOrNull { it.id == state.timeline.trackOfClip(id)?.clip(id)?.assetId }?.hasAudio == true
-                            ClipLinks.infoFor(state.timeline, id, hasAudio)?.canDetach == true
-                        } == true,
-                    ) { viewModel.onIntent(EditorIntent.DetachAudio) }
-                    ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
-                        viewModel.onIntent(EditorIntent.RippleDeleteSelected)
-                    }
-                    // Used all the time: right after the trash.
-                    MarkerMenu(state, viewModel::onIntent)
-                    SelectModeButton(state, viewModel::onIntent)
-                    ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
-                        viewModel.onIntent(EditorIntent.RippleAppendSelected)
-                    }
-                    ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle) }
-                    ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file", onClick = onCaptions)
-                    ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
-                    ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
-                    QuickEditMenu(state, viewModel::onIntent)
-                    LibraryButton(viewModel::onIntent)
-                    val proxyIntent = LocalProxyIntent.current
-                    ToolButton(EditorIcons.Proxy, "Proxy media: small copies for smooth editing of heavy video; export always uses the originals") {
-                        proxyIntent(ProxyIntent.OpenSheet)
-                    }
-                    ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") { viewModel.onIntent(EditorIntent.ToggleMixer) }
-                    ToolButton(EditorIcons.Multicam, "Multicam: line up several cameras by their sound and cut between them") {
-                        viewModel.onIntent(EditorIntent.Multicam(MulticamIntent.Open))
-                    }
-                    ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
-                        scopesOpen = !scopesOpen
-                    }
-                    ToolButton(
-                        EditorIcons.Transition,
-                        "Add a crossfade at the selected cut: select a clip next to another one, or put the playhead on a cut",
-                        enabled = state.transitionCut != null,
-                    ) { viewModel.onIntent(EditorIntent.AddTransition) }
-                    ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
-                        viewModel.onIntent(EditorIntent.ToggleInspector)
-                    }
-                    TrackControls(
-                        state.selectedTrackLabel,
-                        onAdd = { viewModel.onIntent(EditorIntent.AddTrack(it)) },
-                        onMove = { viewModel.onIntent(EditorIntent.MoveSelectedTrack(it)) },
-                    ) {
-                        viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
-                    }
-                    ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
-                        viewModel.onIntent(EditorIntent.ShowCanvasDialog)
-                    }
-                    SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
                 }
                 if (state.selectMode || state.isMultiSelection) SelectionBar(state, viewModel::onIntent)
                 if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
