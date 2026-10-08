@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import com.qtekfun.ultimatevideoeditor.data.MediaProblem
+import com.qtekfun.ultimatevideoeditor.data.relink.FolderRelinkOutcome
 import com.qtekfun.ultimatevideoeditor.data.MissingAsset
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
@@ -104,6 +105,8 @@ data class EditorState(
     val missingMedia: Map<String, MediaProblem> = emptyMap(),
     /** The relink list is open. */
     val relinkOpen: Boolean = false,
+    /** The "scan a folder" relink: idle, running (with progress) or finished (with its results). */
+    val folderRelink: FolderRelinkUi = FolderRelinkUi.Idle,
     /** The last autosave failed with this message; the project on disk is older than what is on screen. */
     val saveError: String? = null,
     /** Leaving was refused because the last save failed; the user chooses between retrying and discarding. */
@@ -666,6 +669,21 @@ sealed interface EditorIntent : UiIntent {
     /** The picker returned [uri] as the replacement for [assetId]. */
     data class RelinkAsset(val assetId: String, val uri: String) : EditorIntent
 
+    /** The user chose "Scan a folder": ask the screen to open the folder picker. */
+    data object RequestFolderRelink : EditorIntent
+
+    /** The folder picker returned [treeUri]: look in it for every missing file and relink what is found. */
+    data class RelinkFromFolder(val treeUri: String) : EditorIntent
+
+    /** Stop a running folder scan; nothing is changed. */
+    data object CancelFolderRelink : EditorIntent
+
+    /** Close the results of a folder scan and go back to the list of what is still missing. */
+    data object DismissFolderRelink : EditorIntent
+
+    /** The user chose [uri], one of the files the folder scan found for [assetId], among several of the same name. */
+    data class RelinkFromCandidate(val assetId: String, val uri: String) : EditorIntent
+
     /** Try saving again after a failed autosave. */
     data object RetrySave : EditorIntent
 
@@ -687,6 +705,9 @@ sealed interface EditorEffect : UiEffect {
 
     /** Open the document picker to choose a replacement for [assetId]. */
     data class LaunchRelinkPicker(val assetId: String) : EditorEffect
+
+    /** Open the folder picker to choose where to look for the missing media. */
+    data object LaunchFolderPicker : EditorEffect
 
     /** Open the "create document" picker to choose where the [kind] export is written; the answer is [LibraryIntent.ExportTo]. */
     data class LaunchInterchangePicker(val kind: InterchangeKind, val suggestedFileName: String, val mime: String) : EditorEffect
@@ -729,3 +750,25 @@ data class TrackUiState(
 
 /** What the timeline draws on top of a drag: the clips lifted with a shadow and a line where a moved edge snapped ([guideFrame], null for none). */
 data class DragOverlay(val clipIds: List<String>, val guideFrame: Long?)
+
+/** The state of "Relink by scanning a folder" (SPECS 5.40). */
+sealed interface FolderRelinkUi {
+    data object Idle : FolderRelinkUi
+
+    /** Running: [files] media files seen so far in [folders] folders; then [checked] of [total] matches opened and checked (total 0 while scanning). */
+    data class Running(val files: Int = 0, val folders: Int = 0, val checked: Int = 0, val total: Int = 0) : FolderRelinkUi
+
+    /** Finished: what was relinked and what is left for the user. */
+    data class Done(val outcome: FolderRelinkOutcome) : FolderRelinkUi
+}
+
+/** The report without [assetId]: it was relinked or chosen by hand, so it no longer needs the user's attention. */
+internal fun FolderRelinkUi.without(assetId: String): FolderRelinkUi = when (this) {
+    is FolderRelinkUi.Done -> FolderRelinkUi.Done(
+        outcome.copy(
+            notFound = outcome.notFound.filter { it.assetId != assetId },
+            ambiguous = outcome.ambiguous.filter { it.assetId != assetId },
+        ),
+    )
+    else -> this
+}
