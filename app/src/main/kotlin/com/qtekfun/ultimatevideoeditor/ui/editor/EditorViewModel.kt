@@ -358,10 +358,7 @@ class EditorViewModel(
             EditorIntent.FlipDropChoice -> flipDropChoice()
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
-            EditorIntent.RippleDeleteSelected -> {
-                val group = state.value.selection
-                if (group.size > 1) deleteSelection() else withSelection { execute(EditCommand.DeleteClip(it)) }
-            }
+            EditorIntent.RippleDeleteSelected -> deleteSelectedAtCut()
             EditorIntent.RippleAppendSelected -> withSelection { execute(EditCommand.RippleAppend(it)) }
             EditorIntent.TogglePlay -> togglePlay()
             is EditorIntent.AddTrack -> addTrack(intent.type)
@@ -1583,6 +1580,27 @@ class EditorViewModel(
             )
         }
         playbackOutput?.seek(cut.value)
+    }
+
+    /**
+     * Deletes the selected clip(s) and parks the playhead where the cut was: the start of what was removed, which is where the
+     * clip after it now begins (a delete closes the gap). Cut, delete the left part, and the cursor sits on the join instead
+     * of staying over footage that has moved. Playback stops there, as after a split.
+     */
+    private fun deleteSelectedAtCut() {
+        val timeline = history.timeline
+        val group = state.value.selection
+        val ids = if (group.size > 1) group.toList() else listOfNotNull(state.value.selectedClipId)
+        if (ids.isEmpty()) {
+            emit(EditorEffect.ShowMessage("Select a clip first"))
+            return
+        }
+        val cut = ids.mapNotNull { timeline.trackOfClip(it)?.clip(it)?.timelineStart?.value }.minOrNull()
+        val done = if (group.size > 1) execute(GroupDelete(ids)) else execute(EditCommand.DeleteClip(ids.first()))
+        if (done && cut != null) {
+            pausePlayback()
+            setPlayhead(cut)
+        }
     }
 
     private fun dragStart(hit: TimelineHit) {
