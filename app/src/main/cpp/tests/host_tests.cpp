@@ -393,7 +393,7 @@ static void testMarkerHitTestAndLabels() {
 static void testMarkerStyleColours() {
     // Six distinct, bright colours in MarkerColor order (red, orange, yellow, green, blue, purple), and a default.
     const timeline::MarkerRgb none = timeline::markerRgb(0);
-    CHECK(none.r == 1.0f && none.g > 0.4f && none.g < 0.5f && none.b == 0.80f);  // the original pink
+    CHECK(none.r == 1.0f && none.g == timeline::markerRgb(1).g && none.b == timeline::markerRgb(1).b);  // no colour chosen reads as red
     for (int a = 1; a <= timeline::kMarkerColorCount; ++a) {
         const timeline::MarkerRgb ca = timeline::markerRgb(a);
         CHECK(ca.r >= 0.0f && ca.r <= 1.0f && ca.g >= 0.0f && ca.g <= 1.0f && ca.b >= 0.0f && ca.b <= 1.0f);
