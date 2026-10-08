@@ -141,6 +141,25 @@ class RelinkViewModelTest {
     }
 
     @Test
+    fun `the number of missing files is saved so the project list can flag the project`() = runTest(dispatcher) {
+        val h = harness()
+        h.importer.media["content://new/a1"] = video()
+
+        // Opening alone writes nothing; the first save after an edit carries the count.
+        assertTrue(h.store.saved.isEmpty())
+        h.vm.onIntent(EditorIntent.TapTimeline(TimelineHit(HitKind.CLIP, 1, h.vm.clipKey("c2"), 120)))
+        h.vm.onIntent(EditorIntent.SetPlayhead(150))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        advanceTimeBy(600)
+        assertEquals(1, h.store.saved.last().missingMedia)
+
+        h.vm.onIntent(EditorIntent.RelinkAsset("a1", "content://new/a1"))
+        runCurrent()
+        advanceTimeBy(600)
+        assertEquals(0, h.store.saved.last().missingMedia)
+    }
+
+    @Test
     fun `the reason a file cannot be used is kept`() = runTest(dispatcher) {
         val h = harness(problems = mapOf("content://m/a1" to MediaProblem.PERMISSION_LOST))
 
