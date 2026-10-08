@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.data.asIoFailure
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -48,11 +49,7 @@ class ContentResolverExportIO(private val context: Context) : ExportIO {
     override fun openForRead(uri: String): Int = open(uri, "r")
 
     private fun open(uri: String, mode: String): Int {
-        val descriptor = try {
-            context.contentResolver.openFileDescriptor(Uri.parse(uri), mode)
-        } catch (e: SecurityException) {
-            throw IOException("No permission to open $uri", e)
-        }
+        val descriptor = asIoFailure(uri) { context.contentResolver.openFileDescriptor(Uri.parse(uri), mode) }
         return (descriptor ?: throw FileNotFoundException(uri)).detachFd()
     }
 
@@ -63,6 +60,10 @@ class ContentResolverExportIO(private val context: Context) : ExportIO {
     } catch (e: SecurityException) {
         null
     } catch (e: IllegalArgumentException) {
+        null
+    } catch (e: IllegalStateException) {
+        null
+    } catch (e: UnsupportedOperationException) {
         null
     }
 

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.proxy
 
+import com.qtekfun.ultimatevideoeditor.data.asIoFailure
+import com.qtekfun.ultimatevideoeditor.data.mediaOrNull
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -30,11 +32,7 @@ interface ProxyMediaAccess {
 
 class AndroidProxyMediaAccess(private val context: Context) : ProxyMediaAccess {
     override fun openSource(uri: String): Int {
-        val descriptor = try {
-            context.contentResolver.openFileDescriptor(Uri.parse(uri), "r")
-        } catch (e: SecurityException) {
-            throw IOException("No permission to read $uri", e)
-        }
+        val descriptor = asIoFailure(uri) { context.contentResolver.openFileDescriptor(Uri.parse(uri), "r") }
         return (descriptor ?: throw FileNotFoundException(uri)).detachFd()
     }
 
@@ -52,13 +50,8 @@ class AndroidProxyMediaAccess(private val context: Context) : ProxyMediaAccess {
         }
     }
 
-    override fun sizeOf(uri: String): Long = try {
-        context.contentResolver.openAssetFileDescriptor(Uri.parse(uri), "r")?.use { it.length } ?: -1L
-    } catch (e: FileNotFoundException) {
-        -1L
-    } catch (e: SecurityException) {
-        -1L
-    }
+    override fun sizeOf(uri: String): Long =
+        mediaOrNull { context.contentResolver.openAssetFileDescriptor(Uri.parse(uri), "r")?.use { it.length } } ?: -1L
 
     override fun probe(uri: String): SourceInfo {
         val retriever = MediaMetadataRetriever()

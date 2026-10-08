@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.data.mediaOrNull
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -53,13 +54,11 @@ class ContentResolverMediaAccess(private val resolver: ContentResolver) : Bundle
         null
     } catch (e: IllegalArgumentException) {
         null
+    } catch (e: IllegalStateException) {
+        null
+    } catch (e: UnsupportedOperationException) {
+        null
     }
 
-    override fun open(uri: String): InputStream? = try {
-        resolver.openInputStream(Uri.parse(uri))
-    } catch (e: SecurityException) {
-        null
-    } catch (e: IOException) {
-        null
-    }
+    override fun open(uri: String): InputStream? = mediaOrNull { resolver.openInputStream(Uri.parse(uri)) }
 }

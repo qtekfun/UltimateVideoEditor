@@ -61,11 +61,28 @@ object CrashReportFormat {
         .take(MAX_MESSAGE)
 }
 
-/** One report on disk: the latest crash. Written atomically so that a second crash cannot leave half a file. */
+/**
+ * The crash reports on disk: `last-crash.txt` is the latest, `last-crash.1.txt` the one before it, and so on up to
+ * [MAX_FILES] files in all (the oldest is dropped). Written atomically so that a second crash cannot leave half a file.
+ */
 class CrashReportStore(private val dir: File) {
-    private val file get() = File(dir, FILE_NAME)
+    private val file get() = fileAt(0)
 
+    private fun fileAt(index: Int) = File(dir, if (index == 0) FILE_NAME else "last-crash.$index.txt")
+
+    /** Stores [report] as the latest, moving the earlier ones one place back. */
     fun write(report: String) {
+        dir.mkdirs()
+        fileAt(MAX_FILES - 1).delete()
+        for (index in MAX_FILES - 2 downTo 0) {
+            val from = fileAt(index)
+            if (from.isFile) check(from.renameTo(fileAt(index + 1))) { "could not rotate the crash reports" }
+        }
+        replaceLatest(report)
+    }
+
+    /** Overwrites the latest report without rotating (used to extend it with a native-exit summary). */
+    fun replaceLatest(report: String) {
         dir.mkdirs()
         val temp = File(dir, "$FILE_NAME.tmp")
         temp.writeText(report.take(MAX_BYTES))
@@ -77,13 +94,17 @@ class CrashReportStore(private val dir: File) {
 
     fun read(): String? = file.takeIf { it.isFile }?.readText()
 
+    /** Every stored report, newest first. */
+    fun readAll(): List<String> = (0 until MAX_FILES).map(::fileAt).filter { it.isFile }.map { it.readText() }
+
     fun delete() {
-        file.delete()
+        for (index in 0 until MAX_FILES) fileAt(index).delete()
     }
 
-    private companion object {
-        const val FILE_NAME = "last-crash.txt"
-        const val MAX_BYTES = 64 * 1024
+    companion object {
+        const val MAX_FILES = 5
+        private const val FILE_NAME = "last-crash.txt"
+        private const val MAX_BYTES = 64 * 1024
     }
 }
 

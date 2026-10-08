@@ -134,6 +134,8 @@ import com.qtekfun.ultimatevideoeditor.ui.export.ExportCenter
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportHost
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportInput
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportIntent
+import com.qtekfun.ultimatevideoeditor.data.MediaImportException
+import com.qtekfun.ultimatevideoeditor.data.openMediaFd
 import com.qtekfun.ultimatevideoeditor.data.FontRegistry
 import com.qtekfun.ultimatevideoeditor.data.LookStore
 import com.qtekfun.ultimatevideoeditor.data.TitlePresetStore
@@ -481,7 +483,7 @@ fun EditorScreen(
 
     // Keep the mixer in step with the committed timeline (not with a clip drag in progress). A slider
     // of the audio tools (pan, EQ, track volume, ducking) is heard live: audioSource is its preview.
-    StateEffect(holder, { listOf(it.audioSource, it.assets, it.missingMedia, it.fps, it.isLoading) }) { s ->
+    StateEffect(holder, { listOf(it.audioSource, it.assets, it.missingMedia, it.mediaChecked, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         // Files that cannot be read are left out: the mixer would only fail on them.
         audio.update(
@@ -498,7 +500,7 @@ fun EditorScreen(
     StateEffect(
         holder,
         // The proxy version changes when the switch flips or a proxy finishes: the preview then opens another file.
-        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading, proxyHolder.value.resolveVersion) },
+        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.mediaChecked, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading, proxyHolder.value.resolveVersion) },
     ) { s ->
         if (s.isLoading) return@StateEffect
         val layers = previewRequestsOnCanvas(
@@ -693,7 +695,7 @@ fun EditorScreen(
     }
 
     val requestedWaveforms = remember { mutableSetOf<String>() }
-    StateEffect(holder, { listOf(it.assets, it.missingMedia) }) { s ->
+    StateEffect(holder, { listOf(it.assets, it.missingMedia, it.mediaChecked) }) { s ->
         for (asset in s.playableAssets) {
             // Keyed by the file too, so a relinked asset is requested again from its new file.
             if (!asset.hasAudio || !requestedWaveforms.add("${asset.id}|${asset.uri}")) continue
@@ -701,7 +703,7 @@ fun EditorScreen(
         }
     }
     val requestedThumbnails = remember { mutableSetOf<String>() }
-    StateEffect(holder, { listOf(it.assets, it.missingMedia) }) { s ->
+    StateEffect(holder, { listOf(it.assets, it.missingMedia, it.mediaChecked) }) { s ->
         for (asset in s.playableAssets) {
             if (!(asset.hasVideo || asset.isImage) || !requestedThumbnails.add("${asset.id}|${asset.uri}")) continue
             // Filmstrips are cheaper to decode from a ready proxy; they are cached under the original's identity.
@@ -1433,16 +1435,12 @@ private suspend fun requestWaveform(
 ) {
     val prepared = try {
         withContext(Dispatchers.IO) {
-            val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(asset.uri), "r")
-                ?: throw FileNotFoundException(asset.uri)
+            val descriptor = context.contentResolver.openMediaFd(asset.uri, displayName(asset))
             val cache = WaveformCache(File(context.filesDir, "projects/$projectId")).fileFor(asset.id)
             descriptor.detachFd() to cache
         }
-    } catch (e: FileNotFoundException) {
-        viewModel.onIntent(EditorIntent.ReportError("A media file is missing: ${displayName(asset)}"))
-        return
-    } catch (e: SecurityException) {
-        viewModel.onIntent(EditorIntent.ReportError("No permission to read ${displayName(asset)}"))
+    } catch (e: MediaImportException) {
+        viewModel.onIntent(EditorIntent.ReportError(e.message ?: "A media file cannot be read: ${displayName(asset)}"))
         return
     }
     try {
@@ -1462,15 +1460,12 @@ private suspend fun requestThumbnails(
 ) {
     val prepared = try {
         withContext(Dispatchers.IO) {
-            val descriptor = context.contentResolver.openFileDescriptor(Uri.parse(asset.uri), "r")
-                ?: throw FileNotFoundException(asset.uri)
+            val descriptor = context.contentResolver.openMediaFd(asset.uri, displayName(asset))
             val dir = ThumbnailCache(File(context.filesDir, "projects/$projectId")).dirFor(asset.id)
             descriptor.detachFd() to dir
         }
-    } catch (e: FileNotFoundException) {
-        return  // the waveform request already reports a missing file; no second message
-    } catch (e: SecurityException) {
-        return
+    } catch (e: MediaImportException) {
+        return  // the clip keeps an empty filmstrip; the file is reported by the verification and the waveform request
     }
     try {
         engine.requestThumbnails(viewModel.assetKey(asset.id), prepared.first, prepared.second)
