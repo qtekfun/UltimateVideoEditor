@@ -54,7 +54,7 @@ permission for that file so a project can reopen it; the app releases permission
 ## How to verify it yourself
 
 1. Look at the manifest: `app/src/main/AndroidManifest.xml` declares only the four `uses-permission` entries above. In the built APK,
-   `aapt2 dump permissions app-debug.apk` lists those four and `com.ultimatevideo.uveditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
+   `aapt2 dump permissions app-debug.apk` lists those four and `com.qtekfun.ultimatevideoeditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
    a private permission that AndroidX adds so the app's own broadcast receivers cannot be called from other apps; it
    grants access to nothing.
 2. On the phone: Settings > Apps > ultimateVE > Permissions shows at most Notifications; in a firewall app or with

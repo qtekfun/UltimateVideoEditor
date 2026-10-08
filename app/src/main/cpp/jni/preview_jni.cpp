@@ -19,7 +19,7 @@ using uv::render::ColorMode;
 using uv::render::OutputSpace;
 using uv::render::PreviewEngine;
 
-constexpr const char* kExceptionClass = "com/ultimatevideo/uveditor/engine/preview/PreviewException";
+constexpr const char* kExceptionClass = "com/qtekfun/ultimatevideoeditor/engine/preview/PreviewException";
 
 void throwPreview(JNIEnv* env, Status code, const std::string& message) {
     jclass cls = env->FindClass(kExceptionClass);
@@ -76,7 +76,7 @@ Handle* fromHandle(jlong handle) { return reinterpret_cast<Handle*>(handle); }
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeCreate(
+JNIEXPORT jlong JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeCreate(
     JNIEnv* env, jobject /*thiz*/, jobject listener, jlong budgetBytes) {
     auto handle = std::make_unique<Handle>();
     handle->listener = std::make_unique<ListenerRef>();
@@ -102,7 +102,7 @@ JNIEXPORT jlong JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePre
     return reinterpret_cast<jlong>(handle.release());
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeDestroy(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeDestroy(
     JNIEnv* env, jobject /*thiz*/, jlong handle) {
     std::unique_ptr<Handle> h(fromHandle(handle));
     if (!h) return;
@@ -110,7 +110,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     env->DeleteGlobalRef(h->listener->listener);
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeAttachSurface(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeAttachSurface(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jobject surface) {
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
     if (window == nullptr) {
@@ -123,17 +123,17 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     if (status != Status::Ok) throwPreview(env, error.code, error.message);
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeDetachSurface(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeDetachSurface(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     fromHandle(handle)->engine->detachSurface();
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSurfaceChanged(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSurfaceChanged(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     fromHandle(handle)->engine->surfaceChanged();
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeAttachScopeSurface(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeAttachScopeSurface(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jobject surface) {
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
     if (window == nullptr) {
@@ -146,17 +146,17 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     if (status != Status::Ok) throwPreview(env, error.code, error.message);
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeDetachScopeSurface(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeDetachScopeSurface(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     fromHandle(handle)->engine->detachScopeSurface();
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeScopeSurfaceChanged(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeScopeSurfaceChanged(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     fromHandle(handle)->engine->scopeSurfaceChanged();
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScopeMode(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSetScopeMode(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint mode) {
     fromHandle(handle)->engine->setScopeMode(static_cast<int>(mode));
 }
@@ -164,7 +164,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 // Returns {width, height, durationFrames, fpsNum, fpsDen, colorTransfer, rotationDegrees, software, proxyAdvised};
 // the last two are 1 when the FFmpeg fallback decodes the file and when that is too heavy for real time.
 // Takes ownership of fd.
-JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeOpenAsset(
+JNIEXPORT jlongArray JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeOpenAsset(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint assetId, jint fd, jint fpsNum, jint fpsDen) {
     auto opened = fromHandle(handle)->engine->openAsset(static_cast<uint32_t>(assetId), fd, Rational{fpsNum, fpsDen});
     if (!opened.ok()) {
@@ -179,7 +179,7 @@ JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_Nati
     return result;
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeCloseAsset(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeCloseAsset(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint assetId) {
     fromHandle(handle)->engine->closeAsset(static_cast<uint32_t>(assetId));
 }
@@ -243,7 +243,7 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx
 }
 }  // namespace
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetScene(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSetScene(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params,
     jdoubleArray fx) {
     std::vector<uv::render::SceneLayer> layers;
@@ -251,7 +251,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     fromHandle(handle)->engine->setScene(canvasW, canvasH, std::move(layers));
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativePlayScene(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativePlayScene(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint canvasW, jint canvasH, jlongArray ids, jfloatArray params,
     jdoubleArray fx, jint fpsNum, jint fpsDen) {
     std::vector<uv::render::SceneLayer> layers;
@@ -260,7 +260,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 }
 
 // `pixels` is a direct buffer of width * height * 4 bytes (premultiplied RGBA, top row first); it is copied.
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadTitle(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeUploadTitle(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint width, jint height, jint displayWidth, jint displayHeight,
     jobject pixels) {
     const void* data = pixels == nullptr ? nullptr : env->GetDirectBufferAddress(pixels);
@@ -276,7 +276,7 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
 }
 
 // `rgb` is a direct float buffer of size^3 * 3 values (red varying fastest); it is copied.
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeUploadLut(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeUploadLut(
     JNIEnv* env, jobject /*thiz*/, jlong handle, jint key, jint size, jobject rgb) {
     const void* data = rgb == nullptr ? nullptr : env->GetDirectBufferAddress(rgb);
     const jlong capacity = rgb == nullptr ? 0 : env->GetDirectBufferCapacity(rgb);
@@ -289,54 +289,54 @@ JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePrev
     fromHandle(handle)->engine->uploadLut(static_cast<uint32_t>(key), size, std::vector<float>(floats, floats + count));
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseLut(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeReleaseLut(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
     fromHandle(handle)->engine->releaseLut(static_cast<uint32_t>(key));
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeReleaseTitle(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeReleaseTitle(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint key) {
     fromHandle(handle)->engine->releaseTitle(static_cast<uint32_t>(key));
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSeek(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSeek(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint assetId, jlong frame) {
     fromHandle(handle)->engine->seek(static_cast<uint32_t>(assetId), frame);
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativePlay(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativePlay(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint assetId, jlong startFrame) {
     fromHandle(handle)->engine->play(static_cast<uint32_t>(assetId), startFrame);
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativePause(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativePause(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     fromHandle(handle)->engine->pause();
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetColorMode(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSetColorMode(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint assetId, jint mode) {
     fromHandle(handle)->engine->setColorMode(static_cast<uint32_t>(assetId), static_cast<ColorMode>(mode));
 }
 
-JNIEXPORT jint JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetOutputSpace(
+JNIEXPORT jint JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSetOutputSpace(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint space) {
     const OutputSpace requested = space == 1 ? OutputSpace::Hlg2020 : OutputSpace::Sdr709;
     return static_cast<jint>(fromHandle(handle)->engine->setOutputSpace(requested));
 }
 
-JNIEXPORT jint JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeGetOutputSpace(
+JNIEXPORT jint JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeGetOutputSpace(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
     return static_cast<jint>(fromHandle(handle)->engine->outputSpace());
 }
 
-JNIEXPORT void JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeSetCacheBudget(
+JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeSetCacheBudget(
     JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jlong bytes) {
     fromHandle(handle)->engine->setCacheBudget(static_cast<size_t>(bytes));
 }
 
 // Returns {cacheUsedBytes, cacheBudgetBytes, cacheEntries, framesDrawn, stalls, framesDecoded}.
-JNIEXPORT jlongArray JNICALL Java_com_ultimatevideo_uveditor_engine_preview_NativePreview_nativeStats(
+JNIEXPORT jlongArray JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_NativePreview_nativeStats(
     JNIEnv* env, jobject /*thiz*/, jlong handle) {
     const auto s = fromHandle(handle)->engine->stats();
     const jlong values[6] = {s.cacheUsedBytes, s.cacheBudgetBytes, s.cacheEntries,

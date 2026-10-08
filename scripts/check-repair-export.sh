@@ -6,7 +6,7 @@
 # Same prerequisites as check-slowmo-export.sh (PKG, ffmpeg, the app and androidTest APKs installed, app closed).
 set -euo pipefail
 serial="$1"
-pkg="${PKG:-com.ultimatevideo.uveditor}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 dir="/sdcard/Android/data/$pkg/files"
@@ -28,7 +28,7 @@ ffmpeg -v error -y -i "$work/clean.mp4" \
 
 adb -s "$serial" push "$work/repair_src.mp4" "$dir/repair_src.mp4" > /dev/null
 adb -s "$serial" logcat -c
-adb -s "$serial" shell am instrument -w -e class com.ultimatevideo.uveditor.engine.export.RepairExportInstrumentedTest \
+adb -s "$serial" shell am instrument -w -e class com.qtekfun.ultimatevideoeditor.engine.export.RepairExportInstrumentedTest \
     "$pkg.test/androidx.test.runner.AndroidJUnitRunner" | tee "$work/run.txt" | tail -5
 grep -q "^OK" "$work/run.txt" || { echo "the instrumented run failed" >&2; adb -s "$serial" logcat -d | grep -E "uveditor|effect" | tail -20; exit 1; }
 for f in repair_off_out.mp4 repair_on_out.mp4 repair_times.txt; do

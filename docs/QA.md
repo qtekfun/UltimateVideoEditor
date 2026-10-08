@@ -29,7 +29,7 @@ files of the last run stay in that directory (big files never go to `/tmp`, whic
 
 Safety, enforced by the script:
 
-- Only a suffixed package (default `com.ultimatevideo.uveditor.qa`). The unsuffixed app, which holds the user's project, is refused.
+- Only a suffixed package (default `com.qtekfun.ultimatevideoeditor.qa`). The unsuffixed app, which holds the user's project, is refused.
   The only package it ever uninstalls (`--reinstall`) or force-stops is the QA one. Nothing is `pm clear`ed.
 - It takes `flock /tmp/pixel-device.lock` (`/tmp/tablet-device.lock` on a Huawei, where it installs with `scripts/huawei-install.sh`)
   for the whole run, and never taps unless one of its own windows has the focus. If `com.qtekfun.mapas` is in front it exits 3 and

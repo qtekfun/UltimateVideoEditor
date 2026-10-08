@@ -3,7 +3,7 @@
 # types, GetMethodID for listener callbacks), so none of them may be renamed or removed.
 
 # Every engine class (native methods, exceptions thrown from C++, listeners called from C++).
--keep class com.ultimatevideo.uveditor.engine.** { *; }
+-keep class com.qtekfun.ultimatevideoeditor.engine.** { *; }
 
 # Classes outside `engine` that declare native methods (their JNI symbol names contain the class name).
 -keepclasseswithmembers class * {
@@ -24,17 +24,17 @@
 # kotlinx.serialization ships consumer rules; keep generated serializers and companions of our own
 # @Serializable classes explicitly as well, because project.json is read and written through them.
 -keepattributes *Annotation*, InnerClasses, Signature, RuntimeVisibleAnnotations
--keepclassmembers @kotlinx.serialization.Serializable class com.ultimatevideo.uveditor.** {
+-keepclassmembers @kotlinx.serialization.Serializable class com.qtekfun.ultimatevideoeditor.** {
     *** Companion;
     kotlinx.serialization.KSerializer serializer(...);
     static ** $serializer;
 }
--keep,includedescriptorclasses class com.ultimatevideo.uveditor.**$$serializer { *; }
--keepclasseswithmembers class com.ultimatevideo.uveditor.** {
+-keep,includedescriptorclasses class com.qtekfun.ultimatevideoeditor.**$$serializer { *; }
+-keepclasseswithmembers class com.qtekfun.ultimatevideoeditor.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 # Enum constant names are written to project.json.
--keepclassmembers enum com.ultimatevideo.uveditor.** { *; }
+-keepclassmembers enum com.qtekfun.ultimatevideoeditor.** { *; }
 
 # Keep stack traces readable in the local crash report.
 -keepattributes SourceFile, LineNumberTable

@@ -6,7 +6,7 @@
 
 namespace uv::decode {
 
-// Mirrors com.ultimatevideo.uveditor.engine.preview.PreviewErrorCode. Keep values in sync.
+// Mirrors com.qtekfun.ultimatevideoeditor.engine.preview.PreviewErrorCode. Keep values in sync.
 enum class Status : int {
     Ok = 0,
     InvalidArgument = 1,

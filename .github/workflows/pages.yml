@@ -11,9 +11,9 @@ on:
     paths:
       - 'docs/**'
       - 'scripts/gen-site.py'
-      - 'app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor/EditorIcons.kt'
-      - 'app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor/SelectionBar.kt'
-      - 'app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor/guide/ToolbarGuide.kt'
+      - 'app/src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor/EditorIcons.kt'
+      - 'app/src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor/SelectionBar.kt'
+      - 'app/src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor/guide/ToolbarGuide.kt'
       - '.github/workflows/pages.yml'
 
 permissions:
