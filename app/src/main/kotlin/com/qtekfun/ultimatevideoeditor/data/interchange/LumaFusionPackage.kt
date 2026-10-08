@@ -2,12 +2,6 @@ package com.qtekfun.ultimatevideoeditor.data.interchange
 
 import java.io.IOException
 import java.io.OutputStream
-import java.util.concurrent.CancellationException
-
-/** Progress of an import that copies big files: [doneBytes] of [totalBytes] of the footage, and [what] is being copied. */
-data class ImportProgress(val what: String, val doneBytes: Long, val totalBytes: Long) {
-    val fraction: Float get() = if (totalBytes <= 0) 0f else (doneBytes.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
-}
 
 /**
  * An `.lfpackage` is a zip that holds the `.lfarchive` and the footage, stored without compression. It is read through its
@@ -42,8 +36,8 @@ object LumaFusionPackage {
     }
 
     /**
-     * Copies [entry] into [out] in 1 MB steps. [onBytes] gets the bytes copied by each step, [cancelled] is asked between
-     * steps and ends the copy with a [CancellationException]. A copy that ends with another size than the entry declares is
+     * Copies [entry] into [out] in 256 KB steps. [onBytes] gets the bytes copied by each step, [cancelled] is asked between
+     * steps and ends the copy with an [ImportCancelled]. A copy that ends with another size than the entry declares is
      * [BundleError.Corrupt]. The caller owns [out] and removes what was written when this throws.
      */
     @Throws(IOException::class, BundleError::class)
@@ -52,7 +46,7 @@ object LumaFusionPackage {
             val buffer = ByteArray(STEP)
             var total = 0L
             while (true) {
-                if (cancelled()) throw CancellationException("import cancelled")
+                if (cancelled()) throw ImportCancelled()
                 val n = input.read(buffer)
                 if (n < 0) break
                 out.write(buffer, 0, n)
@@ -63,5 +57,5 @@ object LumaFusionPackage {
         }
     }
 
-    private const val STEP = 1024 * 1024
+    private const val STEP = 256 * 1024
 }

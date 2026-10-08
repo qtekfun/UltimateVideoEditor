@@ -126,26 +126,3 @@ fun ImportReportDialog(notes: ImportReportNotes, onDismiss: () -> Unit) {
         confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
     )
 }
-
-/** Shown while a big import (a LumaFusion package) copies its footage: what is being copied, how far, and a way to stop. */
-@Composable
-fun ImportProgressDialog(progress: com.qtekfun.ultimatevideoeditor.data.interchange.ImportProgress, onCancel: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Importing footage") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(progress.what, style = MaterialTheme.typography.bodyMedium)
-                LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
-                Text(
-                    "%.1f of %.1f GB".format(progress.doneBytes / GIB, progress.totalBytes / GIB),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
-    )
-}
-
-private const val GIB = 1024.0 * 1024.0 * 1024.0

@@ -20,6 +20,11 @@ import com.qtekfun.ultimatevideoeditor.engine.EngineException
 import com.qtekfun.ultimatevideoeditor.mvi.MviViewModel
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportBar
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportJobHost
+import com.qtekfun.ultimatevideoeditor.ui.export.ImportJob
+import com.qtekfun.ultimatevideoeditor.ui.export.ImportJobHost
+import com.qtekfun.ultimatevideoeditor.ui.export.ImportJobState
+import com.qtekfun.ultimatevideoeditor.ui.export.ImportReportText
+import com.qtekfun.ultimatevideoeditor.ui.export.importViewFor
 import com.qtekfun.ultimatevideoeditor.ui.export.exportBarFor
 import com.qtekfun.ultimatevideoeditor.ui.library.BundleExportDraft
 import com.qtekfun.ultimatevideoeditor.ui.library.BundleExportText
@@ -41,6 +46,8 @@ class HubViewModel(
     private val exportJobs: ExportJobHost? = null,
     /** The process-wide project backup (see ExportCenter); its bar mirrors it, and exporting a bundle starts it. Null runs the backup inside this screen (tests). */
     private val bundleJobs: com.qtekfun.ultimatevideoeditor.ui.export.BundleJobHost? = null,
+    /** The process-wide project import (see ExportCenter); its bar mirrors it, and importing starts it. Null runs the import inside this screen (tests). */
+    private val importJobs: ImportJobHost? = null,
     /** Layout, sort key and direction survive restarts; the default remembers nothing. */
     private val viewStore: HubViewStore = NoHubViewStore,
     /** Measures the storage card off the main thread; null leaves the card out (tests that do not need it). */
@@ -53,9 +60,6 @@ class HubViewModel(
     /** Set once the user has opened a project or dismissed the offer, so a refresh never offers it again. */
     private var resumeHandled = false
 
-    /** The running import, so Cancel can stop a long copy. */
-    private var importJob: kotlinx.coroutines.Job? = null
-
     /** The running storage scan; a newer request replaces it. */
     private var storageJob: kotlinx.coroutines.Job? = null
 
@@ -67,8 +71,39 @@ class HubViewModel(
         // entered again, after rotation, and when the export was started from an editor.
         exportJobs?.let { jobs -> viewModelScope.launch { jobs.state.collect { job -> reduce { copy(exportBar = exportBarFor(job)) } } } }
         bundleJobs?.let { jobs -> viewModelScope.launch { jobs.state.collect { job -> reduce { copy(bundleBar = com.qtekfun.ultimatevideoeditor.ui.export.bundleViewFor(job)) } } } }
+        importJobs?.let { jobs -> viewModelScope.launch { jobs.state.collect { job -> onImportState(jobs, job) } } }
         onIntent(HubIntent.LoadEngineInfo)
         onIntent(HubIntent.Refresh)
+    }
+
+    /**
+     * Mirrors the process-wide import into the bar and answers the ends that need the list: a finished import refreshes it; one that
+     * ended before anything was shown says so in a message (and lists what it left out); a package that needs a media folder asks
+     * for one; a cancelled one says nothing was added. Failures stay in the bar until dismissed.
+     */
+    private fun onImportState(jobs: ImportJobHost, job: ImportJobState) {
+        reduce { copy(importBar = importViewFor(job)) }
+        when (job) {
+            is ImportJobState.NeedsMediaFolder -> {
+                // A package holds footage that has to go somewhere the user knows about: ask for the folder, then start again.
+                pendingImportUri = job.uri
+                reduce { copy(mediaFolderPrompt = true) }
+                jobs.acknowledge()
+            }
+            is ImportJobState.Cancelled -> {
+                emit(HubEffect.ShowMessage("Import cancelled. Nothing was added to the project list."))
+                jobs.acknowledge()
+            }
+            is ImportJobState.Done -> {
+                viewModelScope.launch { refreshNow() }
+                if (job.quick) {
+                    emit(HubEffect.ShowMessage(importMessage(job.report)))
+                    importNotesOf(job.report)?.let { notes -> reduce { copy(importNotes = notes) } }
+                    jobs.acknowledge()
+                }
+            }
+            else -> Unit
+        }
     }
 
     override fun onIntent(intent: HubIntent) {
@@ -152,10 +187,15 @@ class HubViewModel(
                 projects.exportTo(intent.projectId, intent.uri)
                 emit(HubEffect.ShowMessage("Project exported"))
             }
-            is HubIntent.ImportFrom -> {
-                importJob = launchProjectOp {
+            is HubIntent.ImportFrom -> if (importJobs != null) {
+                // Returns at once: the picker's result handler never waits for the file. The work is on the IO dispatcher.
+                val job = ImportJob(intent.uri) { observer -> projects.importWithReport(intent.uri, observer) }
+                val refused = importJobs.start(job) as? com.qtekfun.ultimatevideoeditor.ui.export.BundleStart.Refused
+                if (refused != null) emit(HubEffect.ShowMessage(refused.reason))
+            } else {
+                launchProjectOp {
                     try {
-                        val report = projects.importWithReport(intent.uri) { progress -> reduce { copy(importProgress = progress) } }
+                        val report = projects.importWithReport(intent.uri)
                         refreshNow()
                         emit(HubEffect.ShowMessage(importMessage(report)))
                         importNotesOf(report)?.let { notes -> reduce { copy(importNotes = notes) } }
@@ -170,8 +210,6 @@ class HubViewModel(
                     } catch (e: Exception) {
                         // Whatever went wrong is shown with its cause: an import never fails silently.
                         emit(HubEffect.ShowMessage("Import failed: ${e.javaClass.simpleName}: ${e.message}"))
-                    } finally {
-                        reduce { copy(importProgress = null) }
                     }
                 }
             }
@@ -199,10 +237,14 @@ class HubViewModel(
                 pendingImportUri = null
                 reduce { copy(mediaFolderPrompt = false) }
             }
-            HubIntent.CancelImport -> {
-                importJob?.cancel()
-                reduce { copy(importProgress = null) }
-                emit(HubEffect.ShowMessage("Import cancelled"))
+            HubIntent.CancelImport -> importJobs?.cancel()
+            HubIntent.DismissImportBar -> importJobs?.acknowledge()
+            HubIntent.ShowImportDetails -> importJobs?.showDetails()
+            HubIntent.OpenImported -> state.value.importBar?.projectId?.let {
+                importJobs?.acknowledge()
+                resumeHandled = true
+                reduce { copy(resumeProject = null) }
+                emit(HubEffect.OpenEditor(it))
             }
             is HubIntent.RequestExportBundle -> openBundleDialog(intent.project, intent.includeMedia)
             is HubIntent.BundleChoiceChanged ->
@@ -469,47 +511,13 @@ class HubViewModel(
 
     /** Runs a store operation; a [ProjectError] is shown to the user instead of being dropped. */
     /** What an import did: the project's name and, for a bundle, what became of its media. */
-    internal fun importMessage(report: ImportReport): String {
-        val name = report.project.name
-        report.lumaFusion?.let { lf ->
-            val omitted = lf.report.notImported.size
-            return "Imported \"$name\" from LumaFusion" +
-                (if (lf.mediaCopied > 0) ". ${lf.mediaCopied} media file${if (lf.mediaCopied == 1) "" else "s"} came with it" else "") +
-                (if (lf.missing.isNotEmpty()) ". Missing (relink in the editor): ${lf.missing.take(3).joinToString()}" else "") +
-                (if (omitted > 0) ". $omitted kind${if (omitted == 1) "" else "s"} of settings not imported" else "")
-        }
-        val bundle = report.bundle ?: return "Imported \"$name\""
-        return buildString {
-            append("Imported \"$name\"")
-            if (bundle.mediaCopied > 0) append(". ${bundle.mediaCopied} media file${if (bundle.mediaCopied == 1) "" else "s"} came with it")
-            BundleExportText.importSentence(bundle.resources)?.let { append(". $it") }
-            if (bundle.relinked > 0) append(". ${bundle.relinked} found on this device by name and size")
-            if (bundle.missing.isNotEmpty()) {
-                append(". Missing (relink in the editor): ${bundle.missing.take(3).joinToString()}")
-                if (bundle.missing.size > 3) append(" and ${bundle.missing.size - 3} more")
-            }
-        }
-    }
+    internal fun importMessage(report: ImportReport): String = ImportReportText.message(report)
 
     internal fun bundleExportMessage(choice: BundleChoice, result: BundleWriteResult): String =
         BundleExportText.exportMessage("Bundle exported", choice, result)
 
     /** The list of LUTs and fonts an import could not install, or null when it went fully through. */
-    internal fun importNotesOf(report: ImportReport): ImportReportNotes? {
-        report.lumaFusion?.let { lf ->
-            val notImported = lf.report.notImported.map { "$it" }
-            return ImportReportNotes(
-                report.project.name,
-                notImported,
-                lf.report.imported,
-                problemsHeading = if (notImported.isEmpty()) null else "Not imported from LumaFusion (what each line says is used instead):",
-            ).let { if (notImported.isEmpty()) it.copy(notes = it.notes + "Nothing was left out.") else it }
-        }
-        val resources = report.bundle?.resources ?: return null
-        val problems = BundleExportText.importProblems(resources)
-        if (problems.isEmpty()) return null
-        return ImportReportNotes(report.project.name, problems, BundleExportText.importNotes(resources))
-    }
+    internal fun importNotesOf(report: ImportReport): ImportReportNotes? = ImportReportText.notes(report)
 
     /** Opens the bundle dialog at once and fills in what the project holds when it has been measured. */
     private fun openBundleDialog(project: ProjectSummary, includeMedia: Boolean) {

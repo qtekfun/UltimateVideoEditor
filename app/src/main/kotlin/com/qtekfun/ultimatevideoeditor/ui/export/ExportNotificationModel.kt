@@ -18,6 +18,8 @@ data class ExportNotificationModel(
     val projectId: String = "",
     /** A project backup (`.uvbundle`), not a movie: tapping it shows the project list, whose bar and dialog hold the backup. */
     val bundle: Boolean = false,
+    /** A project import: tapping it shows the project list with the import's dialog. */
+    val import: Boolean = false,
     /** A finished file the notification offers to share; null when there is none or it must not be shared. */
     val shareUri: String? = null,
 )
