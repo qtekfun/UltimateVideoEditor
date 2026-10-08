@@ -131,6 +131,24 @@ class LayoutStateTest {
     }
 
     @Test
+    fun `audio lane height is its own setting, same by default, and a manual change clears the preset`() {
+        val start = LayoutState.defaultFor(phone)
+        assertEquals(AudioLaneHeight.SAME, start.audioLaneHeight)
+        val tall = start.reduce(LayoutAction.SetAudioLaneHeight(AudioLaneHeight.TALLER), phone)
+        assertEquals(AudioLaneHeight.TALLER, tall.audioLaneHeight)
+        assertEquals(LaneHeight.MEDIUM, tall.laneHeight)
+        assertNull(tall.preset)
+        // The lane height steps do not touch it; a reset brings it back to the same height.
+        assertEquals(AudioLaneHeight.TALLER, tall.reduce(LayoutAction.StepLaneHeight(1), phone).audioLaneHeight)
+        assertEquals(AudioLaneHeight.SAME, tall.reduce(LayoutAction.Reset, phone).audioLaneHeight)
+    }
+
+    @Test
+    fun `audio lane factors are the ones the native timeline expects`() {
+        assertEquals(listOf(1.0f, 1.5f, 2.0f), AudioLaneHeight.entries.map { it.factor })
+    }
+
+    @Test
     fun `a panel can only go to a dock it supports and a side dock needs room`() {
         val start = LayoutState.defaultFor(tablet)
         assertEquals(Dock.RIGHT, start.reduce(LayoutAction.SetDock(Panel.TRAY, Dock.RIGHT), tablet).tray.dock)
@@ -249,6 +267,14 @@ class LayoutCodecTest {
             .reduce(LayoutAction.SetLaneHeight(LaneHeight.LARGE), tablet)
             .reduce(LayoutAction.SetCollapsed(Panel.TRAY, true), tablet)
         assertEquals(state, LayoutCodec.decode(LayoutCodec.encode(state)))
+    }
+
+    @Test
+    fun `the audio lane height is saved and an old file without it reads as the same height`() {
+        val state = LayoutState.defaultFor(tablet).reduce(LayoutAction.SetAudioLaneHeight(AudioLaneHeight.TALL), tablet)
+        assertEquals(AudioLaneHeight.TALL, LayoutCodec.decode(LayoutCodec.encode(state))!!.audioLaneHeight)
+        assertEquals(AudioLaneHeight.SAME, LayoutCodec.decode("pf=0.5;lane=LARGE")!!.audioLaneHeight)
+        assertEquals(AudioLaneHeight.SAME, LayoutCodec.decode("audiolane=HUGE;lane=LARGE")!!.audioLaneHeight)
     }
 
     @Test

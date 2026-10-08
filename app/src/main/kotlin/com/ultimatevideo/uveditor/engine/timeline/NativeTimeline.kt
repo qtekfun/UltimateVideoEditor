@@ -38,7 +38,7 @@ internal object NativeTimeline {
     external fun nativeSetLaneDrag(handle: Long, from: Int, to: Int)
     external fun nativeClipsInRect(handle: Long, x0: Float, y0: Float, x1: Float, y1: Float): LongArray?
 
-    external fun nativeSetLaneScale(handle: Long, scale: Float)
+    external fun nativeSetLaneScale(handle: Long, scale: Float, audioFactor: Float)
     external fun nativeHitTest(handle: Long, x: Float, y: Float): LongArray?
 
     /** Colours of the canvas, from `Palette.nativeColours()`. */

@@ -42,7 +42,7 @@ inline HintRect dropHintRect(const DropHint& hint, const Viewport& vp, const Lay
     if (hint.trackIndex < 0 || hint.trackIndex >= trackCount) return r;
     const float top = layout.trackTop(hint.trackIndex) - static_cast<float>(vp.scrollY);
     r.y0 = top;
-    r.y1 = top + layout.trackHeight;
+    r.y1 = top + layout.heightOf(hint.trackIndex);
     switch (hint.kind) {
         case DropHintKind::Insert: {
             const float x = static_cast<float>(vp.frameToX(hint.startFrame));

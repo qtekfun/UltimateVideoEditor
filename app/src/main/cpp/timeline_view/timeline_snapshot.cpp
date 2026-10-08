@@ -133,6 +133,8 @@ core::Status parseSnapshot(const uint8_t* data, size_t size, TimelineSnapshot* o
             const int kind = (flags >> kClipKindShift) & kClipKindMask;
             c.kind = kind <= static_cast<int>(ClipKind::Multicam) ? static_cast<ClipKind>(kind) : ClipKind::Default;
         }
+        c.audioDetached = (flags & kClipAudioDetachedBit) != 0;
+        c.linked = (flags & kClipLinkedBit) != 0;
         snap.clips.push_back(c);
     }
     int32_t transitionCount = 0;
