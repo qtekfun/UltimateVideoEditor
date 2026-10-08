@@ -33,18 +33,39 @@ automated tests so far; see [Known limits](#known-limits).
 
 ## Project hub
 
-The first screen lists your projects as cards: the first frame of the first clip, the name, a short
-format line ("1080p · 30 fps · SDR"), the length and the last change. Tap a card to open it.
+The first screen is your library of projects. From the top:
 
-- **New project** (the one button at the bottom right): opens the sheet described below.
-- **⋮ in the top bar**: **New from a template…** (see [Templates](#project-templates)) and **Import project, bundle or LumaFusion package**,
-  which brings in a `project.json`, a `.uvbundle` exported from another device or a LumaFusion `.lfpackage` / `.lfarchive` (see
-  [Sharing a project](#sharing-a-project-with-other-devices-and-tools)).
-- **⋮ on a card**: rename, duplicate, export the project file, export a bundle for another phone (a dialog asks
-  whether to include the media files, LUTs and fonts), delete.
-- With more than six projects a **search field** and **Sort by** (Recent or Name) appear.
-- Projects that cannot be read are listed with **Recover** (from the `.bak` of the last good save) and
-  **Delete**. After a crash the hub offers to reopen the project you had open.
+- **Top bar**: the ultimateVE mark (three stacked bars in the colours of video, audio and title clips), a **search** icon
+  and the **More options** menu: **New from a template…** (see [Templates](#project-templates)), **Import project, bundle or
+  LumaFusion package** (a `project.json`, a `.uvbundle` from another device or a LumaFusion `.lfpackage` / `.lfarchive`, see
+  [Sharing a project](#sharing-a-project-with-other-devices-and-tools)) and **About, privacy and help**. The engine version is
+  in About, under Version; the Projects screen only mentions the engine when it failed to start.
+- **Continue card**: the project you edited last, with its first frame, name, length, format (and HDR) and a **Continue editing**
+  button. After the app was closed while a project was open, the card says so ("The app closed while … was open. Your edits
+  were saved as you made them.") with **Reopen** and **Dismiss**. The card is hidden while you search or select, and when you
+  have no projects.
+- **Storage card**: how many projects you have, the free space on the device and a bar split into **Projects** (project
+  files, backups), **Cache** (thumbnails, waveforms, analysis) and **Proxies**. Your footage is not counted: media stay where
+  they are and projects only point to them. It is measured in the background and refreshed when you come back to the screen
+  and after you delete or duplicate. Tap it to open About, where **Clear caches** lives.
+- **Sorted by**: Last edited, Name, Size or Length, with a button to flip the direction, and a **List / Grid** switch. Both
+  choices are remembered. Size is the project's folder on disk (project files and its caches).
+- **List** shows dense rows: a small first frame with the length, the name, "1080p · 30 fps · SDR", the size on disk and how
+  long ago it was changed. **Grid** shows posters (two or more columns, wider screens get more), each with the length, an
+  **HDR** label when the project is HDR, the name and the date.
+- **N missing** (red label): the last time you edited the project, that many media files could not be read. It is saved with
+  the project, so you can see which projects need **Relink** without opening each one. The Projects screen never checks media
+  itself; a project you only opened without editing keeps the label it had.
+- **New project** (the button with the plus at the bottom right): opens the sheet described below.
+- **Tap** a project to open it. The **⋮** on a row or poster has rename, duplicate, export the project file, export a bundle for
+  another phone (a dialog asks whether to include the media files, LUTs and fonts) and delete.
+- **Select several**: touch and hold a project. Tick more with a tap, **Select all** in the top bar, and the bar at the bottom
+  has **Duplicate**, **Export bundle**, **Export file** and **Delete** (and **Rename** under its ⋮). Duplicate and Delete work
+  on any number of projects (Delete asks once and says how many). Exporting and renaming work on one project at a time: with
+  several ticked those buttons are dimmed, and tapping one says why. Back (or the close button) leaves selection mode.
+- **Search**: the magnifier in the top bar opens a field; it filters by name. Back closes it.
+- Projects that cannot be read are listed with **Recover** (from the `.bak` of the last good save) and **Delete**.
+- With no projects the screen shows a welcome with **New project** and **Import a project**.
 
 Projects live in the app's private storage. Your media is never copied: projects only reference the files
 you imported. The card pictures are made on the device and cached; nothing is uploaded anywhere.
@@ -918,10 +939,10 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 
 ## About, privacy, tips and crash reports
 
-Open the **⋮ menu** in the project list and choose **About, privacy and help**.
+Open the **More options** menu in the project list and choose **About, privacy and help**.
 
 - **Appearance**: the **Pure black backgrounds** switch (see [Appearance](#appearance-dark-and-pure-black)).
-- **Version** of the build, the **licence** (GPL-3.0) with the full text, and where the source code lives.
+- **Version** of the build and of the engine, the **licence** (GPL-3.0) with the full text, and where the source code lives.
 - **Privacy**: what the app stores and why it needs no permissions, the same text as `docs/PRIVACY.md`.
 - **Third-party software**: the libraries inside the app and their licences.
 - **Storage**: how much space projects, caches and proxy copies use. **Clear caches** deletes waveforms, thumbnails and

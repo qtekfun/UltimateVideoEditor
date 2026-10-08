@@ -52,11 +52,11 @@ class StorageMeter(private val filesDir: File, private val cacheDir: File) {
 
     private fun File.sizeBytes(): Long = if (!exists()) 0 else walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
-    private companion object {
+    internal companion object {
         const val PROXIES = "proxies"
 
         // Rebuilt on demand: waveform peaks, thumbnail tiles, stabilisation and tracking analysis.
-        val DERIVED = listOf("waveforms", "thumbnails", "stab", "track")
+        val DERIVED: List<String> = listOf("waveforms", "thumbnails", "stab", "track")
     }
 }
 
@@ -66,6 +66,8 @@ data class AboutSnapshot(
     val repositoryUrl: String,
     val usage: StorageUsage,
     val crashReport: String?,
+    /** The native engine's version, shown under Version; null when the engine could not be loaded. */
+    val engineVersion: String? = null,
 )
 
 /** Plain logic behind the About screen, so it can be tested without a device. */
@@ -74,8 +76,9 @@ class AboutController(
     private val crashStore: CrashReportStore,
     private val storage: StorageMeter,
     private val onboarding: OnboardingStore,
+    private val engineVersion: () -> String? = { null },
 ) {
-    fun snapshot(): AboutSnapshot = AboutSnapshot(version, REPOSITORY_URL, storage.usage(), crashStore.read())
+    fun snapshot(): AboutSnapshot = AboutSnapshot(version, REPOSITORY_URL, storage.usage(), crashStore.read(), engineVersion())
 
     fun deleteCrashReport() = crashStore.delete()
 

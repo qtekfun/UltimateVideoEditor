@@ -683,6 +683,7 @@ class EditorViewModel(
                 },
             )
         }
+        // The count of unreadable files is stored with the next save (an edit, or a relink); opening alone never rewrites the project.
         if (stale.isNotEmpty()) scheduleSave()
     }
 
@@ -857,7 +858,10 @@ class EditorViewModel(
     /** Writes the project; returns whether it is on disk. A failure stays visible in [EditorState.saveError] and is retried. */
     private suspend fun persist(): Boolean {
         val base = baseProject ?: return true
-        val dto = TimelineMapper.toDto(base, history.timeline, state.value.assets)
+        val snapshot = state.value
+        val mapped = TimelineMapper.toDto(base, history.timeline, snapshot.assets)
+        // Before the files were checked the stored count is the best knowledge there is; the hub shows it without probing.
+        val dto = if (snapshot.mediaChecked) mapped.copy(missingMedia = snapshot.missingMedia.size) else mapped
         return try {
             store.save(dto)
             baseProject = dto
