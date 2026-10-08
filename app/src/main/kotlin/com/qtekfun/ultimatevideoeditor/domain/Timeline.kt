@@ -454,6 +454,7 @@ data class Timeline(
         }
         violations += ClipLinks.violations(this)
         violations += MarkerOps.violations(markers)
+        violations += MarkerAnchors.violations(this)
         violations += MulticamOps.violations(this)
         return violations
     }

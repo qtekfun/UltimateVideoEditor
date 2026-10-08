@@ -418,7 +418,7 @@ class EditHistory private constructor(
     val undoDepth: Int get() = undoStack.size
 
     /** Applies [command]; a successful edit clears the redo stack, a failed one changes nothing. */
-    fun execute(command: EditCommand): EditResult<EditHistory> = when (val result = command.apply(timeline).linkedFrom(timeline)) {
+    fun execute(command: EditCommand): EditResult<EditHistory> = when (val result = command.apply(timeline).linkedFrom(timeline).markersFrom(timeline)) {
         is EditResult.Failure -> result
         is EditResult.Success -> {
             val entry = Entry(command, timeline, result.value)

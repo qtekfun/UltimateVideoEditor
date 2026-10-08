@@ -65,8 +65,10 @@ import com.qtekfun.ultimatevideoeditor.domain.Denoise
 import com.qtekfun.ultimatevideoeditor.domain.retime
 import com.qtekfun.ultimatevideoeditor.domain.CutToBeat
 import com.qtekfun.ultimatevideoeditor.domain.Marker
+import com.qtekfun.ultimatevideoeditor.domain.MarkerAnchors
 import com.qtekfun.ultimatevideoeditor.domain.MarkerKind
 import com.qtekfun.ultimatevideoeditor.domain.MarkerOps
+import com.qtekfun.ultimatevideoeditor.domain.markersFrom
 import com.qtekfun.ultimatevideoeditor.domain.RemoveMarker
 import com.qtekfun.ultimatevideoeditor.domain.SetBeatMarkers
 import com.qtekfun.ultimatevideoeditor.domain.LayerPlacement
@@ -1704,7 +1706,7 @@ class EditorViewModel(
             DragMode.PLAYHEAD, DragMode.MARKER -> return
         }
         // A rejected position (overlap, out of range) keeps the last valid preview on screen.
-        val result = command.apply(base)
+        val result = command.apply(base).markersFrom(base)
         if (result is EditResult.Success) {
             pendingDragCommand = if (result.value == base) null else command
             reduce { copy(dragPreview = result.value, dropHint = null) }
@@ -1725,7 +1727,7 @@ class EditorViewModel(
             reduce { copy(dragPreview = null, dropHint = decision.hint, dropChoiceOffered = false) }
             return
         }
-        val result = command.apply(base) as? EditResult.Success ?: return
+        val result = command.apply(base).markersFrom(base) as? EditResult.Success ?: return
         val preview = result.value
         pendingDragCommand = if (preview == base) null else command
         val hint = when (decision.kind) {
@@ -1903,7 +1905,7 @@ class EditorViewModel(
         val requested = ((frame - session.grabOffset) - anchor.timelineStart.value).coerceAtLeast(-earliest)
         val delta = GroupOps.snappedDelta(base, ids, requested, snapWith(base, playhead)).coerceAtLeast(-earliest)
         val command = GroupMove(ids, delta, laneDeltaFor(base, anchorTrack, trackIndex, zone))
-        val result = command.apply(base) as? EditResult.Success ?: return
+        val result = command.apply(base).markersFrom(base) as? EditResult.Success ?: return
         pendingDragCommand = if (result.value == base) null else command
         reduce { copy(dragPreview = result.value, dropHint = null) }
     }
@@ -2175,6 +2177,7 @@ class EditorViewModel(
             is MarkerIntent.NameChanged -> editMarkerPopup { copy(name = intent.text.replace('\n', ' ').take(MarkerOps.MAX_NAME_LENGTH)) }
             is MarkerIntent.NoteChanged -> editMarkerPopup { copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH)) }
             is MarkerIntent.ColorChosen -> editMarkerPopup { copy(color = intent.color) }
+            is MarkerIntent.StickChanged -> editMarkerPopup { if (canStick) copy(stick = intent.stick) else this }
             MarkerIntent.Close -> closeMarkerPopup()
             MarkerIntent.DeleteOpen -> deleteOpenMarker()
             MarkerIntent.PopupPrevious -> stepMarkerPopup(forward = false)
@@ -2198,7 +2201,8 @@ class EditorViewModel(
             return
         }
         val marker = Marker("marker-${idGenerator()}", playhead, MarkerKind.MANUAL)
-        if (execute(AddMarker(marker))) showMarkerHint(MarkerHint(marker.id, marker.frame.value))
+        // A new marker sticks to the clip under the playhead (a gap leaves it free).
+        if (execute(AddMarker(marker, stick = true))) showMarkerHint(MarkerHint(marker.id, marker.frame.value))
     }
 
     private var markerHintJob: Job? = null
@@ -2218,13 +2222,15 @@ class EditorViewModel(
         if (state.value.markerHint != null) reduce { copy(markerHint = null) }
     }
 
-    private fun popupOf(marker: Marker, markers: List<Marker>) = MarkerPopup(
+    private fun popupOf(marker: Marker, markers: List<Marker>, timeline: Timeline = history.timeline) = MarkerPopup(
         markerId = marker.id,
         frame = marker.frame.value,
         name = marker.name.orEmpty(),
         note = marker.note.orEmpty(),
         color = marker.color,
         isBeat = marker.kind == MarkerKind.BEAT,
+        stick = marker.isAnchored,
+        canStick = marker.kind == MarkerKind.MANUAL && (marker.isAnchored || MarkerAnchors.targetAt(timeline, marker.frame) != null),
         hasPrevious = MarkerOps.previous(markers, marker.frame) != null,
         hasNext = MarkerOps.next(markers, marker.frame) != null,
     )
@@ -2241,7 +2247,7 @@ class EditorViewModel(
     private fun editMarkerPopup(change: MarkerPopup.() -> MarkerPopup) {
         val popup = state.value.markerPopup ?: return
         val edited = popup.change()
-        val preview = (EditMarker(edited.markerId, edited.name.ifBlank { null }, edited.note.ifBlank { null }, edited.color).apply(history.timeline) as? EditResult.Success)?.value
+        val preview = (EditMarker(edited.markerId, edited.name.ifBlank { null }, edited.note.ifBlank { null }, edited.color, edited.stick).apply(history.timeline) as? EditResult.Success)?.value
         reduce { copy(markerPopup = edited, dragPreview = preview ?: dragPreview) }
     }
 
@@ -2251,8 +2257,8 @@ class EditorViewModel(
         val current = history.timeline.markers.firstOrNull { it.id == popup.markerId } ?: return
         val name = popup.name.trim().ifBlank { null }
         val note = popup.note.trim().ifBlank { null }
-        if (current.name == name && current.note == note && current.color == popup.color) return
-        execute(EditMarker(popup.markerId, name, note, popup.color))
+        if (current.name == name && current.note == note && current.color == popup.color && current.isAnchored == popup.stick) return
+        execute(EditMarker(popup.markerId, name, note, popup.color, popup.stick))
     }
 
     private fun deleteOpenMarker() {
@@ -2289,7 +2295,7 @@ class EditorViewModel(
         val base = history.timeline
         val frame = snapMarkerFrame(base, session.clipId, fingerFrame - session.grabOffset, state.value.playhead)
         val command = MoveMarker(session.clipId, frame)
-        val result = command.apply(base) as? EditResult.Success ?: return
+        val result = command.apply(base).markersFrom(base) as? EditResult.Success ?: return
         pendingDragCommand = if (result.value == base) null else command
         reduce { copy(dragPreview = result.value, dropHint = null) }
     }

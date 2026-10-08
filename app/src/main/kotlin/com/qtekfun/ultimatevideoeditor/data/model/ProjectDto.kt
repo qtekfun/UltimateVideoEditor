@@ -153,6 +153,12 @@ data class MarkerDto(
     val color: String? = null,
     /** A short label drawn on the ruler; absent in projects written before markers could be named. */
     val name: String? = null,
+    /**
+     * The clip this marker sticks to, with [offset] timeline frames from the clip's start (`frame` is then the resolved position).
+     * Absent in projects written before markers could stick, and for free markers.
+     */
+    val anchorClipId: String? = null,
+    val offset: Long = 0,
 )
 
 @Serializable

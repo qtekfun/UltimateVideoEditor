@@ -178,6 +178,9 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
 - Detached sound (5.38): a video clip can carry `"audioDetached": true` (its own sound is not mixed) and a clip can carry `"linkId"`
   (shared by exactly one video clip and one audio clip of the same media while they are linked). Both are absent when unused, so
   older projects load with every clip attached and unlinked. A link whose partner is missing is dropped on load.
+- Sticky markers (5.41): a marker can carry `"anchorClipId"` and `"offset"` (timeline frames from that clip's start); `frame` stays the resolved
+  position. Both are absent for a free marker, so older projects load with every marker free and are not attached on load. An anchor to a
+  missing clip is dropped on load and an out-of-range offset is clamped into the clip.
 - Video tracks stack in display order: the first video track is the top layer.
 - Clip duration = `sourceOutFrame - sourceInFrame` (out exclusive). Clips on one track never overlap
   except via explicit transitions.
@@ -723,7 +726,7 @@ All timeline operations, the magnetic base and drops treat it as an ordinary cli
 
 **Markers.** `Timeline.markers` is a list of `Marker(id, frame, kind)` with `kind` `MANUAL` (placed at the playhead) or `BEAT` (found
 by beat detection), sorted by frame with unique frames and ids (`MarkerOps`, checked by `invariantViolations`). They sit at absolute
-project frames and do **not** move when clips are edited around them. `AddMarker`, `RemoveMarker` and `SetBeatMarkers` are undoable;
+project frames; a free marker does **not** move when clips are edited around it, an anchored one does (5.41). `AddMarker`, `RemoveMarker` and `SetBeatMarkers` are undoable;
 `SetBeatMarkers(beats, from, until)` replaces only the beats inside that frame range, so analysing a second clip keeps the first
 clip's beats, and manual markers are never touched. JSON: `ProjectDto.markers` (`{id, frame, kind}`), absent in older projects.
 **Snapping:** `Snap.extraTargets` carries marker frames (when the editor's "Snap to markers" is on) into move, trim and drop decisions.
@@ -1724,6 +1727,44 @@ Kotlin `TimelineSnapshotTest`.
 **Tests.** `ClipLinksTest` (commands; linked move, base reorder, trim, split, delete, ripple, speed, group move, duplicate; unlinked
 independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
 round trip, broken link), `ToolbarGuideTest`, `DetachedTransitionAudioTest`, `PlaceWithDetachedAudioTest`, `VideoAudioPlacementViewModelTest`.
+
+### 5.41 Markers stick to clips
+
+**Before.** A marker was a bare project frame (`Marker(id, frame, kind, note, color, name)`); no edit ever moved it (insert, ripple delete,
+move, overwrite, trim, split, speed change and lane moves all left it at its frame), so after an insert in front of a clip the marker pointed at
+other footage. Beat tools, snapping, previous / next, the canvas and FCPXML all read `Marker.frame`.
+
+**Model.** `Marker` gains `anchorClipId: String?` and `offsetFrames: Long` (timeline frames from the clip's start). `frame` stays the single
+resolved number everything reads (`clip.timelineStart + offsetFrames` while anchored), so the native snapshot, snapping, navigation, beat
+tools and exporters needed no change. `MarkerAnchors` (domain, pure) keeps it in step: `EditHistory.execute` runs `markersFrom(before)` after
+`linkedFrom`, in the same undo step as the edit, and the editor's drag previews run it too. Like `ClipLinks.settle` it works on the outcome (before
+and after timelines), not per operation. `Timeline.invariantViolations` checks that every anchor points at a clip, the offset is inside it and the
+frame equals start + offset. JSON: `MarkerDto.anchorClipId` and `MarkerDto.offset`, both optional; an old file loads every marker free and is
+**not** attached on load (`MarkerAnchors.healed` only drops anchors to missing clips and puts a stale frame back on its clip).
+
+**Which clip.** Creation (flag tap), the "Stick to clip" switch and a drag re-anchor with one rule: the clip spanning the frame on the base track
+(the lowest video lane), else the topmost overlay video lane's clip, else none (a gap, or only audio / titles): the marker is free. A clip
+spans `[start, end)`. Beat markers are always free. `AddMarker(marker, stick)` anchors, `MoveMarker` re-anchors an anchored marker where it lands
+(a free one stays free), `EditMarker(..., stick)` and `MarkerOps.setStick` convert both ways (sticking needs a clip under the marker).
+
+**What an edit does** (integer maths; see `MarkerAnchors` for the code):
+- move, reorder, ripple, insert, overwrite of other clips, lane or track change: the offset is kept, the marker follows the clip.
+- head trim: the marker stays on the same picture (offset minus the frames cut off the head, in timeline frames); tail trim keeps the offset.
+  A marker that would be before the first or after the last frame clamps to the first / last frame (never lost, never left floating).
+- speed change: `offset * newLength / oldLength`, rounded down, then clamped into the clip.
+- split (and the right part an overwrite leaves, id `old~new`): each marker goes with the part holding its frame; a marker exactly on the cut goes
+  with the right part.
+- the clip is deleted or replaced (an overwrite covers the marker's picture): the marker becomes free at its last frame; Undo restores both.
+  A free marker keeps today's semantics (it never moves by itself, also not on ripple).
+- duplicate and paste create clips without markers. A detached audio clip is not an anchor target; the marker stays on the video clip.
+- two markers on one frame after an edit: free markers keep their frame; anchored ones are taken in (frame, id) order and the later is nudged to the
+  next free frame of its clip (forward, then backward; if the clip has none it becomes free). Frames are never below 0.
+
+**UI.** The marker popup has a "Stick to clip" switch (on for a new marker, off and disabled over a gap, hidden for a beat marker); it is
+committed with the other popup edits as one undo step. The ruler does not show the anchored state (it would need a snapshot flag); the panel does.
+
+**Tests.** `MarkerAnchorTest` (creation rule, every edit above incl. first / last / cut / exclusive-end frames, collisions, undo, rounding),
+`MarkerAnchorMapperTest` (JSON round trip, old file, healing, FCPXML uses the resolved frame), `MarkerViewModelTest` (creation, switch, drag).
 
 ## 6. Timeline operations (specification for tests)
 

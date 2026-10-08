@@ -68,6 +68,7 @@ import com.qtekfun.ultimatevideoeditor.data.model.HandleDto
 import com.qtekfun.ultimatevideoeditor.data.model.ParamKeyDto
 import com.qtekfun.ultimatevideoeditor.data.model.ParamTrackDto
 import com.qtekfun.ultimatevideoeditor.domain.Marker
+import com.qtekfun.ultimatevideoeditor.domain.MarkerAnchors
 import com.qtekfun.ultimatevideoeditor.domain.MarkerColor
 import com.qtekfun.ultimatevideoeditor.domain.MarkerKind
 import com.qtekfun.ultimatevideoeditor.domain.MarkerOps
@@ -118,7 +119,7 @@ object TimelineMapper {
             project.multicams.map(::toMulticam),
         )
         // A link whose partner is missing (an interrupted save, a hand-edited file) only means the clip is on its own; it must not stop the project opening.
-        val settled = ClipLinks.withoutBrokenLinks(timeline)
+        val settled = MarkerAnchors.healed(ClipLinks.withoutBrokenLinks(timeline))
         val violations = settled.invariantViolations()
         if (violations.isNotEmpty()) throw ProjectError.Corrupt("invalid timeline: ${violations.first()}")
         return settled
@@ -136,7 +137,7 @@ object TimelineMapper {
             )
         }
         val transitions = timeline.transitions.map { toTransitionDto(it) }
-        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind), it.note, it.color?.name?.lowercase(), it.name) }
+        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind), it.note, it.color?.name?.lowercase(), it.name, it.anchorClipId, it.offsetFrames) }
         return base.copy(
             mediaLibrary = assets,
             tracks = tracks,
@@ -239,6 +240,8 @@ object TimelineMapper {
         note = dto.note?.takeIf { it.isNotBlank() },
         color = dto.color?.let { name -> MarkerColor.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } },
         name = dto.name?.trim()?.takeIf { it.isNotEmpty() }?.take(MarkerOps.MAX_NAME_LENGTH),
+        anchorClipId = dto.anchorClipId?.takeIf { it.isNotBlank() },
+        offsetFrames = dto.offset.coerceAtLeast(0),
     )
 
     private fun markerKindName(kind: MarkerKind) = when (kind) {
