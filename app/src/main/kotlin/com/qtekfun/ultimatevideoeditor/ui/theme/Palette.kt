@@ -87,7 +87,7 @@ data class Palette(
             clipImage = 0xFFA85F1F.toInt(), clipSticker = 0xFFC03A7A.toInt(), clipMulticam = 0xFF1F7F90.toInt(),
             onClip = 0xFFFFFFFF.toInt(),
             playhead = 0xFFFF5A52.toInt(), selection = 0xFFFFD94A.toInt(), keyframe = 0xFFFFC21A.toInt(),
-            marker = 0xFFFF73CC.toInt(),
+            marker = 0xFFFF5252.toInt(),
         )
 
         /** Pure black backgrounds; the surface steps move to the next dark values so cards still separate from it. */
