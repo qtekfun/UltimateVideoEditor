@@ -578,7 +578,7 @@ greyed out where there is no clip). Dragging a marker attaches it to the clip it
 free. Projects from before this feature open with free markers; switch them on one by one.
 
 **Edit a marker.** Tap the marker's flag on the ruler (the touch area is about 40 dp wide, bigger than the
-flag). The playhead jumps onto that marker and a small panel opens under the ruler with:
+flag): the first tap only takes the playhead onto that marker. Tap it again, with the playhead already on it, and a small panel opens under the ruler with:
 
 - a **name** (one line, up to 40 characters) and a **note** (several lines, up to 200 characters). When the
   timeline is zoomed in far enough, the name is written next to the flag, in the system font (accents, symbols and emoji

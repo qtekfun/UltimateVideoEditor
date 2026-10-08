@@ -217,11 +217,14 @@ class MarkerViewModelTest {
     }
 
     @Test
-    fun `a tap on a marker opens its popup and a tap elsewhere closes it, keeping the edit`() = runTest(dispatcher) {
+    fun `the first tap on a marker only goes to it, a second tap on it opens its popup, and a tap elsewhere closes it keeping the edit`() = runTest(dispatcher) {
         val h = harness()
         h.mark(90)
         h.mark(200)
         h.vm.onIntent(EditorIntent.TapTimeline(h.hit(0, 93)))
+        assertEquals(90L, h.state.playhead.value)
+        assertNull(h.state.markerPopup)
+        h.vm.onIntent(EditorIntent.TapTimeline(h.hit(0, 91)))
         assertEquals(90L, h.state.markerPopup?.frame)
         h.vm.onIntent(MarkerIntent.NameChanged("A"))
         h.vm.onIntent(EditorIntent.TapTimeline(TimelineHit(HitKind.RULER, -1, -1, 400)))
@@ -240,7 +243,22 @@ class MarkerViewModelTest {
         assertEquals(90L, h.state.playhead.value)
         h.vm.onIntent(EditorIntent.TapTimeline(h.hit(1, 197)))
         assertEquals(200L, h.state.playhead.value)
-        assertEquals(200L, h.state.markerPopup?.frame)
+        assertNull(h.state.markerPopup)
+    }
+
+    @Test
+    fun `tapping another marker while a popup is open commits the edit and only goes to the other marker`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(90)
+        h.mark(200)
+        h.at(90)
+        h.vm.onIntent(EditorIntent.TapTimeline(h.hit(0, 90)))
+        assertEquals(90L, h.state.markerPopup?.frame)
+        h.vm.onIntent(MarkerIntent.NameChanged("Intro"))
+        h.vm.onIntent(EditorIntent.TapTimeline(h.hit(1, 198)))
+        assertNull(h.state.markerPopup)
+        assertEquals(200L, h.state.playhead.value)
+        assertEquals("Intro", h.state.timeline.markers.first().name)
     }
 
     @Test
