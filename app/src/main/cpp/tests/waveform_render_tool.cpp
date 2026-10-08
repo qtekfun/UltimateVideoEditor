@@ -156,8 +156,8 @@ int main(int argc, char** argv) {
         const float reference = audio::referenceLevel(peaks, refStart, refEnd);
         int64_t quads = 0;
         for (int64_t col = first; col <= last; ++col) {
-            const int64_t s0 = timeline::waveSampleAtColumn(col, colW, scrollX, ppf, 0, duration, sourceInFrame, rate, fps, 1);
-            const int64_t s1 = timeline::waveSampleAtColumn(col + 1, colW, scrollX, ppf, 0, duration, sourceInFrame, rate, fps, 1);
+            const int64_t s0 = timeline::waveSampleAtColumn(col, colW, ppf, 0, duration, sourceInFrame, rate, fps, 1);
+            const int64_t s1 = timeline::waveSampleAtColumn(col + 1, colW, ppf, 0, duration, sourceInFrame, rate, fps, 1);
             if (s1 <= s0) continue;
             const timeline::WaveColumn wc = timeline::waveColumn(peaks, s0, s1, reference, scale);
             const float x = static_cast<float>(col * colW - scrollX);
@@ -182,8 +182,8 @@ int main(int argc, char** argv) {
         const float reference = audio::referenceLevel(peaks, refStart, refEnd);
         int64_t quads = 0;
         for (int64_t col = first; col <= last; ++col) {
-            const int64_t s0 = timeline::waveSampleAtColumn(col, colW, scrollX, ppf, 0, duration, sourceInFrame, rate, fps, 1);
-            const int64_t s1 = timeline::waveSampleAtColumn(col + 1, colW, scrollX, ppf, 0, duration, sourceInFrame, rate, fps, 1);
+            const int64_t s0 = timeline::waveSampleAtColumn(col, colW, ppf, 0, duration, sourceInFrame, rate, fps, 1);
+            const int64_t s1 = timeline::waveSampleAtColumn(col + 1, colW, ppf, 0, duration, sourceInFrame, rate, fps, 1);
             if (s1 <= s0) continue;
             const timeline::WaveColumn wc = timeline::waveColumn(peaks, s0, s1, reference, scale);
             if (wc.up <= 0.0f && wc.down <= 0.0f) continue;

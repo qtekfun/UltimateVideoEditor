@@ -1539,7 +1539,30 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         // wave_columns.h): a solid light envelope growing from the bottom edge over a fainter peak layer, one centre line across.
         // A video clip whose own sound was detached has none to show: its waveform now lives on the audio clip.
         if (c.assetKey >= 0 && lookup_ && !c.audioDetached && !(retime != nullptr && retime->freeze())) {
-            if (auto peaks = lookup_(c.assetKey)) {
+            const audio::WaveStatus waveStatus = lookup_(c.assetKey);
+            const auto peaks = waveStatus.peaks;
+            const bool drawable = peaks != nullptr && (waveStatus.state == audio::WaveState::Ready || waveStatus.state == audio::WaveState::Silent);
+            if (!drawable && waveStatus.state != audio::WaveState::Unrequested) {
+                // Not an envelope: say why. Loading is a faint steady line (no animation), failed a dashed one, so a clip whose
+                // peaks never came is told apart from a silent one (a flat baseline, below) and from one still loading.
+                const float wTop = hasThumbs ? ibottom - kWaveStripFraction * (ibottom - bodyTop) : bodyTop;
+                const float mid = (wTop + ibottom) * 0.5f;
+                const float visLeft = std::max(0.0f, ix0), visRight = std::min(W, ix1);
+                g.setClip(visLeft, std::max(layout.rulerHeight, itop), visRight, ibottom);
+                if (waveStatus.state == audio::WaveState::Failed) {
+                    if (hasThumbs) g.rect(ix0, wTop, ix1, ibottom, kWaveScrim);
+                    const float dash = 6.0f * density, gap = 4.0f * density;
+                    const Color dashed = withAlpha(white, 0.75f);
+                    const double firstDash = std::floor(static_cast<double>(visLeft) + vp.scrollX) / (dash + gap);
+                    for (double d = std::floor(firstDash); d * (dash + gap) - vp.scrollX < visRight; d += 1.0) {
+                        const float x = static_cast<float>(d * (dash + gap) - vp.scrollX);
+                        g.rect(x, mid - hair, x + dash, mid + hair, dashed);
+                    }
+                } else {
+                    g.rect(ix0, mid - hair * 0.5f, ix1, mid + hair * 0.5f, withAlpha(white, 0.18f));
+                }
+                g.setClip(0, layout.rulerHeight, W, H);
+            } else if (drawable) {
                 // Without thumbnails the waveform gets the whole body below the header; with them it
                 // sits in a strip along the bottom, over a scrim so it reads against the pictures.
                 const float wTop = hasThumbs ? ibottom - kWaveStripFraction * (ibottom - bodyTop) : bodyTop;
@@ -1572,9 +1595,9 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                         int64_t s0, s1;
                         if (retime == nullptr) {
                             // Sub-frame positions: zoomed in, a column is a fraction of a frame.
-                            s0 = waveSampleAtColumn(col, colW, vp.scrollX, ppf, c.startFrame, c.durationFrames, c.sourceInFrame, rate,
+                            s0 = waveSampleAtColumn(col, colW, ppf, c.startFrame, c.durationFrames, c.sourceInFrame, rate,
                                                     c.sourceFpsNum, c.sourceFpsDen);
-                            s1 = waveSampleAtColumn(col + 1, colW, vp.scrollX, ppf, c.startFrame, c.durationFrames, c.sourceInFrame,
+                            s1 = waveSampleAtColumn(col + 1, colW, ppf, c.startFrame, c.durationFrames, c.sourceInFrame,
                                                     rate, c.sourceFpsNum, c.sourceFpsDen);
                         } else {
                             // A retimed clip covers its source range at its average speed (a reversed one from the end).
