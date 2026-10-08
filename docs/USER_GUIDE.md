@@ -150,7 +150,12 @@ sideways and a tablet each keep theirs).
   - **Track height**: Small, Medium or Large lanes, or the **-** and **+** buttons. Waveforms, thumbnails and
     keyframe diamonds scale with the lane.
   - **Audio track height**: *Same*, *1.5x* or *2x*. Audio lanes become that much taller than the other lanes, so waveforms and the
-    fade and volume handles are easier to see and to grab. It is saved with the layout and works with any track height.
+    fade and volume handles are easier to see and to grab. It is saved with the layout and works with any track height. A new
+    install starts at *1.5x*; a layout you saved before this setting existed keeps *Same* until you change it.
+  - **Toolbar** (*Edit toolbar*): the order of the tool row under the transport buttons. Each tool has arrows to move it earlier or
+    later and a switch to show it in the bar. A tool you switch off moves to the **More** (three dots) menu at the end of the bar, so
+    nothing is lost; *Split* and *Delete* always stay in the bar. *Reset to default* restores the original order. The choice is
+    remembered for every project; a button added by a later version of the app appears next to its usual neighbour, never hidden.
   - **Waveform scale**: *Linear* (the default: the height follows the loudness of the clip, speech and pauses stand out) or *dB*
     (quiet passages stay visible). Audio is drawn as a solid light envelope rising from the bottom of the clip, over a darker body, with a fainter
     shape behind it for the loudest peaks and a thin line across the middle; zoom in with a pinch to see individual sounds, and a gap

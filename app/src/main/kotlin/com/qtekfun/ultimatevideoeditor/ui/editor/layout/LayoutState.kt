@@ -88,6 +88,12 @@ enum class AudioLaneHeight(val factor: Float, val label: String) {
     SAME(1.0f, "Same"),
     TALL(1.5f, "1.5x"),
     TALLER(2.0f, "2x"),
+    ;
+
+    companion object {
+        /** What a layout that was never saved gets: tall enough for the waveform and the fade / volume handles. */
+        val DEFAULT = TALL
+    }
 }
 
 enum class LayoutPreset(val label: String) {
@@ -111,8 +117,11 @@ data class LayoutState(
     val tray: PanelState = PanelState(Dock.BOTTOM),
     val inspector: PanelState = PanelState(Dock.OVERLAY),
     val laneHeight: LaneHeight = LaneHeight.MEDIUM,
-    /** Audio lanes relative to [laneHeight]; saved with it. */
-    val audioLaneHeight: AudioLaneHeight = AudioLaneHeight.SAME,
+    /**
+     * Audio lanes relative to [laneHeight]; saved with it. A layout never saved starts at [AudioLaneHeight.DEFAULT] (1.5x);
+     * a saved layout from before the setting existed reads as Same (see [LayoutCodec.decode]), so nobody's timeline changes.
+     */
+    val audioLaneHeight: AudioLaneHeight = AudioLaneHeight.DEFAULT,
     /** The preset last applied, null once something was changed by hand. */
     val preset: LayoutPreset? = LayoutPreset.DEFAULT,
     /** Shows the dividers and handles prominently so they are easy to find; not remembered. */

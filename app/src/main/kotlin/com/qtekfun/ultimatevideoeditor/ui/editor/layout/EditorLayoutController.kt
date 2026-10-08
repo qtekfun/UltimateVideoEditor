@@ -7,9 +7,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformScale
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.NoToolbarOrderStore
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrder
+import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrderStore
 
 /** Layouts kept in local preferences, one entry per window size class and orientation. */
-class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore {
+class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore, ToolbarOrderStore {
+    override fun loadOrder(): ToolbarOrder = ToolbarOrder.parse(prefs.getString(TOOLBAR_KEY, null))
+
+    override fun saveOrder(order: ToolbarOrder) {
+        prefs.edit().putString(TOOLBAR_KEY, order.encode()).apply()
+    }
+
     override fun isOn(): Boolean = prefs.getBoolean(VIDEO_AUDIO_KEY, false)
 
     override fun setOn(on: Boolean) {
@@ -34,6 +43,7 @@ class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, Wave
     companion object {
         const val FILE = "editor_layout"
         private const val WAVEFORM_KEY = "waveform_scale"
+        private const val TOOLBAR_KEY = "toolbar_order"
         private const val VIDEO_AUDIO_KEY = "video_audio_on_track"
     }
 }
@@ -50,6 +60,7 @@ class EditorLayoutController(
     initialWindow: WindowMetrics,
     private val waveformStore: WaveformScaleStore = NoWaveformScaleStore,
     private val placementStore: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
+    private val toolbarStore: ToolbarOrderStore = NoToolbarOrderStore,
 ) {
     var window by mutableStateOf(initialWindow)
         private set
@@ -73,6 +84,19 @@ class EditorLayoutController(
         videoAudioOnTrack = on
         placementStore.setOn(on)
     }
+
+    /** The order and visibility of the main tool row. One choice for every layout and project; the presets leave it alone. */
+    var toolbarOrder by mutableStateOf(toolbarStore.loadOrder())
+        private set
+
+    fun changeToolbar(change: (ToolbarOrder) -> ToolbarOrder) {
+        val next = change(toolbarOrder)
+        if (next == toolbarOrder) return
+        toolbarOrder = next
+        toolbarStore.saveOrder(next)
+    }
+
+    fun resetToolbar() = changeToolbar { ToolbarOrder.DEFAULT }
 
     var key by mutableStateOf(LayoutKey.of(initialWindow))
         private set

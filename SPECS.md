@@ -265,7 +265,8 @@ role (`HubTopBar`, `HubCards` with `ContinueCard` and `StorageCard`, `HubList` w
 - Lane height is one scalar, the layout sheet's Small / Medium / Large preset (0.75, 1, 1.4), set with `setLaneScale` and fed to
   `Layout::forDensity` (clamped to 0.5x to 3x of the 64 dp default lane); ruler, gaps and touch slop do not scale. All lanes
   have the same height, except audio lanes: the layout sheet's "Audio track height" (Same / 1.5x / 2x, `AudioLaneHeight`, saved in
-  `LayoutState` next to the lane height as `audiolane=`) multiplies the audio lanes only, passed as the second argument of
+  `LayoutState` next to the lane height as `audiolane=`; the default of a never-saved layout is 1.5x, a saved layout without the key reads
+  as Same, DECISIONS "Toolbar order and audio track default") multiplies the audio lanes only, passed as the second argument of
   `setLaneScale(scale, audioFactor)` (clamped to 1x to 3x). `Layout` then holds per-lane geometry built from the snapshot's track
   types (`withTracks`: `trackTop(i)`, `heightOf(i)`, `trackAt(y)`, `contentHeight(n)`); drawing, hit tests (`hitTest`, `clipsInRect`,
   the gain under the finger, the fade handles and volume points), the drop hint, bottom anchoring and the scroll extent all go through it, so
@@ -2276,7 +2277,14 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
   at the default position.
 - **Track height (done; see 5.3):** a +/- control and a choice of Small / Medium / Large lane heights (no pinch: the vertical
   zoom was removed); waveforms, thumbnails and keyframe diamonds scale. A separate "Audio track height" choice (Same / 1.5x / 2x)
-  makes audio lanes taller.
+  makes audio lanes taller (default 1.5x for a layout never saved).
+- **Toolbar order (WP-U3 follow-up):** the main tool row is built from `ui/editor/toolbar/ToolbarOrder` (pure: every `ToolbarItem` once, a
+  hidden set, `move`, `withHidden`, `parse`/`encode`, `DEFAULT` = the shipped order). Hidden items are drawn in a "More" dropdown at the
+  end of the row, so every tool stays reachable; Split and Delete are `mandatory`. It is one preference (`toolbar_order` in the
+  `editor_layout` SharedPreferences, e.g. `import,split,-proxy,...`, `-` = hidden) held by `EditorLayoutController.toolbarOrder`, edited
+  from the layout sheet's "Edit toolbar" dialog (`ToolbarEditorDialog`). `parse` ignores unknown ids and repeated ids, forces mandatory
+  items visible, and puts an id missing from the saved text (a button added later) back, visible, right after its predecessor in the
+  default order. A new button therefore needs a `ToolbarItem` entry, a `when` branch in `EditorScreen` and a `ToolbarGuide` entry.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
   toggle already exists.
