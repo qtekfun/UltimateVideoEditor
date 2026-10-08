@@ -18,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,7 +53,7 @@ internal fun MarkerHintChip(hint: MarkerHint, onIntent: (EditorIntent) -> Unit, 
 }
 
 /**
- * The compact marker popup: a name, a note, six colours, delete and the previous / next markers. Everything
+ * The compact marker popup: a name, a note, six colours, the Stick to clip switch, delete and the previous / next markers. Everything
  * shows live; closing it keeps the edits as one undo step.
  */
 @Composable
@@ -88,6 +89,21 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
                 maxLines = 3,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
             )
+            if (!popup.isBeat) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (popup.canStick || popup.stick) "Stick to clip" else "Stick to clip (no clip here)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = popup.stick,
+                        onCheckedChange = { onIntent(MarkerIntent.StickChanged(it)) },
+                        enabled = popup.canStick,
+                        modifier = Modifier.semantics { contentDescription = "Stick marker to clip" },
+                    )
+                }
+            }
             Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (color in MarkerColor.entries) MarkerSwatch(color, popup.color == color, onIntent)
