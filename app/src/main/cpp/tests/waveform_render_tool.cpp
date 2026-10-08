@@ -143,7 +143,36 @@ int main(int argc, char** argv) {
             const float x = static_cast<float>(col * colW - scrollX);
             cv.rect(x, mid - hi * half - 0.5f, x + colW, mid - lo * half + 0.5f, wave);
         }
-    } else {
+    } else if (mode == "after") {
+        // The LumaFusion-style look: one-sided, bottom-anchored solid envelope over a fainter peak layer, thin centre line across.
+        const float areaH = ibottom - wTop - hair;
+        cv.rect(0, wTop, static_cast<float>(width), ibottom, scaled(base, timeline::kWaveBodyDim));
+        const Color fill = mix(base, white, timeline::kWaveFillMix);
+        const Color peakC = withAlpha(mix(base, white, timeline::kWavePeakMix), timeline::kWavePeakAlpha);
+        const Color centre = withAlpha(mix(base, white, timeline::kWaveCentreMix), 0.55f);
+        const float colW = timeline::waveColumnWidth(static_cast<float>(width), density);
+        const int64_t first = timeline::waveFirstColumn(0.0f, scrollX, colW), last = timeline::waveLastColumn(static_cast<float>(width), scrollX, colW);
+        const int64_t refStart = sourceInFrame * rate / fps, refEnd = (sourceInFrame + duration) * rate / fps;
+        const float reference = audio::referenceLevel(peaks, refStart, refEnd);
+        int64_t quads = 0;
+        for (int64_t col = first; col <= last; ++col) {
+            const int64_t s0 = timeline::waveSampleAtColumn(col, colW, scrollX, ppf, 0, duration, sourceInFrame, rate, fps, 1);
+            const int64_t s1 = timeline::waveSampleAtColumn(col + 1, colW, scrollX, ppf, 0, duration, sourceInFrame, rate, fps, 1);
+            if (s1 <= s0) continue;
+            const timeline::WaveColumn wc = timeline::waveColumn(peaks, s0, s1, reference, scale);
+            const float x = static_cast<float>(col * colW - scrollX);
+            const float yPeak = ibottom - wc.peak * areaH, yFill = ibottom - wc.fill * areaH;
+            if (yPeak < yFill - 0.5f) {
+                cv.rect(x, yPeak, x + colW, yFill, peakC);
+                ++quads;
+            }
+            cv.rect(x, yFill, x + colW, ibottom, fill);  // in silence this is the one pixel baseline
+            ++quads;
+        }
+        cv.rect(0, mid - hair * 0.5f, static_cast<float>(width), mid + hair * 0.5f, centre);
+        std::fprintf(stderr, "columns %lld of %.0f px, %lld quads (%lld vertices), reference %.3f\n", static_cast<long long>(last - first + 1),
+                     colW, static_cast<long long>(quads), static_cast<long long>(quads * 6), reference);
+    } else {  // "v165": the drawing of PR #165 (outline, envelope, RMS band), kept for comparison
         const Color envelope = mix(base, white, 0.45f), inner = mix(base, white, 0.88f), centre = withAlpha(mix(base, white, 0.6f), 0.4f);
         const Color outline{0, 0, 0, 0.42f};
         cv.rect(0, mid - hair * 0.5f, static_cast<float>(width), mid + hair * 0.5f, centre);

@@ -45,7 +45,6 @@ using Color = Rgba;
 // transitions, a missing file), so they stay fixed. Everything else is in TimelineTheme (timeline_theme.h).
 constexpr Color kMarqueeAlpha{0.0f, 0.0f, 0.0f, 0.16f};  // fill alpha of the marquee over the theme's primary colour
 constexpr Color kWaveScrim{0.0f, 0.0f, 0.0f, 0.5f};
-constexpr Color kWaveOutline{0.0f, 0.0f, 0.0f, 0.42f};  // one pixel around the waveform envelope, separating it from the clip colour
 constexpr Color kSpeedLabel{1.0f, 1.0f, 1.0f, 0.95f};
 constexpr Color kClipLabel{1.0f, 1.0f, 1.0f, 0.92f};
 constexpr Color kFxBadge{0.35f, 0.85f, 0.95f, 1.0f};
@@ -1537,7 +1536,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
         }
 
         // Waveform from the cached peaks, anchored to content so it does not shimmer while scrolling. Per column (see
-        // wave_columns.h): a dark outline, the min..max envelope and, lighter, the RMS band, around a one-pixel centre line.
+        // wave_columns.h): a solid light envelope growing from the bottom edge over a fainter peak layer, one centre line across.
         // A video clip whose own sound was detached has none to show: its waveform now lives on the audio clip.
         if (c.assetKey >= 0 && lookup_ && !c.audioDetached && !(retime != nullptr && retime->freeze())) {
             if (auto peaks = lookup_(c.assetKey)) {
@@ -1545,19 +1544,19 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 // sits in a strip along the bottom, over a scrim so it reads against the pictures.
                 const float wTop = hasThumbs ? ibottom - kWaveStripFraction * (ibottom - bodyTop) : bodyTop;
                 const float mid = (wTop + ibottom) * 0.5f;
-                const float half = (ibottom - wTop) * 0.5f - 1.0f;
                 const float visLeft = std::max(0.0f, ix0), visRight = std::min(W, ix1);
                 g.setClip(visLeft, std::max(layout.rulerHeight, itop), visRight, ibottom);
-                const Color envelope = hasThumbs ? withAlpha(mix(base, white, 0.7f), 0.8f) : mix(base, white, 0.45f);
-                const Color inner = hasThumbs ? withAlpha(white, 0.95f) : mix(base, white, 0.88f);
-                const Color centre = withAlpha(hasThumbs ? white : mix(base, white, 0.6f), 0.4f);
+                // Solid light envelope (one quad per column, anchored at the bottom edge) over a fainter peak layer, on a
+                // darker body: strong contrast with no outline halo. See wave_columns.h.
+                const float areaH = std::max(1.0f, ibottom - wTop - hair);
+                const Color envelope = hasThumbs ? withAlpha(mix(base, white, 0.85f), 0.92f) : mix(base, white, kWaveFillMix);
+                const Color peakLayer = withAlpha(hasThumbs ? white : mix(base, white, kWavePeakMix), kWavePeakAlpha);
+                const Color centre = withAlpha(hasThumbs ? white : mix(base, white, kWaveCentreMix), hasThumbs ? 0.4f : 0.55f);
                 if (hasThumbs) {
                     g.rect(ix0, wTop, ix1, ibottom, kWaveScrim);
                 } else {
-                    // A soft shading under the waveform.
-                    g.rectGradient(ix0, wTop, ix1, ibottom, scaled(base, 0.95f), scaled(base, 0.62f));
+                    g.rect(ix0, wTop, ix1, ibottom, scaled(base, kWaveBodyDim));
                 }
-                g.rect(ix0, mid - hair * 0.5f, ix1, mid + hair * 0.5f, centre);
                 if (visRight > visLeft) {
                     const double ppf = vp.pxPerFrame;
                     const float colW = waveColumnWidth(visRight - visLeft, density);
@@ -1591,16 +1590,16 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                         }
                         if (s1 <= s0 && retime == nullptr) continue;  // a column outside the clip (both ends clamp to the same sample)
                         const WaveColumn wc = waveColumn(*peaks, s0, s1, reference, waveScale);
-                        if (wc.up <= 0.0f && wc.down <= 0.0f) continue;  // silence: the centre line only
                         const float x = static_cast<float>(col * colW - vp.scrollX);
-                        const float yTop = mid - wc.up * half, yBottom = mid + wc.down * half;
-                        g.rect(x, yTop - hair, x + colW, yBottom + hair, kWaveOutline);
-                        g.rect(x, yTop, x + colW, yBottom, envelope);
-                        if (wc.rms * half >= 1.0f) {
-                            g.rect(x, mid - std::min(wc.rms, wc.up) * half, x + colW, mid + std::min(wc.rms, wc.down) * half, inner);
-                        }
+                        const float yFill = ibottom - wc.fill * areaH;
+                        const float yPeak = ibottom - wc.peak * areaH;
+                        if (yPeak < yFill - 0.5f) g.rect(x, yPeak, x + colW, yFill, peakLayer);
+                        // Never less than the baseline pixel, so silence is a thin flat line, not a gap.
+                        g.rect(x, std::min(yFill, ibottom - hair), x + colW, ibottom, envelope);
                     }
                 }
+                // The thin centre line across the area, over the envelope (the reference the owner's example has).
+                g.rect(ix0, mid - hair * 0.5f, ix1, mid + hair * 0.5f, centre);
                 g.setClip(0, layout.rulerHeight, W, H);
             }
         }
@@ -1615,6 +1614,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             const float step = std::max(2.0f, 2.0f * density);
             const Color ramp = withAlpha(Color{0.0f, 0.0f, 0.0f, 1.0f}, 0.38f);
             const Color edge = withAlpha(white, 0.9f);
+            const Color halo = withAlpha(Color{0.0f, 0.0f, 0.0f, 1.0f}, 0.55f);
             const float lineHalf = std::max(1.0f, 1.0f * density);
             const auto fadeShape = core::fadeShapeFromWire(shaping->shape());
             // A ramp: what the fade takes away is shaded above its curve, and the curve is drawn as a line.
@@ -1626,6 +1626,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                     const float gain = core::fadeShapeGain(fadeShape, rising ? p : 1.0f - p);
                     const float y = areaBottom - gain * (areaBottom - areaTop);
                     g.rect(x, areaTop, x + step, y, ramp);
+                    g.rect(x, y - lineHalf - hair, x + step, y + lineHalf + hair, halo);  // dark rim: white alone vanishes on the light envelope
                     g.rect(x, y - lineHalf, x + step, y + lineHalf, edge);
                 }
             };
@@ -1655,6 +1656,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
                 float prevY = dbToY(curveDb(ix0), top, laneH);
                 for (float x = std::max(ix0, 0.0f); x < std::min(ix1, W); x += step) {
                     const float y = dbToY(curveDb(x + step), top, laneH);
+                    g.rect(x, std::min(prevY, y) - thick - hair, x + step, std::max(prevY, y) + thick + hair, halo);
                     g.rect(x, std::min(prevY, y) - thick, x + step, std::max(prevY, y) + thick, curve);
                     prevY = y;
                 }
