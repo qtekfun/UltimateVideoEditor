@@ -563,12 +563,23 @@ multilayer title (a caption with word timing stays a plain title).
 the playhead on a marker (within two frames) opens that marker instead of adding a second one. Adding is one
 undo step.
 
+**Markers stick to the video.** A marker dropped over a clip is attached to it: insert a clip in front, delete or
+move clips before it, or move the clip itself, and the marker goes with the clip (on the base track the clip under the
+playhead wins, otherwise the topmost overlay clip). Trimming the start keeps it on the same picture; if a trim cuts
+the marker off it stays on the clip's first or last frame. Changing the speed scales its position with the clip;
+splitting hands it to the part that holds it (a marker exactly on the cut goes to the right part). Deleting the clip
+keeps the marker where it was, as a free marker (Undo brings both back). A marker over a gap is free and stays at its
+frame. The **Stick to clip** switch in the marker panel turns this on or off for one marker at any time (it is off and
+greyed out where there is no clip). Dragging a marker attaches it to the clip it lands on. Beat markers are always
+free. Projects from before this feature open with free markers; switch them on one by one.
+
 **Edit a marker.** Tap the marker's flag on the ruler (the touch area is about 40 dp wide, bigger than the
 flag). A small panel opens under the ruler with:
 
 - a **name** (one line, up to 40 characters) and a **note** (several lines, up to 200 characters). When the
   timeline is zoomed in far enough, the name is written next to the flag, in the system font (accents, symbols and emoji
   included; a long name is cut where the next marker starts);
+- the **Stick to clip** switch (see above);
 - six **colours**; tap the chosen one again to clear it. The flag and the faint line through the lanes take the
   colour (pink when there is none), and a small light square under the flag shows that there is a note;
 - **‹ ›** go to the previous or next marker (the playhead follows);

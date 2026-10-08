@@ -9,7 +9,10 @@ enum class MarkerKind { MANUAL, BEAT }
 enum class MarkerColor { RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE }
 
 /**
- * A point on the ruler, in project frames. Markers do not move when clips are edited around them.
+ * A point on the ruler, in project frames. A free marker (no [anchorClipId]) stays at its frame when clips are edited around it.
+ * An anchored marker sticks to a clip: [offsetFrames] counts from the clip's timeline start and [frame] is always
+ * `clip.timelineStart + offsetFrames` (kept in step by [MarkerAnchors.settle] after every edit, so the native side,
+ * snapping, navigation and the exporters only ever read [frame]). See [MarkerAnchors].
  * [name], [note] and [color] are optional labels the user writes; they travel with the project and to EDL / FCPXML.
  * The name is short and is drawn on the ruler when there is room; the note is longer free text.
  */
@@ -20,7 +23,11 @@ data class Marker(
     val note: String? = null,
     val color: MarkerColor? = null,
     val name: String? = null,
-)
+    val anchorClipId: String? = null,
+    val offsetFrames: Long = 0,
+) {
+    val isAnchored: Boolean get() = anchorClipId != null
+}
 
 /** Pure marker edits. Frames are unique across all markers and the list is always sorted by frame. */
 object MarkerOps {
@@ -49,6 +56,7 @@ object MarkerOps {
         if (timeline.markers.any { it.frame == marker.frame }) {
             return EditResult.Failure(EditError.InvalidMarker("there is already a marker at frame ${marker.frame.value}"))
         }
+        MarkerAnchors.problem(timeline, marker)?.let { return EditResult.Failure(EditError.InvalidMarker(it)) }
         return EditResult.Success(timeline.copy(markers = normalised(timeline.markers + marker)))
     }
 
@@ -78,15 +86,19 @@ object MarkerOps {
         )
     }
 
-    /** Moves a marker to [frame]. Frames stay unique: landing on another marker's frame is refused. */
+    /**
+     * Moves a marker to [frame]. Frames stay unique: landing on another marker's frame is refused. An anchored marker is
+     * anchored again at [frame] by the creation rule (base clip, else topmost overlay clip); with no clip there it becomes free.
+     */
     fun move(timeline: Timeline, markerId: String, frame: FrameIndex): EditResult<Timeline> {
         val marker = timeline.markers.firstOrNull { it.id == markerId } ?: return EditResult.Failure(EditError.MarkerNotFound(markerId))
         if (frame < FrameIndex.ZERO) return EditResult.Failure(EditError.InvalidMarker("a marker cannot be before frame 0"))
-        if (marker.frame == frame) return EditResult.Success(timeline)
+        val moved = if (marker.isAnchored) MarkerAnchors.anchoredAt(timeline, marker.copy(frame = frame)) else marker.copy(frame = frame)
+        if (moved == marker) return EditResult.Success(timeline)
         if (timeline.markers.any { it.id != markerId && it.frame == frame }) {
             return EditResult.Failure(EditError.InvalidMarker("there is already a marker at frame ${frame.value}"))
         }
-        return EditResult.Success(timeline.copy(markers = normalised(timeline.markers.map { if (it.id == markerId) it.copy(frame = frame) else it })))
+        return EditResult.Success(timeline.copy(markers = normalised(timeline.markers.map { if (it.id == markerId) moved else it })))
     }
 
     /** The last marker strictly before [frame], or null. [markers] must be sorted by frame. */
@@ -120,9 +132,28 @@ object MarkerOps {
             if (beat.frame < FrameIndex.ZERO) return EditResult.Failure(EditError.InvalidMarker("a beat cannot be before frame 0"))
             if (!takenFrames.add(beat.frame)) continue
             if (!ids.add(beat.id)) return EditResult.Failure(EditError.InvalidMarker("duplicate marker id ${beat.id}"))
-            added += beat.copy(kind = MarkerKind.BEAT)
+            // Beats come from audio analysis and are replaced as a set, so they are always free.
+            added += MarkerAnchors.free(beat).copy(kind = MarkerKind.BEAT)
         }
         return EditResult.Success(timeline.copy(markers = normalised(survivors + added)))
+    }
+
+    /**
+     * Sticks the marker to the clip under its frame ([stick]) or frees it. Sticking needs a video clip at the marker's frame
+     * (the base track's first, else the topmost overlay's); a beat marker is always free.
+     */
+    fun setStick(timeline: Timeline, markerId: String, stick: Boolean): EditResult<Timeline> {
+        val marker = timeline.markers.firstOrNull { it.id == markerId } ?: return EditResult.Failure(EditError.MarkerNotFound(markerId))
+        val changed = if (stick) {
+            if (marker.kind == MarkerKind.BEAT) return EditResult.Failure(EditError.InvalidMarker("a beat marker cannot stick to a clip"))
+            val anchored = MarkerAnchors.anchoredAt(timeline, marker)
+            if (!anchored.isAnchored) return EditResult.Failure(EditError.InvalidMarker("there is no video clip at frame ${marker.frame.value} to stick to"))
+            anchored
+        } else {
+            MarkerAnchors.free(marker)
+        }
+        if (changed == marker) return EditResult.Success(timeline)
+        return EditResult.Success(timeline.copy(markers = timeline.markers.map { if (it.id == markerId) changed else it }))
     }
 
     /** The marker nearest to [frame] within [radius] frames, preferring the earlier one on a tie. */
