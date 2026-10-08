@@ -1539,6 +1539,47 @@ deploys. About, Help has an **Online guide** button that opens `AboutController.
 fetches nothing and has no INTERNET permission (`OfflineGuaranteeTest` stays green). The release workflow prints the generated user
 guide to `ultimateVE-<version>-user-guide.pdf` (best effort, `continue-on-error`). Decision: DECISIONS.md, "Toolbar documentation".
 
+### 5.40 Relink by scanning a folder
+
+The existing single-file relink (`EditorViewModel.relinkAsset`, `RelinkCheck`, the "Missing media" dialog) stays; this adds one
+folder pick that relinks every missing item it can identify.
+
+**Flow.** "Scan a folder..." in the dialog (`EditorIntent.RequestFolderRelink`) opens `OpenDocumentTree`; the result is
+`RelinkFromFolder(treeUri)`. `FolderScanner.retainAccess` takes a persistable read permission on the tree (the media folder is picked the same
+way; `PermissionTrim.unused` keeps a held tree while a project's file lies inside it, so housekeeping does not drop it).
+`FolderRelinkRunner` (data/relink, no state of its own) scans, matches, probes and checks; `EditorViewModel.applyFolderRelink`
+then stores all accepted entries in one reducer step and one `scheduleSave()` (the normal atomic save, 4.1). Nothing is applied
+while the scan runs or after a cancel (`CancelFolderRelink`); a second scan cannot start while one is running. Like the single relink it is
+a saved library change and not a step of the undo history; the results say so. Caches and asset keys are reset exactly as in the single
+path (`MediaCaches.invalidate`, `KeyRegistry.rekey`), so waveforms, thumbnails and decoders restart from the new file, and the library entry is built by the
+shared `RelinkApply.relinked`.
+
+**Scanning.** `FolderScanner` is an interface (`TreeFolderScanner` over `DocumentsContract` children queries; fakes in tests). Breadth first
+and iterative, off the main thread (`Dispatchers.IO`), cancellable at every folder, bounded by `ScanLimits` (50 000 files, 5 000 folders, depth 16;
+a cut-short scan is reported). Only media files are kept (MIME type, else extension). File addresses are tree document URIs, readable through the
+tree's permission; they are probed with `MediaImporter.verify`, which does not need a per-file persistable grant.
+
+**Matching** (pure, `domain/relink/FolderRelinkMatcher`). Candidates: same name ignoring case and surrounding spaces, and a kind the item accepts
+(video-for-video, audio-for-audio or a video file, picture-for-picture). One candidate is taken; several of equal known size are copies and the
+shallowest path is taken. Several of different or unknown size are never settled by name: (1) the folder-move fast path: every match teaches a
+prefix change (old path prefix to new relative prefix, the unchanged tail being as long as the two paths agree at the end), and a candidate at the
+expected path of a still open item wins; (2) the runner opens at most 8 candidates and `narrowByFacts` keeps the one whose duration (within 1%, at
+least 0.25 s) and picture size agree with the stored asset (`durationFrames`, `videoWidth/Height`); (3) otherwise the item is listed as ambiguous and the user taps
+a candidate (`RelinkFromCandidate`) or uses the single-file picker. The library entry does not store a file size, so "conflicting size" can only be
+seen between candidates; recording a size at import is a possible later step. The old address supplies the folder trail (`MissingMedia.pathOfUri`);
+opaque ids give only the name.
+
+**Acceptance.** Each match is probed and passed through `RelinkCheck.evaluate` (same media kind, has video or audio as needed, not already another item,
+which also stops two items taking one file); a failure becomes a "not found" row with the reason. Warnings (shorter file, other frame rate or colour space) are
+listed.
+
+**Results.** "Relinked N of M"; rows for the ones not found (reason and Relink button), ambiguous ones (candidate paths to tap), notes, a warning when the scan was cut short or Android would not
+keep the folder permission.
+
+**Tests.** `FolderRelinkMatcherTest` (names, case, duplicates, ambiguous, kind mismatch, moved-path fast path, facts, nothing found),
+`FolderRelinkViewModelTest` (fake scanner and importer: one step and one save, cancel, errors, ambiguous choice, refused files, not an undo step),
+`PermissionTrimTest`. Bundle import (`AutoRelink`, `RepositoryBundleTest`) is untouched.
+
 ### 5.37 Fades and the volume curve
 
 **What exists.** A clip's `ClipAudio` holds `fadeInFrames` / `fadeOutFrames` (clip frames, equal power since 9.3) and, new,

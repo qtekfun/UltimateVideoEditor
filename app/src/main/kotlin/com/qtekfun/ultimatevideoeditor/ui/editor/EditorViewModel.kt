@@ -23,7 +23,15 @@ import com.qtekfun.ultimatevideoeditor.ui.library.Library
 import com.qtekfun.ultimatevideoeditor.ui.library.LibraryQuery
 import java.io.IOException
 import com.qtekfun.ultimatevideoeditor.data.ProbedMedia
+import com.qtekfun.ultimatevideoeditor.data.RelinkApply
 import com.qtekfun.ultimatevideoeditor.data.RelinkCheck
+import com.qtekfun.ultimatevideoeditor.data.relink.FolderRelinkOutcome
+import com.qtekfun.ultimatevideoeditor.data.relink.FolderRelinkProgress
+import com.qtekfun.ultimatevideoeditor.data.relink.FolderRelinkRunner
+import com.qtekfun.ultimatevideoeditor.data.relink.FolderScanException
+import com.qtekfun.ultimatevideoeditor.data.relink.FolderScanner
+import com.qtekfun.ultimatevideoeditor.data.relink.NoFolderScanner
+import kotlinx.coroutines.CancellationException
 import com.qtekfun.ultimatevideoeditor.data.RelinkVerdict
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.ProjectStore
@@ -218,6 +226,8 @@ class EditorViewModel(
     private val multicamServices: MulticamServices = MulticamServices.None,
     /** The "Put video audio on an audio track" preference, read each time media is placed (SPECS 5.38). */
     private val videoAudioPlacement: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
+    /** Lists the files of a folder the user picked, to relink every missing file in one step (SPECS 5.40). */
+    private val folderScanner: FolderScanner = NoFolderScanner,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD, MARKER }
@@ -460,7 +470,12 @@ class EditorViewModel(
             is EditorIntent.ImportToTray -> importToTray(intent.uris)
             is EditorIntent.ReorderAsset -> reorderAsset(intent.assetId, intent.toIndex)
             EditorIntent.ShowRelink -> reduce { copy(relinkOpen = true) }
-            EditorIntent.HideRelink -> reduce { copy(relinkOpen = false) }
+            EditorIntent.HideRelink -> reduce { copy(relinkOpen = false, folderRelink = if (folderRelink is FolderRelinkUi.Running) folderRelink else FolderRelinkUi.Idle) }
+            EditorIntent.RequestFolderRelink -> emit(EditorEffect.LaunchFolderPicker)
+            is EditorIntent.RelinkFromFolder -> relinkFromFolder(intent.treeUri)
+            EditorIntent.CancelFolderRelink -> cancelFolderRelink()
+            EditorIntent.DismissFolderRelink -> reduce { copy(folderRelink = FolderRelinkUi.Idle, relinkOpen = relinkOpen && missingMedia.isNotEmpty()) }
+            is EditorIntent.RelinkFromCandidate -> relinkAsset(intent.assetId, intent.uri, fromFolder = true)
             is EditorIntent.RequestRelink -> emit(EditorEffect.LaunchRelinkPicker(intent.assetId))
             is EditorIntent.RelinkAsset -> relinkAsset(intent.assetId, intent.uri)
             EditorIntent.RetrySave -> retrySave()
@@ -669,7 +684,7 @@ class EditorViewModel(
      * change of the media library, not a step of the undo history: undoing it would put back a file the
      * user just said does not exist.
      */
-    private fun relinkAsset(assetId: String, uri: String) {
+    private fun relinkAsset(assetId: String, uri: String, fromFolder: Boolean = false) {
         val old = state.value.assets.firstOrNull { it.id == assetId }
         if (old == null) {
             emit(EditorEffect.ShowMessage("That media is no longer in the project"))
@@ -677,7 +692,8 @@ class EditorViewModel(
         }
         viewModelScope.launch {
             val probed = try {
-                importer.import(uri)
+                // A file inside a folder the user granted is read through the folder's permission, which cannot be taken per file.
+                if (fromFolder) importer.verify(uri) else importer.import(uri)
             } catch (e: MediaImportException) {
                 emit(EditorEffect.ShowMessage(e.message ?: "Could not open the file"))
                 return@launch
@@ -692,32 +708,9 @@ class EditorViewModel(
                 }
                 is RelinkVerdict.Accepted -> verdict.warnings
             }
-            val relinked = if (probed.isImage) {
-                old.copy(uri = uri, displayName = probed.displayName ?: old.displayName)
-            } else {
-                // Audio-only files have no native frame rate; use the project's.
-                val (num, den) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else fps.num to fps.den
-                val durationFrames = FrameRate(num, den).microsToFrames(probed.durationMicros)
-                if (durationFrames <= 0) {
-                    emit(EditorEffect.ShowMessage("The file is too short to use"))
-                    return@launch
-                }
-                old.copy(
-                    uri = uri,
-                    durationFrames = durationFrames,
-                    nativeFpsNum = num,
-                    nativeFpsDen = den,
-                    colorSpace = probed.colorSpace,
-                    hasVideo = probed.hasVideo,
-                    hasAudio = probed.hasAudio,
-                    displayName = probed.displayName ?: old.displayName,
-                    // The replacement file is what gets exported: its facts, not the old file's.
-                    videoWidth = probed.videoWidth,
-                    videoHeight = probed.videoHeight,
-                    videoBitrate = probed.videoBitrate,
-                    videoCodec = probed.videoCodec,
-                    tenBit = probed.tenBit,
-                )
+            val relinked = RelinkApply.relinked(old, probed, uri, fps) ?: run {
+                emit(EditorEffect.ShowMessage("The file is too short to use"))
+                return@launch
             }
             // Waveforms and thumbnails were made from the old file; the new key makes the native side start over.
             mediaCaches.invalidate(assetId)
@@ -727,13 +720,93 @@ class EditorViewModel(
                 copy(
                     assets = assets.map { if (it.id == assetId) relinked else it },
                     missingMedia = stillMissing,
-                    relinkOpen = relinkOpen && stillMissing.isNotEmpty(),
+                    relinkOpen = relinkOpen && (stillMissing.isNotEmpty() || folderRelink is FolderRelinkUi.Done),
+                    folderRelink = folderRelink.without(assetId),
                 )
             }
             scheduleSave()
             val name = MissingMedia.nameOf(relinked)
             emit(EditorEffect.ShowMessage(if (warnings.isEmpty()) "Relinked $name" else "Relinked $name. ${warnings.joinToString(". ")}"))
         }
+    }
+
+    private var folderRelinkJob: Job? = null
+
+    /**
+     * Looks in the folder [treeUri] for every media file that cannot be read and relinks what it can identify, in one step
+     * (SPECS 5.40). The scan and the checks run off the main thread and can be cancelled; nothing changes until they finish,
+     * and then the whole library change is one state update and one save. Like a single relink it is not an undo step.
+     */
+    private fun relinkFromFolder(treeUri: String) {
+        if (folderRelinkJob?.isActive == true) return
+        val snapshot = state.value
+        val missing = snapshot.assets.filter { snapshot.missingMedia[it.id].let { p -> p == MediaProblem.UNREADABLE || p == MediaProblem.PERMISSION_LOST } }
+        if (missing.isEmpty()) {
+            emit(EditorEffect.ShowMessage("No media is missing"))
+            return
+        }
+        val fps = snapshot.fps
+        val runner = FolderRelinkRunner(folderScanner, importer)
+        reduce { copy(folderRelink = FolderRelinkUi.Running(), relinkOpen = true) }
+        folderRelinkJob = viewModelScope.launch {
+            val outcome = try {
+                runner.run(
+                    treeUri = treeUri,
+                    missing = missing,
+                    library = snapshot.assets,
+                    fps = fps,
+                    neededMicros = { MissingMedia.requiredSourceMicros(history.timeline, it, fps) },
+                ) { progress ->
+                    reduce {
+                        if (folderRelink !is FolderRelinkUi.Running) this
+                        else copy(
+                            folderRelink = when (progress) {
+                                is FolderRelinkProgress.Scanning -> FolderRelinkUi.Running(files = progress.files, folders = progress.folders)
+                                is FolderRelinkProgress.Checking -> folderRelink.copy(checked = progress.done, total = progress.total)
+                            },
+                        )
+                    }
+                }
+            } catch (e: FolderScanException) {
+                reduce { copy(folderRelink = FolderRelinkUi.Idle) }
+                emit(EditorEffect.ShowMessage(e.message ?: "Could not read the folder"))
+                return@launch
+            } catch (e: CancellationException) {
+                reduce { copy(folderRelink = FolderRelinkUi.Idle) }
+                throw e
+            }
+            applyFolderRelink(outcome)
+        }
+    }
+
+    private fun cancelFolderRelink() {
+        if (folderRelinkJob?.isActive != true) return
+        folderRelinkJob?.cancel()
+        reduce { copy(folderRelink = FolderRelinkUi.Idle) }
+        emit(EditorEffect.ShowMessage("Folder scan cancelled. Nothing was changed"))
+    }
+
+    /** Stores every accepted match at once; items the user relinked meanwhile, or removed, are left as they are. */
+    private fun applyFolderRelink(outcome: FolderRelinkOutcome) {
+        val stillMissing = state.value.missingMedia
+        val present = state.value.assets.map { it.id }.toSet()
+        val accepted = outcome.relinked.filter { it.old.id in present && it.old.id in stillMissing }
+        for (r in accepted) {
+            // Waveforms and thumbnails were made from the old file; the new key makes the native side start over.
+            mediaCaches.invalidate(r.old.id)
+            assetKeys.rekey(r.old.id)
+        }
+        val replacements = accepted.associate { it.old.id to it.asset }
+        reduce {
+            copy(
+                assets = assets.map { replacements[it.id] ?: it },
+                missingMedia = missingMedia - replacements.keys,
+                folderRelink = FolderRelinkUi.Done(outcome.copy(relinked = accepted)),
+                relinkOpen = true,
+            )
+        }
+        if (accepted.isNotEmpty()) scheduleSave()
+        emit(EditorEffect.ShowMessage("Relinked ${accepted.size} of ${outcome.total}"))
     }
 
     private fun scheduleSave() {
