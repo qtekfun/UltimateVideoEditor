@@ -373,7 +373,7 @@ An indicator shows the action while you drag:
 
 Select a clip and tap the sliders icon. Sections depend on the clip:
 
-- **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview).
+- **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview). Under the Rotation slider, **-90°** and **+90°** turn the clip a quarter turn counter-clockwise or clockwise from where it is, one undo step each.
 - **Volume**: gain in dB for clips with audio.
 - **Sound tools** (clips with audio): pan, fades, equaliser, noise suppression and loudness, see [Sound](#sound).
 - **Speed**: presets and a slider (0.1x to 100x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
