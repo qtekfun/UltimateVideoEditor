@@ -41,7 +41,11 @@ class HubViewModel(
     private val exportJobs: ExportJobHost? = null,
     /** The process-wide project backup (see ExportCenter); its bar mirrors it, and exporting a bundle starts it. Null runs the backup inside this screen (tests). */
     private val bundleJobs: com.qtekfun.ultimatevideoeditor.ui.export.BundleJobHost? = null,
-) : MviViewModel<HubState, HubIntent, HubEffect>(HubState()) {
+    /** Layout, sort key and direction survive restarts; the default remembers nothing. */
+    private val viewStore: HubViewStore = NoHubViewStore,
+    /** Measures the storage card off the main thread; null leaves the card out (tests that do not need it). */
+    private val storageScanner: StorageScanner? = null,
+) : MviViewModel<HubState, HubIntent, HubEffect>(HubState().withView(viewStore.load())) {
 
     /** Read once, before this process marks anything: what the previous run left open. */
     private val unfinishedProjectId: String? = session?.unfinishedProjectId()
@@ -51,6 +55,9 @@ class HubViewModel(
 
     /** The running import, so Cancel can stop a long copy. */
     private var importJob: kotlinx.coroutines.Job? = null
+
+    /** The running storage scan; a newer request replaces it. */
+    private var storageJob: kotlinx.coroutines.Job? = null
 
     /** The package waiting for the user to pick a media folder. */
     private var pendingImportUri: String? = null
@@ -100,7 +107,29 @@ class HubViewModel(
             HubIntent.ConfirmCreate -> confirmCreate()
 
             is HubIntent.SearchChanged -> reduce { copy(query = intent.text) }
-            is HubIntent.SortSelected -> reduce { copy(sort = intent.sort) }
+            HubIntent.ToggleSearch -> reduce { toggledSearch() }
+            is HubIntent.SortSelected -> changeView { withSort(intent.sort) }
+            HubIntent.ToggleSortDirection -> changeView { copy(sortAscending = !sortAscending) }
+            is HubIntent.ViewModeSelected -> changeView { copy(viewMode = intent.mode) }
+
+            is HubIntent.EnterSelection -> reduce { enterSelection(intent.projectId) }
+            is HubIntent.ToggleSelected -> reduce { toggled(intent.projectId) }
+            HubIntent.SelectAll -> reduce { selectAllVisible() }
+            HubIntent.ExitSelection -> reduce { exitSelection() }
+            HubIntent.DeleteSelected -> reduce { if (selecting) copy(deleteTargets = selectedProjects) else this }
+            HubIntent.DuplicateSelected -> duplicateSelected()
+            HubIntent.RenameSelected -> onSingleSelected { project ->
+                reduce { copy(renameDraft = RenameDraft(project.id, project.name), selected = emptySet()) }
+            }
+            HubIntent.ExportSelectedFile -> onSingleSelected { project ->
+                reduce { exitSelection() }
+                emit(HubEffect.LaunchExportPicker(project.id, "${project.name}.json"))
+            }
+            HubIntent.ExportSelectedBundle -> onSingleSelected { project ->
+                reduce { exitSelection() }
+                openBundleDialog(project, includeMedia = false)
+            }
+            HubIntent.RefreshStorage -> refreshStorage()
 
             is HubIntent.OpenProject -> {
                 resumeHandled = true
@@ -114,7 +143,7 @@ class HubViewModel(
             is HubIntent.RenameNameChanged -> reduce { copy(renameDraft = renameDraft?.copy(name = intent.name)) }
             HubIntent.ConfirmRename -> confirmRename()
 
-            is HubIntent.RequestDelete -> reduce { copy(deleteTarget = intent.project) }
+            is HubIntent.RequestDelete -> reduce { copy(deleteTargets = listOf(intent.project)) }
             HubIntent.ConfirmDelete -> confirmDelete()
 
             is HubIntent.RequestExport ->
@@ -226,7 +255,7 @@ class HubViewModel(
             HubIntent.ShowBundleDetails -> bundleJobs?.showDetails()
             HubIntent.ShareBundle -> state.value.bundleBar?.takeIf { it.canShare }?.uri?.let { emit(HubEffect.ShareBundle(it)) }
             HubIntent.DismissDialogs ->
-                reduce { copy(newProjectDraft = null, renameDraft = null, deleteTarget = null, bundleExport = null) }
+                reduce { copy(newProjectDraft = null, renameDraft = null, deleteTargets = emptyList(), bundleExport = null) }
         }
     }
 
@@ -241,6 +270,54 @@ class HubViewModel(
         }
         val refused = jobs.start(job) as? com.qtekfun.ultimatevideoeditor.ui.export.BundleStart.Refused ?: return
         emit(HubEffect.ShowMessage(refused.reason))
+    }
+
+    /** Applies a change of layout or order and remembers it. */
+    private fun changeView(change: HubState.() -> HubState) {
+        reduce(change)
+        val now = state.value
+        viewStore.save(HubViewPrefs(now.viewMode, now.sort, now.sortAscending))
+    }
+
+    /** Runs [action] for the one ticked project; with none or several ticked it only says why not. */
+    private fun onSingleSelected(action: (ProjectSummary) -> Unit) {
+        val project = state.value.selectedProjects.singleOrNull()
+        if (project == null) {
+            if (state.value.selecting) emit(HubEffect.ShowMessage(SelectionActions.ONE_AT_A_TIME))
+            return
+        }
+        action(project)
+    }
+
+    private fun duplicateSelected() {
+        val targets = state.value.selectedProjects
+        if (targets.isEmpty()) return
+        launchProjectOp {
+            var failure: String? = null
+            var made = 0
+            for (target in targets) {
+                try {
+                    projects.clone(target.id)
+                    made++
+                } catch (e: ProjectError) {
+                    failure = failure ?: e.message
+                }
+            }
+            reduce { exitSelection() }
+            refreshNow()
+            if (failure != null) emit(HubEffect.ShowMessage("Duplicated $made of ${targets.size} projects. $failure"))
+            else if (made > 1) emit(HubEffect.ShowMessage("Duplicated $made projects"))
+        }
+    }
+
+    /** Measures the app's storage on the work dispatcher; the card shows the last result meanwhile. */
+    private fun refreshStorage() {
+        val scanner = storageScanner ?: return
+        storageJob?.cancel()
+        storageJob = viewModelScope.launch {
+            val snapshot = withContext(workDispatcher) { scanner.scan() }
+            reduce { copy(storage = snapshot) }
+        }
     }
 
     private fun suggestedName(existing: List<ProjectSummary>): String =
@@ -321,9 +398,11 @@ class HubViewModel(
                 projects = listing.projects,
                 unreadable = listing.unreadable,
                 // Only offered while it still exists and the editor is not already open on it.
-                resumeProject = resumeProject ?: listing.projects.firstOrNull { it.id == unfinishedProjectId }?.takeIf { !resumeHandled },
-            )
+                resumeProject = resumeProject?.let { old -> listing.projects.firstOrNull { it.id == old.id } }
+                    ?: listing.projects.firstOrNull { it.id == unfinishedProjectId }?.takeIf { !resumeHandled },
+            ).prunedSelection()
         }
+        refreshStorage()
     }
 
     private fun confirmCreate() {
@@ -369,11 +448,22 @@ class HubViewModel(
     }
 
     private fun confirmDelete() {
-        val target = state.value.deleteTarget ?: return
+        val targets = state.value.deleteTargets.ifEmpty { return }
         launchProjectOp {
-            projects.delete(target.id)
-            reduce { copy(deleteTarget = null) }
+            var failure: String? = null
+            var failed = 0
+            for (target in targets) {
+                try {
+                    projects.delete(target.id)
+                } catch (e: ProjectError) {
+                    failed++
+                    failure = failure ?: e.message
+                }
+            }
+            reduce { copy(deleteTargets = emptyList(), selected = emptySet()) }
             refreshNow()
+            if (failed > 0) emit(HubEffect.ShowMessage("Could not delete $failed of ${targets.size} projects. $failure"))
+            else if (targets.size > 1) emit(HubEffect.ShowMessage("Deleted ${targets.size} projects"))
         }
     }
 

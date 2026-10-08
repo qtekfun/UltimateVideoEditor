@@ -49,8 +49,10 @@ class VersionWiringTest {
     }
 
     @Test
-    fun `the footer shows the engine's own version`() {
+    fun `About shows the engine's own version`() {
+        val about = QaSources.main("kotlin/com/qtekfun/ultimatevideoeditor/ui/about/AboutScreen.kt").readText()
+        assertTrue(about.contains("\"Engine v\$it\""))
         val hub = QaSources.main("kotlin/com/qtekfun/ultimatevideoeditor/ui/hub/HubScreen.kt").readText()
-        assertTrue(hub.contains("\"Engine v\$it\""))
+        assertTrue("the Projects screen no longer carries a version footer", !hub.contains("Loading engine"))
     }
 }

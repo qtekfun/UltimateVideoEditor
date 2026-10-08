@@ -53,6 +53,8 @@ data class ProjectSummary(
     val durationFrames: Long = 0L,
     /** Where the card picture comes from; null for a project with no video or photo yet. */
     val thumbnail: ThumbnailSource? = null,
+    /** Library files that could not be read when the editor last checked them (0 when unknown); never probed by the hub. */
+    val missingMedia: Int = 0,
 )
 
 /**
@@ -595,6 +597,7 @@ class ProjectRepository(
             lastModifiedMillis = file.lastModified(),
             durationFrames = ProjectOverview.durationFrames(project),
             thumbnail = ProjectOverview.thumbnailSource(project),
+            missingMedia = project.missingMedia.coerceAtLeast(0),
         )
 
     private fun projectDir(id: String): File {

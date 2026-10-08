@@ -137,10 +137,10 @@ class HubViewModelTest {
         assertEquals(setOf("Renamed", "Renamed copy"), vm.state.value.projects.map { it.name }.toSet())
 
         vm.onIntent(HubIntent.RequestDelete(vm.state.value.projects.first()))
-        assertNotNull(vm.state.value.deleteTarget)
+        assertEquals(1, vm.state.value.deleteTargets.size)
         vm.onIntent(HubIntent.ConfirmDelete)
         assertEquals(1, vm.state.value.projects.size)
-        assertNull(vm.state.value.deleteTarget)
+        assertTrue(vm.state.value.deleteTargets.isEmpty())
     }
 
     @Test

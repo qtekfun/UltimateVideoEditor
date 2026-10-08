@@ -372,13 +372,11 @@ class NewProjectFlowTest {
         ProjectSummary("id-$name", name, ProjectSettingsDto(1920, 1080, 30, 1, "Rec709-SDR"), modified)
 
     @Test
-    fun `search and sorting appear only for a long list`() {
-        val few = HubState(projects = (1..HubState.SEARCH_THRESHOLD).map { summary("P$it", it.toLong()) }, query = "zzz")
-        assertFalse(few.showSearch)
-        assertEquals("a short list ignores the query", few.projects.size, few.visibleProjects.size)
-
-        val many = few.copy(projects = few.projects + summary("Extra", 99))
-        assertTrue(many.showSearch)
+    fun `the query only filters while the search is open`() {
+        val projects = (1..3).map { summary("P$it", it.toLong()) }
+        val closed = HubState(projects = projects, query = "zzz")
+        assertEquals("a closed search ignores the text", projects.size, closed.visibleProjects.size)
+        assertEquals(0, closed.copy(searchOpen = true).visibleProjects.size)
     }
 
     @Test
@@ -390,11 +388,12 @@ class NewProjectFlowTest {
         val state = HubState(projects = projects)
 
         assertEquals(listOf("Echo", "alpha", "Beach party", "City", "Dunes", "Beach trip", "Forest"), state.visibleProjects.map { it.name })
+        val byName = state.copy(sort = ProjectSort.NAME, sortAscending = true)
         assertEquals(
             listOf("alpha", "Beach party", "Beach trip", "City", "Dunes", "Echo", "Forest"),
-            state.copy(sort = ProjectSort.NAME).visibleProjects.map { it.name },
+            byName.visibleProjects.map { it.name },
         )
-        assertEquals(listOf("Beach party", "Beach trip"), state.copy(query = " BEACH ", sort = ProjectSort.NAME).visibleProjects.map { it.name })
+        assertEquals(listOf("Beach party", "Beach trip"), byName.copy(query = " BEACH ", searchOpen = true).visibleProjects.map { it.name })
     }
 
     @Test

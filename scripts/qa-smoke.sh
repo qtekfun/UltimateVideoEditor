@@ -459,21 +459,28 @@ walk(root, False, False)
 
 check_footer() {
     want UI-VER || return 0
-    ui_prepare || { record UI-VER D7 "hub footer shows Engine v<versionName>" SKIP "no UI (--no-ui or locked screen)"; return 0; }
+    local what="About shows Engine v<versionName>"
+    ui_prepare || { record UI-VER D7 "$what" SKIP "no UI (--no-ui or locked screen)"; return 0; }
     ui_launch
-    in_front || { record UI-VER D7 "hub footer shows Engine v<versionName>" SKIP "focus is $(focus | cut -c1-80)"; return 0; }
+    in_front || { record UI-VER D7 "$what" SKIP "focus is $(focus | cut -c1-80)"; return 0; }
+    # The Projects screen has no version footer any more: the engine version is under Version in About (overflow menu).
+    ui_tap_text "More options" || { record UI-VER D7 "$what" FAIL "no overflow menu on the Projects screen"; return 0; }
+    sleep 1
+    ui_tap_text "About, privacy and help" || { record UI-VER D7 "$what" FAIL "no About entry in the overflow menu"; return 0; }
+    sleep 2
     local screen footer
-    for _ in 1 2 3; do
+    for _ in 1 2 3 4; do
         screen="$(ui_screen)"
         footer="$(echo "$screen" | grep -m1 '^Engine v' | cut -d'|' -f1)"
         [ -n "$footer" ] && break
-        # The footer is at the bottom of the hub: scroll a little when it is not on the first screen.
+        # Version is a section of the About list: scroll a little when it is not on the first screen.
         adb_ shell input swipe 540 1700 540 700 300; sleep 1
     done
+    adb_ shell input keyevent KEYCODE_BACK
     if [ "$footer" = "Engine v$versionName" ]; then
-        record UI-VER D7 "hub footer shows Engine v<versionName>" PASS "$footer"
+        record UI-VER D7 "$what" PASS "$footer"
     else
-        record UI-VER D7 "hub footer shows Engine v<versionName>" FAIL "footer '${footer:-not found}', expected 'Engine v$versionName'"
+        record UI-VER D7 "$what" FAIL "line '${footer:-not found}', expected 'Engine v$versionName'"
     fi
 }
 
