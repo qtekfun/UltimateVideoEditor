@@ -109,6 +109,13 @@ walk through on the reference phone (OPPO CPH2841). `[ ]` means not built, or a 
 - [x] WP-M Multicam (SPECS 5.29)
 - [x] WP-R Release preparation: versioning, optional signing, R8 (release APK 6.6 MB), release workflow, local crash report, About, tips
 - [x] Toolbar guide: in-app searchable guide from one registry with a coverage test (SPECS 5.36), GitHub Pages site and release PDF workflows, About "Online guide" link
+- [x] Editing polish after 0.3: split cuts every clip under the playhead when nothing is selected, delete parks the playhead at the cut, no vertical lane zoom (SPECS 5.3), insert/overwrite drag (SPECS 5.15), rotation by +/-90 degrees buttons
+- [x] Audio on the timeline: waveform redesign with per-asset states logged under `uv_wave` (SPECS 5.6), fades and the volume curve (SPECS 5.37), detached audio with linked clips (SPECS 5.38)
+- [x] Markers that stick to clips, first tap selects and a second tap opens the editor; markers without a colour are drawn red (SPECS 5.41)
+- [x] Toolbar order editor with a More menu; the audio lane defaults to 1.5x height (SPECS 5.1, 5.36)
+- [x] Projects screen in library style (SPECS 4.2); bundle export and import as visible, cancellable jobs with real byte progress, watched by `ExportService` (SPECS 5.24)
+- [x] Missing media hardening: unplugged USB drives no longer crash (`MediaAccess`), local crash log of up to five reports, relink by scanning folders over several folders in one session (SPECS 4.1, 5.40)
+- [x] Package renamed to `com.qtekfun.ultimatevideoeditor` (docs/RELEASE.md); releases carry a gzipped R8 `mapping.txt.gz`; real-device export timings in `docs/BENCHMARKS.md`
 - Removed from the plan by the privacy rule: ML cutout, subject-detecting reframe, neural voices, vocal isolation, speaker captions,
   speech recognition.
 

@@ -25,6 +25,16 @@ A one-page tour for someone who is about to change the code. The authoritative d
 - **`engine/`** Kotlin facades over native code (`preview`, `timeline`, `audio`, `export`, `stabilise`, `track`, `still`, `title`, `fx`,
   `multicam`). Nothing else calls JNI, and no logic lives in the native method declarations.
 - **`proxy/`, `crash/`** proxy media manager; local crash report.
+- **Long jobs.** `ui/export/` holds three process-lived executors (`ExportExecutor`, `BundleExportExecutor`, `BundleImportExecutor`), each running at most one
+  job and publishing a `StateFlow`; `ExportService` is a foreground service that only mirrors the state of all three into one notification (SPECS 5.10, 5.24).
+- **`MediaAccess` (`data/`)** the one boundary where a `content://` URI is opened; a vanished USB volume, dead provider or missing file becomes a typed
+  `MediaImportException` instead of a crash (SPECS 4.1). Relink by folder scan builds on it (`data/relink/`, SPECS 5.40).
+- **Edit settling.** `ClipLinks.settle` (detached audio and its video, SPECS 5.38) and `MarkerAnchors.settle` (markers stuck to clips, SPECS 5.41) compare the
+  timeline before and after any edit inside `EditHistory`, so every operation carries its linked clip and markers in the same undo step.
+- **Toolbar order.** `ui/editor/toolbar/ToolbarOrder.kt` is pure data plus a `ToolbarOrderStore` (local preferences); the editor row and the More menu read it.
+- **Waveform states.** The native waveform service reports each asset as pending, peaks, or a failure state and logs one line under tag `uv_wave`
+  (`audio/wave_state.h`); the canvas draws a state, never a guess (SPECS 5.6).
+- **Hub library.** The Projects screen (`ui/hub/`) is a library-style list with sorting and a stored view mode (`HubViewStore`) (SPECS 4.2).
 - **`app/src/main/cpp/`** the C++20 engine (library `uveditor_engine`): `core/` (errors, versions), `decode/` (AMediaCodec decode and the
   seek policy), `cache/` (LRU frame cache), `render/` (GLES compositor, shaders, colour, effects, scopes), `encode/` (export),
   `audio/` (Oboe, mixer, DSP, waveform), `thumbnail/`, `timeline_view/` (the timeline renderer), `stabilise/`, `track/`, `jni/`
@@ -125,5 +135,7 @@ Whenever a native structure changes, bump its version, keep the old reader, and 
 | how a frame is drawn | `domain/RenderPlan.kt`, `cpp/render/gl_pipeline.cpp`, `cpp/render/shaders.h` |
 | playback sync | `ui/editor/PreviewFollow.kt`, `cpp/render/preview_engine.cpp`, `engine/audio/` |
 | export | `ui/export/`, `engine/export/`, `cpp/encode/` (SPECS 5.10) |
+| a long job (export, backup, import) | `ui/export/*Executor.kt`, `ExportService.kt`, `ExportCenter.kt` |
+| linked clips and sticky markers | `domain/ClipLinks.kt`, `domain/MarkerAnchors.kt`, `EditHistory.kt` |
 | the timeline canvas | `cpp/timeline_view/`, `engine/timeline/TimelineSnapshot.kt` |
 | project files | `data/model/ProjectDto.kt`, `data/TimelineMapper.kt`, `data/ProjectRepository.kt` |
