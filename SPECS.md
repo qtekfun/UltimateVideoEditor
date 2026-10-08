@@ -1554,6 +1554,15 @@ a saved library change and not a step of the undo history; the results say so. C
 path (`MediaCaches.invalidate`, `KeyRegistry.rekey`), so waveforms, thumbnails and decoders restart from the new file, and the library entry is built by the
 shared `RelinkApply.relinked`.
 
+**Session and further scans.** The first scan opens a relink session that lasts until the dialog is closed (`HideRelink`). The results
+screen offers Close, "Scan another folder..." and "Back to the list" (a wrapping flow row; the last two only while something is missing). A further scan
+(`RelinkFromFolder` while the state is `Done`) looks only for what is still missing (not found, and ambiguous not yet chosen), and its outcome is folded into
+the shown one by `FolderRelinkOutcome.mergedInto`: earlier relinks stay and count, the "N of M" counters add up, an item found now leaves the lists, ambiguous
+candidates of both scans are joined. Each scan is still one state update and one save; cancelling or a read error during a later scan restores the earlier
+results untouched. "Back to the list" (`Done.showList`) shows the remaining items with their Relink buttons and keeps the session: the scan action is labelled
+"Scan a folder..." before any scan and "Scan another folder..." afterwards, appears once per screen, and is absent when nothing is missing. Closing ends the session; the
+next scan starts with counters at zero. The folder-move prefix is learnt per scan (the matcher is pure and per call); it is not carried between scans.
+
 **Scanning.** `FolderScanner` is an interface (`TreeFolderScanner` over `DocumentsContract` children queries; fakes in tests). Breadth first
 and iterative, off the main thread (`Dispatchers.IO`), cancellable at every folder, bounded by `ScanLimits` (50 000 files, 5 000 folders, depth 16;
 a cut-short scan is reported). Only media files are kept (MIME type, else extension). File addresses are tree document URIs, readable through the

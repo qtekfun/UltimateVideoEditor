@@ -90,14 +90,18 @@ class FolderRelinkViewModelTest {
         var gate: CompletableDeferred<Unit>? = null
         val scanned = mutableListOf<String>()
 
+        /** Files of a particular folder; a folder not listed here shows [files]. */
+        val byTree = mutableMapOf<String, List<FolderFile>>()
+
         override fun retainAccess(treeUri: String): Boolean = retained
 
         override suspend fun scan(treeUri: String, limits: ScanLimits, onProgress: (ScanProgress) -> Unit): FolderListing {
             scanned += treeUri
             fail?.let { throw it }
-            onProgress(ScanProgress(files.size, 2))
+            val here = byTree[treeUri] ?: files
+            onProgress(ScanProgress(here.size, 2))
             gate?.await()
-            return FolderListing(files, folders = 2, truncated = false)
+            return FolderListing(here, folders = 2, truncated = false)
         }
     }
 
@@ -382,4 +386,370 @@ class FolderRelinkViewModelTest {
         assertEquals("Scanning: 12 media files in 3 folders", scanProgressText(FolderRelinkUi.Running(files = 12, folders = 3)))
         assertEquals("Checking the files found: 1 of 4", scanProgressText(FolderRelinkUi.Running(files = 12, folders = 3, checked = 1, total = 4)))
     }
+
+    // region scanning another folder (SPECS 5.40)
+
+    private fun audioAsset(id: String, name: String) = asset(id, name).copy(hasVideo = false, videoWidth = 0, videoHeight = 0)
+
+    private fun audio(seconds: Long = 10) = ProbedMedia(seconds * 1_000_000, 30, 1, "Rec709-SDR", hasVideo = false, hasAudio = true)
+
+    /** Two videos (v1, v2) and two audio files (s1, s2), all missing. */
+    private fun TestScope.mixedHarness(scanner: FakeScanner, known: Map<String, ProbedMedia>): Harness {
+        val mixed = project.copy(
+            mediaLibrary = listOf(asset("v1", "intro.mp4"), asset("v2", "beach.mp4"), audioAsset("s1", "music.wav"), audioAsset("s2", "voice.wav")),
+            tracks = listOf(
+                TrackDto("v1", "video", 0, listOf(clipDto("c1", "v1", 0), clipDto("c2", "v2", 100))),
+                TrackDto("a1", "audio", 1, listOf(clipDto("c3", "s1", 0), clipDto("c4", "s2", 100))),
+            ),
+        )
+        val store = FakeStore(mixed)
+        val importer = FakeImporter(known.toMutableMap())
+        val caches = RecordingCaches()
+        val vm = EditorViewModel("p1", store, importer, idGenerator = { "n1" }, mediaCaches = caches, folderScanner = scanner)
+        val effects = mutableListOf<EditorEffect>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.effects.collect { effects += it } }
+        advanceUntilIdle()
+        return Harness(vm, store, importer, caches, scanner, effects)
+    }
+
+    private fun twoFolders(): Pair<FakeScanner, Map<String, ProbedMedia>> {
+        val scanner = FakeScanner()
+        scanner.byTree["content://videos"] = listOf(inFolder("V/intro.mp4"), inFolder("V/beach.mp4"))
+        scanner.byTree["content://audio"] = listOf(
+            inFolder("A/music.wav", kind = RelinkKind.AUDIO),
+            inFolder("A/voice.wav", kind = RelinkKind.AUDIO),
+        )
+        val known = mapOf(
+            "content://tree/V/intro.mp4" to video(),
+            "content://tree/V/beach.mp4" to video(),
+            "content://tree/A/music.wav" to audio(),
+            "content://tree/A/voice.wav" to audio(),
+        )
+        return scanner to known
+    }
+
+    @Test
+    fun `a second scan of another folder relinks the rest and the counters add up`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        assertEquals("Relinked 2 of 4", scanSummaryText(h.report))
+        assertEquals(setOf("s1", "s2"), h.state.missingMedia.keys)
+        assertEquals(listOf("s1", "s2"), h.report.notFound.map { it.assetId })
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        assertEquals("Relinked 4 of 4", scanSummaryText(h.report))
+        assertEquals("Relinked 4 of 4", h.messages.last())
+        assertEquals(setOf("v1", "v2", "s1", "s2"), h.report.relinked.map { it.old.id }.toSet())
+        assertTrue(h.report.notFound.isEmpty())
+        assertTrue(h.state.missingMedia.isEmpty())
+        assertEquals("content://tree/A/music.wav", h.state.assets.first { it.id == "s1" }.uri)
+        // The videos relinked by the first scan are untouched by the second.
+        assertEquals("content://tree/V/intro.mp4", h.state.assets.first { it.id == "v1" }.uri)
+        assertEquals(listOf("content://videos", "content://audio"), scanner.scanned)
+    }
+
+    @Test
+    fun `each scan is one save and not an undo step`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        advanceTimeBy(600)
+        assertEquals(1, h.store.saved.size)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+        advanceTimeBy(600)
+
+        assertEquals(2, h.store.saved.size)
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `only the items still missing are looked for in the next scan`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        val openedBefore = h.importer.opened.size
+
+        // The audio folder also holds a file named like an already relinked video: it must not be opened or taken.
+        scanner.byTree["content://audio"] = scanner.byTree.getValue("content://audio") + inFolder("A/intro.mp4")
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        assertEquals("content://tree/V/intro.mp4", h.state.assets.first { it.id == "v1" }.uri)
+        assertEquals(listOf("content://tree/A/music.wav", "content://tree/A/voice.wav"), h.importer.opened.drop(openedBefore))
+    }
+
+    @Test
+    fun `a file found by the second scan leaves the not found list and the rest stays`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        scanner.byTree["content://audio"] = listOf(inFolder("A/music.wav", kind = RelinkKind.AUDIO))
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        assertEquals(listOf("s1", "s2"), h.report.notFound.map { it.assetId })
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("s2"), h.report.notFound.map { it.assetId })
+        assertEquals("Relinked 3 of 4", scanSummaryText(h.report))
+        assertEquals(setOf("s2"), h.state.missingMedia.keys)
+    }
+
+    @Test
+    fun `scanning a third folder finishes what the first two left`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        scanner.byTree["content://audio"] = listOf(inFolder("A/music.wav", kind = RelinkKind.AUDIO))
+        scanner.byTree["content://more"] = listOf(inFolder("A/voice.wav", kind = RelinkKind.AUDIO))
+        val h = mixedHarness(scanner, known)
+
+        for (tree in listOf("content://videos", "content://audio", "content://more")) {
+            h.vm.onIntent(EditorIntent.RelinkFromFolder(tree))
+            advanceUntilIdle()
+        }
+
+        assertEquals("Relinked 4 of 4", scanSummaryText(h.report))
+        assertTrue(h.state.missingMedia.isEmpty())
+        assertTrue(h.report.notFound.isEmpty())
+    }
+
+    @Test
+    fun `a scan with nothing missing is not started`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+        val report = h.report
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        assertEquals(2, scanner.scanned.size)
+        assertEquals("No media is missing", h.messages.last())
+        assertEquals(report, h.report)
+    }
+
+    @Test
+    fun `cancelling the second scan keeps the results of the first`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        val first = h.report
+        scanner.gate = CompletableDeferred()
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        runCurrent()
+        assertTrue(h.state.folderRelink is FolderRelinkUi.Running)
+        h.vm.onIntent(EditorIntent.CancelFolderRelink)
+        advanceUntilIdle()
+
+        assertEquals(first, h.report)
+        assertEquals(setOf("s1", "s2"), h.state.missingMedia.keys)
+        assertEquals("content://tree/V/intro.mp4", h.state.assets.first { it.id == "v1" }.uri)
+        advanceTimeBy(600)
+        assertEquals(1, h.store.saved.size)
+    }
+
+    @Test
+    fun `a folder that cannot be read during the second scan keeps the first results`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        val first = h.report
+        scanner.fail = FolderScanException("Access to the folder was removed")
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        assertEquals(first, h.report)
+    }
+
+    @Test
+    fun `ambiguous items of both scans are shown together and a later choice resolves one`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        // Both videos are ambiguous in the first folder; the second folder adds a candidate for intro only.
+        scanner.byTree["content://one"] = listOf(
+            inFolder("x/intro.mp4", 1), inFolder("y/intro.mp4", 2), inFolder("x/beach.mp4", 3), inFolder("y/beach.mp4", 4),
+        )
+        scanner.byTree["content://two"] = listOf(inFolder("z/intro.mp4", 5), inFolder("w/intro.mp4", 6))
+        val same = video()
+        val known = (scanner.byTree.getValue("content://one") + scanner.byTree.getValue("content://two")).associate { it.uri to same }
+        val h = mixedHarness(scanner, known)
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://one"))
+        advanceUntilIdle()
+        assertEquals(listOf("v1", "v2"), h.report.ambiguous.map { it.assetId })
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://two"))
+        advanceUntilIdle()
+
+        val byId = h.report.ambiguous.associateBy { it.assetId }
+        assertEquals(setOf("v1", "v2"), byId.keys)
+        assertEquals(4, byId.getValue("v1").candidates.size)
+        assertEquals(2, byId.getValue("v2").candidates.size)
+        // The audio items are listed once, and nothing is double-listed.
+        assertEquals(listOf("s1", "s2"), h.report.notFound.map { it.assetId })
+
+        h.vm.onIntent(EditorIntent.RelinkFromCandidate("v1", "content://tree/z/intro.mp4"))
+        runCurrent()
+        assertEquals(listOf("v2"), h.report.ambiguous.map { it.assetId })
+    }
+
+    @Test
+    fun `an ambiguous item that the second scan settles leaves the ambiguous list`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        scanner.byTree["content://one"] = listOf(inFolder("x/intro.mp4", 1), inFolder("y/intro.mp4", 2))
+        // The second folder has a single file of that name: the name alone settles it there.
+        scanner.byTree["content://two"] = listOf(inFolder("z/intro.mp4", 5))
+        val same = video()
+        val known = (scanner.byTree.getValue("content://one") + scanner.byTree.getValue("content://two")).associate { it.uri to same }
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://one"))
+        advanceUntilIdle()
+        assertEquals(listOf("v1"), h.report.ambiguous.map { it.assetId })
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://two"))
+        advanceUntilIdle()
+
+        assertEquals("content://tree/z/intro.mp4", h.state.assets.first { it.id == "v1" }.uri)
+        assertTrue(h.report.ambiguous.isEmpty())
+    }
+
+    @Test
+    fun `an item ambiguous in the first scan and absent from the second stays ambiguous`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        scanner.byTree["content://one"] = listOf(inFolder("x/intro.mp4", 1), inFolder("y/intro.mp4", 2))
+        scanner.byTree["content://two"] = emptyList()
+        val same = video()
+        val known = scanner.byTree.getValue("content://one").associate { it.uri to same }
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://one"))
+        advanceUntilIdle()
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://two"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("v1"), h.report.ambiguous.map { it.assetId })
+        assertFalse(h.report.notFound.any { it.assetId == "v1" })
+        assertEquals(2, h.report.ambiguous.single().candidates.size)
+    }
+
+    @Test
+    fun `closing the results and reopening offers the folder scan again while items are missing`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+
+        h.vm.onIntent(EditorIntent.HideRelink)
+        h.vm.onIntent(EditorIntent.ShowRelink)
+
+        assertEquals(FolderRelinkUi.Idle, h.state.folderRelink)
+        assertTrue(h.state.relinkOpen)
+        assertEquals(setOf("s1", "s2"), h.state.missingAssets.map { it.assetId }.toSet())
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+        assertTrue(h.state.missingMedia.isEmpty())
+    }
+
+    @Test
+    fun `the scan action reads Scan a folder before a scan and Scan another folder after it`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        assertEquals("Scan a folder…", scanActionLabel(h.state.folderRelink))
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        assertEquals("Scan another folder…", scanActionLabel(h.state.folderRelink))
+
+        // Back to the list keeps the session: same label, same results behind it, the remaining items listed.
+        h.vm.onIntent(EditorIntent.DismissFolderRelink)
+        val back = h.state.folderRelink as FolderRelinkUi.Done
+        assertTrue(back.showList)
+        assertEquals("Scan another folder…", scanActionLabel(back))
+        assertEquals(setOf("s1", "s2"), h.state.missingAssets.map { it.assetId }.toSet())
+        assertTrue(h.state.relinkOpen)
+    }
+
+    @Test
+    fun `scanning from the list after Back accumulates into the same session`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        h.vm.onIntent(EditorIntent.DismissFolderRelink)
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        assertEquals("Relinked 4 of 4", scanSummaryText(h.report))
+        assertFalse((h.state.folderRelink as FolderRelinkUi.Done).showList)
+    }
+
+    @Test
+    fun `Back with nothing missing leaves no list and no scan action`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        h.vm.onIntent(EditorIntent.DismissFolderRelink)
+
+        assertTrue(h.state.missingAssets.isEmpty())
+        assertFalse(h.state.relinkOpen)
+    }
+
+    @Test
+    fun `cancelling a scan started from the list returns to the list`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        h.vm.onIntent(EditorIntent.DismissFolderRelink)
+        scanner.gate = CompletableDeferred()
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        runCurrent()
+        h.vm.onIntent(EditorIntent.CancelFolderRelink)
+        advanceUntilIdle()
+
+        val done = h.state.folderRelink as FolderRelinkUi.Done
+        assertTrue(done.showList)
+        assertEquals("Relinked 2 of 4", scanSummaryText(done.outcome))
+    }
+
+    @Test
+    fun `closing the dialog ends the session and the next scan starts at zero`() = runTest(dispatcher) {
+        val (scanner, known) = twoFolders()
+        val h = mixedHarness(scanner, known)
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
+        advanceUntilIdle()
+        h.vm.onIntent(EditorIntent.DismissFolderRelink)
+
+        h.vm.onIntent(EditorIntent.HideRelink)
+        assertEquals(FolderRelinkUi.Idle, h.state.folderRelink)
+        h.vm.onIntent(EditorIntent.ShowRelink)
+        assertEquals("Scan a folder…", scanActionLabel(h.state.folderRelink))
+        h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
+        advanceUntilIdle()
+
+        // Two items were missing when this session began, so it counts 2 of 2, not 4 of 4.
+        assertEquals("Relinked 2 of 2", scanSummaryText(h.report))
+    }
+
+    // endregion
 }

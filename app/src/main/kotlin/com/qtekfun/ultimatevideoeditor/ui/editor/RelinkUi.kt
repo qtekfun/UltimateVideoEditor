@@ -2,6 +2,8 @@ package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -93,24 +95,52 @@ internal fun MediaBanners(state: EditorState, onImportFont: () -> Unit = {}, onI
  */
 @Composable
 internal fun RelinkDialog(missing: List<MissingAsset>, folderRelink: FolderRelinkUi, onIntent: (EditorIntent) -> Unit) {
+    // One session from the first scan until Close: the scan action is "Scan a folder…" before it and "Scan another folder…" after it,
+    // once per screen, and it is not offered when nothing is missing any more.
+    val results = folderRelink is FolderRelinkUi.Done && !(folderRelink.showList && missing.isNotEmpty())
     AlertDialog(
         onDismissRequest = { onIntent(EditorIntent.HideRelink) },
-        title = { Text(if (folderRelink is FolderRelinkUi.Done) "Folder scan" else "Missing media") },
+        title = { Text(if (results) "Folder scan" else "Missing media") },
         text = {
-            when (folderRelink) {
-                FolderRelinkUi.Idle -> MissingList(missing, onIntent)
-                is FolderRelinkUi.Running -> ScanProgress(folderRelink)
-                is FolderRelinkUi.Done -> ScanResults(folderRelink.outcome, onIntent)
+            when {
+                folderRelink is FolderRelinkUi.Running -> ScanProgress(folderRelink)
+                folderRelink is FolderRelinkUi.Done && results -> ScanResults(folderRelink.outcome, onIntent)
+                else -> MissingList(missing, onIntent)
             }
         },
-        dismissButton = when (folderRelink) {
-            FolderRelinkUi.Idle -> ({ TextButton(onClick = { onIntent(EditorIntent.RequestFolderRelink) }) { Text("Scan a folder…") } })
-            is FolderRelinkUi.Running -> ({ TextButton(onClick = { onIntent(EditorIntent.CancelFolderRelink) }) { Text("Cancel scan") } })
-            is FolderRelinkUi.Done ->
-                if (missing.isNotEmpty()) ({ TextButton(onClick = { onIntent(EditorIntent.DismissFolderRelink) }) { Text("Back to the list") } }) else null
+        dismissButton = when {
+            folderRelink is FolderRelinkUi.Running -> ({ TextButton(onClick = { onIntent(EditorIntent.CancelFolderRelink) }) { Text("Cancel scan") } })
+            results -> null
+            else -> ({ TextButton(onClick = { onIntent(EditorIntent.RequestFolderRelink) }) { Text(scanActionLabel(folderRelink)) } })
         },
-        confirmButton = { TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text("Close") } },
+        confirmButton = {
+            if (results) {
+                ResultsButtons(missing.isNotEmpty(), onIntent)
+            } else {
+                TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text("Close") }
+            }
+        },
     )
+}
+
+/** The label of the scan action: the first scan of a session, or one more after results exist. Shared with the tests. */
+internal fun scanActionLabel(folderRelink: FolderRelinkUi): String =
+    if (folderRelink is FolderRelinkUi.Done) "Scan another folder…" else "Scan a folder…"
+
+/**
+ * Close, Scan another folder… and Back to the list (the last two only while something is still missing). A flow row, so on a
+ * narrow phone the buttons wrap onto a second line instead of running out of the dialog.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ResultsButtons(somethingMissing: Boolean, onIntent: (EditorIntent) -> Unit) {
+    FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text("Close") }
+        if (somethingMissing) {
+            TextButton(onClick = { onIntent(EditorIntent.RequestFolderRelink) }) { Text("Scan another folder…") }
+            TextButton(onClick = { onIntent(EditorIntent.DismissFolderRelink) }) { Text("Back to the list") }
+        }
+    }
 }
 
 @Composable

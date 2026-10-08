@@ -906,6 +906,12 @@ identify, in one step. Nothing changes until the scan is done.
   guesses between two different files of the same name.
 - The result says **Relinked N of M**. Files not found are listed with the reason and a **Relink** button that opens the usual
   single-file picker.
+- If the files live in different folders (videos in one, audio in another), press **Scan another folder...** on the results screen. It
+  scans the next folder only for what is still missing and adds to the same results: files already relinked stay relinked, the
+  count (**Relinked N of M**) keeps growing and found files leave the lists. Press it as often as needed. **Back to the list**
+  shows what is still missing (with a Relink button each) and offers the same **Scan another folder...**; once a scan has run it is
+  the only scan button on any screen, and it disappears when nothing is missing. **Close** ends the session: the next **Scan a
+  folder...** starts counting from zero.
 - Relinking is saved straight away and is **not an undo step** (the same as relinking one file). To change it, relink the file again.
 
 Each save keeps a `project.json.bak`. If a project fails to load, use **Recover** in the hub.
