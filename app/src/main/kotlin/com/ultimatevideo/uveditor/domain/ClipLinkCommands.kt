@@ -27,3 +27,26 @@ data class RelinkClips(val videoClipId: String, val audioClipId: String, val rea
 data class RestoreEmbeddedAudio(val videoClipId: String) : EditCommand {
     override fun apply(timeline: Timeline) = ClipLinks.restoreEmbeddedAudio(timeline, videoClipId)
 }
+
+/**
+ * Places a new video clip with [place] (any command that inserts or overwrites it) and, in the same undo step, detaches its
+ * sound onto the first audio lane with room, or onto a new lane [newTrackId] (the "Put video audio on an audio track" setting,
+ * SPECS 5.38). The lane is chosen after the placement has been settled, so audio clips that the placement pushed along a ripple
+ * no longer count as being in the way. A clip without sound or without media is placed as it is.
+ */
+data class PlaceWithDetachedAudio(
+    val place: EditCommand,
+    val videoClipId: String,
+    val audioClipId: String,
+    val newTrackId: String,
+) : EditCommand {
+    override fun apply(timeline: Timeline): EditResult<Timeline> {
+        val placed = when (val result = place.apply(timeline).linkedFrom(timeline)) {
+            is EditResult.Failure -> return result
+            is EditResult.Success -> result.value
+        }
+        val clip = placed.trackOfClip(videoClipId)?.clip(videoClipId) ?: return EditResult.Failure(EditError.ClipNotFound(videoClipId))
+        val lane = ClipLinks.audioTrackFor(placed, clip) ?: newTrackId
+        return ClipLinks.detachAudio(placed, videoClipId, audioClipId, lane, linked = true)
+    }
+}
