@@ -74,7 +74,7 @@ JNIEXPORT jlong JNICALL JNI_FN(nativeCreate)(JNIEnv* env, jobject /*thiz*/, jflo
     std::weak_ptr<uv::audio::WaveformService> service = h->waveforms;
     h->renderer = std::make_unique<uv::timeline::TimelineRenderer>(density, [service](int64_t key) {
         auto s = service.lock();
-        return s ? s->get(key) : nullptr;
+        return s ? s->status(key) : uv::audio::WaveStatus{};
     });
     return reinterpret_cast<jlong>(h);
 }
