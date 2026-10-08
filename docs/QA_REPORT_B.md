@@ -1,6 +1,6 @@
 # On-device QA report, part B (Pixel 8)
 
-Device: Pixel 8, Android 17 (API 37), 1080x2400, build `master` + sufijo `qb` (`com.ultimatevideo.uveditor.qb`). The Pixel is a debug
+Device: Pixel 8, Android 17 (API 37), 1080x2400, build `master` + sufijo `qb` (`com.qtekfun.ultimatevideoeditor.qb`). The Pixel is a debug
 device, not the reference phone (OPPO CPH2841). Test media was generated on the laptop with ffmpeg/ImageMagick and pushed to
 `/sdcard/Download/qa-b/`. The phone was shared with another QA agent, so every session ran under `flock /tmp/pixel-device.lock`.
 
@@ -118,7 +118,7 @@ Result key: PASS = seen working; PARTIAL = seen working with caveats; FAIL = def
 ## 11. Release build on the minified APK (continued)
 
 - `./gradlew :app:assembleRelease` gave a 6.9 MB `app-release-unsigned.apk` (R8 + resource shrinking). It was zip-aligned and signed with the
-  debug key (`apksigner verify` OK), `aapt2` shows `com.ultimatevideo.uveditor` 0.1.0 (100) and the only permission is the internal
+  debug key (`apksigner verify` OK), `aapt2` shows `com.qtekfun.ultimatevideoeditor` 0.1.0 (100) and the only permission is the internal
   AndroidX `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. Installed, exercised, then uninstalled.
 - On the minified build: first-run tips, new project (project.json written and read back through the serialization models), open,
   import `clip_a.mp4` through the picker (native probe, thumbnails, waveform), preview decode, play with the stereo level meter moving

@@ -37,7 +37,7 @@ std::string toString(JNIEnv* env, jstring s) {
 
 extern "C" {
 
-#define JNI_FN(name) Java_com_ultimatevideo_uveditor_engine_stabilise_NativeStabiliser_##name
+#define JNI_FN(name) Java_com_qtekfun_ultimatevideoeditor_engine_stabilise_NativeStabiliser_##name
 
 JNIEXPORT jlong JNICALL JNI_FN(nativeCreate)(JNIEnv* /*env*/, jobject /*thiz*/) {
     return reinterpret_cast<jlong>(new StabService());

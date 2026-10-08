@@ -64,12 +64,12 @@ androidComponents {
 }
 
 android {
-    namespace = "com.ultimatevideo.uveditor"
+    namespace = "com.qtekfun.ultimatevideoeditor"
     compileSdk = 37
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.ultimatevideo.uveditor"
+        applicationId = "com.qtekfun.ultimatevideoeditor"
         // Debug-only helper for shared test devices: -PappIdSuffix=.mine installs next to the normal app.
         (findProperty("appIdSuffix") as String?)?.let { applicationIdSuffix = it }
         minSdk = 31

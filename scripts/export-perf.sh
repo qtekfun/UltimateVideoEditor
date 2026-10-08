@@ -6,7 +6,7 @@
 #     --sync   also glFinish after each draw (separates GPU time from the encoder wait)
 #     --runs N (default 2)
 # Needs ffmpeg on the host (only to generate the source), the app built with `-Puveditor.appIdSuffix=<x>` and installed; set PKG
-# (default com.ultimatevideo.uveditor.xp). Every run takes /tmp/pixel-device.lock (or $LOCK) and refuses to run while the app is
+# (default com.qtekfun.ultimatevideoeditor.xp). Every run takes /tmp/pixel-device.lock (or $LOCK) and refuses to run while the app is
 # in the foreground. Prints the UVExportPerf windows (ms per frame spent in fetch/decode wait, blit, draw, swap, ...), the
 # thermal status and the overall fps. Does not touch other packages.
 set -euo pipefail
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
         *) echo "unknown option $1" >&2; exit 2;;
     esac
 done
-pkg="${PKG:-com.ultimatevideo.uveditor.xp}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor.xp}"
 dir="/sdcard/Android/data/$pkg/files"
 lock="${LOCK:-/tmp/pixel-device.lock}"
 if [ -z "$source" ]; then
@@ -53,7 +53,7 @@ one() {
     $adb shell setprop debug.uveditor.export_perf "$([ "$sync" = 1 ] && echo 2 || echo 1)"
     $adb logcat -c
     echo "thermal before: $($adb shell dumpsys thermalservice | grep -m1 'Thermal Status' || true)"
-    $adb shell am start -W -n "$pkg/com.ultimatevideo.uveditor.debug.ExportDemoActivity" \
+    $adb shell am start -W -n "$pkg/com.qtekfun.ultimatevideoeditor.debug.ExportDemoActivity" \
         --es video "$dir/perf_in.mp4" --es out "$dir/perf_out.mp4" --es codec "$codec" --ei w "$w" --ei h "$h" --ei fps "$fps" \
         --ei frames "$frames" --ei n "$n" --ei len "$len" --ei k "$k" --ei bitrate "$bitrate" --es layout "$layout" > /dev/null
     for _ in $(seq 1 600); do

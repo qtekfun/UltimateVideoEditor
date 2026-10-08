@@ -6,7 +6,7 @@
 namespace uv::render {
 
 // How one source layer is converted into the colour space the target is rendered in. Mirrors
-// com.ultimatevideo.uveditor.engine.preview.ColorMode; keep both in sync.
+// com.qtekfun.ultimatevideoeditor.engine.preview.ColorMode; keep both in sync.
 enum class ColorMode : int {
     Sdr709 = 0,           // SDR Rec.709 source into an SDR target: sampled as is
     Hlg2020ToSdr709 = 1,  // HLG / Rec.2020 source tone-mapped into an SDR target

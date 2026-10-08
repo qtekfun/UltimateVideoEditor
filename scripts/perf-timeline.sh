@@ -4,13 +4,13 @@
 # statistics (CPU time to build and submit a frame, draw calls and vertices per frame; the property
 # debug.uveditor.timeline_stats=1 turns them on, read once when the canvas starts).
 #
-#   [PKG=com.ultimatevideo.uveditor[.suffix]] scripts/perf-timeline.sh <adb-serial> [seconds=12]
+#   [PKG=com.qtekfun.ultimatevideoeditor[.suffix]] scripts/perf-timeline.sh <adb-serial> [seconds=12]
 #
 # It never installs the app and never clears data; the screen must be unlocked. Run it inside the shared device lock.
 set -euo pipefail
 serial="${1:?usage: $0 <adb-serial> [seconds]}"
 secs="${2:-12}"
-pkg="${PKG:-com.ultimatevideo.uveditor}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor}"
 here="$(dirname "$0")"
 . "$here/device-ui.sh"
 

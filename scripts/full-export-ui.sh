@@ -4,7 +4,7 @@
 #     --project NAME   project card in the hub              (default "Review IPhone 18 Pro Max")
 #     --file NAME      file name to save as                 (default "Review IPhone 18 Pro Max 4K.mp4")
 #     --dir DIR        folder on the phone's storage         (default /sdcard/Movies)
-#     --pkg PKG        package to drive                      (default com.ultimatevideo.uveditor)
+#     --pkg PKG        package to drive                      (default com.qtekfun.ultimatevideoeditor)
 #     --frames N --seconds S   expected frame count / duration (default 42891 / 714.85)
 #     --attach         do not drive the UI: the export is already running (or finished); only poll and verify
 #     --verify-only    only pull and check the file that exists
@@ -20,7 +20,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 project="Review IPhone 18 Pro Max"
 fname="Review IPhone 18 Pro Max 4K.mp4"
 dir="/sdcard/Movies"
-pkg="com.ultimatevideo.uveditor"
+pkg="com.qtekfun.ultimatevideoeditor"
 want_frames=42891
 want_seconds=714.85
 attach=0
@@ -140,7 +140,7 @@ drive_ui() {
     require_awake_unlocked
     if service_running; then echo "an export is already running in $pkg; not starting another (use --attach)" >&2; return 5; fi
     if ! focus | grep -q "$pkg/"; then
-        adb_ shell am start -n "$pkg/com.ultimatevideo.uveditor.MainActivity" > /dev/null
+        adb_ shell am start -n "$pkg/com.qtekfun.ultimatevideoeditor.MainActivity" > /dev/null
         sleep 3
     fi
     if ! focus | grep -q "$pkg/"; then echo "the app is not in the foreground: $(focus)" >&2; return 6; fi

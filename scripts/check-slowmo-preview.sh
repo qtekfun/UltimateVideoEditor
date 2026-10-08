@@ -6,7 +6,7 @@
 # Same prerequisites as check-slowmo-export.sh (PKG, ffmpeg, the app and androidTest APKs installed, app closed).
 set -euo pipefail
 serial="$1"
-pkg="${PKG:-com.ultimatevideo.uveditor}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 dir="/sdcard/Android/data/$pkg/files"
@@ -30,7 +30,7 @@ gen 240 1.0 "$work/truth240.mp4"
 adb -s "$serial" push "$work/slowmo_src.mp4" "$dir/slowmo_src.mp4" > /dev/null
 adb -s "$serial" push "$work/truth240.mp4" "$dir/slowmo_truth.mp4" > /dev/null
 adb -s "$serial" logcat -c
-adb -s "$serial" shell am instrument -w -e class com.ultimatevideo.uveditor.engine.preview.SlowMotionPreviewInstrumentedTest \
+adb -s "$serial" shell am instrument -w -e class com.qtekfun.ultimatevideoeditor.engine.preview.SlowMotionPreviewInstrumentedTest \
     "$pkg.test/androidx.test.runner.AndroidJUnitRunner" | tee "$work/run.txt" | tail -6
 grep -q "^OK" "$work/run.txt" || { echo "the instrumented run failed" >&2; adb -s "$serial" logcat -d | grep -E "uveditor|slow motion" | tail -20; exit 1; }
 # The reader surface has no real alpha channel, so the pictures are read as RGBX (rgb0).

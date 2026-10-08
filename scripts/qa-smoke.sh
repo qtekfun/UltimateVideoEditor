@@ -13,7 +13,7 @@
 #   --only IDS    run only these checks (comma separated, see the table)
 #   --no-ui       skip the uiautomator flows (and the real-touch drag check)
 #
-# Environment: QA_PKG (default com.ultimatevideo.uveditor.qa; must carry a suffix: the unsuffixed app holds the user's project and
+# Environment: QA_PKG (default com.qtekfun.ultimatevideoeditor.qa; must carry a suffix: the unsuffixed app holds the user's project and
 # is refused), QA_DATA (default /home/qtekfun/uvdata/qa-smoke; large files never go to /tmp, which is RAM), QA_LOCK (default
 # /tmp/pixel-device.lock, /tmp/tablet-device.lock on a Huawei).
 #
@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-pkg="${QA_PKG:-com.ultimatevideo.uveditor.qa}"
+pkg="${QA_PKG:-com.qtekfun.ultimatevideoeditor.qa}"
 data="${QA_DATA:-/home/qtekfun/uvdata/qa-smoke}"
 media="$data/media"
 mkdir -p "$data" "$media"
@@ -55,8 +55,8 @@ say() { echo "$*" | tee -a "$log" >&2; }
 
 # ---- safety ---------------------------------------------------------------------------------------------------------------------
 case "$pkg" in
-    com.ultimatevideo.uveditor) echo "refusing: $pkg is the real app (it holds the user's project). Use a suffixed build, e.g. -Puveditor.appIdSuffix=qa" >&2; exit 2 ;;
-    com.ultimatevideo.uveditor.*) ;;
+    com.qtekfun.ultimatevideoeditor) echo "refusing: $pkg is the real app (it holds the user's project). Use a suffixed build, e.g. -Puveditor.appIdSuffix=qa" >&2; exit 2 ;;
+    com.qtekfun.ultimatevideoeditor.*) ;;
     *) echo "refusing: $pkg is not a suffixed ultimateVE package" >&2; exit 2 ;;
 esac
 for tool in adb ffmpeg ffprobe python3 flock; do command -v "$tool" > /dev/null || { echo "missing tool: $tool" >&2; exit 2; }; done
@@ -163,7 +163,7 @@ say "device: $model, Android $(adb_ shell getprop ro.build.version.release | tr 
 start_activity() { # class args...
     local cls="$1"
     shift
-    adb_ shell am start -W -n "$pkg/com.ultimatevideo.uveditor.debug.$cls" "$@" > /dev/null
+    adb_ shell am start -W -n "$pkg/com.qtekfun.ultimatevideoeditor.debug.$cls" "$@" > /dev/null
 }
 wait_for_file() { # device-path timeout-seconds ; prints nothing, returns 0 when it exists
     local path="$1" t="$2" i=0
@@ -186,7 +186,7 @@ wait_sampling_service() { # result-path timeout
         if [ -z "$(pid_of)" ] || adb_ logcat -b crash -d -T "$ex_stamp" 2>/dev/null | grep -q "Process: $pkg,"; then
             if [ $((SECONDS - start)) -ge 2 ]; then fgs_died=1; return 1; fi
         fi
-        d="$(adb_ shell dumpsys activity services "$pkg/com.ultimatevideo.uveditor.ui.export.ExportService" 2>/dev/null | tr -d '\r')"
+        d="$(adb_ shell dumpsys activity services "$pkg/com.qtekfun.ultimatevideoeditor.ui.export.ExportService" 2>/dev/null | tr -d '\r')"
         if echo "$d" | grep -q "isForeground=true"; then fgs_state="$d"; fi
         sleep 0.4
     done

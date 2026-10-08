@@ -67,7 +67,7 @@ The roadmap lives in [PLAN.md](PLAN.md); the reasoning behind choices in [DECISI
 ## Architecture
 
 ```
-app/src/main/kotlin/com/ultimatevideo/uveditor/
+app/src/main/kotlin/com/qtekfun/ultimatevideoeditor/
   ui/         Compose screens: hub, editor (tray, layout, inspector, sheets), export, library, templates, about; never draws timeline clips
   mvi/        State / Intent / Effect base classes (StateFlow)
   domain/     Pure Kotlin timeline model, edit operations, undo/redo, render plan (no Android imports)
@@ -121,7 +121,7 @@ cmake -S app/src/main/cpp/tests -B build/uv-host -G Ninja
 cmake --build build/uv-host && ctest --test-dir build/uv-host --output-on-failure
 
 adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s <serial> shell am start -n com.ultimatevideo.uveditor/.MainActivity
+adb -s <serial> shell am start -n com.qtekfun.ultimatevideoeditor/.MainActivity
 ```
 
 CI runs the unit tests, the debug build and the native host tests on every pull request

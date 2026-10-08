@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KT = os.path.join(ROOT, "app/src/main/kotlin/com/ultimatevideo/uveditor/ui/editor")
+KT = os.path.join(ROOT, "app/src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor")
 REPO = "https://github.com/qtekfun/UltimateVideoEditor"
 
 # source markdown (relative to docs/) -> (output name, title)

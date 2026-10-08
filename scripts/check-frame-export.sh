@@ -8,12 +8,12 @@ set -euo pipefail
 serial="$1"
 frames="${2:-0,37,59,60,90,119,120,130,149}"
 here="$(cd "$(dirname "$0")" && pwd)"
-pkg="${PKG:-com.ultimatevideo.uveditor.sf}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor.sf}"
 dir="/sdcard/Android/data/$pkg/files"
 work="$(mktemp -d "${TMPDIR:-$HOME/uvdata}/frame-check.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 adb_() { adb -s "$serial" "$@"; }
-activity="$pkg/com.ultimatevideo.uveditor.debug.FrameDemoActivity"
+activity="$pkg/com.qtekfun.ultimatevideoeditor.debug.FrameDemoActivity"
 
 python3 "$here/check-retime-export.py" gen "$work/src.mp4"
 adb_ push "$work/src.mp4" "$dir/src.mp4" > /dev/null

@@ -4,6 +4,12 @@ A short guide to the screens, the toolbar icons and the main gestures. ultimateV
 LumaFusion-style video editor for Android. Some features are new and have only been exercised by
 automated tests so far; see [Known limits](#known-limits).
 
+> **Upgrading from release 0.3.13 or earlier?** The app's package name changed (from `com.ultimatevideo.uveditor` to
+> `com.qtekfun.ultimatevideoeditor`), and Android treats a different package name as a different app. The new build installs
+> next to the old one, does not replace it and does not see its projects. Move each project once: in the old app use
+> **⋮ on a project card → Export bundle for another phone…**, then in the new app use **⋮ → Import project, bundle or
+> LumaFusion package** on the hub. Uninstall the old app only after checking the imported projects.
+
 ## Contents
 
 1. [Project hub](#project-hub)
