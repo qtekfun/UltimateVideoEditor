@@ -590,7 +590,7 @@ flag): the first tap only takes the playhead onto that marker. Tap it again, wit
   included; a long name is cut where the next marker starts);
 - the **Stick to clip** switch (see above);
 - six **colours**; tap the chosen one again to clear it. The flag and the faint line through the lanes take the
-  colour (pink when there is none), and a small light square under the flag shows that there is a note;
+  colour (red when there is none), and a small light square under the flag shows that there is a note;
 - **‹ ›** go to the previous or next marker (the playhead follows);
 - the bin deletes the marker, **Done** closes the panel. Everything you type shows at once, and the whole
   editing session is one undo step. Tapping the timeline elsewhere also closes the panel and keeps the edits.
