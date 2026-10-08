@@ -133,14 +133,14 @@ class LayoutStateTest {
     @Test
     fun `audio lane height is its own setting, same by default, and a manual change clears the preset`() {
         val start = LayoutState.defaultFor(phone)
-        assertEquals(AudioLaneHeight.SAME, start.audioLaneHeight)
+        assertEquals(AudioLaneHeight.TALL, start.audioLaneHeight)
         val tall = start.reduce(LayoutAction.SetAudioLaneHeight(AudioLaneHeight.TALLER), phone)
         assertEquals(AudioLaneHeight.TALLER, tall.audioLaneHeight)
         assertEquals(LaneHeight.MEDIUM, tall.laneHeight)
         assertNull(tall.preset)
         // The lane height steps do not touch it; a reset brings it back to the same height.
         assertEquals(AudioLaneHeight.TALLER, tall.reduce(LayoutAction.StepLaneHeight(1), phone).audioLaneHeight)
-        assertEquals(AudioLaneHeight.SAME, tall.reduce(LayoutAction.Reset, phone).audioLaneHeight)
+        assertEquals(AudioLaneHeight.TALL, tall.reduce(LayoutAction.Reset, phone).audioLaneHeight)
     }
 
     @Test
@@ -254,6 +254,17 @@ class LayoutStateTest {
     }
 
     // endregion
+
+    @Test
+    fun `audio tracks are 1_5x on a layout that was never saved, for every preset and window`() {
+        assertEquals(AudioLaneHeight.TALL, AudioLaneHeight.DEFAULT)
+        assertEquals(AudioLaneHeight.TALL, LayoutState().audioLaneHeight)
+        assertEquals(AudioLaneHeight.TALL, LayoutState.defaultFor(phone).audioLaneHeight)
+        assertEquals(AudioLaneHeight.TALL, LayoutState.defaultFor(tablet).audioLaneHeight)
+        for (preset in LayoutPreset.entries) {
+            assertEquals(preset.name, AudioLaneHeight.TALL, LayoutState.preset(preset, phone).audioLaneHeight)
+        }
+    }
 }
 
 class LayoutCodecTest {
@@ -273,7 +284,10 @@ class LayoutCodecTest {
     fun `the audio lane height is saved and an old file without it reads as the same height`() {
         val state = LayoutState.defaultFor(tablet).reduce(LayoutAction.SetAudioLaneHeight(AudioLaneHeight.TALL), tablet)
         assertEquals(AudioLaneHeight.TALL, LayoutCodec.decode(LayoutCodec.encode(state))!!.audioLaneHeight)
+        // A layout saved before the setting existed keeps the single lane height it was shown with.
         assertEquals(AudioLaneHeight.SAME, LayoutCodec.decode("pf=0.5;lane=LARGE")!!.audioLaneHeight)
+        // A saved Same stays Same.
+        assertEquals(AudioLaneHeight.SAME, LayoutCodec.decode(LayoutCodec.encode(LayoutState(audioLaneHeight = AudioLaneHeight.SAME)))!!.audioLaneHeight)
         assertEquals(AudioLaneHeight.SAME, LayoutCodec.decode("audiolane=HUGE;lane=LARGE")!!.audioLaneHeight)
     }
 
@@ -288,7 +302,7 @@ class LayoutCodecTest {
         assertNull(LayoutCodec.decode(""))
         assertNull(LayoutCodec.decode("nonsense"))
         val decoded = LayoutCodec.decode("pf=abc;lw=NaN;future=1;tray=NOWHERE,0;insp=BOTTOM,1;lane=HUGE;preset=-")!!
-        assertEquals(LayoutState(preset = null), decoded)
+        assertEquals(LayoutState(preset = null, audioLaneHeight = AudioLaneHeight.SAME), decoded)
     }
 
     @Test
