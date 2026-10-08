@@ -6,7 +6,7 @@ Read `PRD.md` (what), `SPECS.md` (how), `PLAN.md` (order of work and the verific
 how to add a feature safely) before writing code. Privacy is a hard rule: no AI, no network, no third-party services (`docs/PRIVACY.md`).
 
 ## Project facts
-- App name: ultimateVE · Application ID / namespace: `com.ultimatevideo.uveditor`
+- App name: ultimateVE · Application ID / namespace: `com.qtekfun.ultimatevideoeditor`
 - Kotlin + Jetpack Compose (UI), C++20 via CMake/NDK (engine), native library `uveditor_engine`
 - minSdk 31, targetSdk 36, compileSdk 37, ABI `arm64-v8a`
 - Graphics: OpenGL ES 3.2 first (Vulkan later). Audio: Oboe/AAudio. Decode/encode: NDK MediaCodec.
@@ -72,8 +72,8 @@ id suffix and its androidTest APK installed; set `PKG`).
 Audio on device: `AudioPlaybackInstrumentedTest` (offline tone/gain/resample/seek checks plus a ~60 s Oboe clock-drift and
 latency run logged under tag `UVAudioTest`). Its assets are ffmpeg-generated tones in `src/androidTest/assets`. The app and test
 APKs share one package on the device, so do not run two agents' installs/instrumentation against it at the same time.
-A debug-only harness for the native timeline: `adb -s <serial> shell am start -n com.ultimatevideo.uveditor/.debug.TimelineDemoActivity`
-(push a file with audio to `/sdcard/Android/data/com.ultimatevideo.uveditor/files/demo_media.mp4` to see waveforms and, for a
+A debug-only harness for the native timeline: `adb -s <serial> shell am start -n com.qtekfun.ultimatevideoeditor/.debug.TimelineDemoActivity`
+(push a file with audio to `/sdcard/Android/data/com.qtekfun.ultimatevideoeditor/files/demo_media.mp4` to see waveforms and, for a
 video file, the thumbnail filmstrip). `--ef zoom <factor>` zooms in at start (adb cannot pinch). In debug builds
 `adb shell setprop debug.uveditor.atlas_bytes <n>` shrinks the thumbnail atlas to exercise slot eviction (logged under tag `uv_thumb`).
 `uv_thumbnail_host_tests` covers thumbnail tile math, the atlas slot LRU, the on-disk tile store and YUV conversion; without CMake:
@@ -82,7 +82,7 @@ HDR: `uv_hdr_host_tests` covers `render/color_space.h` and the HLG/PQ conversion
 composite shader; change `render/shaders.h` and `color_math.h` together); without CMake:
 `g++ -std=c++20 -Iapp/src/main/cpp app/src/main/cpp/tests/hdr_host_tests.cpp -o /tmp/hdr_tests && /tmp/hdr_tests`.
 Export: `uv_export_host_tests` covers `encode/export_math.h` (PTS, audio sample tiling, progress, clip selection). A debug-only
-harness exports a file without UI: `am start -n com.ultimatevideo.uveditor/.debug.ExportDemoActivity --es video <in.mp4> --es out <out.mp4>
+harness exports a file without UI: `am start -n com.qtekfun.ultimatevideoeditor/.debug.ExportDemoActivity --es video <in.mp4> --es out <out.mp4>
 [--es codec avc|hevc] [--ei w 1280 --ei h 720 --ei fps 30] [--es layout single|split|layers]`, then `ffprobe` the pulled file; the outcome is
 written to `<out>.result.txt` (see the class comment). Exported audio is shifted earlier by the AAC encoder delay (`kAacDelaySamples`).
 

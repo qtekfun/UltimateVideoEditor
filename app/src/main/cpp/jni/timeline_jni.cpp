@@ -52,7 +52,7 @@ void notifyWaveform(TimelineHandle* h, int64_t assetKey, Status status) {
 
 extern "C" {
 
-#define JNI_FN(name) Java_com_ultimatevideo_uveditor_engine_timeline_NativeTimeline_##name
+#define JNI_FN(name) Java_com_qtekfun_ultimatevideoeditor_engine_timeline_NativeTimeline_##name
 
 JNIEXPORT jlong JNICALL JNI_FN(nativeCreate)(JNIEnv* env, jobject /*thiz*/, jfloat density, jobject listener) {
     auto* h = new TimelineHandle();

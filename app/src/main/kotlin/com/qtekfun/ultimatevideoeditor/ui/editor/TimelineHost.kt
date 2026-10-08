@@ -1,0 +1,35 @@
+package com.qtekfun.ultimatevideoeditor.ui.editor
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+import com.qtekfun.ultimatevideoeditor.engine.timeline.TimelineEngine
+import com.qtekfun.ultimatevideoeditor.engine.timeline.TimelineHit
+
+/**
+ * Compose host for the native timeline canvas. The SurfaceView is created once; later snapshot,
+ * zoom and scroll updates go straight to the engine and never recompose this view.
+ */
+@Composable
+fun TimelineHost(
+    engine: TimelineEngine,
+    onTap: (TimelineHit) -> Unit,
+    modifier: Modifier = Modifier,
+    editing: TimelineEditing? = null,
+    dropTarget: TimelineDropTarget? = null,
+    selecting: TimelineSelecting? = null,
+    shaping: TimelineShaping? = null,
+) {
+    val currentOnTap = rememberUpdatedState(onTap)
+    val currentEditing = rememberUpdatedState(editing)
+    val currentDropTarget = rememberUpdatedState(dropTarget)
+    val currentSelecting = rememberUpdatedState(selecting)
+    val currentShaping = rememberUpdatedState(shaping)
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            TimelineSurfaceView(context, engine, { currentOnTap.value(it) }, { currentEditing.value }, { currentDropTarget.value }, { currentSelecting.value }, { currentShaping.value })
+        },
+    )
+}

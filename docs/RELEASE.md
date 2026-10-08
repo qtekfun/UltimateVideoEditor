@@ -12,6 +12,18 @@ How a release is built, signed and listed. Nothing here needs an account with a 
   workflow refuses a tag that does not match the file.
 - The version is shown in **About** and written into local crash reports.
 
+## Application id change (first release after 0.3.13)
+
+The application id and namespace changed from `com.ultimatevideo.uveditor` to `com.qtekfun.ultimatevideoeditor`. For Android
+that is a different app:
+
+- The new build installs **next to** the old one with its own data; it does **not** update it and does not see its projects.
+- Projects move with the existing bundle export/import: **Export bundle for another phone** in the old app, import in the new one.
+- The **signing key is unchanged**. Releases up to 0.3.13 stay under the old id; a store listing keyed to the old id needs a new entry.
+- Release notes for that release must say this in the first lines, and `docs/USER_GUIDE.md` carries the same note.
+- Debug QA builds are `com.qtekfun.ultimatevideoeditor.<suffix>`; `scripts/qa-smoke.sh` refuses the unsuffixed id as before.
+- Guard: `JniSymbolsTest` fails the unit tests when a Kotlin `external fun` and its `Java_...` symbol disagree.
+
 ## Building
 
 ```bash

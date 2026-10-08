@@ -1,0 +1,181 @@
+package com.qtekfun.ultimatevideoeditor.debug
+
+import android.app.Activity
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
+import com.qtekfun.ultimatevideoeditor.domain.Clip
+import com.qtekfun.ultimatevideoeditor.domain.FrameIndex
+import com.qtekfun.ultimatevideoeditor.domain.FrameRate
+import com.qtekfun.ultimatevideoeditor.domain.Timeline
+import com.qtekfun.ultimatevideoeditor.domain.Track
+import com.qtekfun.ultimatevideoeditor.domain.TrackType
+import com.qtekfun.ultimatevideoeditor.engine.export.ExportCodec
+import com.qtekfun.ultimatevideoeditor.engine.export.ExportException
+import com.qtekfun.ultimatevideoeditor.engine.export.ExportListener
+import com.qtekfun.ultimatevideoeditor.engine.export.ExportRequest
+import com.qtekfun.ultimatevideoeditor.engine.export.ExportSettings
+import com.qtekfun.ultimatevideoeditor.engine.export.NativeExportRunner
+import com.qtekfun.ultimatevideoeditor.engine.still.AndroidStillRasterizer
+import com.qtekfun.ultimatevideoeditor.engine.title.AndroidTitleRasterizer
+import com.qtekfun.ultimatevideoeditor.ui.export.ContentResolverExportIO
+import com.qtekfun.ultimatevideoeditor.ui.export.buildExportPlan
+import com.qtekfun.ultimatevideoeditor.ui.frame.BitmapFrameEncoder
+import com.qtekfun.ultimatevideoeditor.domain.stillframe.frameTarget
+import com.qtekfun.ultimatevideoeditor.ui.frame.FrameRenderJob
+import com.qtekfun.ultimatevideoeditor.ui.frame.NativeFrameRenderer
+import kotlinx.coroutines.runBlocking
+import java.io.File
+import java.util.concurrent.CountDownLatch
+
+/**
+ * Debug-only harness for "Save frame as image" without UI (SPECS 5.35). It builds a three clip project from one video file
+ * (frame-numbered source from scripts/check-retime-export.py: a plain clip starting mid-GOP, a reversed clip and a 2x clip),
+ * and either saves single frames through the same renderer the editor uses, or exports the same project to an MP4 so the
+ * frames can be compared:
+ *
+ *   adb shell am start -n <pkg>/com.qtekfun.ultimatevideoeditor.debug.FrameDemoActivity --es video <in.mp4> --es mode frames \
+ *     --es frames 0,37,59,60,90,119,120,130,149,150 [--es format png|jpg] [--ei quality 95] [--es colour hlg]
+ *   ... --es mode export        writes <dir>/frame_export.mp4 (all 150 frames)
+ *
+ * Output goes to the app's external files directory; the log (tag UVFrameDemo) and `<dir>/frame_result.txt` list, for every
+ * frame, the file, its size in bytes and the frame number read back from the picture's binary squares.
+ */
+class FrameDemoActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val video = intent.getStringExtra("video") ?: return finishWith("missing --es video")
+        val mode = intent.getStringExtra("mode") ?: "frames"
+        val dir = getExternalFilesDir(null) ?: return finishWith("no external files dir")
+        Thread {
+            val report = StringBuilder()
+            try {
+                if (mode == "export") exportMovie(video, dir, report) else saveFrames(video, dir, report)
+            } catch (e: Exception) {
+                report.append("FAILED ${e.javaClass.simpleName}: ${e.message}\n")
+                Log.e(TAG, "failed", e)
+            }
+            File(dir, "frame_result.txt").writeText(report.toString())
+            Log.i(TAG, report.toString())
+            runOnUiThread { finish() }
+        }.start()
+    }
+
+    private fun project(video: String): Triple<Timeline, List<MediaAssetDto>, FrameRate> {
+        val hlg = intent.getStringExtra("colour") == "hlg"
+        val asset = MediaAssetDto("a", Uri.fromFile(File(video)).toString(), 300, 30, 1, if (hlg) "Rec2020-HLG" else "Rec709-SDR")
+        fun clip(id: String, start: Long, sourceIn: Long, sourceOut: Long, retimed: Long? = null, reverse: Boolean = false) =
+            Clip(id, "a", FrameIndex(start), FrameIndex(sourceIn), FrameIndex(sourceOut), retimedFrames = retimed, reverse = reverse)
+        val track = Track(
+            "v1",
+            TrackType.VIDEO,
+            listOf(
+                clip("c1", 0, 100, 160), // plain, source frame 100 + f: starts in the middle of a 30 frame GOP
+                clip("c2", 60, 10, 70, reverse = true), // reversed: shows 69, 68, ...
+                clip("c3", 120, 150, 210, retimed = 30), // 2x: 150, 152, ...
+            ),
+        )
+        return Triple(Timeline(listOf(track)), listOf(asset), FrameRate(intent.getIntExtra("fps", 30), 1))
+    }
+
+    private fun saveFrames(video: String, dir: File, report: StringBuilder) {
+        val (timeline, assets, fps) = project(video)
+        val frames = (intent.getStringExtra("frames") ?: "0").split(",").map { it.trim().toLong() }
+        val format = if (intent.getStringExtra("format") == "png") "png" else "jpg"
+        val quality = intent.getIntExtra("quality", 95)
+        val size = frameTarget(canvasW, canvasH).size
+        report.append("size $size\n")
+        val app = applicationContext
+        val renderer = NativeFrameRenderer(
+            ContentResolverExportIO(app),
+            NativeExportRunner(),
+            AndroidTitleRasterizer(),
+            AndroidStillRasterizer(app),
+        )
+        val encoder = BitmapFrameEncoder()
+        for (frame in frames) {
+            val started = System.nanoTime()
+            val rendered = runBlocking { renderer.render(FrameRenderJob(timeline, assets, fps, canvasW, canvasH, frame, size.width, size.height, emptySet())) }
+            val drawn = (System.nanoTime() - started) / 1_000_000
+            val bytes = if (format == "png") pngBytes(rendered) else encoder.encodeJpeg(rendered, quality)
+            val file = File(dir, "frame_$frame.$format")
+            file.writeBytes(bytes)
+            val number = if (rendered.width == 1280 && rendered.height == 720) frameNumberOf(file) else -1
+            report.append("frame $frame -> ${file.name} ${rendered.width}x${rendered.height} ${bytes.size} bytes number=$number drew=${drawn}ms\n")
+        }
+    }
+
+    private fun pngBytes(frame: com.qtekfun.ultimatevideoeditor.ui.frame.RenderedFrame): ByteArray {
+        val bitmap = android.graphics.Bitmap.createBitmap(frame.width, frame.height, android.graphics.Bitmap.Config.ARGB_8888)
+        frame.rgba.rewind()
+        bitmap.copyPixelsFromBuffer(frame.rgba)
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        return out.toByteArray()
+    }
+
+    private fun frameNumberOf(file: File): Int {
+        val bitmap = BitmapFactory.decodeFile(file.path) ?: return -2
+        var n = 0
+        for (bit in 0 until 9) {
+            val pixel = bitmap.getPixel(bit * 100 + 50, 50)
+            val luma = (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
+            if (luma > 128) n = n or (1 shl bit)
+        }
+        return n
+    }
+
+    private fun exportMovie(video: String, dir: File, report: StringBuilder) {
+        val (timeline, assets, fps) = project(video)
+        val plan = checkNotNull(buildExportPlan(timeline, assets, fps, canvasW, canvasH))
+        val out = File(dir, "frame_export.mp4").also { it.delete() }
+        val input = ParcelFileDescriptor.open(File(video), ParcelFileDescriptor.MODE_READ_ONLY).detachFd()
+        val output = ParcelFileDescriptor.open(
+            out,
+            ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
+        ).detachFd()
+        val request = ExportRequest(
+            settings = ExportSettings(canvasW, canvasH, fps.num, 1, ExportCodec.H264, 20_000_000),
+            projectFpsNum = fps.num,
+            projectFpsDen = 1,
+            canvasWidth = canvasW,
+            canvasHeight = canvasH,
+            totalFrames = plan.projectFrames,
+            assetFds = mapOf(plan.assetKeys.getValue("a") to input),
+            videoClips = plan.videoClips,
+            audioSnapshot = null,
+            outputFd = output,
+        )
+        val done = CountDownLatch(1)
+        var outcome = "unknown"
+        val handle = NativeExportRunner().start(
+            request,
+            object : ExportListener {
+                override fun onProgress(permille: Int) = Unit
+
+                override fun onFinished(error: ExportException?) {
+                    outcome = if (error == null) "OK" else "ERROR ${error.code}: ${error.message}"
+                    done.countDown()
+                }
+            },
+        )
+        done.await()
+        handle.close()
+        report.append("export $outcome ${out.length()} bytes\n")
+    }
+
+    private val canvasW get() = intent.getIntExtra("cw", 1280)
+    private val canvasH get() = intent.getIntExtra("ch", 720)
+
+    private fun finishWith(message: String) {
+        Log.e(TAG, message)
+        finish()
+    }
+
+    private companion object {
+        const val TAG = "UVFrameDemo"
+    }
+}

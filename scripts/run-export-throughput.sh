@@ -13,8 +13,8 @@ scenarios=("$@")
 [ ${#scenarios[@]} -gt 0 ] || scenarios=(shortgop1 longgop1 longgop2)
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-# PKG is the application id of the installed build (default; with -PappIdSuffix=.x it is com.ultimatevideo.uveditor.x).
-pkg="${PKG:-com.ultimatevideo.uveditor}"
+# PKG is the application id of the installed build (default; with -PappIdSuffix=.x it is com.qtekfun.ultimatevideoeditor.x).
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor}"
 dir="/sdcard/Android/data/$pkg/files"
 
 gen() { # name gop
@@ -34,7 +34,7 @@ run_one() {
     fi
     adb -s "$serial" push "/tmp/uv_tp_${kind%gop}.mp4" "$dir/tp_src.mp4" > /dev/null
     adb -s "$serial" logcat -c
-    adb -s "$serial" shell am instrument -w -e class com.ultimatevideo.uveditor.engine.export.ExportThroughputInstrumentedTest \
+    adb -s "$serial" shell am instrument -w -e class com.qtekfun.ultimatevideoeditor.engine.export.ExportThroughputInstrumentedTest \
         -e name "$scenario" -e layers "$layers" $pkg.test/androidx.test.runner.AndroidJUnitRunner \
         | grep -E "^(OK|FAILURES|Tests run)" || true
     adb -s "$serial" shell cat "$dir/tp_${scenario}_stats.txt" || true

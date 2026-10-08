@@ -3,7 +3,7 @@
 #   scripts/check-hidden-layers.sh <serial> parity [case...]        exports each case with skipping on and off, compares framemd5
 #   scripts/check-hidden-layers.sh <serial> time <source> [runs]    4K source, full cover, on/off interleaved, prints the result and skip count
 #                                                                    (FRAMES=n, COLOR=1 for an HLG source)
-# Needs ffmpeg on the host and a debug build with `-Puveditor.appIdSuffix=<x>` installed (PKG, default com.ultimatevideo.uveditor.oc);
+# Needs ffmpeg on the host and a debug build with `-Puveditor.appIdSuffix=<x>` installed (PKG, default com.qtekfun.ultimatevideoeditor.oc);
 # run-as is used because the harness cannot read a directory the shell made under Android/data. Each export holds
 # /tmp/pixel-device.lock (or $LOCK) for its whole run, notes which window had focus afterwards, and sets no system property.
 # Work files go to $WORK (default /home/qtekfun/uvdata/gp, not /tmp).
@@ -11,7 +11,7 @@ set -euo pipefail
 serial="$1"
 mode="$2"
 shift 2
-pkg="${PKG:-com.ultimatevideo.uveditor.oc}"
+pkg="${PKG:-com.qtekfun.ultimatevideoeditor.oc}"
 lock="${LOCK:-/tmp/pixel-device.lock}"
 work="${WORK:-/home/qtekfun/uvdata/gp}"
 adb="adb -s $serial"
@@ -34,7 +34,7 @@ run_export() {
     flock "$lock" bash -c "
         $ra rm -f 'files/$name' 'files/$name.result.txt'
         $adb logcat -c
-        $adb shell am start -W -n '$pkg/com.ultimatevideo.uveditor.debug.ExportDemoActivity' --es video '$dir/in.mp4' --es out '$dir/$name' $* > /dev/null
+        $adb shell am start -W -n '$pkg/com.qtekfun.ultimatevideoeditor.debug.ExportDemoActivity' --es video '$dir/in.mp4' --es out '$dir/$name' $* > /dev/null
         for _ in \$(seq 1 900); do $ra test -f 'files/$name.result.txt' && break; sleep 1; done
         $ra cat 'files/$name.result.txt'
         $adb logcat -d | grep -E 'export done|hidden layers are drawn|UVExportPerf (section|summary)' || true
