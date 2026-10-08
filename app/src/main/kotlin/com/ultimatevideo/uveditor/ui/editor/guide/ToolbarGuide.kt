@@ -43,7 +43,7 @@ internal object ToolbarGuide {
     val entries: List<GuideEntry> = listOf(
         GuideEntry("back", GuideSection.TOP_BAR, EditorIcons.Back, "Back", "Saves the project and returns to the project list.", "Always. If saving keeps failing, a dialog explains and keeps you here."),
         GuideEntry("help", GuideSection.TOP_BAR, EditorIcons.Help, "Toolbar guide", "Opens this guide: every symbol of the editor and the gestures.", ""),
-        GuideEntry("layout", GuideSection.TOP_BAR, EditorIcons.LayoutPanes, "Layout", "Opens the layout sheet: presets, track height, audio track height (taller audio lanes for waveforms and fade handles), where the media tray and inspector sit, customise mode and reset.", ""),
+        GuideEntry("layout", GuideSection.TOP_BAR, EditorIcons.LayoutPanes, "Layout", "Opens the layout sheet: presets, track height, audio track height (taller audio lanes for waveforms and fade handles), where the media tray and inspector sit, customise mode and reset. It also holds the switch Put video audio on an audio track (new video clips come in with their sound detached on an audio lane).", ""),
         GuideEntry("undo", GuideSection.TOP_BAR, EditorIcons.Undo, "Undo", "Takes back the last edit. Every drag, drop and inspector change is one step.", "There is something to undo."),
         GuideEntry("redo", GuideSection.TOP_BAR, EditorIcons.Redo, "Redo", "Brings back what Undo took away.", "You have just undone something."),
         GuideEntry("export", GuideSection.TOP_BAR, EditorIcons.Export, "Export movie", "Opens the export dialog: resolution, frame rate, codec and destination.", "Playback is stopped and no other export is running."),

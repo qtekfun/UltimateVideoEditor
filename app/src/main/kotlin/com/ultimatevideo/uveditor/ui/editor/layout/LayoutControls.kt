@@ -180,6 +180,21 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                 }
             }
 
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Put video audio on an audio track", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "New video clips come in with their sound already detached and linked on an audio lane.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = controller.videoAudioOnTrack,
+                    onCheckedChange = { controller.chooseVideoAudioOnTrack(it) },
+                    modifier = Modifier.semantics { contentDescription = "Put video audio on an audio track" },
+                )
+            }
+
             for (panel in Panel.entries) {
                 Text(panel.label(), style = MaterialTheme.typography.labelLarge)
                 ChipRow {

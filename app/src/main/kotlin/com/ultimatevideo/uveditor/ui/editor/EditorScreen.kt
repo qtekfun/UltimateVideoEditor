@@ -764,7 +764,7 @@ fun EditorScreen(
                 val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat())
                 val layout = remember {
                     val prefs = PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE))
-                    EditorLayoutController(prefs, window, prefs)
+                    EditorLayoutController(prefs, window, prefs, prefs)
                 }
                 // Hiding the system bars changes the window by a few dp: that must not re-pick the layout, so it waits.
                 LaunchedEffect(window, fullscreen.active) { if (!fullscreen.active) layout.onWindow(window) }

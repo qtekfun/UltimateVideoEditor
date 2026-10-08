@@ -9,7 +9,13 @@ import androidx.compose.runtime.setValue
 import com.ultimatevideo.uveditor.engine.timeline.WaveformScale
 
 /** Layouts kept in local preferences, one entry per window size class and orientation. */
-class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore {
+class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore {
+    override fun isOn(): Boolean = prefs.getBoolean(VIDEO_AUDIO_KEY, false)
+
+    override fun setOn(on: Boolean) {
+        prefs.edit().putBoolean(VIDEO_AUDIO_KEY, on).apply()
+    }
+
     override fun load(): WaveformScale = waveformScaleOf(prefs.getString(WAVEFORM_KEY, null))
 
     override fun save(scale: WaveformScale) {
@@ -28,6 +34,7 @@ class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, Wave
     companion object {
         const val FILE = "editor_layout"
         private const val WAVEFORM_KEY = "waveform_scale"
+        private const val VIDEO_AUDIO_KEY = "video_audio_on_track"
     }
 }
 
@@ -42,6 +49,7 @@ class EditorLayoutController(
     private val store: LayoutStore,
     initialWindow: WindowMetrics,
     private val waveformStore: WaveformScaleStore = NoWaveformScaleStore,
+    private val placementStore: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
 ) {
     var window by mutableStateOf(initialWindow)
         private set
@@ -54,6 +62,16 @@ class EditorLayoutController(
         if (scale == waveformScale) return
         waveformScale = scale
         waveformStore.save(scale)
+    }
+
+    /** True when new video clips get their sound on an audio lane at once (SPECS 5.38). One choice for every project and layout. */
+    var videoAudioOnTrack by mutableStateOf(placementStore.isOn())
+        private set
+
+    fun chooseVideoAudioOnTrack(on: Boolean) {
+        if (on == videoAudioOnTrack) return
+        videoAudioOnTrack = on
+        placementStore.setOn(on)
     }
 
     var key by mutableStateOf(LayoutKey.of(initialWindow))

@@ -1607,6 +1607,22 @@ video clip deletes its audio; deleting the audio clip removes only the audio: th
 audio entirely"). A copy of a linked clip (paste, duplicate, a split's right half) never shares the original's link: a pair copied
 together becomes a new pair, a single copy becomes unlinked.
 
+**Transitions.** A transition sits between two video clips, and the render plan (`renderClips()`) extends those clips around the cut and
+gives them `crossfadeInFrames` / `crossfadeOutFrames`, which `audioSnapshotOf` turns into the equal-power ramp. An audio clip whose
+`linkId` joins it to a detached video clip takes the transition of its picture on an edge it shares with it: if its start is the
+video clip's start it is extended and ramped like the incoming clip, if its end is the video clip's end like the outgoing one. The
+same function builds the preview, the export and the mixer's list, so nothing changed in native code; an unlinked audio clip, or one
+whose edge is not at the picture's edge (slid out of sync, cropped), keeps its own edges and its own fades. `DetachedTransitionAudioTest`
+checks that the spec list for detached sound equals the one for embedded sound (start, length, source start, ramps).
+
+**Setting "Put video audio on an audio track"** (layout sheet; `VideoAudioPlacementStore`, kept in the `editor_layout` preferences next
+to the waveform scale; app-wide, off by default). When on, every path that creates a new video clip from media (tap in the tray or
+the library, tray drag, files dropped from another app, import) runs `PlaceWithDetachedAudio(place, ...)` instead of the placement
+alone: it applies the placement (insert on the base, overwrite, new lane), settles the links of the clips it pushed, then runs the
+detach on the first audio lane with room (else a new lane), so the whole thing is one undo step and the lane choice sees the
+lanes after a ripple. A photo, a silent video and an audio file are placed as before. Clips that already exist (paste, duplicate,
+moving a clip from lane to lane, a split) are not touched: they are copies or moves of what the user already has.
+
 **Invariants** (`Timeline.invariantViolations`): a link joins exactly two clips, one on a video lane and one on an audio lane, of the
 same asset; `audioDetached` is only set on video-lane clips with media. The project loader drops a broken link instead of failing.
 
@@ -1625,7 +1641,7 @@ Kotlin `TimelineSnapshotTest`.
 
 **Tests.** `ClipLinksTest` (commands; linked move, base reorder, trim, split, delete, ripple, speed, group move, duplicate; unlinked
 independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
-round trip, broken link), `ToolbarGuideTest`.
+round trip, broken link), `ToolbarGuideTest`, `DetachedTransitionAudioTest`, `PlaceWithDetachedAudioTest`, `VideoAudioPlacementViewModelTest`.
 
 ## 6. Timeline operations (specification for tests)
 

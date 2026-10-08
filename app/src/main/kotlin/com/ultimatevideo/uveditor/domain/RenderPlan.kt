@@ -171,12 +171,23 @@ fun Timeline.renderClips(): List<RenderClip> {
     // Visual tracks count from the top; the first one drawn last, so it ends up on top.
     var nextLayer = 0
     val result = ArrayList<RenderClip>()
+    // The video clips whose sound lives on a linked audio clip: that audio clip follows their transitions (SPECS 5.38).
+    val detachedPicture = HashMap<String, Clip>()
+    for (t in tracks) {
+        if (t.type != TrackType.VIDEO) continue
+        for (c in t.clips) if (c.audioDetached) c.linkId?.let { detachedPicture[it] = c }
+    }
     for (track in tracks) {
         val layer = if (track.type == TrackType.AUDIO) -1 else nextLayer++
         val lanes = HashMap<String, Int>()
         for (clip in track.clips) {
+            // A linked audio clip crossfades where its picture does, when the two share that edge, so the sound of a
+            // detached clip behaves exactly like an embedded one at a cut.
+            val picture = if (track.type == TrackType.AUDIO) clip.linkId?.let(detachedPicture::get) else null
             val incoming = transitions.firstOrNull { it.toClipId == clip.id }
+                ?: picture?.takeIf { it.timelineStart == clip.timelineStart }?.let { p -> transitions.firstOrNull { it.toClipId == p.id } }
             val outgoing = transitions.firstOrNull { it.fromClipId == clip.id }
+                ?: picture?.takeIf { it.timelineEnd == clip.timelineEnd }?.let { p -> transitions.firstOrNull { it.fromClipId == p.id } }
             val pre = incoming?.preFrames ?: 0L
             val post = outgoing?.postFrames ?: 0L
             val previous = incoming?.let { track.clip(it.fromClipId) }
