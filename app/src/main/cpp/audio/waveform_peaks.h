@@ -21,6 +21,7 @@ struct PeakLevel {
 
 struct PeakPyramid {
     uint32_t sampleRate = 0;
+    int channels = 0;  // of the decoded source; diagnostics only, not stored in the cache (0 when read from it)
     int64_t totalFrames = 0;  // sample frames in the source (after decode)
     std::vector<PeakLevel> levels;  // ascending samplesPerPeak
 };
@@ -106,7 +107,8 @@ float waveHeight(float amplitude, float reference, WaveScale scale);
 
 // File format "UVPK" v2: magic, version, sampleRate, totalFrames, levelCount, then per level
 // {samplesPerPeak, count, int16 minmax[count*2], int16 rms[count] (only when samplesPerPeak >= kFirstRmsSamplesPerPeak)}.
-// Version 1 (64 sample base, no rms) is rejected so the cache is rebuilt.
+// Version 1 (64 sample base, no rms) is rejected so the cache is rebuilt, and so is a file with sample rate 0 or no frames
+// (it could only be drawn as nothing).
 // Writes are atomic (temp file + rename).
 core::Status savePeaks(const std::string& path, const PeakPyramid& p);
 core::Status loadPeaks(const std::string& path, PeakPyramid* out);

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "audio/wave_state.h"
 #include "audio/waveform_peaks.h"
 #include "timeline_view/drop_hint.h"
 #include "timeline_view/fade_curve.h"
@@ -1641,22 +1642,21 @@ static void testWaveSampleMapping() {
     const float colW = 2.0f;
     int64_t previous = -1;
     for (int64_t col = 1000; col < 1100; ++col) {
-        const int64_t s = timeline::waveSampleAtColumn(col, colW, 0.0, ppf, 0, 100000, 0, 48000, 30, 1);
+        const int64_t s = timeline::waveSampleAtColumn(col, colW, ppf, 0, 100000, 0, 48000, 30, 1);
         CHECK(s > previous);  // strictly increasing: every column has its own samples
         if (previous >= 0) CHECK(s - previous >= 32 && s - previous <= 34);
         previous = s;
     }
     // The columns tile the clip: the right edge of one is the left edge of the next by construction, and the source offset
     // and the clip start move the mapping the way they should.
-    const int64_t at = timeline::waveSampleAtColumn(50, colW, 0.0, ppf, 0, 1000, 0, 48000, 30, 1);
-    CHECK(timeline::waveSampleAtColumn(50, colW, 0.0, ppf, 0, 1000, 10, 48000, 30, 1) == at + 10 * 1600);
-    CHECK(timeline::waveSampleAtColumn(50, colW, 0.0, ppf, 3, 1000, 0, 48000, 30, 1) < at);
-    CHECK(timeline::waveSampleAtColumn(50, colW, 96.0, ppf, 0, 1000, 0, 48000, 30, 1) == timeline::waveSampleAtColumn(98, colW, 0.0, ppf, 0, 1000, 0, 48000, 30, 1));
+    const int64_t at = timeline::waveSampleAtColumn(50, colW, ppf, 0, 1000, 0, 48000, 30, 1);
+    CHECK(timeline::waveSampleAtColumn(50, colW, ppf, 0, 1000, 10, 48000, 30, 1) == at + 10 * 1600);
+    CHECK(timeline::waveSampleAtColumn(50, colW, ppf, 3, 1000, 0, 48000, 30, 1) < at);
     // Outside the clip the position clamps to its ends, so those columns come out empty and are skipped by the renderer.
-    CHECK(timeline::waveSampleAtColumn(-500, colW, 0.0, ppf, 10, 100, 0, 48000, 30, 1) == 0);
-    CHECK(timeline::waveSampleAtColumn(1000000, colW, 0.0, ppf, 10, 100, 0, 48000, 30, 1) == 100 * 1600);
+    CHECK(timeline::waveSampleAtColumn(-500, colW, ppf, 10, 100, 0, 48000, 30, 1) == 0);
+    CHECK(timeline::waveSampleAtColumn(1000000, colW, ppf, 10, 100, 0, 48000, 30, 1) == 100 * 1600);
     // 29.97 fps (30000/1001) is exact in integers: 100 frames = 160160 samples.
-    CHECK(timeline::waveSampleAtColumn(100, 1.0f, 0.0, 1.0, 0, 1000, 0, 48000, 30000, 1001) == 160160);
+    CHECK(timeline::waveSampleAtColumn(100, 1.0f, 1.0, 0, 1000, 0, 48000, 30000, 1001) == 160160);
 }
 
 static void testWaveColumnsOnSpeech() {
@@ -1714,6 +1714,73 @@ static void testWaveColumnsOnSpeech() {
     // Closer than 64 samples per peak no RMS is stored: the fill then follows the peak instead of collapsing to zero.
     const auto fine = timeline::waveColumn(p, 4800, 4800 + 8, ref, audio::WaveScale::Linear);
     CHECK(fine.peak > 0.0f && fine.fill > 0.0f);
+}
+
+// The renderer's column loop on a scrolled viewport: a column's index is in content space (waveFirstColumn adds the scroll), it
+// is drawn at col * colW - scrollX, and its samples are those of content pixel col * colW. Regression for "no waveform on a clip
+// away from the start of the timeline" (0.4.x): the scroll was added a second time, so every column landed past the clip's end.
+static void testWaveColumnsOnScrolledViewport() {
+    const int64_t rate = 48000, fpsNum = 30000, fpsDen = 1001;
+    const double ppf = 0.77;           // about 23 px per second: a 30 s clip is ~700 px
+    const int64_t clipDuration = 899;  // ~30 s
+    const float colW = 3.0f;
+    const double framesPerSecond = 30000.0 / 1001.0;
+    for (const double scrollX : {0.0, 5000.0, 12400.0, 19500.0, 400000.0}) {
+        // Put the clip's left edge at screen x = 100 whatever the scroll is.
+        const int64_t start = static_cast<int64_t>((scrollX + 100.0) / ppf);
+        const double leftX = static_cast<double>(start) * ppf - scrollX;  // where the clip really starts on screen
+        const int64_t first = timeline::waveFirstColumn(0.0f, scrollX, colW), last = timeline::waveLastColumn(900.0f, scrollX, colW);
+        int64_t inside = 0, increasing = 0;
+        int64_t previous = -1;
+        for (int64_t col = first; col <= last; ++col) {
+            const int64_t s0 = timeline::waveSampleAtColumn(col, colW, ppf, start, clipDuration, 0, rate, fpsNum, fpsDen);
+            const int64_t s1 = timeline::waveSampleAtColumn(col + 1, colW, ppf, start, clipDuration, 0, rate, fpsNum, fpsDen);
+            if (s1 > s0) {
+                ++inside;
+                if (s0 >= previous) ++increasing;
+                previous = s0;
+            }
+        }
+        // The clip is ~700 px wide and fully in view: about 230 columns of 3 px cover it.
+        CHECK(inside >= 200);
+        CHECK(increasing == inside);
+        // The column drawn at screen x maps to the clip frame under x, whatever the scroll.
+        const double x = 300.0;
+        const int64_t col = timeline::waveFirstColumn(static_cast<float>(x), scrollX, colW);
+        const int64_t s = timeline::waveSampleAtColumn(col, colW, ppf, start, clipDuration, 0, rate, fpsNum, fpsDen);
+        const double expectedSample = (x - leftX) / ppf / framesPerSecond * static_cast<double>(rate);
+        CHECK(std::fabs(static_cast<double>(s) - expectedSample) < 3.0 * colW / ppf / framesPerSecond * static_cast<double>(rate));
+    }
+}
+
+static void testWaveStates() {
+    // Loud audio: ready. All-zero audio: silent (a real flat line). Peaks that cannot be drawn: failed, never silent.
+    std::vector<int16_t> loud(4096), quiet(4096, 0);
+    for (size_t i = 0; i < loud.size(); ++i) loud[i] = static_cast<int16_t>((i % 100) * 100 - 5000);
+    const auto ready = pyramidOf(loud);
+    const auto silent = pyramidOf(quiet);
+    CHECK(audio::classifyPeaks(ready) == audio::WaveState::Ready && audio::peakMax(ready) > 0);
+    CHECK(audio::classifyPeaks(silent) == audio::WaveState::Silent && audio::peakMax(silent) == 0);
+    audio::PeakPyramid noRate = ready;
+    noRate.sampleRate = 0;
+    CHECK(audio::classifyPeaks(noRate) == audio::WaveState::Failed);
+    CHECK(audio::classifyPeaks(audio::PeakPyramid{}) == audio::WaveState::Failed);
+    audio::PeakPyramid noFrames = ready;
+    noFrames.totalFrames = 0;
+    CHECK(audio::classifyPeaks(noFrames) == audio::WaveState::Failed);
+    CHECK(audio::WaveStatus{}.state == audio::WaveState::Unrequested);
+    // The uv_wave line names every fact the next device read needs.
+    const std::string line = audio::waveLogLine(7, audio::WaveState::Ready, &ready, 0, false);
+    CHECK(line.find("asset=7 ready") == 0 && line.find("rate=48000") != std::string::npos && line.find("channels=1") != std::string::npos &&
+          line.find("peak_max=") != std::string::npos && line.find("levels=") != std::string::npos && line.find("source=decode") != std::string::npos);
+    CHECK(audio::waveLogLine(7, audio::WaveState::Failed, nullptr, 3, false) == "asset=7 failed status=3");
+    CHECK(audio::waveLogLine(7, audio::WaveState::Loading, nullptr, 0, false) == "asset=7 requested");
+    // A cache file with sample rate 0 is rejected, so it is rebuilt instead of drawn as nothing.
+    const std::string path = "uv_peaks_norate.peaks";
+    CHECK(audio::savePeaks(path, noRate) == core::Status::Ok);
+    audio::PeakPyramid q;
+    CHECK(audio::loadPeaks(path, &q) == core::Status::UnsupportedFormat);
+    std::remove(path.c_str());
 }
 
 static void testPeaksFile() {
@@ -1807,6 +1874,8 @@ int main() {
     testWaveColumnGeometry();
     testWaveSampleMapping();
     testWaveColumnsOnSpeech();
+    testWaveColumnsOnScrolledViewport();
+    testWaveStates();
     testPeaksFile();
     if (g_failures == 0) std::puts("host tests: all passed");
     return g_failures == 0 ? 0 : 1;
