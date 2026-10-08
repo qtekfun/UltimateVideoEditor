@@ -769,7 +769,9 @@ fun EditorScreen(
                 // Hiding the system bars changes the window by a few dp: that must not re-pick the layout, so it waits.
                 LaunchedEffect(window, fullscreen.active) { if (!fullscreen.active) layout.onWindow(window) }
                 // Lane heights are the native timeline's business: it scales its lanes and what is drawn in them.
-                LaunchedEffect(engine, layout) { snapshotFlow { layout.laneHeight }.collect { engine.setLaneScale(it.scale) } }
+                LaunchedEffect(engine, layout) {
+                    snapshotFlow { layout.laneHeight to layout.audioLaneHeight }.collect { (lane, audio) -> engine.setLaneScale(lane.scale, audio.factor) }
+                }
                 LaunchedEffect(engine, layout) { snapshotFlow { layout.waveformScale }.collect { engine.setWaveformScale(it) } }
                 var layoutSheetOpen by remember { mutableStateOf(false) }
                 if (layoutSheetOpen) LayoutSheet(layout) { layoutSheetOpen = false }

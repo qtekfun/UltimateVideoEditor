@@ -158,6 +158,17 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                 ) { onAction(LayoutAction.StepLaneHeight(1)) }
             }
 
+            Text("Audio track height", style = MaterialTheme.typography.labelLarge)
+            ChipRow {
+                for (height in AudioLaneHeight.entries) {
+                    FilterChip(
+                        selected = state.audioLaneHeight == height,
+                        onClick = { onAction(LayoutAction.SetAudioLaneHeight(height)) },
+                        label = { Text(height.label) },
+                    )
+                }
+            }
+
             Text("Waveform scale", style = MaterialTheme.typography.labelLarge)
             ChipRow {
                 for (scale in WaveformScale.entries) {

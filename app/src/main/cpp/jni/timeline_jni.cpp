@@ -243,8 +243,8 @@ JNIEXPORT jlongArray JNICALL JNI_FN(nativeClipsInRect)(JNIEnv* env, jobject, jlo
     return arr;
 }
 
-JNIEXPORT void JNICALL JNI_FN(nativeSetLaneScale)(JNIEnv*, jobject, jlong handle, jfloat scale) {
-    if (TimelineHandle* h = from(handle)) h->renderer->setLaneScale(scale);
+JNIEXPORT void JNICALL JNI_FN(nativeSetLaneScale)(JNIEnv*, jobject, jlong handle, jfloat scale, jfloat audioFactor) {
+    if (TimelineHandle* h = from(handle)) h->renderer->setLaneScale(scale, audioFactor);
 }
 
 // Returns {kind, trackIndex, clipKey, frame, index, dbTenths}; dbTenths is the gain under the finger in tenths of a dB,

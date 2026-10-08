@@ -370,6 +370,28 @@ class TimelineSnapshotTest {
     }
 
     @Test
+    fun `detached audio and the link mark ride in bits 7 and 8 of the clip flags`() {
+        val snapshot = TimelineSnapshot(
+            30, 1, listOf(SnapshotTrackType.VIDEO),
+            listOf(
+                clip(key = 1).copy(audioDetached = true, linked = true),
+                clip(key = 2, start = 100).copy(linked = true),
+                clip(key = 3, start = 200, selected = true).copy(audioDetached = true, kind = SnapshotClipKind.STICKER),
+                clip(key = 4, start = 300),
+            ),
+        )
+        val b = snapshot.encode()
+        val first = TimelineSnapshot.HEADER_BYTES + TimelineSnapshot.TRACK_BYTES
+        fun flags(index: Int) = b.getInt(first + index * TimelineSnapshot.CLIP_BYTES + 52)
+        assertEquals(0b1_1000_0000, flags(0))
+        assertEquals(0b1_0000_0000, flags(1))
+        assertEquals(0b0010_0000 or 0b1000_0000 or 1, flags(2)) // sticker, detached, selected: the older bits are untouched
+        assertEquals(0, flags(3))
+        // The wire version did not change: native reads the bits as zero from older data.
+        assertEquals(9, b.getInt(4))
+    }
+
+    @Test
     fun `a marker name is a label under the marker key and rides in the label section`() {
         val snapshot = TimelineSnapshot(
             30, 1,

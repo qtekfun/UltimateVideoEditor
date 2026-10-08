@@ -38,19 +38,20 @@ HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout
         return res;
     }
     const double yy = y + vp.scrollY - layout.rulerHeight - layout.inset;  // y inside the scrolled track area
-    const double stride = layout.trackHeight + layout.trackGap;
     if (yy < 0) {
         res.kind = HitKind::AboveLanes;
         return res;
     }
-    const int track = static_cast<int>(yy / stride);
-    if (track < 0 || track >= static_cast<int>(snap.tracks.size())) return res;
-    if (yy - track * stride > layout.trackHeight) return res;  // inside the gap
+    // The lane stack comes from the snapshot's lane types (audio lanes can be taller), whatever layout the caller passed.
+    const Layout lay = layout.lanes ? layout : layout.withTracks(snap.tracks);
+    const int track = lay.trackAt(yy, static_cast<int>(snap.tracks.size()));
+    if (track < 0) return res;  // past the last lane or inside a gap
+    const float laneHeight = lay.heightOf(track);
     res.trackIndex = track;
     res.kind = HitKind::EmptyTrack;
-    const float laneTop = static_cast<float>(layout.trackTop(track) - vp.scrollY);
+    const float laneTop = static_cast<float>(lay.trackTop(track) - vp.scrollY);
     res.hasDb = true;
-    res.db = yToDb(y, laneTop, layout.trackHeight);
+    res.db = yToDb(y, laneTop, laneHeight);
     // The header column sits over the lane's left edge and takes the touch before any clip under it.
     if (layout.headerWidth > 0.0f && x < layout.headerWidth) {
         res.kind = HitKind::LaneHeader;
@@ -68,7 +69,7 @@ HitResult hitTest(const TimelineSnapshot& snap, const Viewport& vp, const Layout
         // sit on the body), then the circles in the top corners.
         if (const ShapingSnapshot* shaping = snap.shapingOf(it->clipKey); shaping != nullptr && shaping->editable()) {
             const int point = pointAt(*shaping, it->startFrame, [&](int64_t f) { return vp.frameToX(f); }, laneTop,
-                                      layout.trackHeight, x, y, layout.handleWidth * 1.4f);
+                                      laneHeight, x, y, layout.handleWidth * 1.4f);
             if (point >= 0) {
                 res.kind = HitKind::VolumePoint;
                 res.index = point;
@@ -101,9 +102,10 @@ std::vector<int64_t> clipsInRect(const TimelineSnapshot& snap, const Viewport& v
     y0 = std::max(y0, layout.rulerHeight);
     std::vector<int64_t> keys;
     if (y1 <= y0) return keys;
+    const Layout lay = layout.lanes ? layout : layout.withTracks(snap.tracks);
     for (const ClipSnapshot& c : snap.clips) {
-        const double top = layout.trackTop(c.trackIndex) - vp.scrollY;
-        const double bottom = top + layout.trackHeight;
+        const double top = lay.trackTop(c.trackIndex) - vp.scrollY;
+        const double bottom = top + lay.heightOf(c.trackIndex);
         const double left = vp.frameToX(c.startFrame);
         const double right = vp.frameToX(c.startFrame + c.durationFrames);
         if (left < x1 && right > x0 && top < y1 && bottom > y0) keys.push_back(c.clipKey);
