@@ -759,12 +759,12 @@ sealed interface FolderRelinkUi {
     data class Running(val files: Int = 0, val folders: Int = 0, val checked: Int = 0, val total: Int = 0) : FolderRelinkUi
 
     /** Finished: what was relinked and what is left for the user. */
-    data class Done(val outcome: FolderRelinkOutcome) : FolderRelinkUi
+    data class Done(val outcome: FolderRelinkOutcome, val showList: Boolean = false) : FolderRelinkUi
 }
 
 /** The report without [assetId]: it was relinked or chosen by hand, so it no longer needs the user's attention. */
 internal fun FolderRelinkUi.without(assetId: String): FolderRelinkUi = when (this) {
-    is FolderRelinkUi.Done -> FolderRelinkUi.Done(
+    is FolderRelinkUi.Done -> copy(outcome =
         outcome.copy(
             notFound = outcome.notFound.filter { it.assetId != assetId },
             ambiguous = outcome.ambiguous.filter { it.assetId != assetId },

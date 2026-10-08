@@ -45,7 +45,50 @@ data class FolderRelinkOutcome(
     val truncated: Boolean,
     /** Read access to the folder will survive a restart (relinked files stay readable). */
     val accessKept: Boolean,
-)
+) {
+    /**
+     * This outcome of a later scan folded into [previous], the results already on screen (SPECS 5.40): what [previous] relinked
+     * stays relinked and counted, an item this scan relinked leaves the lists, an item still unresolved keeps its most useful
+     * entry (ambiguous candidates of both scans are joined) and the counters add up. [total] is "relinked so far plus
+     * everything this scan looked for", so "Relinked N of M" grows only when new items went missing in between.
+     */
+    fun mergedInto(previous: FolderRelinkOutcome): FolderRelinkOutcome {
+        val resolved = relinked.mapTo(HashSet()) { it.old.id }
+        val earlierAmbiguous = previous.ambiguous.filter { it.assetId !in resolved }.associateBy { it.assetId }
+        val earlierNotFound = previous.notFound.associateBy { it.assetId }
+        val nowAmbiguous = ambiguous.associateBy { it.assetId }
+
+        val mergedAmbiguous = LinkedHashMap<String, AmbiguousAsset>()
+        for (item in ambiguous) {
+            val before = earlierAmbiguous[item.assetId]
+            val candidates = if (before == null) item.candidates else (before.candidates + item.candidates).distinctBy { it.uri }
+            mergedAmbiguous[item.assetId] = item.copy(candidates = candidates)
+        }
+        // Ambiguous before and not matched at all now: the earlier candidates are still the best the user has.
+        for ((id, item) in earlierAmbiguous) if (id !in mergedAmbiguous && id !in nowAmbiguous) mergedAmbiguous[id] = item
+
+        val mergedNotFound = notFound.filter { it.assetId !in mergedAmbiguous }.map { now ->
+            // A specific reason from before ("too short", "cannot be read") is kept over the generic "not in this folder".
+            val before = earlierNotFound[now.assetId]
+            if (before != null && now.reason == NOT_IN_FOLDER) before else now
+        }
+        // Items that were not found before and are not mentioned now cannot happen (they were scanned again), but keep them if so.
+        val mentioned = HashSet<String>().apply { addAll(resolved); addAll(mergedAmbiguous.keys); mergedNotFound.mapTo(this) { it.assetId } }
+        val leftOver = previous.notFound.filter { it.assetId !in mentioned }
+        return FolderRelinkOutcome(
+            total = previous.relinked.size + total,
+            relinked = previous.relinked + relinked,
+            notFound = mergedNotFound + leftOver,
+            ambiguous = mergedAmbiguous.values.toList(),
+            filesSeen = previous.filesSeen + filesSeen,
+            truncated = previous.truncated || truncated,
+            accessKept = previous.accessKept && accessKept,
+        )
+    }
+}
+
+/** The reason of a missing item that has no file of its name in the scanned folder. */
+const val NOT_IN_FOLDER = "No file with this name in the folder"
 
 /** What a run is doing, for the progress line. */
 sealed interface FolderRelinkProgress {
@@ -105,7 +148,7 @@ class FolderRelinkRunner(
 
         val relinked = ArrayList<RelinkedAsset>()
         val notFound = ArrayList<UnresolvedAsset>()
-        result.notFound.forEach { id -> notFound += UnresolvedAsset(id, names.getValue(id), "No file with this name in the folder") }
+        result.notFound.forEach { id -> notFound += UnresolvedAsset(id, names.getValue(id), NOT_IN_FOLDER) }
         val taken = HashSet<String>()
         var done = 0
         for (match in matches) {
