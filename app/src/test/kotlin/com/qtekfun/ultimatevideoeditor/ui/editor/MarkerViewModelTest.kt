@@ -231,6 +231,19 @@ class MarkerViewModelTest {
     }
 
     @Test
+    fun `a tap on a marker puts the playhead exactly on it, whichever frame the finger was over`() = runTest(dispatcher) {
+        val h = harness()
+        h.mark(90)
+        h.mark(200)
+        h.at(0)
+        h.vm.onIntent(EditorIntent.TapTimeline(h.hit(0, 93)))
+        assertEquals(90L, h.state.playhead.value)
+        h.vm.onIntent(EditorIntent.TapTimeline(h.hit(1, 197)))
+        assertEquals(200L, h.state.playhead.value)
+        assertEquals(200L, h.state.markerPopup?.frame)
+    }
+
+    @Test
     fun `dragging a marker moves it in whole frames as one undo step`() = runTest(dispatcher) {
         val h = harness()
         h.mark(100)
