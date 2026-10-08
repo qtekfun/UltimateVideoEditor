@@ -46,6 +46,9 @@ import com.ultimatevideo.uveditor.engine.timeline.NoEnvelopeSource
 import com.ultimatevideo.uveditor.domain.Clip
 import com.ultimatevideo.uveditor.domain.ClipLinks
 import com.ultimatevideo.uveditor.domain.DetachAudio
+import com.ultimatevideo.uveditor.domain.PlaceWithDetachedAudio
+import com.ultimatevideo.uveditor.ui.editor.layout.NoVideoAudioPlacementStore
+import com.ultimatevideo.uveditor.ui.editor.layout.VideoAudioPlacementStore
 import com.ultimatevideo.uveditor.domain.RelinkClips
 import com.ultimatevideo.uveditor.domain.RestoreEmbeddedAudio
 import com.ultimatevideo.uveditor.domain.UnlinkClip
@@ -213,6 +216,8 @@ class EditorViewModel(
     private val envelopeSource: EnvelopeSource = NoEnvelopeSource,
     /** What the multicam editor needs from the engine: waveform envelopes to sync angles, proxy readiness, the decoder limit. */
     private val multicamServices: MulticamServices = MulticamServices.None,
+    /** The "Put video audio on an audio track" preference, read each time media is placed (SPECS 5.38). */
+    private val videoAudioPlacement: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD, MARKER }
@@ -3105,6 +3110,17 @@ class EditorViewModel(
         return clip to type
     }
 
+    /**
+     * [command] (which places [clip] on the timeline) as it should run: with the preference on, a video clip that has sound comes in
+     * detached and linked on an audio lane, in the same undo step. Anything else (audio, photos, silent video) is placed as it is.
+     */
+    private fun placing(command: EditCommand, clip: Clip, type: TrackType): EditCommand {
+        if (type != TrackType.VIDEO || clip.still != null || !videoAudioPlacement.isOn()) return command
+        val asset = state.value.assets.firstOrNull { it.id == clip.assetId } ?: return command
+        if (!asset.hasVideo || !asset.hasAudio) return command
+        return PlaceWithDetachedAudio(command, clip.id, "audio-${idGenerator()}", uniqueTrackId(history.timeline.tracks, "track-a"))
+    }
+
     private fun trayDragStart(assetId: String) {
         if (drag != null || trayDrag != null) return
         val asset = state.value.assets.firstOrNull { it.id == assetId }
@@ -3180,7 +3196,7 @@ class EditorViewModel(
         reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
         if (!commit || session == null || session.assetId == null) return
         val command = session.command ?: return
-        if (execute(command)) selectPlaced(session.clip.id)
+        if (execute(placing(command, session.clip, session.type))) selectPlaced(session.clip.id)
     }
 
     private fun selectPlaced(clipId: String) {
@@ -3219,7 +3235,7 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage("Drop ${MissingMedia.nameOf(asset)} on a ${type.name.lowercase()} lane"))
             return null
         }
-        if (!execute(command)) return null
+        if (!execute(placing(command, clip, type))) return null
         selectPlaced(clip.id)
         return history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.timelineEnd
     }
@@ -3333,7 +3349,7 @@ class EditorViewModel(
         // On the base track new media is inserted (everything after ripples); elsewhere it overwrites.
         val onBase = track.id == ClipDeletion.baseTrack(history.timeline)?.id
         val command = if (onBase) EditCommand.InsertBase(clip, start) else EditCommand.Overwrite(track.id, clip)
-        if (!execute(command)) return null
+        if (!execute(placing(command, clip, type))) return null
         reduce { copy(selectedClipId = clip.id, selectedTrackId = track.id) }
         // The base inserts at a clip boundary, which may differ from [start]: continue from where the clip landed.
         return history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.timelineEnd ?: clip.timelineEnd

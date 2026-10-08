@@ -1,5 +1,6 @@
 package com.ultimatevideo.uveditor
 
+import com.ultimatevideo.uveditor.ui.editor.layout.PrefsLayoutStore
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.lifecycle.Lifecycle
@@ -297,6 +298,7 @@ class MainActivity : ComponentActivity() {
                                         maxDecoders = DecoderLimits.maxPreviewDecoders(),
                                     ),
                                     loudnessCache = loudnessCacheIn(filesDir),
+                                    videoAudioPlacement = PrefsLayoutStore(getSharedPreferences(PrefsLayoutStore.FILE, MODE_PRIVATE)),
                                     motionTracker = FileMotionTracker(
                                         File(filesDir, "projects/$projectId/track"),
                                         ContentResolverFdOpener(contentResolver),
