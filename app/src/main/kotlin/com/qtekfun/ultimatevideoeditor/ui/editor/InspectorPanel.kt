@@ -135,6 +135,20 @@ fun InspectorPanel(
                 readout = "${transform.rotationDegrees.roundToInt()}°",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(rotationDegrees = it.toDouble()))) }
+            // The usual turns in one tap; each is one undo step like a finished slider drag.
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                for (delta in listOf(-QUARTER_TURN, QUARTER_TURN)) {
+                    val sign = if (delta < 0) "-" else "+"
+                    val way = if (delta < 0) "counter-clockwise" else "clockwise"
+                    TextButton(
+                        onClick = {
+                            onIntent(EditorIntent.UpdateTransform(transform.copy(rotationDegrees = PreviewGeometry.turnBy(transform.rotationDegrees, delta))))
+                            onIntent(EditorIntent.EndAppearanceEdit(commit = true))
+                        },
+                        modifier = Modifier.semantics { contentDescription = "Rotate 90 degrees $way" },
+                    ) { Text("$sign${QUARTER_TURN.toInt()}°") }
+                }
+            }
             InspectorSlider(
                 label = "Opacity",
                 value = transform.opacity.toFloat(),
@@ -518,6 +532,7 @@ private fun formatDb(db: Double): String {
 private const val SCALE_MIN = 0.1f
 private const val SCALE_MAX = 4f
 private const val ROTATION_LIMIT = 180f
+private const val QUARTER_TURN = 90.0
 private const val GAIN_MIN = -60f
 private const val GAIN_MAX = 12f
 private const val PERCENT = 100.0
