@@ -69,11 +69,14 @@ inline size_t waveVertexBudget(int64_t columns) { return static_cast<size_t>(std
 
 // Sample frame under the left edge of column `col` for an unretimed clip. The position inside the clip is a fraction of a
 // frame (columns are narrower than a frame once zoomed in, so whole frames would give blocks of identical columns), the
-// sample is the integer part. `scrollX`, `pxPerFrame` and the clip placement are those of the viewport.
-inline int64_t waveSampleAtColumn(int64_t col, float colW, double scrollX, double pxPerFrame, int64_t clipStartFrame,
+// sample is the integer part. A column index is in content space (waveFirstColumn already added the scroll), so its left
+// edge is col * colW pixels from timeline frame 0 and the scroll must NOT be added again: doing so (PR #165) put every
+// column twice as far into the clip once the timeline was scrolled, past its end, so the waveform vanished from 0.4.x on
+// any clip away from the start of the timeline.
+inline int64_t waveSampleAtColumn(int64_t col, float colW, double pxPerFrame, int64_t clipStartFrame,
                                   int64_t clipDurationFrames, int64_t sourceInFrame, int64_t sampleRate, int64_t fpsNum,
                                   int64_t fpsDen) {
-    double inClip = (static_cast<double>(col) * colW + scrollX) / pxPerFrame - static_cast<double>(clipStartFrame);
+    double inClip = (static_cast<double>(col) * colW) / pxPerFrame - static_cast<double>(clipStartFrame);
     inClip = std::clamp(inClip, 0.0, static_cast<double>(clipDurationFrames));
     const double frames = static_cast<double>(sourceInFrame) + inClip;
     return static_cast<int64_t>(std::floor(frames * static_cast<double>(sampleRate) * static_cast<double>(fpsDen) /

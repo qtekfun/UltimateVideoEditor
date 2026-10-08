@@ -12,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+#include "audio/wave_state.h"
+
 #include "audio/waveform_peaks.h"
 #include "timeline_view/drop_hint.h"
 #include "timeline_view/hit_test.h"
@@ -25,7 +27,7 @@ class ThumbnailService;
 
 namespace uv::timeline {
 
-using WaveformLookup = std::function<std::shared_ptr<const audio::PeakPyramid>(int64_t assetKey)>;
+using WaveformLookup = std::function<audio::WaveStatus(int64_t assetKey)>;
 
 // Draws the timeline canvas (ruler, lanes, clips, waveforms, playhead) on its own thread with an
 // EGL/GLES 3 context. Frames are paced by AChoreographer and only produced while something changed.
