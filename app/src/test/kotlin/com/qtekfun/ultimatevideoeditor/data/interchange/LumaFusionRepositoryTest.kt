@@ -87,6 +87,16 @@ class LumaFusionRepositoryTest {
         return "doc://$name"
     }
 
+    /** Records what an import reports: the total up front, the bytes, and the media files by name and number. */
+    private class ProgressRecorder : BundleWriteObserver {
+        var total = -1L
+        var done = 0L
+        val media = ArrayList<Pair<String, Int>>()
+        override fun onStart(totalBytes: Long, mediaCount: Int) { total = totalBytes }
+        override fun onItem(kind: BundleItemKind, name: String, mediaIndex: Int) { if (kind == BundleItemKind.MEDIA) media += name to mediaIndex }
+        override fun onBytes(count: Long) { done += count }
+    }
+
     private fun bytes(size: Int) = ByteArray(size) { (it % 251).toByte() }
 
     private fun projectDirs() = File(tmp.root, "projects").listFiles().orEmpty().map { it.name }
@@ -95,8 +105,8 @@ class LumaFusionRepositoryTest {
     fun `a package unpacks its footage into the chosen folder and the project points at it`() = runBlocking {
         val folder = FakeMediaFolder(File(tmp.root, "media"))
         val footage = bytes(3000)
-        val progress = ArrayList<ImportProgress>()
-        val report = repo(folder).importWithReport(pack("p", mapOf("clip1.MOV" to footage))) { progress += it }
+        val seen = ProgressRecorder()
+        val report = repo(folder).importWithReport(pack("p", mapOf("clip1.MOV" to footage)), seen)
         val lf = checkNotNull(report.lumaFusion)
         assertEquals(1, lf.mediaCopied)
         assertTrue(lf.missing.isEmpty())
@@ -105,8 +115,9 @@ class LumaFusionRepositoryTest {
         assertEquals(listOf("ultimateVE"), folder.dir.list().orEmpty().toList()) // nothing loose in the chosen folder
         assertEquals(2, report.project.tracks.single().clips.size)
         assertEquals(listOf("id-2"), projectDirs()) // no scratch folder left
-        assertEquals(footage.size.toLong(), progress.last().doneBytes)
-        assertEquals(footage.size.toLong(), progress.last().totalBytes)
+        assertEquals(footage.size.toLong(), seen.done)
+        assertEquals(footage.size.toLong(), seen.total)
+        assertEquals(listOf("clip1.MOV" to 1), seen.media)
     }
 
     @Test
@@ -174,7 +185,9 @@ class LumaFusionRepositoryTest {
         val uri = pack("p", mapOf("clip1.MOV" to bytes(6 * 1024 * 1024)))
         val r = repo(folder)
         var job: Job? = null
-        job = launch(UnconfinedTestDispatcher(), start = kotlinx.coroutines.CoroutineStart.LAZY) { r.importWithReport(uri) { job?.cancel() } }
+        job = launch(UnconfinedTestDispatcher(), start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            r.importWithReport(uri, object : BundleWriteObserver { override fun onBytes(count: Long) { job?.cancel() } })
+        }
         job.start()
         job.join()
         assertTrue(job.isCancelled)
@@ -190,7 +203,9 @@ class LumaFusionRepositoryTest {
         val uri = pack("p", mapOf("clip1.MOV" to bytes(6 * 1024 * 1024)))
         val r = repo(folder)
         var job: Job? = null
-        job = launch(UnconfinedTestDispatcher(), start = kotlinx.coroutines.CoroutineStart.LAZY) { r.importWithReport(uri) { job?.cancel() } }
+        job = launch(UnconfinedTestDispatcher(), start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            r.importWithReport(uri, object : BundleWriteObserver { override fun onBytes(count: Long) { job?.cancel() } })
+        }
         job.start()
         job.join()
         assertEquals(listOf("Old project"), File(folder.dir, "ultimateVE/Media").list().orEmpty().toList())

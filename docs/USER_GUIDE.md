@@ -822,6 +822,22 @@ Everything goes through the system file picker and stays on your device: nothing
   and the project shows them as missing. A damaged or unsafe bundle is refused with a message and leaves nothing
   behind. Bundles made by an older version open here as before, and a bundle made here opens in an older version
   (it simply does not install the LUTs and fonts).
+- **Import progress** (bundles, LumaFusion packages and project files alike). The phone never freezes while a project is
+  imported: the picker closes at once and the import runs in the background.
+  - A small project file is imported before you could read anything, so it only shows a message ("Imported "Holiday"").
+  - Anything longer opens a dialog after a moment: **Importing project: file 3 of 12: IMG_0014.mov**, a bar, **1.8 of 7.4 GB,
+    about 2 min left** and the speed. **Hide** closes the dialog and the import goes on: a bar at the bottom of the project list
+    and a notification show the same; tap either to open the dialog again. You can leave the app or turn the screen off.
+  - **Cancel** stops within a moment and removes everything the import had copied; no half project is ever left in the list.
+  - When it is done the dialog and the bar say **Imported: Holiday (7.4 GB, 14 media files, took 4:12)** with **Open** and
+    **Close**. If something is not clean (media still missing, the name was taken so the project got "(2)", LUTs or fonts that
+    could not be installed, LumaFusion settings that were left out) the title says **Imported, with notes** and lists each one.
+  - If it fails it says why (storage full, the file is damaged or not a project, the permission to the file was lost, the
+    file or its app is gone) and always that nothing was added. The failure stays in the bar until you dismiss it.
+  - Before copying, the app checks the bundle's table of contents, that the project opens and that the files fit; each file's
+    size is compared with what the bundle says. Media is not read byte for byte a second time.
+  - Only one long job runs at a time: while a movie is exporting or a backup is being written, an import is refused with a
+    message naming the running job, and the other way round.
 - **Importing a LumaFusion project** (hub, top-right ⋮, then pick the file): the app reads projects from
   **LumaFusion for iOS**, as an **`.lfpackage`** (the project with its footage inside, one big file) or a
   **`.lfarchive`** (only the project). Copy the file to the phone first (USB, cloud or a card). It is recognised by

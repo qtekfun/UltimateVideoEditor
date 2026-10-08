@@ -13,10 +13,10 @@ import kotlinx.coroutines.SupervisorJob
 import java.io.IOException
 
 /**
- * The long jobs of the process, each created on first use: the movie [ExportExecutor] and the project backup
- * [BundleExportExecutor]. They are outside any activity or view model so that a job survives rotation, leaving the editor and
+ * The long jobs of the process, each created on first use: the movie [ExportExecutor], the project backup
+ * [BundleExportExecutor] and the project import [BundleImportExecutor]. They are outside any activity or view model so that a job survives rotation, leaving the editor and
  * the activity being destroyed. Starting a job starts [ExportService], which keeps the process in the foreground and shows the
- * notification. Only one long job runs at a time: each executor asks the other whether it is busy before it starts.
+ * notification. Only one long job runs at a time: each executor asks the other two whether they are busy before it starts.
  */
 object ExportCenter {
     private const val TAG = "UVExport"
@@ -26,6 +26,9 @@ object ExportCenter {
 
     @Volatile
     private var bundleInstance: BundleExportExecutor? = null
+
+    @Volatile
+    private var importInstance: BundleImportExecutor? = null
 
     fun executor(context: Context): ExportExecutor {
         instance?.let { return it }
@@ -39,7 +42,7 @@ object ExportCenter {
                     ioDispatcher = Dispatchers.IO,
                     onStarted = { startService(app) },
                     verifier = DeviceExportVerifier(io),
-                    otherJobBusy = { bundleInstance?.state?.value?.let { if (it is BundleJobState.Running) "Backing up ${it.projectName}" else null } },
+                    otherJobBusy = { runningJob(except = LongJobs.Kind.MOVIE) },
                 ).also { instance = it }
             }
         }
@@ -56,10 +59,29 @@ object ExportCenter {
                 ioDispatcher = Dispatchers.IO,
                 onStarted = { startService(app) },
                 verifier = deviceBundleVerifier(ContentResolverTransferIO(app.contentResolver)),
-                otherJobBusy = { instance?.state?.value?.let { if (it is ExportJobState.Running) "Exporting ${it.projectName}" else null } },
+                otherJobBusy = { runningJob(except = LongJobs.Kind.BACKUP) },
             ).also { bundleInstance = it }
         }
     }
+
+    /** The project import executor; see [executor] for the movie export. */
+    fun imports(context: Context): BundleImportExecutor {
+        importInstance?.let { return it }
+        val app = context.applicationContext
+        return synchronized(this) {
+            importInstance ?: BundleImportExecutor(
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                ioDispatcher = Dispatchers.IO,
+                onStarted = { startService(app) },
+                displayName = ContentResolverExportIO(app)::displayName,
+                otherJobBusy = { runningJob(except = LongJobs.Kind.IMPORT) },
+            ).also { importInstance = it }
+        }
+    }
+
+    /** What the other long jobs are doing, in words for a refusal ("Exporting Holiday"), or null when none is running. */
+    private fun runningJob(except: LongJobs.Kind): String? =
+        LongJobs.describe(instance?.state?.value, bundleInstance?.state?.value, importInstance?.state?.value, except)
 
     private fun startService(app: Context) {
         try {
@@ -85,5 +107,20 @@ internal fun deviceBundleVerifier(io: com.qtekfun.ultimatevideoeditor.data.Proje
         } catch (e: SecurityException) {
             BundleVerification.CouldNotVerify("the permission to read the saved file was lost")
         }
+    }
+}
+
+/**
+ * The one-long-job-at-a-time rule in words: which of the movie export, the project backup and the project import is running,
+ * seen from the job that wants to start ([except] is that job). Pure, so the refusal each of them gives is tested.
+ */
+object LongJobs {
+    enum class Kind { MOVIE, BACKUP, IMPORT }
+
+    fun describe(movie: ExportJobState?, backup: BundleJobState?, import: ImportJobState?, except: Kind): String? {
+        if (except != Kind.MOVIE) (movie as? ExportJobState.Running)?.let { return "Exporting ${it.projectName}" }
+        if (except != Kind.BACKUP) (backup as? BundleJobState.Running)?.let { return "Backing up ${it.projectName}" }
+        if (except != Kind.IMPORT) (import as? ImportJobState.Running)?.let { return "Importing ${it.sourceName}" }
+        return null
     }
 }
