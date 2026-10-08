@@ -147,6 +147,40 @@ class SplitPlayheadViewModelTest {
     }
 
     @Test
+    fun `cut then delete the left part parks the playhead on the join, where the right part now starts`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(40))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        h.vm.onIntent(EditorIntent.SetPlayhead(90))
+        h.select("c1")
+        h.out.calls.clear()
+
+        h.vm.onIntent(EditorIntent.RippleDeleteSelected)
+
+        assertEquals(FrameIndex(0), h.state.playhead)
+        assertEquals(FrameIndex(0), h.clips("v1").first { it.id == "c1~n0" }.timelineStart)
+        assertEquals("seek(0)", h.out.calls.last())
+    }
+
+    @Test
+    fun `deleting the right part parks the playhead on the cut too, and a delete while playing stops there`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(40))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        h.select("c1~n0")
+        h.vm.onIntent(EditorIntent.SetPlayhead(5))
+        h.vm.onIntent(EditorIntent.TogglePlay)
+        assertTrue(h.state.isPlaying)
+
+        h.vm.onIntent(EditorIntent.RippleDeleteSelected)
+
+        assertEquals(FrameIndex(40), h.state.playhead)
+        assertFalse(h.state.isPlaying)
+    }
+
+    @Test
     fun `the selection moves to the right part so the next cut needs no new selection`() = runTest(dispatcher) {
         val h = harness()
         h.select("c1")
