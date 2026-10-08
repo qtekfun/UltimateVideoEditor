@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 
+#include "audio/wave_state.h"
 #include "audio/waveform_peaks.h"
 #include "core/error.h"
 
@@ -31,6 +32,8 @@ public:
     void request(int64_t assetKey, int fd, std::string cachePath);
 
     std::shared_ptr<const PeakPyramid> get(int64_t assetKey) const;
+    // What the canvas draws for the asset: loading until the job ends, then ready, silent or failed (wave_state.h).
+    WaveStatus status(int64_t assetKey) const;
 
 private:
     struct Job {
@@ -46,6 +49,7 @@ private:
     std::deque<Job> queue_;
     std::map<int64_t, std::shared_ptr<const PeakPyramid>> ready_;
     std::map<int64_t, bool> inFlight_;
+    std::map<int64_t, core::Status> failed_;  // jobs that ended without usable peaks
     std::atomic<bool> stop_{false};
     std::thread worker_;
 };
