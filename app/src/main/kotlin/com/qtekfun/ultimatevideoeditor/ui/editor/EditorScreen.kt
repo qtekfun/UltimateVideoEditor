@@ -447,6 +447,8 @@ fun EditorScreen(
             rasterizer = titleRasterizer,
             lutLoader = lutStore::load,
             onProxyFailed = { proxyVm.onIntent(ProxyIntent.PreviewProxyFailed(it)) },
+            // A decoder failing mid-way may mean the drive was pulled: the editor checks and marks the file missing.
+            onAssetFailure = { key, message -> viewModel.onIntent(EditorIntent.MediaFailureReported(key, message)) },
             onSoftwareDecoding = { heavy ->
                 viewModel.onIntent(
                     EditorIntent.ReportError(
@@ -472,7 +474,11 @@ fun EditorScreen(
     }
 
     val audio = remember {
-        EditorAudio(context, scope) { viewModel.onIntent(EditorIntent.ReportError(it)) }
+        EditorAudio(
+            context,
+            scope,
+            onAssetFailure = { key, message -> viewModel.onIntent(EditorIntent.MediaFailureReported(key, message)) },
+        ) { viewModel.onIntent(EditorIntent.ReportError(it)) }
     }
     DisposableEffect(audio, viewModel) {
         viewModel.playbackOutput = audio
@@ -514,6 +520,8 @@ fun EditorScreen(
             s.canvasWidth,
             s.canvasHeight,
             sourceOf = { proxyVm.resolve(it, MediaPurpose.PREVIEW) },
+            // Clips of files that cannot be read show a "Media missing" card in the preview (never in an export).
+            unreadable = s.unreadableAssets,
         ) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)
         when {
@@ -625,6 +633,7 @@ fun EditorScreen(
                     scope.launch { snackbar.showSnackbar(effect.text) }
                 }
                 EditorEffect.Close -> onClose()
+                is EditorEffect.AssetUnavailable -> preview.release(effect.assetKey)
                 is EditorEffect.LaunchRelinkPicker -> {
                     relinkTarget = effect.assetId
                     relinkPicker.launch(arrayOf("video/*", "audio/*", "image/*"))

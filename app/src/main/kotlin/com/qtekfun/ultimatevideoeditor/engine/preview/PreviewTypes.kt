@@ -24,9 +24,16 @@ enum class PreviewErrorCode(val value: Int) {
 /**
  * Failure reported by the native preview pipeline. Thrown synchronously from engine calls and
  * delivered to the error callback for failures on decode/render threads.
- * The JNI layer constructs this class by its (Int, String) constructor.
+ * The JNI layer constructs this class by its (Int, String) constructor; the callback also gives the key of the asset whose decoder failed.
  */
-class PreviewException(val code: Int, message: String) : Exception(message) {
+class PreviewException @JvmOverloads constructor(val code: Int, message: String, val assetKey: Long = NO_ASSET) : Exception(message) {
+    /** True when the error came from the decoder of one open asset ([assetKey]) rather than from the pipeline as a whole. */
+    val hasAsset: Boolean get() = assetKey != NO_ASSET
+
+    companion object {
+        const val NO_ASSET = -1L
+    }
+
     val errorCode: PreviewErrorCode get() = PreviewErrorCode.fromValue(code)
 }
 

@@ -160,6 +160,9 @@ data class EditorState(
     /** The unreadable files, with how many clips depend on each. */
     val missingAssets: List<MissingAsset> get() = MissingMedia.summarize(timeline, assets, missingMedia)
 
+    /** The unreadable files themselves: what the preview draws "Media missing" cards for. */
+    val unreadableAssets: List<MediaAssetDto> get() = if (missingMedia.isEmpty()) emptyList() else assets.filter { it.id in missingMedia }
+
     /** The library without the unreadable files: what the preview, the mixer and the thumbnails may open. */
     val playableAssets: List<MediaAssetDto> get() = when {
         !mediaChecked -> emptyList()  // nothing is opened before the verification has said which files are readable
@@ -690,6 +693,16 @@ sealed interface EditorIntent : UiIntent {
     /** The user chose [uri], one of the files the folder scan found for [assetId], among several of the same name. */
     data class RelinkFromCandidate(val assetId: String, val uri: String) : EditorIntent
 
+    /**
+     * A decoder or the mixer failed on the file with native key [assetKey] while the project was open ([detail] says how). The
+     * editor asks the file system whether it is still readable: if not (a drive was pulled) the asset becomes missing at once,
+     * once per loss; if it is, [detail] is shown as an ordinary error.
+     */
+    data class MediaFailureReported(val assetKey: Long, val detail: String) : EditorIntent
+
+    /** "Check again" in the Missing media dialog: verify the unreadable files and clear the flag of those that can be read now. */
+    data object RecheckMissingMedia : EditorIntent
+
     /** Try saving again after a failed autosave. */
     data object RetrySave : EditorIntent
 
@@ -711,6 +724,9 @@ sealed interface EditorEffect : UiEffect {
 
     /** Open the document picker to choose a replacement for [assetId]. */
     data class LaunchRelinkPicker(val assetId: String) : EditorEffect
+
+    /** The file with native key [assetKey] just became unreadable: the screen closes its decoders so nothing holds the vanished file. */
+    data class AssetUnavailable(val assetKey: Long) : EditorEffect
 
     /** Open the folder picker to choose where to look for the missing media. */
     data object LaunchFolderPicker : EditorEffect

@@ -197,12 +197,16 @@ per-clip gain, transitions, and `schemaVersion`. Unknown fields must be preserve
   Assets keep the file's `displayName` so a lost file can still be named.
 - **While media is missing** its clips stay on the timeline and stay editable. The native canvas tints and hatches them
   (clip flag bit 2 of the timeline snapshot, no version bump); the preview, the mixer and the waveform/thumbnail
-  workers skip the file (`EditorState.playableAssets`); export refuses with a message that names the clips by lane and time.
+  workers skip the file (`EditorState.playableAssets`); the preview shows a "Media missing" card in place of its clips (5.42);
+  export refuses with a message that names the clips by lane and time.
 - **Relink** (`RelinkAsset`) replaces the asset's URI after `RelinkCheck`: rejected when the file is already another asset,
   is a picture where media was expected (or the reverse), lacks video the asset had, or lacks audio for an audio-only asset;
   accepted with warnings for no audio, a shorter file than the part in use, another frame rate, another colour space.
   The asset's duration/fps/flags are re-read from the new file, its waveform and thumbnails are invalidated, and its native
   key is replaced. It is a saved library change, not an undo step.
+- **The hub's "N missing" count** comes from `media-status.json` beside `project.json` when the editor verified the files and the
+  count differs from what the list shows (5.42); otherwise from `missingMedia` in `project.json`. Opening a project never rewrites
+  `project.json`.
 - **Permissions.** At startup, when 80% of Android's 512 persisted permissions are in use, those no project refers to are released.
 - **Project files.** `project.json` is written through `project.json.tmp` and renamed. Each save of a parsable file first copies
   it to `project.json.bak` (the last good save). A corrupt or missing `project.json` is listed in the hub as unreadable;
@@ -1812,6 +1816,55 @@ keep the folder permission.
 **Tests.** `FolderRelinkMatcherTest` (names, case, duplicates, ambiguous, kind mismatch, moved-path fast path, facts, nothing found),
 `FolderRelinkViewModelTest` (fake scanner and importer: one step and one save, cancel, errors, ambiguous choice, refused files, not an undo step),
 `PermissionTrimTest`. Bundle import (`AutoRelink`, `RepositoryBundleTest`) is untouched.
+
+### 5.42 Missing media while editing: the preview card, a drive pulled while open, Check again
+
+**Preview card (preview only).** `previewRequestsOnCanvas(..., unreadable = EditorState.unreadableAssets)` answers a video clip, or a photo clip,
+whose file is unreadable with a layer carrying `MissingMediaCard.contentFor(name, canvasW, canvasH)` instead of leaving it out. The card
+is an ordinary multilayer title (`domain/MissingMediaCard.kt`): a dark full-canvas rectangle, eleven 45 degree bands (the diagonal hatch,
+laid out from the canvas aspect so it covers any shape) and two text layers, "Media missing" and the file's name (shortened to 48
+characters). It goes through the title path (`engine/title` rasteriser, `uploadTitle`, `TitleKeyCache`, so one picture per name and canvas)
+and needs no native code and no font handling. The layer takes the clip's transform and opacity (keyframes, transitions) and its place in the
+lane order; the clip's effects, blend mode and mask are not applied to it. An audio-only file has no picture and shows nothing; the mixer
+leaves every clip of a missing file out (`playableAssets`), so it is silent.
+Export and "save frame" never see the card: `ExportViewModel.missingMediaProblem` refuses `ChooseLocation` and the start, `FrameRenderer.prepare`
+refuses a frame that needs a missing file, and both build their layers with `buildExportPlan` / `buildFramePlan`, not from the preview's
+request list. `MissingMediaCard.isCard` exists so a test can prove no plan holds one.
+
+**A drive pulled while the project is open.** Native decoder errors now carry the preview key of the asset (`decode::Error::asset`,
+tagged in `PreviewEngine::openAsset`, passed to `NativeErrorListener.onError(code, message, assetKey)` and `PreviewException.assetKey`;
+-1 when the error belongs to no asset). `EditorPreview` and `EditorAudio` (a `AudioFault.Decode` is mapped from its clip key to the
+asset key through the current snapshot) report them as `EditorIntent.MediaFailureReported(assetKey, detail)`. The editor does not trust the
+error: it asks `MediaImporter.verify` about the file (the lane offset `lane * LANE_STRIDE` is removed from the key first). If the file is
+unreadable it
+- marks the asset in `missingMedia` with the typed reason (`MediaProblem`), at once;
+- pauses playback (`pausePlayback`), emits `EditorEffect.AssetUnavailable` (the screen closes the asset's decoders, which hold a dead
+  descriptor) and exactly one message: "Media for <name> is no longer available: reconnect the drive and use Relink or reopen the project";
+- publishes the new count for the hub (below).
+Further errors for an asset that is already missing, or whose check is running, are dropped, so a burst of errors from one pulled drive
+gives one check and one message per asset; a second loss (after Check again) is reported again. If the file is still readable the error is
+an ordinary one and its text is shown as before. An error that names no known asset is shown as before. The banner and the Missing media
+dialog appear as for a project opened with the drive out.
+
+**Check again.** The Missing media dialog (list screen) has a "Check again" button (`EditorIntent.RecheckMissingMedia`): every unreadable
+file is verified once more (`MediaImporter.verify`); the flag of those that can be read is cleared, their library facts (video/audio, name)
+are refreshed, `MediaCaches.invalidate` and `KeyRegistry.rekey` give them a fresh key (so no decoder, waveform or thumbnail strip of the
+vanished file is reused), the preview, mixer and filmstrips pick them up again, and the dialog closes when nothing is left. A message says
+how many are back ("All media can be read again", "N of M files can be read again; K still missing", "Still missing: ..."). One check
+runs at a time. The project is not changed by it.
+
+**The hub's count without a rewrite.** `ProjectStore.saveMediaStatus(id, missing)` is called when the files have been verified at open,
+after a loss and after Check again. `ProjectRepository` compares the number with what the list already shows and writes nothing when equal;
+otherwise it writes `media-status.json` (`{"missingMedia": n, "projectModified": t}`, atomic rename) in the project folder. `project.json`
+is untouched, so its modification time, which orders the list ("Last edited"), does not move. The list reads the sidecar only while
+`projectModified` still equals `project.json`'s modification time; any later save (which carries its own `missingMedia`) retires it. A
+damaged or foreign sidecar is ignored. It is not part of a bundle, a copy (clone) or an export; deleting the project deletes it.
+
+**Tests.** `MissingMediaCardTest`, `PreviewMissingMediaTest` (card per clip kind, transform, lane order, no card without the list),
+`ExportMissingMediaTest` (export refused before any file is opened; no plan holds a card), `MediaLossViewModelTest` (fake importer whose
+drive is pulled and re-plugged: loss marks and messages once, bursts, lane keys, ordinary errors, unknown keys, playback stops, Check
+again full / partial / none, second loss, no `project.json` write), `MediaStatusSidecarTest` (no rewrite, list order kept, staleness,
+damage, copies), `decode_sim_tests.cpp` (`errorsCarryTheirAsset`). Manual: `docs/QA.md` D11 (pull the drive while the project is open).
 
 ## 6. Timeline operations (specification for tests)
 
