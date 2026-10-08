@@ -65,15 +65,48 @@ class CrashReportTest {
     }
 
     @Test
-    fun `store keeps only the latest report, deletes it and survives overwrite`() {
+    fun `store reads the latest report, deletes everything and survives overwrite`() {
         val store = CrashReportStore(File(temp.root, "crash"))
         assertNull(store.read())
         store.write("first")
         store.write("second")
         assertEquals("second", store.read())
+        assertEquals(listOf("second", "first"), store.readAll())
         store.delete()
         assertNull(store.read())
+        assertEquals(emptyList<String>(), store.readAll())
         store.delete() // deleting nothing is fine
+    }
+
+    @Test
+    fun `store rotates and keeps at most five reports, newest first`() {
+        val dir = File(temp.root, "crash")
+        val store = CrashReportStore(dir)
+        for (n in 1..8) store.write("crash $n")
+
+        assertEquals(listOf("crash 8", "crash 7", "crash 6", "crash 5", "crash 4"), store.readAll())
+        assertEquals(CrashReportStore.MAX_FILES, dir.listFiles()!!.count { it.name.startsWith("last-crash") })
+        store.delete()
+        assertEquals(0, dir.listFiles()!!.size)
+    }
+
+    @Test
+    fun `replaceLatest extends the latest report without rotating`() {
+        val store = CrashReportStore(File(temp.root, "crash"))
+        store.write("older")
+        store.write("latest")
+        store.replaceLatest("latest plus native summary")
+
+        assertEquals(listOf("latest plus native summary", "older"), store.readAll())
+    }
+
+    @Test
+    fun `the report of the unmounted-drive crash names the exception and drops the file name`() {
+        val error = IllegalArgumentException("Failed to determine if 4450-56F6:Movies/VID20260930191900.mp4 is child of 4450-56F6:Movies")
+        val text = CrashReportFormat.format(error, "main", context, 0L)
+
+        assertTrue(text.contains("java.lang.IllegalArgumentException: Failed to determine if"))
+        assertFalse(text.contains("VID20260930191900"))
     }
 
     @Test

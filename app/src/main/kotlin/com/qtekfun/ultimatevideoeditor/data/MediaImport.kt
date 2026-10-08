@@ -130,6 +130,8 @@ class AndroidMediaImporter(
         val parsed = Uri.parse(uri)
         try {
             context.contentResolver.takePersistableUriPermission(parsed, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: IllegalArgumentException) {
+            throw MediaImportException(MediaFailure.describe(MediaProblem.UNREADABLE, uri.substringAfterLast('/')), e, MediaProblem.UNREADABLE)
         } catch (e: SecurityException) {
             throw MediaImportException(
                 "Cannot keep access to the selected file. Android limits how many files an app can keep; " +
@@ -151,34 +153,55 @@ class AndroidMediaImporter(
             warnIfNearPermissionLimit()
         } catch (e: SecurityException) {
             Log.w(TAG, "Cannot persist read access to $uri: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            // A provider that vanished between the probe and now: the file is readable as far as the probe showed.
+            Log.w(TAG, "Cannot persist read access to $uri: ${e.message}")
         }
         media
     }
 
     private fun warnIfNearPermissionLimit() {
-        val held = context.contentResolver.persistedUriPermissions.size
+        val held = try {
+            context.contentResolver.persistedUriPermissions.size
+        } catch (e: RuntimeException) {
+            // Only a log line depends on the count; the system may refuse the list while a provider is dying.
+            Log.w(TAG, "Cannot count persisted permissions: ${e.message}")
+            return
+        }
         if (PermissionTrim.nearLimit(held, AndroidPersistedUris.LIMIT)) {
             Log.w(TAG, "$held of ${AndroidPersistedUris.LIMIT} persisted URI permissions are in use")
         }
     }
 
-    internal fun probe(uri: Uri): ProbedMedia {
-        if (isImageMime(context.contentResolver.getType(uri))) return probeImage(uri)
+    /** Every failure of the provider or volume comes out as a [MediaImportException] with a [MediaProblem]; see [guardMedia]. */
+    internal fun probe(uri: Uri): ProbedMedia = guardMedia(uri.lastPathSegment ?: "the file") { probeUnguarded(uri) }
+
+    private fun probeUnguarded(uri: Uri): ProbedMedia {
+        if (isImageMime(typeOf(uri))) return probeImage(uri)
         val extractor = MediaExtractor()
         try {
             try {
                 extractor.setDataSource(context, uri, null)
             } catch (e: IOException) {
                 throw MediaImportException("Cannot open the selected file", e, MediaProblem.UNREADABLE)
-            } catch (e: IllegalArgumentException) {
-                throw MediaImportException("Unsupported file", e, MediaProblem.UNSUPPORTED)
             } catch (e: SecurityException) {
                 throw MediaImportException("No permission to read the selected file", e, MediaProblem.PERMISSION_LOST)
+            } catch (e: IllegalArgumentException) {
+                // A provider that is gone ("Unknown URI") reaches here as well as a file of no known kind; a gone file is the likelier.
+                throw MediaImportException("Cannot open the selected file", e, MediaProblem.UNREADABLE)
             }
             return probeTracks(extractor, uri).copy(displayName = displayNameOf(uri))
         } finally {
             extractor.release()
         }
+    }
+
+    /** The provider's media type, or null when it does not answer (the platform returns null for an unknown provider). */
+    private fun typeOf(uri: Uri): String? = try {
+        context.contentResolver.getType(uri)
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "No media type for $uri: ${e.message}")
+        null
     }
 
     /** Reads only the header: enough to know the platform can decode it. EXIF orientation is applied when it is drawn. */
@@ -214,13 +237,15 @@ class AndroidMediaImporter(
 
     /** Frame delays and passes of an animated GIF or WebP, or null for any other picture (read from the headers, no pixels). */
     private fun animationTiming(uri: Uri): AnimationTiming? {
-        val type = context.contentResolver.getType(uri) ?: return null
+        val type = typeOf(uri) ?: return null
         if (type != "image/gif" && type != "image/webp") return null
         val bytes = try {
             context.contentResolver.openInputStream(uri)?.use { it.readAtMost(MAX_ANIMATION_BYTES) } ?: return null
         } catch (e: IOException) {
             return null
         } catch (e: SecurityException) {
+            return null
+        } catch (e: IllegalArgumentException) {
             return null
         }
         return if (type == "image/gif") {
@@ -238,6 +263,10 @@ class AndroidMediaImporter(
         // The name is only a label; the caller falls back to the URI's last segment.
         null
     } catch (e: IllegalArgumentException) {
+        null
+    } catch (e: IllegalStateException) {
+        null
+    } catch (e: UnsupportedOperationException) {
         null
     }
 
@@ -294,6 +323,8 @@ class AndroidMediaImporter(
         null
     } catch (e: SecurityException) {
         null
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     private fun pcmSoundTrack(uri: Uri): PcmSoundTrack? = try {
@@ -317,6 +348,9 @@ class AndroidMediaImporter(
         Log.w(TAG, "Cannot scan $uri for uncompressed audio: ${e.message}")
         null
     } catch (e: SecurityException) {
+        Log.w(TAG, "Cannot scan $uri for uncompressed audio: ${e.message}")
+        null
+    } catch (e: IllegalArgumentException) {
         Log.w(TAG, "Cannot scan $uri for uncompressed audio: ${e.message}")
         null
     }

@@ -103,6 +103,8 @@ data class EditorState(
     val lutPickerOpen: Boolean = false,
     /** Library files that cannot be read right now, by asset id. Their clips stay on the timeline, marked. */
     val missingMedia: Map<String, MediaProblem> = emptyMap(),
+    /** False from the moment a project opens until every library file has been probed once; see [playableAssets]. */
+    val mediaChecked: Boolean = true,
     /** The relink list is open. */
     val relinkOpen: Boolean = false,
     /** The "scan a folder" relink: idle, running (with progress) or finished (with its results). */
@@ -159,7 +161,11 @@ data class EditorState(
     val missingAssets: List<MissingAsset> get() = MissingMedia.summarize(timeline, assets, missingMedia)
 
     /** The library without the unreadable files: what the preview, the mixer and the thumbnails may open. */
-    val playableAssets: List<MediaAssetDto> get() = if (missingMedia.isEmpty()) assets else assets.filter { it.id !in missingMedia }
+    val playableAssets: List<MediaAssetDto> get() = when {
+        !mediaChecked -> emptyList()  // nothing is opened before the verification has said which files are readable
+        missingMedia.isEmpty() -> assets
+        else -> assets.filter { it.id !in missingMedia }
+    }
 
     /**
      * The selected clip's own frame under the playhead (0 is its first frame), or null when the
