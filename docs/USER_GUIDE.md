@@ -125,8 +125,9 @@ sideways and a tablet each keep theirs).
   - **Audio track height**: *Same*, *1.5x* or *2x*. Audio lanes become that much taller than the other lanes, so waveforms and the
     fade and volume handles are easier to see and to grab. It is saved with the layout and works with any track height.
   - **Waveform scale**: *Linear* (the default: the height follows the loudness of the clip, speech and pauses stand out) or *dB*
-    (quiet passages stay visible). Audio is drawn as an outline of the loudest peaks with a lighter band for the average level;
-    zoom in with a pinch to see individual sounds, and a gap between words is an empty stretch around the centre line.
+    (quiet passages stay visible). Audio is drawn as a solid light envelope rising from the bottom of the clip, over a darker body, with a fainter
+    shape behind it for the loudest peaks and a thin line across the middle; zoom in with a pinch to see individual sounds, and a gap
+    between words is a flat thin line along the bottom, which is where to cut.
   - **Media tray** and **Inspector**: choose where each one sits (bottom or over the timeline, or left or right on
     wide windows) and whether it is **collapsed**. A collapsed side panel becomes a narrow strip with one button
     that brings it back; the collapsed tray at the bottom becomes a thin bar with an arrow.

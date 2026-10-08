@@ -1613,8 +1613,8 @@ static void testWaveColumnGeometry() {
     CHECK(timeline::waveColumnWidth(1000.0f, 3.5f) == 3.0f);
     CHECK(timeline::waveColumnWidth(0.0f, 2.6f) == 2.0f);
 
-    // The vertex budget: however wide the visible part of a clip, a frame stays within kMaxWaveColumns columns of three
-    // quads (18 vertices each), plus the one or two columns at the edges of the grid.
+    // The vertex budget: however wide the visible part of a clip, a frame stays within kMaxWaveColumns columns of two
+    // quads (12 vertices each), plus the one or two columns at the edges of the grid.
     for (const float density : {1.0f, 1.5f, 2.0f, 2.6f, 3.0f, 3.5f, 4.0f}) {
         for (const float width : {120.0f, 800.0f, 1080.0f, 1440.0f, 2400.0f, 3840.0f, 8000.0f}) {
             const float colW = timeline::waveColumnWidth(width, density);
@@ -1622,14 +1622,14 @@ static void testWaveColumnGeometry() {
             const int64_t last = timeline::waveLastColumn(width, 777.3, colW);
             const int64_t columns = last - first + 1;
             CHECK(columns <= timeline::kMaxWaveColumns + 2);
-            CHECK(timeline::waveVertexBudget(columns) <= static_cast<size_t>(timeline::kMaxWaveColumns + 2) * 18);
+            CHECK(timeline::waveVertexBudget(columns) <= static_cast<size_t>(timeline::kMaxWaveColumns + 2) * 12);
             CHECK(static_cast<float>(columns - 2) * colW <= width + colW);  // the columns cover the width and no more than that
             CHECK(static_cast<float>(columns) * colW >= width);
         }
     }
     CHECK(timeline::waveVertexBudget(0) == 0 && timeline::waveVertexBudget(-5) == 0);
-    CHECK(timeline::waveVertexBudget(10) == 10 * 3 * 6);
-    // A typical phone (1080 px, density 2.6): about 540 columns, 9.7k vertices, against 720 columns at most.
+    CHECK(timeline::waveVertexBudget(10) == 10 * 2 * 6);
+    // A typical phone (1080 px, density 2.6): about 540 columns, 6.5k vertices, against 720 columns at most.
     const float colW = timeline::waveColumnWidth(1080.0f, 2.6f);
     CHECK(colW == 2.0f && timeline::waveLastColumn(1080.0f, 0.0, colW) - timeline::waveFirstColumn(0.0f, 0.0, colW) + 1 == 541);
 }
@@ -1689,6 +1689,31 @@ static void testWaveColumnsOnSpeech() {
     // The same gap is visible in decibels too, but the hiss floor of quiet passages is lifted.
     const auto quietCol = timeline::waveColumn(p, 35 * 480, 36 * 480, ref, audio::WaveScale::Decibel);
     CHECK(quietCol.up == 0.0f || quietCol.up < 0.2f);
+
+    // The solid envelope (the drawn height): silence is exactly flat, the fill never exceeds the peak layer behind it, speech
+    // reaches most of the lane, and the blend keeps pauses visibly below words (an overview must not become one block).
+    float maxFill = 0.0f, loudSum = 0.0f, gapMax = 0.0f;
+    int loudN = 0;
+    for (int col = 0; col < 100; ++col) {
+        const auto wc = timeline::waveColumn(p, col * 480, (col + 1) * 480, ref, audio::WaveScale::Linear);
+        CHECK(wc.fill >= 0.0f && wc.fill <= wc.peak + 1e-6f);
+        CHECK(wc.peak <= 1.0f);
+        if (wc.up == 0.0f && wc.down == 0.0f) CHECK(wc.fill == 0.0f && wc.peak == 0.0f);
+        maxFill = std::max(maxFill, wc.fill);
+        if (col < 30) { loudSum += wc.fill; ++loudN; }
+        if (col >= 32 && col < 48) gapMax = std::max(gapMax, wc.fill);
+    }
+    CHECK(maxFill > 0.85f);                 // the loudest syllable reaches near the top
+    CHECK(loudSum / static_cast<float>(loudN) > 0.4f);  // a syllable is not flattened
+    CHECK(gapMax == 0.0f);                  // the pause is flat
+    // The blend lies between the RMS and the peak, and the linear lift only applies on the linear scale.
+    const auto mid = timeline::waveColumn(p, 5 * 480, 6 * 480, ref, audio::WaveScale::Linear);
+    CHECK(mid.fill > 0.0f && mid.fill < mid.peak);
+    const auto midDb = timeline::waveColumn(p, 5 * 480, 6 * 480, ref, audio::WaveScale::Decibel);
+    CHECK(midDb.fill <= midDb.peak && midDb.fill > 0.0f);
+    // Closer than 64 samples per peak no RMS is stored: the fill then follows the peak instead of collapsing to zero.
+    const auto fine = timeline::waveColumn(p, 4800, 4800 + 8, ref, audio::WaveScale::Linear);
+    CHECK(fine.peak > 0.0f && fine.fill > 0.0f);
 }
 
 static void testPeaksFile() {

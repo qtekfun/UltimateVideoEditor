@@ -334,6 +334,12 @@ Per-clip source colour: each video clip may override how its source is read (`Au
   level makes the closest zoom (96 px per frame, 8 to 17 samples per pixel) about one peak per pixel; it is left out for a source longer
   than `kMaxFineLevelFrames` (about 22 min at 48 kHz) to bound memory. Channels fold to one: min and max over all of them, RMS of the
   loudest channel of each sample frame. `reducePeaks` reads the coarsest level whose peaks are no wider than a column.
+  Drawing (`timeline_view/wave_columns.h`, `waveform_render_tool` rasterises the same numbers): per column of about 0.8 dp (at most
+  720 per clip) two quads anchored at the bottom edge of the waveform area, so the whole area height is amplitude: a solid light
+  envelope of height `fill` (45% peak + 55% RMS, then x^0.85 on the linear scale; the peak stands in below 64 samples per peak) over a
+  fainter quad up to the `peak`, on a body of 0.7x the clip colour, and one thin line across the middle. Silence leaves the one pixel
+  baseline. Height is against half the clip's own loudest peak (`referenceLevel`). Fade ramps and the volume curve get a dark rim so
+  they read over the light envelope. At most 2 x 720 x 6 = 8.6k vertices per clip (3 layers, 13k, before).
 
 ### 5.7 3D LUT effect
 
