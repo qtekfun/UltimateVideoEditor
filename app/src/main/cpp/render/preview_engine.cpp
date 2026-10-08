@@ -260,7 +260,11 @@ Result<AssetInfo> PreviewEngine::openAsset(uint32_t assetId, int fd, decode::Rat
     decode::DecoderCallbacks callbacks;
     callbacks.onImageAvailable = [this, assetId] { thread_->post([this, assetId] { drain(assetId); }); };
     callbacks.isCached = [this, assetId](int64_t frame) { return cache_.contains(FrameKey{assetId, frame}); };
-    callbacks.onError = [this](const Error& e) { report(e); };
+    callbacks.onError = [this, assetId](const Error& e) {
+        Error tagged = e;
+        tagged.asset = static_cast<int64_t>(assetId);
+        report(tagged);
+    };
 
     auto opened = decode::openVideoDecoder(fd, fpsOverride, std::move(callbacks));
     if (!opened.ok()) return opened.error();

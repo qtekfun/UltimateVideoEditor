@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <variant>
@@ -23,6 +24,9 @@ enum class Status : int {
 struct Error {
     Status code;
     std::string message;
+    // The preview's key of the asset whose decoder reported this, or -1 when the error belongs to no asset. Lets Kotlin
+    // tell which file went away when a drive is pulled while it is open.
+    int64_t asset = -1;
 };
 
 // Minimal expected-like result (C++20 has no std::expected).

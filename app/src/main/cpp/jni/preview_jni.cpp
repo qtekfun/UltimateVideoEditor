@@ -58,7 +58,7 @@ struct ListenerRef {
         JNIEnv* env = envForCurrentThread(vm);
         if (env == nullptr) return;
         jstring text = env->NewStringUTF(error.message.c_str());
-        env->CallVoidMethod(listener, onError, static_cast<jint>(error.code), text);
+        env->CallVoidMethod(listener, onError, static_cast<jint>(error.code), text, static_cast<jlong>(error.asset));
         if (env->ExceptionCheck()) env->ExceptionClear();  // never let a listener bug unwind native threads
         env->DeleteLocalRef(text);
     }
@@ -83,7 +83,7 @@ JNIEXPORT jlong JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_Nati
     env->GetJavaVM(&handle->listener->vm);
     handle->listener->listener = env->NewGlobalRef(listener);
     jclass cls = env->GetObjectClass(listener);
-    handle->listener->onError = env->GetMethodID(cls, "onError", "(ILjava/lang/String;)V");
+    handle->listener->onError = env->GetMethodID(cls, "onError", "(ILjava/lang/String;J)V");
     env->DeleteLocalRef(cls);
     if (handle->listener->onError == nullptr) {
         env->DeleteGlobalRef(handle->listener->listener);

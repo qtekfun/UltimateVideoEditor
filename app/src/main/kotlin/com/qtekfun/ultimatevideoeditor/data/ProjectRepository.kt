@@ -154,6 +154,29 @@ class ProjectRepository(
 
     override suspend fun save(project: ProjectDto) = mutate { writeProject(project) }
 
+    /**
+     * Stores the number of unreadable media files in `media-status.json` next to `project.json` (SPECS 4.1) instead of
+     * rewriting the project: the listing is ordered by the project file's modification time, and checking the media of a
+     * project that was only opened must not move it to the top. The sidecar names the project file's modification time it
+     * belongs to, so any later save of the project (which carries its own count) makes it stale and ignored.
+     */
+    override suspend fun saveMediaStatus(id: String, missingMedia: Int) {
+        mutate { writeMediaStatus(id, missingMedia.coerceAtLeast(0)) }
+    }
+
+    private fun writeMediaStatus(id: String, count: Int) {
+        val file = projectFile(id)
+        if (!file.isFile) throw ProjectError.NotFound(id)
+        val sidecar = File(file.parentFile, MEDIA_STATUS_FILE)
+        val shown = MediaStatus.read(sidecar, file.lastModified()) ?: ProjectJson.decode(readText(file)).missingMedia.coerceAtLeast(0)
+        if (shown == count) return
+        io("write $MEDIA_STATUS_FILE") {
+            val temp = File(sidecar.parentFile, "$MEDIA_STATUS_FILE.tmp")
+            temp.writeBytes(MediaStatus.encode(count, file.lastModified()).toByteArray(Charsets.UTF_8))
+            Files.move(temp.toPath(), sidecar.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
     suspend fun rename(id: String, name: String): ProjectDto = mutate {
         val renamed = ProjectJson.decode(readText(projectFile(id))).copy(name = freeName(name, excludingId = id))
         writeProject(renamed)
@@ -673,7 +696,8 @@ class ProjectRepository(
             lastModifiedMillis = file.lastModified(),
             durationFrames = ProjectOverview.durationFrames(project),
             thumbnail = ProjectOverview.thumbnailSource(project),
-            missingMedia = project.missingMedia.coerceAtLeast(0),
+            // The count the editor stored beside the project, if it still belongs to this version of the file.
+            missingMedia = MediaStatus.read(File(file.parentFile, MEDIA_STATUS_FILE), file.lastModified()) ?: project.missingMedia.coerceAtLeast(0),
         )
 
     private fun projectDir(id: String): File {
@@ -729,6 +753,7 @@ class ProjectRepository(
         const val TEMP_FILE = "project.json.tmp"
         const val BACKUP_FILE = "project.json.bak"
         const val CORRUPT_FILE = "project.json.corrupt"
+        const val MEDIA_STATUS_FILE = "media-status.json"
         const val MAX_NAME_LENGTH = 80
         private const val SPACE_MARGIN = 64L * 1024 * 1024
         private val ID_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
@@ -737,3 +762,30 @@ class ProjectRepository(
 
 /** The usable space of the nearest folder that exists (a new install has no projects folder yet). */
 private fun usableSpaceOf(dir: File): Long = generateSequence(dir) { it.parentFile }.firstOrNull { it.exists() }?.usableSpace ?: Long.MAX_VALUE
+
+/**
+ * The small `media-status.json` file beside a project (SPECS 4.1): `{"missingMedia": n, "projectModified": t}`, where t is the
+ * modification time of the `project.json` it describes. A reader trusts it only while that file still has this time.
+ */
+internal object MediaStatus {
+    fun encode(missingMedia: Int, projectModified: Long): String =
+        kotlinx.serialization.json.buildJsonObject {
+            put("missingMedia", kotlinx.serialization.json.JsonPrimitive(missingMedia))
+            put("projectModified", kotlinx.serialization.json.JsonPrimitive(projectModified))
+        }.toString()
+
+    /** The stored count, or null when there is no file, it does not parse or it belongs to another version of the project. */
+    fun read(file: File, projectModified: Long): Int? {
+        if (!file.isFile) return null
+        return try {
+            val json = ProjectJson.parseObject(file.readText(Charsets.UTF_8))
+            val count = (json["missingMedia"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
+            val modified = (json["projectModified"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+            if (count != null && count >= 0 && modified == projectModified) count else null
+        } catch (e: ProjectError.Corrupt) {
+            null  // a damaged sidecar is only a cache of a label: the project's own count is shown instead
+        } catch (e: IOException) {
+            null
+        }
+    }
+}

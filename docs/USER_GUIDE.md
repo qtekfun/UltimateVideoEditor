@@ -941,6 +941,19 @@ If a file was moved or its permission was lost, a banner appears in the editor a
 hatched. Tap it to **Relink** each file to a replacement (the app warns if the replacement is shorter or has a
 different frame rate or colour space). Everything else stays editable.
 
+In the preview, a clip whose file is missing shows a dark card with diagonal stripes, **Media missing** and the file's name, in the place
+and with the opacity of the clip. Its sound is silent. The card is only a stand-in for you to see what is wrong: it is **never** put into an
+export or a saved frame. Export and **Save frame** are refused until the files are back or relinked.
+
+### The drive is unplugged or taken out while you edit
+
+If a USB drive or SD card is pulled while the project is open (or while it plays), the editor stops playback and tells you once for each
+file: "Media for <name> is no longer available: reconnect the drive and use Relink or reopen the project". The banner and the card appear
+at once and the app keeps running. Connect the drive again, open the banner's list and tap **Check again**: the files that can be read
+again come back (picture, sound, thumbnails) without reopening the project. Files that are still missing stay listed; use **Relink** or
+**Scan a folder...** for those. The project list shows "N missing" for a project as soon as the editor has checked its files, without
+changing its place in the "Last edited" order.
+
 ### Relink many files at once: scan a folder
 
 If you moved a whole folder of footage, do not relink file by file. In the banner's list choose **Scan a folder...** and pick the

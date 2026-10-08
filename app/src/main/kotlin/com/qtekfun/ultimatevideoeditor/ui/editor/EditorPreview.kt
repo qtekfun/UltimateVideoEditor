@@ -98,6 +98,8 @@ class EditorPreview(
     private val onProxyFailed: (assetId: String) -> Unit = {},
     /** An asset was opened by the software (FFmpeg) decoder; [proxyAdvised] when it is too heavy for real time. */
     private val onSoftwareDecoding: (proxyAdvised: Boolean) -> Unit = {},
+    /** A decoder failed on the asset with this native key (an I/O or codec error mid-way); null reports it through [onError]. */
+    private val onAssetFailure: ((assetKey: Long, message: String) -> Unit)? = null,
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
 
@@ -105,7 +107,12 @@ class EditorPreview(
 
     /** Null if the native preview could not start; the screen then shows a placeholder. */
     val engine: PreviewEngine? = try {
-        PreviewEngine.create { main.post { onError("Preview error: ${it.message}") } }
+        PreviewEngine.create { e ->
+            main.post {
+                val message = "Preview error: ${e.message}"
+                if (e.hasAsset && onAssetFailure != null) onAssetFailure.invoke(e.assetKey, message) else onError(message)
+            }
+        }
     } catch (e: PreviewException) {
         onError("The preview could not start: ${e.message}")
         null
@@ -378,6 +385,21 @@ class EditorPreview(
                 if (!following) latest?.let(::show)
             }
         }
+    }
+
+    /**
+     * The file behind the asset with this key (any lane of it) vanished: close its decoders, which hold a dead descriptor.
+     * Nothing is drawn from it while it is missing, and it gets a new key when it is readable again.
+     */
+    fun release(assetKey: Long) {
+        val engine = engine ?: return
+        val gone = open.filter { it.toLong() % LANE_STRIDE == assetKey }
+        for (key in gone) {
+            open -= key
+            openUris -= key
+            engine.closeAsset(key)
+        }
+        if (!following) latest?.let(::show)
     }
 
     /** Marks [key] as the most recently shown asset. */
