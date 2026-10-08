@@ -1169,6 +1169,8 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
                         viewModel.onIntent(EditorIntent.RippleDeleteSelected)
                     }
+                    // Used all the time: right after the trash.
+                    MarkerMenu(state, viewModel::onIntent)
                     SelectModeButton(state, viewModel::onIntent)
                     ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
                         viewModel.onIntent(EditorIntent.RippleAppendSelected)
@@ -1177,7 +1179,6 @@ private fun EditorMain(
                     ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file", onClick = onCaptions)
                     ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS) }
                     ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES) }
-                    MarkerMenu(state, viewModel::onIntent)
                     QuickEditMenu(state, viewModel::onIntent)
                     LibraryButton(viewModel::onIntent)
                     val proxyIntent = LocalProxyIntent.current

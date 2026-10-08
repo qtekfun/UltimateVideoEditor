@@ -1833,3 +1833,8 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 **Log:** tag `uv_wave`, INFO, one line per asset and state change (`asset=<key> requested|ready|silent|failed`, and for peaks rate, channels (0 from the cache), duration_ms, peak_max, levels, source=cache|decode; failures carry the status code). **Alternative rejected:** a Kotlin-side state in `EditorState`: the failure happens in the worker and only the renderer needs it.
 **Not verified:** nothing was changed on the owner's phone; the fix is proved by the host tests and by arithmetic on the owner's zoom (the old formula gives 0 drawable columns at his scroll). Not yet seen on a device with scrolled footage.
 
+
+## Marker button after the trash, markers red by default (2026-10-08)
+
+- **Toolbar order.** The marker (flag) button moved from after the text-template button to right behind Delete, because the owner uses it all the time. The editor toolbar order is still fixed; letting the user define it in settings was offered as an alternative and is not built (it needs a stored order, a settings screen, and the toolbar guide and site icon page to follow it).
+- **Default flag colour.** A marker with no colour chosen is now drawn red (the same red as the chosen "red"), instead of the old pink. Existing markers without a colour change with it; markers with a colour keep theirs. The playhead is also red-coral: the flag is a flag shape on the ruler and the playhead a line through the lanes, so they stay apart, but if they read as one on a device the default can move to another hue.

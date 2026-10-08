@@ -27,7 +27,7 @@ constexpr int markerColorCode(int32_t extra) {
 
 constexpr bool markerHasNote(int32_t extra) { return (extra & kMarkerNoteBit) != 0; }
 
-// Flag colour for a colour code; code 0 is the default pink used before markers could be coloured.
+// Flag colour for a colour code; code 0 (no colour chosen) is drawn red, the same red as code 1.
 constexpr MarkerRgb markerRgb(int code) {
     switch (code) {
         case 1: return {1.00f, 0.32f, 0.32f};  // red
@@ -36,7 +36,7 @@ constexpr MarkerRgb markerRgb(int code) {
         case 4: return {0.41f, 0.94f, 0.68f};  // green
         case 5: return {0.27f, 0.54f, 1.00f};  // blue
         case 6: return {0.70f, 0.53f, 1.00f};  // purple
-        default: return {1.00f, 0.45f, 0.80f};
+        default: return {1.00f, 0.32f, 0.32f};
     }
 }
 
