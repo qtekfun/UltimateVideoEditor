@@ -188,7 +188,7 @@ Every icon also has a text description: long press it to see its name, or use a 
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
 | ✂ | Split at playhead | With nothing selected, cuts every clip on every lane (video, audio, titles) that the playhead is over, as one undo step; a video clip and its linked audio are cut together, and the selection stays empty. Otherwise cuts the selected clip in two (with several selected, every one the playhead is over, as one undo step). Playback pauses and the playhead stays exactly on the cut, the first frame of the right-hand part, which becomes the selection so you can move the playhead and cut again. Undo and redo leave the playhead where it is. |
 | ⛶ (dotted square) | Select several clips | Turns select mode on or off; see [Selecting several clips](#selecting-several-clips). |
-| 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. |
+| 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. The playhead then goes to where the deleted clip started, so after cutting and deleting the left part it sits on the join. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
 | T | Add a title | Adds a text title at the playhead. |
 | CC | Captions | Opens the captions sheet: type captions, import a `.srt` / `.vtt` file, choose a style and restyle all captions. |
