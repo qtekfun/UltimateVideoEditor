@@ -75,7 +75,7 @@ If only some of the four values are present the build stays unsigned, so a parti
 
 - **`ci.yml`** runs the unit tests, host tests and a debug build on every pull request.
 - **`release.yml`** (manual run or a `v*` tag) runs the tests, lint, and builds the APK and AAB. A **tag** publishes a
-  GitHub Release with `ultimateVE-<version>.apk`, the AAB, `SHA256SUMS.txt` and the R8 `mapping.txt`; it is marked as a
+  GitHub Release with `ultimateVE-<version>.apk`, the AAB, `SHA256SUMS.txt` and the R8 `mapping.txt.gz` (gzip of `mapping.txt`; `gunzip` it before `retrace`); it is marked as a
   pre-release while the major version is 0. A tagged build **fails if the signing secrets are missing**, so an unsigned
   file is never published. A manual run only keeps the files as workflow artifacts (30 days).
   The release also gets `ultimateVE-<version>-user-guide.pdf`, printed by headless Chrome from the generated user guide
@@ -120,7 +120,7 @@ To publish: set `versionName` in `gradle/version.properties`, merge, then `git t
    `flock /tmp/gradle-build.lock ./gradlew :app:assembleDebug -Puveditor.appIdSuffix=qa && scripts/qa-smoke.sh <serial> --install`
    (no `--quick`). Every row must be PASS (a SKIP needs a written reason); paste the RESULT line and the date in the log below.
    Any FAIL blocks the release until it is fixed or the check is shown to be wrong (and then the check is fixed).
-8. Tag `v<versionName>`, run the release workflow, download the artifacts, check the checksums, keep `mapping.txt`.
+8. Tag `v<versionName>`, run the release workflow, download the artifacts, check the checksums, keep `mapping.txt.gz`.
 9. Store listing updated (below).
 
 Device regression log (`scripts/qa-smoke.sh`, one line per release):
