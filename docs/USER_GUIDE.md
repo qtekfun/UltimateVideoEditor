@@ -373,7 +373,7 @@ An indicator shows the action while you drag:
 
 Select a clip and tap the sliders icon. Sections depend on the clip:
 
-- **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview).
+- **Transform**: position, scale, rotation and opacity (you can also drag, pinch and twist on the preview). Under the Rotation slider, **-90°** and **+90°** turn the clip a quarter turn counter-clockwise or clockwise from where it is, one undo step each.
 - **Volume**: gain in dB for clips with audio.
 - **Sound tools** (clips with audio): pan, fades, equaliser, noise suppression and loudness, see [Sound](#sound).
 - **Speed**: presets and a slider (0.1x to 100x), reverse, ease-in / ease-out / bell ramps and **Freeze frame at
@@ -574,7 +574,7 @@ greyed out where there is no clip). Dragging a marker attaches it to the clip it
 free. Projects from before this feature open with free markers; switch them on one by one.
 
 **Edit a marker.** Tap the marker's flag on the ruler (the touch area is about 40 dp wide, bigger than the
-flag). A small panel opens under the ruler with:
+flag). The playhead jumps onto that marker and a small panel opens under the ruler with:
 
 - a **name** (one line, up to 40 characters) and a **note** (several lines, up to 200 characters). When the
   timeline is zoomed in far enough, the name is written next to the flag, in the system font (accents, symbols and emoji

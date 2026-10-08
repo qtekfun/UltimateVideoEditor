@@ -116,4 +116,15 @@ class PreviewGeometryTest {
 
         assertTrue(previewLayersAt(timeline, FrameIndex(10)).isEmpty())
     }
+
+    @Test
+    fun `a quarter turn adds 90 degrees and wraps into minus 180 to 180`() {
+        assertEquals(90.0, PreviewGeometry.turnBy(0.0, 90.0), 1e-9)
+        assertEquals(-90.0, PreviewGeometry.turnBy(0.0, -90.0), 1e-9)
+        assertEquals(180.0, PreviewGeometry.turnBy(90.0, 90.0), 1e-9)
+        assertEquals(-90.0, PreviewGeometry.turnBy(180.0, 90.0), 1e-9)
+        assertEquals(90.0, PreviewGeometry.turnBy(-180.0, -90.0), 1e-9)
+        assertEquals(107.0, PreviewGeometry.turnBy(17.0, 90.0), 1e-9)
+        assertEquals(0.0, PreviewGeometry.turnBy(PreviewGeometry.turnBy(PreviewGeometry.turnBy(PreviewGeometry.turnBy(0.0, 90.0), 90.0), 90.0), 90.0), 1e-9)
+    }
 }
