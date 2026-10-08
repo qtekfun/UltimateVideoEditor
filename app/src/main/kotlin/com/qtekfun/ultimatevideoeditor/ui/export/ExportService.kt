@@ -24,8 +24,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * Keeps the process alive and shows the progress while a long job (a movie export or a project backup) runs, so it survives leaving the app, switching apps
- * and the screen turning off. The work itself is in [ExportExecutor] and [BundleExportExecutor]; this only mirrors their state into a notification.
+ * Keeps the process alive and shows the progress while a long job (a movie export, a project backup or a project import) runs, so it survives leaving the app, switching apps
+ * and the screen turning off. The work itself is in [ExportExecutor], [BundleExportExecutor] and [BundleImportExecutor]; this only mirrors their state into a notification.
  * It uses no network: the service types are about long-running work (media processing, data sync before Android 15).
  */
 class ExportService : Service() {
@@ -38,28 +38,37 @@ class ExportService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val movie = ExportCenter.executor(this)
         val bundle = ExportCenter.bundles(this)
+        val imports = ExportCenter.imports(this)
         lastStartId = startId
         if (intent?.action == ACTION_CANCEL) {
             // Only one long job runs at a time, so Cancel on whichever notification is showing stops that one.
             movie.cancel()
             bundle.cancel()
-            if (!movie.state.value.isRunning && !bundle.state.value.isRunning) stopSelf(startId)
+            imports.cancel()
+            if (!movie.state.value.isRunning && !bundle.state.value.isRunning && !imports.state.value.isRunning) stopSelf(startId)
             return START_NOT_STICKY
         }
         createChannel()
         notificationManager().cancel(RESULT_NOTIFICATION_ID) // the result of an earlier job is history now
         notificationManager().cancel(BUNDLE_RESULT_NOTIFICATION_ID)
+        notificationManager().cancel(IMPORT_RESULT_NOTIFICATION_ID)
         // The system gives a few seconds after startForegroundService() to call this, so it comes before anything else.
         // Platform call, not ServiceCompat: with androidx.core 1.19.1 on Android 17 the compat path started the service with type none,
         // which the system rejects (InvalidForegroundServiceTypeException). minSdk 31 has the three-argument form.
-        val first = bundleNotificationFor(bundle.state.value)?.takeIf { it.ongoing } ?: exportNotificationFor(movie.state.value) ?: PLACEHOLDER
+        val first = bundleNotificationFor(bundle.state.value)?.takeIf { it.ongoing }
+            ?: importNotificationFor(imports.state.value)?.takeIf { it.ongoing }
+            ?: exportNotificationFor(movie.state.value) ?: PLACEHOLDER
         startForeground(NOTIFICATION_ID, build(first), foregroundType())
         if (watching.isEmpty()) {
             watching += scope.launch {
-                watch(movie.state, { exportNotificationFor(it) }, { it.isRunning }, RESULT_NOTIFICATION_ID, movie, bundle)
+                watch(movie.state, { exportNotificationFor(it) }, { it.isRunning }, RESULT_NOTIFICATION_ID, movie, bundle, imports)
             }
             watching += scope.launch {
-                watch(bundle.state, { bundleNotificationFor(it) }, { it.isRunning }, BUNDLE_RESULT_NOTIFICATION_ID, movie, bundle)
+                watch(bundle.state, { bundleNotificationFor(it) }, { it.isRunning }, BUNDLE_RESULT_NOTIFICATION_ID, movie, bundle, imports)
+            }
+            watching += scope.launch {
+                // A running import whose dialog has not been shown yet (the first moments) has no notification: the service waits too.
+                watch(imports.state, { importNotificationFor(it) }, { it.isRunning }, IMPORT_RESULT_NOTIFICATION_ID, movie, bundle, imports)
             }
         }
         return START_NOT_STICKY
@@ -76,6 +85,7 @@ class ExportService : Service() {
         resultId: Int,
         movie: ExportExecutor,
         bundle: BundleExportExecutor,
+        imports: BundleImportExecutor,
     ) {
         var wasRunning = false
         states.map { model(it) to running(it) }.distinctUntilChanged().collect { (shown, isRunning) ->
@@ -85,7 +95,7 @@ class ExportService : Service() {
                 startForeground(NOTIFICATION_ID, build(shown), foregroundType())
             } else if (!isRunning && wasRunning) {
                 wasRunning = false
-                val otherRunning = movie.state.value.isRunning || bundle.state.value.isRunning
+                val otherRunning = movie.state.value.isRunning || bundle.state.value.isRunning || imports.state.value.isRunning
                 if (!otherRunning) ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 if (shown != null) notificationManager().notify(resultId, build(shown))
                 if (!otherRunning) stopSelf(lastStartId)
@@ -111,7 +121,7 @@ class ExportService : Service() {
 
     private fun createChannel() {
         val channel = NotificationChannel(CHANNEL_ID, "Export", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Progress of a movie export or a project backup"
+            description = "Progress of a movie export, a project backup or a project import"
             setSound(null, null)
             enableVibration(false)
         }
@@ -119,7 +129,7 @@ class ExportService : Service() {
     }
 
     private fun build(model: ExportNotificationModel): Notification {
-        val open = openIntentFor(model.projectId, model.bundle)
+        val open = openIntentFor(model.projectId, model.bundle, model.import)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(if (model.ongoing) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_upload_done)
             .setContentTitle(model.title)
@@ -154,14 +164,15 @@ class ExportService : Service() {
      * Brings MainActivity forward (a running one gets onNewIntent, a killed one starts) with the project id, so the app can
      * open that project's editor with the export dialog. Without a project (the placeholder) it is a plain launch.
      */
-    private fun openIntentFor(projectId: String, bundle: Boolean): PendingIntent {
+    private fun openIntentFor(projectId: String, bundle: Boolean, import: Boolean): PendingIntent {
         val intent = Intent(this, MainActivity::class.java)
             .setAction(ExportLaunch.ACTION_SHOW)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         if (projectId.isNotEmpty()) intent.putExtra(ExportLaunch.EXTRA_PROJECT_ID, projectId)
         if (bundle) intent.putExtra(ExportLaunch.EXTRA_BUNDLE, true)
+        if (import) intent.putExtra(ExportLaunch.EXTRA_IMPORT, true)
         // One PendingIntent per project: UPDATE_CURRENT would otherwise rewrite the extras of an older notification's intent.
-        return PendingIntent.getActivity(this, projectId.hashCode() * 2 + if (bundle) 1 else 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        return PendingIntent.getActivity(this, projectId.hashCode() * 4 + (if (bundle) 1 else 0) + (if (import) 2 else 0), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     companion object {
@@ -172,6 +183,7 @@ class ExportService : Service() {
         private const val NOTIFICATION_ID = 7001
         private const val RESULT_NOTIFICATION_ID = 7002
         private const val BUNDLE_RESULT_NOTIFICATION_ID = 7003
+        private const val IMPORT_RESULT_NOTIFICATION_ID = 7004
         private const val PROGRESS_MAX = 100
         private val PLACEHOLDER = ExportNotificationModel("Exporting", "Starting…", null, true, ongoing = true, showCancel = true)
     }

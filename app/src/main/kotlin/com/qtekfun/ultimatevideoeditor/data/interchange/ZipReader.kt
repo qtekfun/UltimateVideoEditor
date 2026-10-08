@@ -62,7 +62,8 @@ class ZipReader(private val source: RandomAccess, private val maxEntries: Int = 
             METHOD_STORED -> Bounded(source, start, entry.compressedSize, pad = false)
             METHOD_DEFLATED -> {
                 val inflater = Inflater(true)
-                object : FilterInputStream(InflaterInputStream(Bounded(source, start, entry.compressedSize, pad = true), inflater)) {
+                // A big buffer: the default 512 bytes would be one positional read per 512 bytes of a multi-gigabyte entry.
+                object : FilterInputStream(InflaterInputStream(Bounded(source, start, entry.compressedSize, pad = true), inflater, INFLATE_BUFFER)) {
                     override fun close() {
                         try {
                             super.close()
@@ -197,6 +198,7 @@ class ZipReader(private val source: RandomAccess, private val maxEntries: Int = 
         const val MAX_DIRECTORY = 256L * 1024 * 1024
         const val METHOD_STORED = 0
         const val METHOD_DEFLATED = 8
+        const val INFLATE_BUFFER = 64 * 1024
 
         fun le16(b: ByteArray, i: Int) = (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
 

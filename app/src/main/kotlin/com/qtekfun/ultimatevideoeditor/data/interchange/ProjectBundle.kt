@@ -254,16 +254,134 @@ object ProjectBundle {
     fun resourceEntryName(kind: ResourceKind, key: String, fileName: String): String = RESOURCES + safeLeaf("${kind.wire}-$key-$fileName")
 
     /**
-     * Unpacks [input] into [dir]. Entry names are validated, sizes are bounded by [limits], and only
-     * `bundle.json`, `project.json`, `thumbnails/<file>`, `media/<file>` and `resources/<file>` are accepted;
-     * anything else (including directories) is skipped after its name passes the safety check, so a bundle
-     * with entries this build does not know still opens.
+     * What unpacking a bundle will move, worked out from the central directory of a zip before the first byte is copied: the
+     * payload bytes (`bundle.json`, `project.json`, pictures, LUTs and fonts, media) and how many media files there are.
+     * Sizes are `Long`s end to end (a zip64 bundle of tens of gigabytes), and a bundle that breaks [limits] is refused here,
+     * before anything is written. Pure, so it is tested with made-up sizes.
+     */
+    @Throws(BundleError::class)
+    fun plan(entries: List<ZipEntryInfo>, limits: BundleLimits = BundleLimits()): BundlePlan {
+        if (entries.size > limits.maxEntries) throw BundleError.TooLarge("more than ${limits.maxEntries} files")
+        var total = 0L
+        var media = 0
+        var mediaBytes = 0L
+        var resources = 0
+        var resourceBytes = 0L
+        for (entry in entries) {
+            if (entry.isDirectory) continue
+            val name = checkedName(entry.name)
+            when {
+                name == MANIFEST || name == PROJECT -> {
+                    if (entry.size > limits.maxJsonBytes) throw BundleError.TooLarge("$name is bigger than ${limits.maxJsonBytes / (1024 * 1024)} MB")
+                    total += entry.size
+                }
+                name.startsWith(THUMBS) && leafOk(name.removePrefix(THUMBS)) -> {
+                    if (entry.size > limits.maxThumbnailBytes) throw BundleError.TooLarge("$name is bigger than allowed")
+                    total += entry.size
+                }
+                name.startsWith(MEDIA) && leafOk(name.removePrefix(MEDIA)) -> {
+                    if (entry.size > limits.maxFileBytes) throw BundleError.TooLarge("$name is bigger than allowed")
+                    mediaBytes += entry.size
+                    if (mediaBytes > limits.maxTotalBytes) throw BundleError.TooLarge("more than ${limits.maxTotalBytes / (1024 * 1024 * 1024)} GB in total")
+                    total += entry.size
+                    media++
+                }
+                name.startsWith(RESOURCES) && leafOk(name.removePrefix(RESOURCES)) -> {
+                    if (++resources > limits.maxResources) throw BundleError.TooLarge("more than ${limits.maxResources} LUTs and fonts")
+                    if (entry.size > limits.maxResourceBytes) throw BundleError.TooLarge("$name is bigger than allowed")
+                    resourceBytes += entry.size
+                    if (resourceBytes > limits.maxResourceTotalBytes) throw BundleError.TooLarge("more than ${limits.maxResourceTotalBytes / (1024 * 1024)} MB of LUTs and fonts")
+                    total += entry.size
+                }
+                name.startsWith(THUMBS) || name.startsWith(MEDIA) -> throw BundleError.UnsafePath(name)
+            }
+        }
+        return BundlePlan(total, media)
+    }
+
+    /** `bundle.json` and `project.json` of an open bundle, checked to be what they claim, read before any media is copied. */
+    class BundleHeader(val manifest: BundleManifest, val projectJson: String)
+
+    /** Reads and validates the two small documents; a missing, unreadable or newer-format bundle is refused here, in a moment. */
+    @Throws(BundleError::class, IOException::class)
+    fun readHeader(zip: ZipReader, limits: BundleLimits = BundleLimits()): BundleHeader {
+        val manifestEntry = zip.find(MANIFEST) ?: throw BundleError.NotABundle("it has no $MANIFEST")
+        val projectEntry = zip.find(PROJECT) ?: throw BundleError.Corrupt("it has no $PROJECT")
+        val manifestText = readSmall(zip, manifestEntry, limits.maxJsonBytes)
+        val projectText = readSmall(zip, projectEntry, limits.maxJsonBytes)
+        return BundleHeader(checkedManifest(manifestText), projectText)
+    }
+
+    private fun readSmall(zip: ZipReader, entry: ZipEntryInfo, max: Long): String {
+        if (entry.size > max) throw BundleError.TooLarge("${entry.name} is bigger than ${max / (1024 * 1024)} MB")
+        val bytes = try {
+            zip.open(entry).use { it.readBytes() }
+        } catch (e: java.util.zip.ZipException) {
+            throw BundleError.Corrupt(e.message ?: "unreadable archive", e)
+        }
+        if (bytes.size.toLong() != entry.size) throw BundleError.Corrupt("${entry.name} is ${bytes.size} bytes, expected ${entry.size}")
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    private fun checkedManifest(text: String): BundleManifest {
+        val manifest = try {
+            json.decodeFromString<BundleManifest>(text)
+        } catch (e: IllegalArgumentException) {
+            throw BundleError.Corrupt("$MANIFEST is not valid", e)
+        }
+        if (manifest.format != BundleManifest.FORMAT) throw BundleError.NotABundle("format '${manifest.format}'")
+        if (manifest.formatVersion > BundleManifest.FORMAT_VERSION) throw BundleError.UnsupportedVersion(manifest.formatVersion, BundleManifest.FORMAT_VERSION)
+        return manifest
+    }
+
+    /**
+     * Unpacks [input] (a stream: no sizes are known up front) into [dir]. See [unpack] for what is accepted. [observer] is told
+     * about every entry and every 256 KB chunk and can stop the copy; it gets a total of 0 because a stream has no directory.
      */
     @Throws(BundleError::class, IOException::class)
-    fun extract(input: InputStream, dir: File, limits: BundleLimits = BundleLimits()): ExtractedBundle {
+    fun extract(input: InputStream, dir: File, limits: BundleLimits = BundleLimits(), observer: BundleWriteObserver = BundleWriteObserver.NONE): ExtractedBundle {
         val zip = ZipInputStream(BufferedInputStream(input))
+        val entries = generateSequence {
+            zip.nextEntry?.let { Packed(it.name, it.isDirectory, it.size, owned = false) { zip } }
+        }.iterator()
+        observer.onStart(0, 0)
+        return unpack(entries, dir, limits, observer)
+    }
+
+    /**
+     * Unpacks a bundle opened for random access: the central directory gives the total before the first byte (see [plan]),
+     * the small documents are read first, and every file's copied size must equal the size the directory declares.
+     */
+    @Throws(BundleError::class, IOException::class)
+    fun extract(zip: ZipReader, dir: File, limits: BundleLimits = BundleLimits(), observer: BundleWriteObserver = BundleWriteObserver.NONE): ExtractedBundle {
+        val plan = plan(zip.entries, limits)
+        observer.onStart(plan.totalBytes, plan.mediaCount)
+        // The documents first (a bad project is found before gigabytes are copied), the biggest files last.
+        val ordered = zip.entries.sortedBy { rank(it.name) }
+        val entries = ordered.asSequence().map { info -> Packed(info.name, info.isDirectory, info.size, owned = true) { zip.open(info) } }.iterator()
+        return unpack(entries, dir, limits, observer)
+    }
+
+    private fun rank(name: String): Int = when {
+        name == MANIFEST || name == PROJECT -> 0
+        name.startsWith(THUMBS) -> 1
+        name.startsWith(RESOURCES) -> 2
+        name.startsWith(MEDIA) -> 3
+        else -> 4
+    }
+
+    /** One entry on its way out of a zip; [open] gives its content, to be closed by the reader only when [owned]. */
+    private class Packed(val name: String, val isDirectory: Boolean, val declaredSize: Long, val owned: Boolean, val open: () -> InputStream)
+
+    /**
+     * Entry names are validated, sizes are bounded by [limits], and only `bundle.json`, `project.json`, `thumbnails/<file>`,
+     * `media/<file>` and `resources/<file>` are accepted; anything else (including directories) is skipped after its name passes
+     * the safety check, so a bundle with entries this build does not know still opens.
+     */
+    private fun unpack(entries: Iterator<Packed>, dir: File, limits: BundleLimits, observer: BundleWriteObserver): ExtractedBundle {
         var manifestText: String? = null
         var projectText: String? = null
+        var displayNames: Map<String, String> = emptyMap() // media entry -> the file name the user knows
         val media = LinkedHashMap<String, File>() // by entry name
         val thumbs = ArrayList<File>()
         val resources = LinkedHashMap<String, File>() // by entry name
@@ -272,50 +390,69 @@ object ProjectBundle {
         val seen = HashSet<String>()
         var total = 0L
         var count = 0
+        var mediaIndex = 0
         try {
-            while (true) {
-                val entry = zip.nextEntry ?: break
+            while (entries.hasNext()) {
+                val entry = entries.next()
                 if (++count > limits.maxEntries) throw BundleError.TooLarge("more than ${limits.maxEntries} files")
                 val name = checkedName(entry.name)
                 if (entry.isDirectory) continue
                 if (!seen.add(name)) throw BundleError.Corrupt("the file $name appears twice")
-                when {
-                    name == MANIFEST -> manifestText = readLimited(zip, limits.maxJsonBytes, name).toString(Charsets.UTF_8)
-                    name == PROJECT -> projectText = readLimited(zip, limits.maxJsonBytes, name).toString(Charsets.UTF_8)
-                    name.startsWith(THUMBS) && leafOk(name.removePrefix(THUMBS)) -> {
-                        val file = File(dir, "thumbnails/${name.removePrefix(THUMBS)}")
-                        total += copyLimited(zip, file, limits.maxThumbnailBytes, name)
-                        thumbs += file
+                if (observer.isCancelled()) throw ImportCancelled()
+                val source = entry.open()
+                try {
+                    when {
+                        name == MANIFEST || name == PROJECT -> {
+                            observer.onItem(BundleItemKind.PROJECT, name, 0)
+                            val bytes = readLimited(source, limits.maxJsonBytes, name, observer)
+                            checkDeclared(entry, bytes.size.toLong(), name)
+                            val text = bytes.toString(Charsets.UTF_8)
+                            if (name == MANIFEST) {
+                                manifestText = text
+                                // Only to show real file names while the media copies; the real checks are after the loop.
+                                displayNames = try {
+                                    json.decodeFromString<BundleManifest>(text).media.mapNotNull { m -> m.entry?.let { it to m.name } }.toMap()
+                                } catch (e: IllegalArgumentException) {
+                                    emptyMap()
+                                }
+                            } else {
+                                projectText = text
+                            }
+                        }
+                        name.startsWith(THUMBS) && leafOk(name.removePrefix(THUMBS)) -> {
+                            observer.onItem(BundleItemKind.THUMBNAIL, name.removePrefix(THUMBS), 0)
+                            val file = File(dir, "thumbnails/${name.removePrefix(THUMBS)}")
+                            total += copyLimited(source, file, limits.maxThumbnailBytes, name, entry.declaredSize, observer)
+                            thumbs += file
+                        }
+                        name.startsWith(MEDIA) && leafOk(name.removePrefix(MEDIA)) -> {
+                            observer.onItem(BundleItemKind.MEDIA, displayNames[name] ?: name.removePrefix(MEDIA), ++mediaIndex)
+                            val file = File(dir, "media/${name.removePrefix(MEDIA)}")
+                            val size = copyLimited(source, file, limits.maxFileBytes, name, entry.declaredSize, observer)
+                            total += size
+                            if (total > limits.maxTotalBytes) throw BundleError.TooLarge("more than ${limits.maxTotalBytes / (1024 * 1024 * 1024)} GB in total")
+                            media[name] = file
+                        }
+                        name.startsWith(RESOURCES) && leafOk(name.removePrefix(RESOURCES)) -> {
+                            if (++resourceCount > limits.maxResources) throw BundleError.TooLarge("more than ${limits.maxResources} LUTs and fonts")
+                            observer.onItem(BundleItemKind.RESOURCE, name.removePrefix(RESOURCES), 0)
+                            val file = File(dir, "resources/${name.removePrefix(RESOURCES)}")
+                            val size = copyLimited(source, file, limits.maxResourceBytes, name, entry.declaredSize, observer)
+                            resourceTotal += size
+                            if (resourceTotal > limits.maxResourceTotalBytes) throw BundleError.TooLarge("more than ${limits.maxResourceTotalBytes / (1024 * 1024)} MB of LUTs and fonts")
+                            resources[name] = file
+                        }
+                        // Anything else is ignored, so a newer app can add kinds of entries without older ones refusing the bundle.
+                        else -> if (name.startsWith(THUMBS) || name.startsWith(MEDIA)) throw BundleError.UnsafePath(name)
                     }
-                    name.startsWith(MEDIA) && leafOk(name.removePrefix(MEDIA)) -> {
-                        val file = File(dir, "media/${name.removePrefix(MEDIA)}")
-                        val size = copyLimited(zip, file, limits.maxFileBytes, name)
-                        total += size
-                        if (total > limits.maxTotalBytes) throw BundleError.TooLarge("more than ${limits.maxTotalBytes / (1024 * 1024 * 1024)} GB in total")
-                        media[name] = file
-                    }
-                    name.startsWith(RESOURCES) && leafOk(name.removePrefix(RESOURCES)) -> {
-                        if (++resourceCount > limits.maxResources) throw BundleError.TooLarge("more than ${limits.maxResources} LUTs and fonts")
-                        val file = File(dir, "resources/${name.removePrefix(RESOURCES)}")
-                        val size = copyLimited(zip, file, limits.maxResourceBytes, name)
-                        resourceTotal += size
-                        if (resourceTotal > limits.maxResourceTotalBytes) throw BundleError.TooLarge("more than ${limits.maxResourceTotalBytes / (1024 * 1024)} MB of LUTs and fonts")
-                        resources[name] = file
-                    }
-                    // Anything else is ignored, so a newer app can add kinds of entries without older ones refusing the bundle.
-                    else -> if (name.startsWith(THUMBS) || name.startsWith(MEDIA)) throw BundleError.UnsafePath(name)
+                } finally {
+                    if (entry.owned) source.close()
                 }
             }
         } catch (e: java.util.zip.ZipException) {
             throw BundleError.Corrupt(e.message ?: "unreadable archive", e)
         }
-        val manifest = try {
-            json.decodeFromString<BundleManifest>(manifestText ?: throw BundleError.NotABundle("it has no $MANIFEST"))
-        } catch (e: IllegalArgumentException) {
-            throw BundleError.Corrupt("$MANIFEST is not valid", e)
-        }
-        if (manifest.format != BundleManifest.FORMAT) throw BundleError.NotABundle("format '${manifest.format}'")
-        if (manifest.formatVersion > BundleManifest.FORMAT_VERSION) throw BundleError.UnsupportedVersion(manifest.formatVersion, BundleManifest.FORMAT_VERSION)
+        val manifest = checkedManifest(manifestText ?: throw BundleError.NotABundle("it has no $MANIFEST"))
         val project = projectText ?: throw BundleError.Corrupt("it has no $PROJECT")
         val byAsset = HashMap<String, File>()
         for (m in manifest.media) {
@@ -331,6 +468,13 @@ object ProjectBundle {
             resources[entry]?.let { byResource[entry] = it }
         }
         return ExtractedBundle(project, manifest, byAsset, thumbs, byResource)
+    }
+
+    /** A file that ends with another size than the directory declares is cut short or damaged: never kept. */
+    private fun checkDeclared(entry: Packed, actual: Long, name: String) {
+        if (entry.declaredSize >= 0 && actual != entry.declaredSize) {
+            throw BundleError.Corrupt("${name.takeLast(60)} has $actual of ${entry.declaredSize} bytes: the file is cut short or damaged")
+        }
     }
 
     /** Opens [input] and tells whether it is a bundle, without consuming it: [input] must support mark/reset. */
@@ -365,33 +509,49 @@ object ProjectBundle {
         return cleaned.take(120).ifEmpty { "file" }
     }
 
-    private fun readLimited(zip: ZipInputStream, max: Long, name: String): ByteArray {
+    private fun readLimited(source: InputStream, max: Long, name: String, observer: BundleWriteObserver): ByteArray {
         val out = java.io.ByteArrayOutputStream()
         val buffer = ByteArray(BUFFER)
         var total = 0L
         while (true) {
-            val n = zip.read(buffer)
+            val n = source.read(buffer)
             if (n < 0) break
             total += n
             if (total > max) throw BundleError.TooLarge("$name is bigger than ${max / (1024 * 1024)} MB")
             out.write(buffer, 0, n)
         }
+        observer.onBytes(total)
         return out.toByteArray()
     }
 
-    private fun copyLimited(zip: ZipInputStream, target: File, max: Long, name: String): Long {
+    /** Copies one entry in 256 KB chunks: the observer counts each and may stop it between two, and the size must match the directory's. */
+    private fun copyLimited(source: InputStream, target: File, max: Long, name: String, declared: Long, observer: BundleWriteObserver): Long {
         target.parentFile?.let { if (!it.isDirectory && !it.mkdirs()) throw IOException("cannot create $it") }
         var total = 0L
         FileOutputStream(target).use { out ->
-            val buffer = ByteArray(BUFFER)
-            while (true) {
-                val n = zip.read(buffer)
-                if (n < 0) break
-                total += n
+            val buffer = ByteArray(COPY_BUFFER)
+            var end = false
+            while (!end) {
+                if (observer.isCancelled()) throw ImportCancelled()
+                // A deflated entry hands out 512 bytes at a time: fill the chunk, so the copy, the counting and the
+                // cancel check all work in whole 256 KB steps whatever the zip's method.
+                var filled = 0
+                while (filled < buffer.size) {
+                    val n = source.read(buffer, filled, buffer.size - filled)
+                    if (n < 0) {
+                        end = true
+                        break
+                    }
+                    filled += n
+                }
+                if (filled == 0) break
+                total += filled
                 if (total > max) throw BundleError.TooLarge("$name is bigger than allowed")
-                out.write(buffer, 0, n)
+                out.write(buffer, 0, filled)
+                observer.onBytes(filled.toLong())
             }
         }
+        if (declared >= 0 && total != declared) throw BundleError.Corrupt("${name.takeLast(60)} has $total of $declared bytes: the file is cut short or damaged")
         return total
     }
 

@@ -91,16 +91,21 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     /** One tap on an export notification; a new instance each time so that a second tap on the same project is handled again. */
-    private class ExportTap(val projectId: String?, val bundle: Boolean = false)
+    private class ExportTap(val projectId: String?, val bundle: Boolean = false, val import: Boolean = false)
 
     private var exportTap by mutableStateOf<ExportTap?>(null)
 
     /** Reads the project id of an export notification's intent and clears it, so a rotation or recreation does not replay it. */
     private fun takeExportTap(intent: android.content.Intent?) {
         if (intent?.action != ExportLaunch.ACTION_SHOW) return
-        exportTap = ExportTap(intent.getStringExtra(ExportLaunch.EXTRA_PROJECT_ID), intent.getBooleanExtra(ExportLaunch.EXTRA_BUNDLE, false))
+        exportTap = ExportTap(
+            intent.getStringExtra(ExportLaunch.EXTRA_PROJECT_ID),
+            intent.getBooleanExtra(ExportLaunch.EXTRA_BUNDLE, false),
+            intent.getBooleanExtra(ExportLaunch.EXTRA_IMPORT, false),
+        )
         intent.removeExtra(ExportLaunch.EXTRA_PROJECT_ID)
         intent.removeExtra(ExportLaunch.EXTRA_BUNDLE)
+        intent.removeExtra(ExportLaunch.EXTRA_IMPORT)
         intent.action = null
     }
 
@@ -110,13 +115,14 @@ class MainActivity : ComponentActivity() {
         takeExportTap(intent)
     }
 
-    /** The screen stays on while a movie export or a project backup runs and this activity is visible; the flag is cleared as soon as it ends. */
+    /** The screen stays on while a movie export, a project backup or a project import runs and this activity is visible; the flag is cleared as soon as it ends. */
     private fun keepScreenOnWhileExporting() {
         val executor = com.qtekfun.ultimatevideoeditor.ui.export.ExportCenter.executor(this)
         val bundles = com.qtekfun.ultimatevideoeditor.ui.export.ExportCenter.bundles(this)
+        val imports = com.qtekfun.ultimatevideoeditor.ui.export.ExportCenter.imports(this)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                kotlinx.coroutines.flow.combine(executor.state, bundles.state) { movie, backup -> movie.isRunning || backup.isRunning }.distinctUntilChanged().collect { running ->
+                kotlinx.coroutines.flow.combine(executor.state, bundles.state, imports.state) { movie, backup, import -> movie.isRunning || backup.isRunning || import.isRunning }.distinctUntilChanged().collect { running ->
                     if (running) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
@@ -162,6 +168,7 @@ class MainActivity : ComponentActivity() {
             },
         )
         val bundleJobs = ExportCenter.bundles(applicationContext)
+        val importJobs = ExportCenter.imports(applicationContext)
         val interchange = RepositoryInterchangeExporter(repository, transferIO, bundleJobs)
         val mediaImporter = AndroidMediaImporter(applicationContext)
         val session = PreferencesSessionStore(applicationContext)
@@ -192,6 +199,10 @@ class MainActivity : ComponentActivity() {
                 trimPersistedUris(AndroidPersistedUris(applicationContext), repository.referencedMediaUris() + listOfNotNull(mediaFolderSettings.treeUri())) { Log.i("MediaPermissions", it) }
             }
         }
+        // A killed import leaves its scratch folder (gigabytes) behind: remove the ones nothing has touched for two minutes, unless an import runs now.
+        lifecycleScope.launch {
+            if (!importJobs.state.value.isRunning) repository.removeStaleImports()
+        }
         setContent {
             val amoled = appearance.amoled
             // The window behind Compose follows the choice, so no grey shows during transitions or on rotation.
@@ -209,6 +220,7 @@ class MainActivity : ComponentActivity() {
                                 mediaFolders = mediaFolderSettings,
                                 exportJobs = ExportCenter.executor(applicationContext),
                                 bundleJobs = bundleJobs,
+                                importJobs = importJobs,
                                 viewStore = hubViewStore,
                                 storageScanner = StorageScanner(
                                     FileDiskLister(),
@@ -248,6 +260,12 @@ class MainActivity : ComponentActivity() {
                             Log.w("UVExport", "Could not read the project list for a notification tap", e)
                             false
                         }
+                    }
+                    if (tap.import) {
+                        // An import is shown by the project list's bar and by its dialog, over whatever screen is open.
+                        importJobs.showDetails()
+                        exportTap = null
+                        return@LaunchedEffect
                     }
                     if (tap.bundle) {
                         // A backup is shown by the project list's bar and by its dialog, over whatever screen is open.
@@ -343,6 +361,12 @@ class MainActivity : ComponentActivity() {
                 }
                 // Over every screen: a project backup's progress and result, whichever screen started it.
                 com.qtekfun.ultimatevideoeditor.ui.library.BundleJobDialog(bundleJobs)
+                // Likewise a project import: its progress, its result with Open, and what it did not do cleanly.
+                com.qtekfun.ultimatevideoeditor.ui.library.ImportJobDialog(importJobs) { id ->
+                    session.markOpen(id)
+                    showAbout = false
+                    openProjectId = id
+                }
             }
         }
     }
