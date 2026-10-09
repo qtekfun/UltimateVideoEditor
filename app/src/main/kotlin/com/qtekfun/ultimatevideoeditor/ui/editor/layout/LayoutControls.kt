@@ -139,6 +139,7 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                         selected = state.preset == preset,
                         onClick = { onAction(LayoutAction.ApplyPreset(preset)) },
                         label = { Text(stringResource(preset.labelRes)) },
+                        modifier = Modifier.described(stringResource(preset.descriptionRes)),
                     )
                 }
             }

@@ -42,6 +42,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import kotlin.math.abs
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrackViewModelTest {
@@ -136,7 +137,7 @@ class TrackViewModelTest {
 
         fun clip(id: String) = checkNotNull(state.timeline.trackOfClip(id)?.clip(id))
 
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
     }
 
     private fun TestScope.harness(tracker: FakeTracker = FakeTracker()): Harness {

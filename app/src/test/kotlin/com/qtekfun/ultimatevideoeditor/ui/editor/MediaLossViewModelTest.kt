@@ -29,6 +29,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /**
  * A drive pulled while the project is open (SPECS 5.40): a decoder or the mixer fails mid-way, the editor finds out whether the file
@@ -107,7 +108,7 @@ class MediaLossViewModelTest {
         val effects: MutableList<EditorEffect>,
     ) {
         val state get() = vm.state.value
-        val messages get() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        val messages get() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
         val unavailable get() = effects.filterIsInstance<EditorEffect.AssetUnavailable>().map { it.assetKey }
     }
 

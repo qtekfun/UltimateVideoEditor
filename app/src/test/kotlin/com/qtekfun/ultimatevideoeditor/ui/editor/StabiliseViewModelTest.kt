@@ -40,6 +40,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StabiliseViewModelTest {
@@ -136,7 +137,7 @@ class StabiliseViewModelTest {
 
         fun clip(id: String) = checkNotNull(state.timeline.trackOfClip(id)?.clip(id))
 
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
     }
 
     private fun TestScope.harness(stab: FakeStabiliser = FakeStabiliser(), project: ProjectDto = project()): Harness {

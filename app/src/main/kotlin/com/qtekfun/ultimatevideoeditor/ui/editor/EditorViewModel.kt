@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
@@ -494,7 +496,7 @@ class EditorViewModel(
             is QuickEditIntent -> quickEditIntent(intent)
             is MarkerIntent -> markerIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
-            is EditorIntent.ReportText -> emit(EditorEffect.ShowText(intent.text))
+            is EditorIntent.ReportText -> emit(EditorEffect.ShowMessage(intent.text))
             is EditorIntent.MediaFailureReported -> mediaFailureReported(intent.assetKey, intent.detail)
             EditorIntent.RecheckMissingMedia -> recheckMissingMedia()
         }
@@ -749,7 +751,7 @@ class EditorViewModel(
                 pausePlayback()
                 reduce { copy(missingMedia = missingMedia + (asset.id to problem)) }
                 emit(EditorEffect.AssetUnavailable(assetKeys.keyFor(asset.id)))
-                emit(EditorEffect.ShowMessage("Media for ${MissingMedia.nameOf(asset)} is no longer available: reconnect the drive and use Relink or reopen the project"))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_media_for_is_no_longer, MissingMedia.nameOf(asset))))
                 publishMissingCount()
             } finally {
                 lossChecks.remove(asset.id)
@@ -768,7 +770,7 @@ class EditorViewModel(
         if (recheckJob?.isActive == true) return
         val pending = state.value.assets.filter { it.id in state.value.missingMedia }
         if (pending.isEmpty()) {
-            emit(EditorEffect.ShowMessage("No media is missing"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_no_media_is_missing)))
             return
         }
         recheckJob = viewModelScope.launch {
@@ -802,9 +804,9 @@ class EditorViewModel(
             emit(
                 EditorEffect.ShowMessage(
                     when {
-                        back.isEmpty() -> "Still missing: connect the drive and check again, or use Relink"
-                        left == 0 -> "All media can be read again"
-                        else -> "${back.size} of ${pending.size} files can be read again; $left still missing"
+                        back.isEmpty() -> UiText.res(R.string.ed_vm_still_missing)
+                        left == 0 -> UiText.res(R.string.ed_vm_all_readable)
+                        else -> UiText.res(R.string.ed_vm_some_readable, back.size, pending.size, left)
                     },
                 ),
             )
@@ -820,7 +822,7 @@ class EditorViewModel(
     private fun relinkAsset(assetId: String, uri: String, fromFolder: Boolean = false) {
         val old = state.value.assets.firstOrNull { it.id == assetId }
         if (old == null) {
-            emit(EditorEffect.ShowMessage("That media is no longer in the project"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_media_is_no_longer)))
             return
         }
         viewModelScope.launch {
@@ -828,7 +830,7 @@ class EditorViewModel(
                 // A file inside a folder the user granted is read through the folder's permission, which cannot be taken per file.
                 if (fromFolder) importer.verify(uri) else importer.import(uri)
             } catch (e: MediaImportException) {
-                emit(EditorEffect.ShowMessage(e.message ?: "Could not open the file"))
+                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_open_the_file))))
                 return@launch
             }
             val fps = state.value.fps
@@ -842,7 +844,7 @@ class EditorViewModel(
                 is RelinkVerdict.Accepted -> verdict.warnings
             }
             val relinked = RelinkApply.relinked(old, probed, uri, fps) ?: run {
-                emit(EditorEffect.ShowMessage("The file is too short to use"))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_the_file_is_too_short)))
                 return@launch
             }
             // Waveforms and thumbnails were made from the old file; the new key makes the native side start over.
@@ -859,7 +861,7 @@ class EditorViewModel(
             }
             scheduleSave()
             val name = MissingMedia.nameOf(relinked)
-            emit(EditorEffect.ShowMessage(if (warnings.isEmpty()) "Relinked $name" else "Relinked $name. ${warnings.joinToString(". ")}"))
+            emit(EditorEffect.ShowMessage(if (warnings.isEmpty()) UiText.res(R.string.ed_vm_relinked, name) else UiText.res(R.string.ed_vm_relinked_with_notes, name, warnings.joinToString(". "))))
         }
     }
 
@@ -878,7 +880,7 @@ class EditorViewModel(
         val snapshot = state.value
         val missing = snapshot.assets.filter { snapshot.missingMedia[it.id].let { p -> p == MediaProblem.UNREADABLE || p == MediaProblem.PERMISSION_LOST } }
         if (missing.isEmpty()) {
-            emit(EditorEffect.ShowMessage("No media is missing"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_no_media_is_missing)))
             return
         }
         val fps = snapshot.fps
@@ -909,7 +911,7 @@ class EditorViewModel(
                 }
             } catch (e: FolderScanException) {
                 reduce { copy(folderRelink = resting) }
-                emit(EditorEffect.ShowMessage(e.message ?: "Could not read the folder"))
+                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_read_the_folder))))
                 return@launch
             } catch (e: CancellationException) {
                 reduce { copy(folderRelink = resting) }
@@ -923,7 +925,7 @@ class EditorViewModel(
         if (folderRelinkJob?.isActive != true) return
         folderRelinkJob?.cancel()
         reduce { copy(folderRelink = folderRelinkBeforeScan) }
-        emit(EditorEffect.ShowMessage("Folder scan cancelled. Nothing was changed"))
+        emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_folder_scan_cancelled_nothing_was)))
     }
 
     /** Stores every accepted match at once; items the user relinked meanwhile, or removed, are left as they are. */
@@ -997,7 +999,7 @@ class EditorViewModel(
         } catch (e: ProjectError) {
             val first = state.value.saveError == null
             reduce { copy(saveError = e.message ?: "unknown error") }
-            if (first) emit(EditorEffect.ShowMessage("Could not save the project: ${e.message}"))
+            if (first) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_could_not_save_the_project, e.message.orEmpty())))
             saveRetryJob?.cancel()
             // A few quiet retries cover a transient failure (a full disk someone just cleared); after that the
             // banner stays and Retry is the user's call, instead of writing to a broken disk for ever.
@@ -1095,7 +1097,7 @@ class EditorViewModel(
     private fun startPlayback() {
         val end = timelineEnd()
         if (end <= 0) {
-            emit(EditorEffect.ShowMessage("Add a clip to play the timeline"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_add_a_clip_to_play)))
             return
         }
         val fps = state.value.fps
@@ -1254,7 +1256,7 @@ class EditorViewModel(
         val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
         if (clip == null || clip.stabilise == null || asset == null) {
-            emit(EditorEffect.ShowMessage("Turn the stabiliser on for a video clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_turn_the_stabiliser_on_for)))
             return
         }
         val fps = state.value.fps
@@ -1346,13 +1348,13 @@ class EditorViewModel(
     private fun beginTrackPick() {
         val found = trackableSelection()
         if (found == null) {
-            emit(EditorEffect.ShowMessage("Select a video clip to track"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_clip_to)))
             return
         }
         val clip = found.first
         val playhead = state.value.playhead
         if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
-            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_onto_the)))
             return
         }
         pausePlayback()
@@ -1367,14 +1369,14 @@ class EditorViewModel(
     private fun pickTrackTarget(x: Double, y: Double, w: Double?, h: Double?) {
         val found = trackableSelection()
         if (found == null) {
-            emit(EditorEffect.ShowMessage("Select a video clip to track"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_clip_to)))
             return
         }
         val (clip, asset) = found
         val s = state.value
         val playhead = s.playhead
         if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
-            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_onto_the)))
             return
         }
         viewModelScope.launch {
@@ -1382,7 +1384,7 @@ class EditorViewModel(
             val pose = Keyframes.evaluate(clip.keyframes, playhead.value - clip.timelineStart.value, clip.transform)
             val (u, v) = TrackMath.fromCanvas(x, y, aspect, s.canvasWidth, s.canvasHeight, pose)
             if (u !in 0.0..1.0 || v !in 0.0..1.0) {
-                emit(EditorEffect.ShowMessage("Tap on the picture of the clip"))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_tap_on_the_picture_of)))
                 return@launch
             }
             val (fitW, fitH) = TrackMath.fitSize(aspect, s.canvasWidth, s.canvasHeight)
@@ -1405,7 +1407,7 @@ class EditorViewModel(
 
     private fun startTrackAnalysis(trackId: String) {
         if (trackJob?.isActive == true) {
-            emit(EditorEffect.ShowMessage("Another tracking analysis is running"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_another_tracking_analysis_is_running)))
             return
         }
         val motion = history.timeline.motionTrack(trackId) ?: return
@@ -1416,7 +1418,7 @@ class EditorViewModel(
             val outcome = motionTracker.analyse(asset, clip, motion, fps) { progress -> reduce { copy(track = track.copy(progress = progress)) } }
             when (outcome) {
                 is TrackOutcome.Failed -> emit(EditorEffect.ShowMessage(outcome.message))
-                TrackOutcome.Cancelled -> emit(EditorEffect.ShowMessage("Tracking cancelled"))
+                TrackOutcome.Cancelled -> emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_tracking_cancelled)))
                 TrackOutcome.Done -> Unit
             }
             reduce { copy(track = track.copy(progress = null, analysingId = null, activeId = if (outcome == TrackOutcome.Done) trackId else track.activeId)) }
@@ -1439,11 +1441,11 @@ class EditorViewModel(
         val attached = selectedId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         val motion = history.timeline.motionTrack(trackId)
         if (attached == null || motion == null) {
-            emit(EditorEffect.ShowMessage("Select the clip that should follow the track"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_the_clip_that_should)))
             return
         }
         if (attached.id == motion.clipId) {
-            emit(EditorEffect.ShowMessage("A clip cannot follow its own track: select an overlay"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_a_clip_cannot_follow_its)))
             return
         }
         val (trackedClip, asset) = clipWithAsset(motion.clipId) ?: return
@@ -1451,13 +1453,17 @@ class EditorViewModel(
         viewModelScope.launch {
             val path = withContext(trackDispatcher) { motionTracker.load(asset, motion, s.fps) }
             if (path == null) {
-                emit(EditorEffect.ShowMessage("Analyse ${motion.name} first"))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_analyse_first, motion.name)))
                 return@launch
             }
             val keys = TrackMath.attachKeyframes(path, trackedClip, attached, s.canvasWidth, s.canvasHeight)
             if (execute(EditCommand.AttachToMotionTrack(attached.id, keys))) {
-                val lost = if (path.lostCount > 0) " (lost in ${path.lostCount} frames, it holds the last position there)" else ""
-                emit(EditorEffect.ShowMessage("Now follows ${motion.name}: ${keys.size} keyframes$lost"))
+                emit(
+                    EditorEffect.ShowMessage(
+                        if (path.lostCount > 0) UiText.res(R.string.ed_vm_now_follows_lost, motion.name, keys.size, path.lostCount)
+                        else UiText.res(R.string.ed_vm_now_follows_keyframes, motion.name, keys.size),
+                    ),
+                )
             }
         }
     }
@@ -1469,7 +1475,7 @@ class EditorViewModel(
     private inline fun withSelection(block: (String) -> Unit) {
         val selected = state.value.selectedClipId
         if (selected == null) {
-            emit(EditorEffect.ShowMessage("Select a clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_first)))
             return
         }
         block(selected)
@@ -1505,7 +1511,7 @@ class EditorViewModel(
     private fun moveSelectedTrack(delta: Int) {
         val id = state.value.selectedTrackId
         if (id == null) {
-            emit(EditorEffect.ShowMessage("Tap a track to select it first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_tap_a_track_to_select)))
             return
         }
         execute(EditCommand.MoveTrack(id, delta))
@@ -1532,14 +1538,14 @@ class EditorViewModel(
     private fun armQualifierPick(effectId: String) {
         val found = samplableSelection()
         if (found == null) {
-            emit(EditorEffect.ShowMessage("Select a video or photo clip to pick a colour from"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_or_photo)))
             return
         }
         val (clip, _) = found
         if (clip.fx.effect(effectId)?.type != EffectType.QUALIFIER) return
         val playhead = state.value.playhead
         if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
-            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_onto_the)))
             return
         }
         pausePlayback()
@@ -1553,14 +1559,14 @@ class EditorViewModel(
         val found = samplableSelection()
         if (found == null) {
             reduce { copy(qualifierPick = QualifierPickState()) }
-            emit(EditorEffect.ShowMessage("Select a video or photo clip to pick a colour from"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_or_photo)))
             return
         }
         val (clip, asset) = found
         val playhead = state.value.playhead
         if (playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
             reduce { copy(qualifierPick = QualifierPickState()) }
-            emit(EditorEffect.ShowMessage("Move the playhead onto the clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_onto_the)))
             return
         }
         reduce { copy(qualifierPick = qualifierPick.copy(busy = true)) }
@@ -1607,7 +1613,7 @@ class EditorViewModel(
                     val isBase = ClipDeletion.baseTrack(timeline)?.id == track.id
                     emit(
                         EditorEffect.ShowMessage(
-                            if (isBase) "The base track stays at the bottom of the video lanes" else "This is the only lane of its kind",
+                            if (isBase) UiText.res(R.string.ed_vm_the_base_track_stays_at) else UiText.res(R.string.ed_vm_this_is_the_only_lane),
                         ),
                     )
                     return
@@ -1638,11 +1644,11 @@ class EditorViewModel(
     private fun removeSelectedTrack() {
         val track = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
         if (track == null) {
-            emit(EditorEffect.ShowMessage("Tap a track to select it first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_tap_a_track_to_select)))
             return
         }
         if (track.type != TrackType.TITLE && history.timeline.tracks.count { it.type == track.type } <= 1) {
-            emit(EditorEffect.ShowMessage("Keep at least one ${track.type.name.lowercase()} track"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_keep_at_least_one_track, UiText.res(track.type.nameRes()))))
             return
         }
         execute(EditCommand.RemoveTrack(track.id))
@@ -1670,7 +1676,7 @@ class EditorViewModel(
                 .map { EditCommand.Split(track.id, cut, "${it.id}~${idGenerator()}") }
         }
         if (commands.isEmpty()) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside a clip"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_a)))
             return
         }
         if (!execute(commands.singleOrNull() ?: EditCommand.Batch(commands))) return
@@ -1722,7 +1728,7 @@ class EditorViewModel(
         val group = state.value.selection
         val ids = if (group.size > 1) group.toList() else listOfNotNull(state.value.selectedClipId)
         if (ids.isEmpty()) {
-            emit(EditorEffect.ShowMessage("Select a clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_first)))
             return
         }
         val cut = ids.mapNotNull { timeline.trackOfClip(it)?.clip(it)?.timelineStart?.value }.minOrNull()
@@ -1958,15 +1964,15 @@ class EditorViewModel(
             SelectionIntent.SelectLane -> {
                 val lane = state.value.selectedTrackId
                 val ids = lane?.let { ClipSelection.allInLane(timeline, it) }.orEmpty()
-                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("Tap a lane that has clips first")) else setSelection(ids, state.value.selectedClipId)
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_tap_a_lane_that_has))) else setSelection(ids, state.value.selectedClipId)
             }
             SelectionIntent.SelectFromPlayhead -> {
                 val ids = ClipSelection.fromPlayhead(timeline, state.value.playhead)
-                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("No clips after the playhead")) else setSelection(ids)
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_no_clips_after_the_playhead))) else setSelection(ids)
             }
             SelectionIntent.SelectAll -> {
                 val ids = timeline.tracks.flatMapTo(LinkedHashSet()) { track -> track.clips.map { it.id } }
-                if (ids.isEmpty()) emit(EditorEffect.ShowMessage("There are no clips to select")) else setSelection(ids, state.value.selectedClipId)
+                if (ids.isEmpty()) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_there_are_no_clips_to))) else setSelection(ids, state.value.selectedClipId)
             }
             SelectionIntent.ClearSelection -> reduce { copy(selectedClipId = null, selectedClipIds = emptySet()) }
             SelectionIntent.Copy -> copySelection(announce = true)
@@ -1976,7 +1982,7 @@ class EditorViewModel(
             SelectionIntent.DeleteSelection -> deleteSelection()
             SelectionIntent.PasteAttributes -> {
                 val source = clipboard?.primary
-                if (source == null) emit(EditorEffect.ShowMessage("Copy a clip first, then paste its attributes"))
+                if (source == null) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_copy_a_clip_first_then)))
                 else withGroup { execute(GroupPasteAttributes(ClipAttributes.of(source), it)) }
             }
             is SelectionIntent.SetGroupSpeed -> withGroup { execute(GroupSetSpeed(it, intent.num, intent.den)) }
@@ -1997,26 +2003,26 @@ class EditorViewModel(
     /** Runs [block] with the selected clip ids, or says that nothing is selected. */
     private inline fun withGroup(block: (List<String>) -> Unit) {
         val ids = state.value.selection.toList()
-        if (ids.isEmpty()) emit(EditorEffect.ShowMessage("Select a clip first")) else block(ids)
+        if (ids.isEmpty()) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_first))) else block(ids)
     }
 
     private fun copySelection(announce: Boolean): Boolean {
         val board = Clipboard.capture(history.timeline, state.value.selection)
         if (board == null) {
-            emit(EditorEffect.ShowMessage("Select clips to copy first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_clips_to_copy_first)))
             return false
         }
         clipboard = board
         val count = board.entries.size
         reduce { copy(clipboardCount = count) }
-        if (announce) emit(EditorEffect.ShowMessage(if (count == 1) "Copied 1 clip" else "Copied $count clips"))
+        if (announce) emit(EditorEffect.ShowMessage(if (count == 1) UiText.res(R.string.ed_vm_copied_clip) else UiText.res(R.string.ed_vm_copied_clips, count)))
         return true
     }
 
     private fun pasteClipboard() {
         val board = clipboard
         if (board == null) {
-            emit(EditorEffect.ShowMessage("Nothing to paste: copy some clips first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_nothing_to_paste_copy_some)))
             return
         }
         runGroupCommand(GroupPaste(board, state.value.playhead), selectNew = true)
@@ -2157,7 +2163,7 @@ class EditorViewModel(
                 val clip = selectedParamClip() ?: return@withSelection
                 val frame = state.value.selectedFrame
                 if (frame == null) {
-                    emit(EditorEffect.ShowMessage("Move the playhead inside the clip to add a volume point"))
+                    emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the)))
                     return@withSelection
                 }
                 val here = (clip.paramValueAt(ParamIds.GAIN_DB, frame) ?: clip.gainDb).coerceIn(ClipGain.MIN_DB, ClipGain.MAX_DB)
@@ -2171,23 +2177,23 @@ class EditorViewModel(
     private fun resetClipAudio() = withSelection { clipId ->
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         if (clip.audio.isNeutral) {
-            emit(EditorEffect.ShowMessage("This clip has no audio changes to reset"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_this_clip_has_no_audio)))
             return@withSelection
         }
         execute(EditCommand.SetClipAudio(clipId, ClipAudio.NONE))
     }
 
     /** The selected clip and its library file when both can be analysed for sound, else a message. */
-    private fun analysableSelection(what: String): Pair<Clip, MediaAssetDto>? {
+    private fun analysableSelection(message: UiText): Pair<Clip, MediaAssetDto>? {
         val clipId = state.value.selectedClipId
         val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
         if (clip == null || !clip.hasMedia || asset == null || !asset.hasAudio || clip.isFreeze) {
-            emit(EditorEffect.ShowMessage("Select a clip with audio to $what"))
+            emit(EditorEffect.ShowMessage(message))
             return null
         }
         if (audioAnalyzer == null) {
-            emit(EditorEffect.ShowMessage("Audio measurements are not available right now"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_audio_measurements_are_not_available)))
             return null
         }
         if (state.value.audioBusy != null) return null
@@ -2196,10 +2202,10 @@ class EditorViewModel(
 
     private fun normalizeLoudness(targetLufs: Double) {
         if (!targetLufs.isFinite() || targetLufs !in MIN_TARGET_LUFS..MAX_TARGET_LUFS) {
-            emit(EditorEffect.ShowMessage("The loudness target must be between $MIN_TARGET_LUFS and $MAX_TARGET_LUFS LUFS"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_the_loudness_target_must_be, MIN_TARGET_LUFS, MAX_TARGET_LUFS)))
             return
         }
-        val (clip, asset) = analysableSelection("normalise its loudness") ?: return
+        val (clip, asset) = analysableSelection(UiText.res(R.string.ed_vm_select_audio_normalise)) ?: return
         val analyzer = checkNotNull(audioAnalyzer)
         val fps = state.value.fps
         val key = LoudnessCache.keyOf(asset, clip.sourceIn.value, clip.sourceOut.value)
@@ -2212,23 +2218,21 @@ class EditorViewModel(
                     fps.framesToMicros(clip.sourceIn.value), fps.framesToMicros(clip.sourceOut.value),
                 ).lufs?.also { loudnessCache.put(key, it) }
                 if (lufs == null) {
-                    emit(EditorEffect.ShowMessage("This clip is silent, so there is nothing to normalise"))
+                    emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_this_clip_is_silent_so)))
                     return@launch
                 }
                 // The clip may have been edited while it was measured: act on what is there now.
                 val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id) ?: return@launch
                 if (now.sourceIn != clip.sourceIn || now.sourceOut != clip.sourceOut) {
-                    emit(EditorEffect.ShowMessage("The clip changed while it was measured; try again"))
+                    emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_the_clip_changed_while_it)))
                     return@launch
                 }
                 val gain = (targetLufs - lufs).coerceIn(-ClipAudio.MAX_NORMALIZE_DB, ClipAudio.MAX_NORMALIZE_DB)
                 if (execute(EditCommand.SetClipAudio(now.id, now.audio.copy(normalizeDb = gain, targetLufs = targetLufs)))) {
-                    // The app's text is English, so numbers use a point whatever the phone's region is.
-                    val measured = "%.1f".format(Locale.US, lufs)
-                    emit(EditorEffect.ShowMessage("Measured $measured LUFS; ${"%+.1f".format(Locale.US, gain)} dB to reach ${"%.0f".format(Locale.US, targetLufs)}"))
+                    emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_measured_lufs, lufs, gain, targetLufs)))
                 }
             } catch (e: AudioAnalysisException) {
-                emit(EditorEffect.ShowMessage(e.message ?: "The loudness could not be measured"))
+                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_the_loudness_could_not_be))))
             } finally {
                 reduce { copy(audioBusy = null) }
             }
@@ -2238,7 +2242,7 @@ class EditorViewModel(
     private fun clearNormalize() = withSelection { clipId ->
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         if (clip.audio.targetLufs == null && clip.audio.normalizeDb == 0.0) {
-            emit(EditorEffect.ShowMessage("This clip is not normalised"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_this_clip_is_not_normalised)))
             return@withSelection
         }
         execute(EditCommand.SetClipAudio(clipId, clip.audio.copy(normalizeDb = 0.0, targetLufs = null)))
@@ -2248,12 +2252,12 @@ class EditorViewModel(
         val clipId = state.value.selectedClipId
         val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         if (clip == null || !clip.hasMedia) {
-            emit(EditorEffect.ShowMessage("Select a clip with audio first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_with_audio_2)))
             return
         }
         val offset = state.value.playhead - clip.timelineStart
         if (offset < 0 || offset > clip.durationFrames) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to mark the quiet stretch"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the_2)))
             return
         }
         val current = state.value.noiseRegion?.takeIf { it.clipId == clip.id } ?: NoiseRegion(clip.id, null, null)
@@ -2269,13 +2273,13 @@ class EditorViewModel(
 
     private fun analyzeNoise(strength: Double) {
         if (!strength.isFinite() || strength <= 0.0 || strength > 1.0) {
-            emit(EditorEffect.ShowMessage("Noise suppression strength must be above 0 and at most 1"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_noise_suppression_strength_must_be)))
             return
         }
-        val (clip, asset) = analysableSelection("remove noise") ?: return
+        val (clip, asset) = analysableSelection(UiText.res(R.string.ed_vm_select_audio_noise)) ?: return
         val region = state.value.noiseRegion?.takeIf { it.clipId == clip.id && it.isComplete }
         if (region == null) {
-            emit(EditorEffect.ShowMessage("Mark a quiet stretch first: put the playhead at its start and tap Mark start, then at its end and tap Mark end"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_mark_a_quiet_stretch_first)))
             return
         }
         val fps = state.value.fps
@@ -2285,7 +2289,7 @@ class EditorViewModel(
         val startMicros = fps.framesToMicros(minOf(a, b))
         val endMicros = fps.framesToMicros(maxOf(a, b))
         if (endMicros - startMicros < MIN_NOISE_SAMPLE_MICROS) {
-            emit(EditorEffect.ShowMessage("The quiet stretch must be at least 0.1 s long"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_the_quiet_stretch_must_be)))
             return
         }
         val analyzer = checkNotNull(audioAnalyzer)
@@ -2295,10 +2299,10 @@ class EditorViewModel(
                 val profile = analyzer.noiseProfile(asset, assetKeys.keyFor(asset.id), startMicros, endMicros)
                 val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id) ?: return@launch
                 if (execute(EditCommand.SetClipAudio(now.id, now.audio.copy(denoise = Denoise(strength, profile.toList()))))) {
-                    emit(EditorEffect.ShowMessage("Noise suppression is on"))
+                    emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_noise_suppression_is_on)))
                 }
             } catch (e: AudioAnalysisException) {
-                emit(EditorEffect.ShowMessage(e.message ?: "The noise could not be measured"))
+                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_the_noise_could_not_be))))
             } finally {
                 reduce { copy(audioBusy = null) }
             }
@@ -2308,7 +2312,7 @@ class EditorViewModel(
     private fun removeNoiseSuppression() = withSelection { clipId ->
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         if (clip.audio.denoise == null) {
-            emit(EditorEffect.ShowMessage("Noise suppression is not on for this clip"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_noise_suppression_is_not_on)))
             return@withSelection
         }
         execute(EditCommand.SetClipAudio(clipId, clip.audio.copy(denoise = null)))
@@ -2431,7 +2435,7 @@ class EditorViewModel(
         val from = state.value.playhead
         val target = if (forward) MarkerOps.next(markers, from) else MarkerOps.previous(markers, from)
         if (target == null) {
-            emit(EditorEffect.ShowMessage(if (forward) "No marker after the playhead" else "No marker before the playhead"))
+            emit(EditorEffect.ShowMessage(if (forward) UiText.res(R.string.ed_vm_no_marker_after_the_playhead) else UiText.res(R.string.ed_vm_no_marker_before_the_playhead)))
             return
         }
         pausePlayback()
@@ -2466,7 +2470,7 @@ class EditorViewModel(
 
     private fun clearBeatMarkers() {
         if (history.timeline.markers.none { it.kind == MarkerKind.BEAT }) {
-            emit(EditorEffect.ShowMessage("There are no beat markers to clear"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_there_are_no_beat_markers)))
             return
         }
         execute(SetBeatMarkers(emptyList()))
@@ -2478,7 +2482,7 @@ class EditorViewModel(
         val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
         if (clip == null || !clip.hasMedia || asset == null || !asset.hasAudio || clip.isFreeze) {
-            emit(EditorEffect.ShowMessage("Select a clip with audio to find its beats"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_with_audio_3)))
             return
         }
         val fps = state.value.fps
@@ -2489,8 +2493,8 @@ class EditorViewModel(
         viewModelScope.launch {
             try {
                 when (val result = beatSource.analyze(asset.id, startMicros, endMicros)) {
-                    BeatResult.NoWaveform -> emit(EditorEffect.ShowMessage("The waveform is still being prepared. Try again in a moment."))
-                    BeatResult.NoBeat -> emit(EditorEffect.ShowMessage("No clear beat found in this audio"))
+                    BeatResult.NoWaveform -> emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_the_waveform_is_still_being)))
+                    BeatResult.NoBeat -> emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_no_clear_beat_found_in)))
                     is BeatResult.Found -> placeBeats(clip.id, result)
                 }
             } finally {
@@ -2506,11 +2510,11 @@ class EditorViewModel(
         val absolute = found.grid.beatsMicros.map { it + found.windowStartMicros }
         val markers = BeatMapping.markersFor(clip, absolute, state.value.fps) { "beat-$run-$it" }
         if (markers.isEmpty()) {
-            emit(EditorEffect.ShowMessage("No beats fall inside this clip"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_no_beats_fall_inside_this)))
             return
         }
         if (execute(SetBeatMarkers(markers, from = clip.timelineStart, until = clip.timelineEnd))) {
-            emit(EditorEffect.ShowMessage("Marked ${markers.size} beats at about ${found.grid.bpm.toInt()} BPM"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_marked_beats_at_about_bpm, markers.size, found.grid.bpm.toInt())))
         }
     }
 
@@ -2519,7 +2523,7 @@ class EditorViewModel(
         val base = ClipDeletion.baseTrack(timeline)
         val selected = state.value.selectedClipId?.let { id -> base?.clip(id) }
         if (base == null || selected == null) {
-            emit(EditorEffect.ShowMessage("Select a clip on the base track first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_on_the)))
             return
         }
         val ids = base.clips.filter { it.timelineStart >= selected.timelineStart }.map { it.id }
@@ -2559,9 +2563,9 @@ class EditorViewModel(
         val clip = state.value.selectedClipId?.let { id -> base?.clip(id) }
         val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
         when {
-            clip == null -> emit(EditorEffect.ShowMessage("Select a clip on the base track first"))
-            !clip.hasMedia || asset == null || !asset.hasAudio -> emit(EditorEffect.ShowMessage("Select a clip with audio to find its silences"))
-            !AutoCutPlanner.supports(clip) -> emit(EditorEffect.ShowMessage("Cutting silences does not work on a clip with changed speed or played backwards"))
+            clip == null -> emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_on_the)))
+            !clip.hasMedia || asset == null || !asset.hasAudio -> emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_with_audio_4)))
+            !AutoCutPlanner.supports(clip) -> emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_cutting_silences_does_not_work)))
             else -> reduce { copy(quickEdits = quickEdits.copy(autoCut = AutoCutUiState(open = true, clipId = clip.id))) }
         }
     }
@@ -2610,7 +2614,7 @@ class EditorViewModel(
             val fps = state.value.fps
             val seconds = cuts.sumOf { it.length } * fps.den.toDouble() / fps.num
             reduce { copy(quickEdits = quickEdits.copy(autoCut = AutoCutUiState())) }
-            emit(EditorEffect.ShowMessage("Removed ${cuts.size} silences, ${"%.1f".format(seconds)} s shorter"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_removed_silences, cuts.size, seconds)))
         }
     }
 
@@ -2618,7 +2622,7 @@ class EditorViewModel(
         val clip = state.value.selectedClipId?.let { id -> history.timeline.trackOfClip(id)?.clip(id) }
         val onVideoTrack = clip?.let { history.timeline.trackOfClip(it.id)?.type == TrackType.VIDEO } == true
         if (clip == null || !onVideoTrack || !clip.hasMedia) {
-            emit(EditorEffect.ShowMessage("Select a video or photo clip to reframe"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_or_photo_2)))
             return
         }
         reduce { copy(quickEdits = quickEdits.copy(reframe = ReframeUiState(open = true, clipId = clip.id))) }
@@ -2649,7 +2653,7 @@ class EditorViewModel(
             }
             if (execute(ReframeClip(clip.id, points, aspect, s.canvasWidth, s.canvasHeight, reframe.zoom))) {
                 reduce { copy(quickEdits = quickEdits.copy(reframe = ReframeUiState())) }
-                emit(EditorEffect.ShowMessage(if (points.size > 1) "Reframed with ${points.size} keyframes" else "Reframed"))
+                emit(EditorEffect.ShowMessage(if (points.size > 1) UiText.res(R.string.ed_vm_reframed_with_keyframes, points.size) else UiText.res(R.string.ed_vm_reframed)))
             }
         }
     }
@@ -2661,7 +2665,7 @@ class EditorViewModel(
     /** Puts [template] (a built-in or a saved preset) on the timeline at the playhead as one undo step and selects it. */
     private fun applyTemplate(template: TextTemplate?, text: String) {
         if (template == null) {
-            emit(EditorEffect.ShowMessage("That text template is not available"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_text_template_is_not)))
             return
         }
         val fps = state.value.fps
@@ -2704,13 +2708,13 @@ class EditorViewModel(
         val clipId = state.value.selectedClipId
         val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         if (clip == null) {
-            emit(EditorEffect.ShowMessage("Select a clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_first)))
             return false
         }
         // An animated clip is edited at the playhead: the edit becomes a keyframe there.
         val keyFrame = if (clip.keyframes.isEmpty()) null else state.value.selectedClipFrame
         if (clip.keyframes.isNotEmpty() && keyFrame == null) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to edit its animation"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the_3)))
             return false
         }
         val pose = if (keyFrame != null) clip.transformAt(keyFrame) else clip.transform
@@ -2762,7 +2766,7 @@ class EditorViewModel(
         val newGain = gainDb ?: session.gainDb
         val problem = newTransform.problem() ?: ClipGain.problem(newGain)
         if (problem != null) {
-            emit(EditorEffect.ShowMessage("That value is not allowed: $problem"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_value_is_not_allowed, problem)))
             return
         }
         session.transform = newTransform
@@ -2814,7 +2818,7 @@ class EditorViewModel(
         val clipId = state.value.selectedClipId
         val clip = clipId?.let { history.timeline.trackOfClip(it)?.clip(it) }
         if (clip == null || history.timeline.trackOfClip(clip.id)?.type == TrackType.AUDIO) {
-            emit(EditorEffect.ShowMessage("Select a video clip or title first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_clip_or)))
             return null
         }
         // The controls show the effects as they are at the playhead; keyframed values changed here become keys there.
@@ -2828,7 +2832,7 @@ class EditorViewModel(
         val effect = session.fx.effect(effectId) ?: return
         val changed = effect.copy(values = values)
         changed.problem()?.let {
-            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_value_is_not_allowed, it)))
             return
         }
         session.fx = session.fx.copy(effects = session.fx.effects.map { if (it.id == effectId) changed else it })
@@ -2841,7 +2845,7 @@ class EditorViewModel(
         val changed = effect.copy(values = values, curves = curves?.takeUnless { it.isIdentity })
         if (effect.type != EffectType.COLOR_GRADE) return
         changed.problem()?.let {
-            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_value_is_not_allowed, it)))
             return
         }
         session.fx = session.fx.copy(effects = session.fx.effects.map { if (it.id == effectId) changed else it })
@@ -2853,7 +2857,7 @@ class EditorViewModel(
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         val existing = clip.fx.effects.firstOrNull { it.type == EffectType.COLOR_GRADE }
         if (existing == null && clip.fx.effects.size >= ClipFx.MAX_EFFECTS) {
-            emit(EditorEffect.ShowMessage("A clip can have at most ${ClipFx.MAX_EFFECTS} effects"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_a_clip_can_have_at, ClipFx.MAX_EFFECTS)))
             return@withSelection
         }
         execute(EditCommand.SetGrade(clipId, existing?.id ?: idGenerator(), values, curves))
@@ -2862,7 +2866,7 @@ class EditorViewModel(
     private fun updateMask(mask: ClipMask?) {
         val session = beginFx() ?: return
         mask?.problem()?.let {
-            emit(EditorEffect.ShowMessage("That value is not allowed: $it"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_value_is_not_allowed, it)))
             return
         }
         session.fx = session.fx.copy(mask = mask)
@@ -2890,12 +2894,12 @@ class EditorViewModel(
         endAppearance(commit = true)
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         if (history.timeline.trackOfClip(clipId)?.type == TrackType.AUDIO) {
-            emit(EditorEffect.ShowMessage("Only video clips and titles can be animated"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_only_video_clips_and_titles)))
             return@withSelection
         }
         val frame = state.value.selectedClipFrame
         if (frame == null) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to set a keyframe"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the_4)))
             return@withSelection
         }
         if (Keyframes.at(clip.keyframes, frame) != null) {
@@ -2910,7 +2914,7 @@ class EditorViewModel(
         val relative = state.value.playhead - clip.timelineStart
         val target = if (forward) Keyframes.nextFrame(clip.keyframes, relative) else Keyframes.previousFrame(clip.keyframes, relative)
         if (target == null) {
-            emit(EditorEffect.ShowMessage(if (forward) "No later keyframe on this clip" else "No earlier keyframe on this clip"))
+            emit(EditorEffect.ShowMessage(if (forward) UiText.res(R.string.ed_vm_no_later_keyframe_on_this) else UiText.res(R.string.ed_vm_no_earlier_keyframe_on_this)))
             return@withSelection
         }
         seekTo(clip.timelineStart.value + target)
@@ -2920,7 +2924,7 @@ class EditorViewModel(
         endAppearance(commit = true)
         val frame = state.value.keyframeAtPlayhead?.frame
         if (frame == null) {
-            emit(EditorEffect.ShowMessage("Put the playhead on a keyframe to change how it moves on"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_put_the_playhead_on_a)))
             return@withSelection
         }
         execute(EditCommand.SetKeyframeInterpolation(clipId, frame, interpolation))
@@ -2950,12 +2954,12 @@ class EditorViewModel(
         val clip = selectedParamClip() ?: return@withSelection
         val frame = state.value.selectedFrame
         if (frame == null) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to set a keyframe"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the_4)))
             return@withSelection
         }
         val spec = clip.paramSpec(paramId)
         if (spec == null) {
-            emit(EditorEffect.ShowMessage("That value cannot be animated"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_value_cannot_be_animated)))
             return@withSelection
         }
         if (ParamTracks.at(clip.paramKeys(paramId), frame) != null) {
@@ -2972,7 +2976,7 @@ class EditorViewModel(
         val keys = clip.paramKeys(paramId)
         val target = if (forward) ParamTracks.nextFrame(keys, relative) else ParamTracks.previousFrame(keys, relative)
         if (target == null) {
-            emit(EditorEffect.ShowMessage(if (forward) "No later keyframe on this value" else "No earlier keyframe on this value"))
+            emit(EditorEffect.ShowMessage(if (forward) UiText.res(R.string.ed_vm_no_later_keyframe_on_this_2) else UiText.res(R.string.ed_vm_no_earlier_keyframe_on_this_2)))
             return@withSelection
         }
         seekTo(clip.timelineStart.value + target)
@@ -2982,12 +2986,12 @@ class EditorViewModel(
         val clip = selectedParamClip() ?: return
         val keys = clip.paramKeys(paramId)
         if (keys.isEmpty()) {
-            emit(EditorEffect.ShowMessage("This value has no keyframes to copy"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_this_value_has_no_keyframes)))
             return
         }
         val first = keys.first().frame
         reduce { copy(paramClipboard = ParamClipboard(paramId, keys.map { it.copy(frame = it.frame - first) })) }
-        emit(EditorEffect.ShowMessage("Copied ${keys.size} keyframes"))
+        emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_copied_keyframes, keys.size)))
     }
 
     /** Pastes the copied keys so the first lands on the playhead; values are clamped to this value's range. */
@@ -2995,17 +2999,17 @@ class EditorViewModel(
         val clip = selectedParamClip() ?: return@withSelection
         val clipboard = state.value.paramClipboard
         if (clipboard == null) {
-            emit(EditorEffect.ShowMessage("Copy keyframes first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_copy_keyframes_first)))
             return@withSelection
         }
         val frame = state.value.selectedFrame
         if (frame == null) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside the clip to paste keyframes"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the_5)))
             return@withSelection
         }
         val keys = ParamTracks.shiftedTo(clipboard.keys, frame, clip.durationFrames)
         if (keys.isEmpty() || clip.paramSpec(paramId) == null) {
-            emit(EditorEffect.ShowMessage("The copied keyframes do not fit here"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_the_copied_keyframes_do_not)))
             return@withSelection
         }
         execute(EditCommand.PasteParamKeys(clipId, paramId, keys))
@@ -3106,7 +3110,7 @@ class EditorViewModel(
 
     private fun addSticker(stickerId: String) {
         if (!StickerIds.isKnown(stickerId)) {
-            emit(EditorEffect.ShowMessage("That sticker is not available"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_sticker_is_not_available)))
             return
         }
         val timeline = history.timeline
@@ -3199,7 +3203,7 @@ class EditorViewModel(
     private fun applyTitleMotion(intro: MotionPreset, outro: MotionPreset) = withSelection { clipId ->
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId)
         if (clip?.title == null) {
-            emit(EditorEffect.ShowMessage("Select a title first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_title_first)))
             return@withSelection
         }
         val edge = state.value.fps.microsToFrames((TitleMotion.DEFAULT_EDGE_SECONDS * MICROS_PER_SECOND).toLong()).coerceAtLeast(1)
@@ -3237,7 +3241,7 @@ class EditorViewModel(
             SpeedRampShape.BULLET -> SpeedRamps.bullet(clip.durationFrames)
         }
         if (shape != SpeedRampShape.NONE && ramp.isEmpty()) {
-            emit(EditorEffect.ShowMessage("This clip is too short for a speed ramp"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_this_clip_is_too_short)))
             return@withSelection
         }
         execute(EditCommand.SetSpeedRamp(clipId, ramp))
@@ -3255,7 +3259,7 @@ class EditorViewModel(
         val timeline = history.timeline
         val clip = timeline.trackOfClip(clipId)?.clip(clipId)
         if (clip == null || linkInfo(clipId)?.canDetach != true) {
-            emit(EditorEffect.ShowMessage("Select a video clip that has sound to detach its audio"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_clip_that)))
             return@withSelection
         }
         val laneId = ClipLinks.audioTrackFor(timeline, clip) ?: uniqueTrackId(timeline.tracks, "track-a")
@@ -3266,7 +3270,7 @@ class EditorViewModel(
         val info = linkInfo(clipId)
         val candidate = info?.relinkCandidateId
         if (info == null || candidate == null) {
-            emit(EditorEffect.ShowMessage("No unlinked clip of the same media to link with"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_no_unlinked_clip_of_the)))
             return@withSelection
         }
         val (video, audio) = if (info.isVideo) clipId to candidate else candidate to clipId
@@ -3278,7 +3282,7 @@ class EditorViewModel(
         val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return@withSelection
         val video = if (timeline.trackOfClip(clipId)?.type == TrackType.VIDEO) clip else ClipLinks.partnerOf(timeline, clip)?.second
         if (video == null || !video.audioDetached) {
-            emit(EditorEffect.ShowMessage("Select a video clip whose sound was detached"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_video_clip_whose)))
             return@withSelection
         }
         execute(RestoreEmbeddedAudio(video.id))
@@ -3291,7 +3295,7 @@ class EditorViewModel(
         val clip = track.clip(clipId) ?: return@withSelection
         val playhead = state.value.playhead
         if (track.type != TrackType.VIDEO || playhead < clip.timelineStart || playhead >= clip.timelineEnd) {
-            emit(EditorEffect.ShowMessage("Move the playhead inside the selected video clip to freeze a frame"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_move_the_playhead_inside_the_6)))
             return@withSelection
         }
         val frames = state.value.fps.microsToFrames(FREEZE_DEFAULT_MICROS).coerceAtLeast(1)
@@ -3308,9 +3312,9 @@ class EditorViewModel(
         val cut = state.value.transitionCut
         if (cut == null) {
             val message = if (state.value.selectedClip != null && state.value.visibleTimeline.transitions.isNotEmpty() && state.value.clipAfterSelected != null) {
-                "These clips already have a transition"
+                UiText.res(R.string.ed_vm_already_transition)
             } else {
-                "Place another clip right after this one, or put the playhead on a cut, to add a transition"
+                UiText.res(R.string.ed_vm_place_another_clip)
             }
             emit(EditorEffect.ShowMessage(message))
             return
@@ -3320,7 +3324,7 @@ class EditorViewModel(
         val sourceLength = assetLengthFrames(clip.assetId)
         val room = TimelineOps.maxTransitionFrames(timeline, clip.id, next.id, sourceLength)
         if (room < Transition.MIN_DURATION_FRAMES) {
-            emit(EditorEffect.ShowMessage("There is not enough extra footage around the cut for a transition"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_there_is_not_enough_extra)))
             return
         }
         val wanted = state.value.fps.microsToFrames(TRANSITION_DEFAULT_MICROS).coerceAtLeast(Transition.MIN_DURATION_FRAMES)
@@ -3330,7 +3334,7 @@ class EditorViewModel(
     private fun setTransitionDuration(frames: Long) = withSelection { clipId ->
         val transition = history.timeline.transitions.firstOrNull { it.fromClipId == clipId }
         if (transition == null) {
-            emit(EditorEffect.ShowMessage("This clip has no transition to its next clip"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_this_clip_has_no_transition)))
             return@withSelection
         }
         if (frames == transition.durationFrames) return@withSelection
@@ -3344,7 +3348,7 @@ class EditorViewModel(
     ) = withSelection { clipId ->
         val transition = history.timeline.transitions.firstOrNull { it.fromClipId == clipId }
         if (transition == null) {
-            emit(EditorEffect.ShowMessage("Add a transition to the next clip first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_add_a_transition_to_the)))
             return@withSelection
         }
         execute(EditCommand.SetTransitionStyle(transition.id, type, direction))
@@ -3369,7 +3373,7 @@ class EditorViewModel(
                     val asset = assetFor(uri)
                     cursor = place(asset, cursor) ?: cursor
                 } catch (e: MediaImportException) {
-                    emit(EditorEffect.ShowMessage(e.message ?: "Could not import the file"))
+                    emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_import_the_file))))
                 }
             }
             reduce { copy(isImporting = false) }
@@ -3404,11 +3408,11 @@ class EditorViewModel(
         if (drag != null || trayDrag != null) return
         val asset = state.value.assets.firstOrNull { it.id == assetId }
         if (asset == null) {
-            emit(EditorEffect.ShowMessage("That media is no longer in the project"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_media_is_no_longer)))
             return
         }
         if (asset.id in state.value.missingMedia) {
-            emit(EditorEffect.ShowMessage("${MissingMedia.nameOf(asset)} is missing: relink it first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_is_missing_relink_it_first, MissingMedia.nameOf(asset))))
             return
         }
         val (clip, type) = newClipFor(asset) ?: return
@@ -3498,7 +3502,7 @@ class EditorViewModel(
                     val asset = assetFor(uri)
                     cursor = if (cursor == null) placeDropped(asset, frame, target) else place(asset, cursor)
                 } catch (e: MediaImportException) {
-                    emit(EditorEffect.ShowMessage(e.message ?: "Could not import the file"))
+                    emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_import_the_file))))
                 }
             }
             reduce { copy(isImporting = false) }
@@ -3511,7 +3515,7 @@ class EditorViewModel(
         val decision = DropPlan.decideNew(history.timeline, clip, type, FrameIndex(frame), target, snapWith(history.timeline, state.value.playhead))
         val command = decision.command
         if (command == null) {
-            emit(EditorEffect.ShowMessage("Drop ${MissingMedia.nameOf(asset)} on a ${type.name.lowercase()} lane"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_drop_on_a_lane, MissingMedia.nameOf(asset), UiText.res(type.nameRes()))))
             return null
         }
         if (!execute(placing(command, clip, type))) return null
@@ -3527,7 +3531,7 @@ class EditorViewModel(
                 try {
                     assetFor(uri)
                 } catch (e: MediaImportException) {
-                    emit(EditorEffect.ShowMessage(e.message ?: "Could not import the file"))
+                    emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_import_the_file))))
                 }
             }
             reduce { copy(isImporting = false) }
@@ -3547,11 +3551,11 @@ class EditorViewModel(
     private fun addAssetById(assetId: String) {
         val asset = state.value.assets.firstOrNull { it.id == assetId }
         if (asset == null) {
-            emit(EditorEffect.ShowMessage("That media is no longer in the project"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_media_is_no_longer)))
             return
         }
         if (asset.id in state.value.missingMedia) {
-            emit(EditorEffect.ShowMessage("${MissingMedia.nameOf(asset)} is missing: relink it first"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_is_missing_relink_it_first, MissingMedia.nameOf(asset))))
             return
         }
         place(asset, state.value.playhead)
@@ -3617,7 +3621,7 @@ class EditorViewModel(
         val selected = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
         val track = selected?.takeIf { it.type == type } ?: history.timeline.tracks.firstOrNull { it.type == type }
         if (track == null) {
-            emit(EditorEffect.ShowMessage("There is no ${type.name.lowercase()} track to place the clip on"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_there_is_no_track_to, UiText.res(type.nameRes()))))
             return null
         }
         val length = (if (asset.isImage) stillLengthFrames() else assetLengthFrames(asset.id)) ?: return null
@@ -3688,7 +3692,7 @@ class EditorViewModel(
             LibraryIntent.RevealSelectedInLibrary -> {
                 val clipId = state.value.selectedClipId
                 val assetId = clipId?.let { Library.assetOfClip(history.timeline, it) }
-                if (clipId != null && assetId == null) emit(EditorEffect.ShowMessage("A title or sticker has no file in the library"))
+                if (clipId != null && assetId == null) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_a_title_or_sticker_has)))
                 reduce { copy(library = library.copy(open = true, highlightAssetId = assetId, query = if (assetId != null) LibraryQuery() else library.query)) }
             }
             is LibraryIntent.QueryChanged -> reduce { copy(library = library.copy(query = library.query.copy(text = intent.text))) }
@@ -3741,7 +3745,7 @@ class EditorViewModel(
     private fun askDeleteUnused() {
         val removable = Library.unused(state.value.assets, protectedUsage())
         if (removable.isEmpty()) {
-            emit(EditorEffect.ShowMessage(if (Library.unused(state.value.assets, usageCounts(history.timeline)).isEmpty()) "Every file in the library is used" else "Nothing can be removed while undo could still bring those clips back"))
+            emit(EditorEffect.ShowMessage(if (Library.unused(state.value.assets, usageCounts(history.timeline)).isEmpty()) UiText.res(R.string.ed_vm_every_file_in_the_library) else UiText.res(R.string.ed_vm_nothing_can_be_removed_while)))
             return
         }
         reduce { copy(library = library.copy(confirmDeleteUnused = removable.size)) }
@@ -3754,7 +3758,7 @@ class EditorViewModel(
         if (removable.isEmpty()) return
         removable.forEach { mediaCaches.invalidate(it) }
         scheduleSave()
-        emit(EditorEffect.ShowMessage("Removed ${removable.size} unused file${if (removable.size == 1) "" else "s"} from the library (the files themselves are not touched)"))
+        emit(EditorEffect.ShowMessage(UiText.plural(R.plurals.ed_vm_removed_unused, removable.size)))
     }
 
     private fun findInTimeline(assetId: String) {
@@ -3762,7 +3766,7 @@ class EditorViewModel(
         val uses = Library.uses(timeline, assetId, state.value.fps)
         val use = Library.nextUse(uses, state.value.playhead.value)
         if (use == null) {
-            emit(EditorEffect.ShowMessage("That file is not used on the timeline"))
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_that_file_is_not_used)))
             return
         }
         val trackId = timeline.trackOfClip(use.clipId)?.id
@@ -3776,7 +3780,7 @@ class EditorViewModel(
             )
         }
         val position = uses.indexOf(use) + 1
-        emit(EditorEffect.ShowMessage("Use $position of ${uses.size} (${use.trackLabel}). Choose Find in timeline again for the next one"))
+        emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_use_of_choose_find_in, position, uses.size, use.trackLabel)))
     }
 
     /** What the bundle dialog was confirmed with, kept while the document picker is open; consumed by the export that follows. */
@@ -3828,7 +3832,7 @@ class EditorViewModel(
             InterchangeKind.EDL -> {
                 val files = Edl.export(project).files
                 if (files.isEmpty()) {
-                    emit(EditorEffect.ShowMessage("There are no video or audio clips to put in an EDL"))
+                    emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_there_are_no_video_or)))
                     return
                 }
                 if (files.size == 1) "edl" to INTERCHANGE_MIME else "zip" to ZIP_MIME
@@ -3849,11 +3853,11 @@ class EditorViewModel(
         reduce { copy(library = library.copy(busy = "Writing ${kind.label.substringBefore(" (")}…")) }
         viewModelScope.launch {
             try {
-                emit(EditorEffect.ShowText(writeExport(kind, uri, project)))
+                emit(EditorEffect.ShowMessage(writeExport(kind, uri, project)))
             } catch (e: ProjectError) {
-                emit(EditorEffect.ShowMessage("Export failed: ${e.message}"))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_export_failed, e.message.orEmpty())))
             } catch (e: IOException) {
-                emit(EditorEffect.ShowMessage("Export failed: ${e.message ?: "could not write the file"}"))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_export_failed, e.message ?: "could not write the file"))) // i18n-ok: the system message when there is none
             } finally {
                 reduce { copy(library = library.copy(busy = null)) }
             }

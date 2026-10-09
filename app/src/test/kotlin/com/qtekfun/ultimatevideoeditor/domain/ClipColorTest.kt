@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 class ClipColorTest {
     private val fps = FrameRate(30, 1)
@@ -139,8 +140,8 @@ class ClipColorTest {
             for (project in ProjectColorSpace.entries) for (source in SourceColorSpace.entries) add(conversionNote(source, project))
         }
         assertEquals(6, notes.size)
-        assertTrue(conversionNote(SourceColorSpace.HLG, ProjectColorSpace.REC709_SDR).contains("tone-mapped"))
-        assertTrue(conversionNote(SourceColorSpace.SDR, ProjectColorSpace.REC2020_HLG).contains("203"))
+        assertTrue(conversionNote(SourceColorSpace.HLG, ProjectColorSpace.REC709_SDR).english().contains("tone-mapped"))
+        assertTrue(conversionNote(SourceColorSpace.SDR, ProjectColorSpace.REC2020_HLG).english().contains("203"))
     }
 
     // endregion

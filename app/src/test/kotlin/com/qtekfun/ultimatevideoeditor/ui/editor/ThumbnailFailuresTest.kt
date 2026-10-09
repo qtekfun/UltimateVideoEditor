@@ -4,10 +4,12 @@ import com.qtekfun.ultimatevideoeditor.engine.timeline.EngineStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 class ThumbnailFailuresTest {
     private val logged = mutableListOf<String>()
-    private val shown = mutableListOf<String>()
+    private val shown = mutableListOf<UiText>()
 
     private fun failures(projectId: String = "p", seen: MutableSet<String> = mutableSetOf()) =
         ThumbnailFailures(projectId, log = { logged += it }, show = { shown += it }, alreadyShown = seen)
@@ -17,7 +19,7 @@ class ThumbnailFailuresTest {
         val f = failures()
         f.register(7L, "IMG_0014.mov", "content://x/IMG_0014.mov")
         f.onFailure(7L, EngineStatus.IO_ERROR, "empty file (0 bytes)")
-        assertEquals(listOf("No filmstrip for IMG_0014.mov (IO_ERROR)"), shown)
+        assertEquals(listOf("No filmstrip for IMG_0014.mov (IO_ERROR)"), shown.english())
         assertTrue(logged.single().contains("asset=7 name=IMG_0014.mov uri=content://x/IMG_0014.mov"))
         assertTrue(logged.single().contains("empty file (0 bytes)"))
     }
@@ -58,6 +60,6 @@ class ThumbnailFailuresTest {
     @Test
     fun unknownKeyStillGetsAMessage() {
         failures().onFailure(99L, EngineStatus.IO_ERROR, "d")
-        assertEquals(listOf("Could not generate a filmstrip (IO_ERROR)"), shown)
+        assertEquals(listOf("Could not generate a filmstrip (IO_ERROR)"), shown.english())
     }
 }

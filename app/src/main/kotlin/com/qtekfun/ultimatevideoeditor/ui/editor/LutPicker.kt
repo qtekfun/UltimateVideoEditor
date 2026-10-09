@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -53,7 +57,7 @@ fun interface LutFileReader {
 data class LutLibraryState(
     val luts: List<LutInfo> = emptyList(),
     val importing: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
 ) {
     val names: Map<Int, String> get() = luts.associate { it.key to it.name }
 }
@@ -90,9 +94,9 @@ class LutLibraryViewModel(
                 _state.update { it.copy(importing = false, luts = withContextList(info, it.luts)) }
                 onImported(info)
             } catch (e: LutParseException) {
-                _state.update { it.copy(importing = false, error = "This is not a usable .cube LUT: ${e.message}") }
+                _state.update { it.copy(importing = false, error = UiText.res(R.string.ed_2b_lut_not_usable, e.message.orEmpty())) }
             } catch (e: IOException) {
-                _state.update { it.copy(importing = false, error = "The LUT file could not be read: ${e.message}") }
+                _state.update { it.copy(importing = false, error = UiText.res(R.string.ed_2b_lut_not_read, e.message.orEmpty())) }
             }
         }
     }
@@ -110,7 +114,7 @@ class LutLibraryViewModel(
                 _state.update { it.copy(importing = false, luts = withContextList(info, it.luts)) }
                 onInstalled(info)
             } catch (e: IOException) {
-                _state.update { it.copy(importing = false, error = "The filter could not be saved: ${e.message}") }
+                _state.update { it.copy(importing = false, error = UiText.res(R.string.ed_2b_filter_not_saved, e.message.orEmpty())) }
             }
         }
     }
@@ -139,12 +143,12 @@ internal fun LutPickerDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Filters and LUTs") },
+        title = { Text(stringResource(R.string.ed_2b_filters_and_luts)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
                     if (filters.isNotEmpty()) {
-                        item(key = "filters-header") { Text("Filters", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp)) }
+                        item(key = "filters-header") { Text(stringResource(R.string.ed_2b_filters), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp)) }
                         items(filters, key = { "filter-${it.id}" }) { look ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -161,9 +165,9 @@ internal fun LutPickerDialog(
                             }
                         }
                     }
-                    item(key = "luts-header") { Text("Your LUTs", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
+                    item(key = "luts-header") { Text(stringResource(R.string.ed_2b_your_luts), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
                     if (state.luts.isEmpty()) {
-                        item(key = "luts-empty") { Text("No imported LUTs yet. Import a 3D .cube file (17, 33 or 65 points).", style = MaterialTheme.typography.bodyMedium) }
+                        item(key = "luts-empty") { Text(stringResource(R.string.ed_2b_no_imported_luts_yet_import), style = MaterialTheme.typography.bodyMedium) }
                     }
                     items(state.luts, key = { it.key }) { lut ->
                         Column(
@@ -173,13 +177,13 @@ internal fun LutPickerDialog(
                                 .padding(vertical = 8.dp),
                         ) {
                             Text(lut.name, style = MaterialTheme.typography.bodyLarge)
-                            Text("${lut.size}-point cube", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.ed_2b_point_cube, lut.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                state.error?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Text(
-                    "A LUT is applied to the clip in the project's colour space (Rec.709 in an SDR project, the HLG signal in an HLG project). The filters are made by ultimateVE and work offline.",
+                    stringResource(R.string.ed_2b_a_lut_is_applied_to),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -187,10 +191,10 @@ internal fun LutPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !state.importing) {
-                Text(if (state.importing) "Working…" else "Import .cube…")
+                Text(if (state.importing) stringResource(R.string.ed_2b_working) else stringResource(R.string.ed_2b_import_cube))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) } },
     )
 }
 
