@@ -23,6 +23,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -34,7 +35,7 @@ class ProxyViewModelTest {
     private val media = FakeMedia()
     private val index by lazy { ProxyIndex(File(tmp.root, "proxies")) }
     private val transcoder by lazy { FakeTranscoder(index) }
-    private val prefs = InMemoryProxyPrefs()
+    private val prefs = PausablePrefs(InMemoryProxyPrefs())
     private val manager by lazy {
         ProxyManager(index, prefs, media, transcoder, CoroutineScope(Job() + Dispatchers.Unconfined), executor.asCoroutineDispatcher(), Dispatchers.Unconfined)
     }
@@ -48,6 +49,9 @@ class ProxyViewModelTest {
 
     @After
     fun tearDown() {
+        // A test that failed before it released the job must not leave the worker waiting for its latch.
+        transcoder.hold?.countDown()
+        transcoder.gate?.countDown()
         // The collectors of the view models live on Dispatchers.Main: stop them before it goes away.
         created.forEach { it.viewModelScope.cancel() }
         executor.shutdownNow()
@@ -140,17 +144,53 @@ class ProxyViewModelTest {
     @Test
     fun `a progress tick moves the statuses but not the version the preview watches`() {
         registerMedia()
-        transcoder.hold = java.util.concurrent.CountDownLatch(1)
+        transcoder.hold = CountDownLatch(1)
+        try {
+            val vm = vm()
+            vm.onIntent(ProxyIntent.SetAssets(listOf(heavy)))
+            vm.onIntent(ProxyIntent.Generate("h"))
+            waitUntil { vm.state.value.items.single().status is ProxyStatus.Making }
+            val during = vm.state.value.resolveVersion
+
+            Thread.sleep(50) // "does not change": being slow can only make this pass, never fail
+
+            assertEquals(during, vm.state.value.resolveVersion)
+        } finally {
+            transcoder.hold!!.countDown()
+        }
+    }
+
+    /**
+     * Refreshes run on the worker thread (progress) and on the caller (intents). A refresh that read the statuses
+     * before the job started and wrote them after the worker's own refresh used to leave the job shown as queued
+     * until the proxy finished.
+     */
+    @Test
+    fun `a refresh that read stale statuses cannot overwrite a newer one`() {
+        registerMedia()
         val vm = vm()
         vm.onIntent(ProxyIntent.SetAssets(listOf(heavy)))
-        vm.onIntent(ProxyIntent.Generate("h"))
-        waitUntil { vm.state.value.items.single().status is ProxyStatus.Making }
-        val during = vm.state.value.resolveVersion
+        transcoder.gate = CountDownLatch(1) // the job cannot start yet, so the caller reads it as queued
+        transcoder.hold = CountDownLatch(1)
+        val caller = Thread { vm.onIntent(ProxyIntent.Generate("h")) }
+        try {
+            // Hold the caller inside its last refresh (the two before it are the ones the queue changes trigger).
+            prefs.pauseCallsOf(caller, atCall = 3)
+            caller.start()
+            assertTrue(prefs.paused.await(30, TimeUnit.SECONDS))
 
-        Thread.sleep(50)
+            transcoder.gate!!.countDown() // the job starts and the worker's refresh shows Making
+            waitUntil { vm.state.value.items.single().status is ProxyStatus.Making }
+            prefs.resume.countDown() // the caller finishes its refresh
+            caller.join(30_000)
 
-        assertEquals(during, vm.state.value.resolveVersion)
-        transcoder.hold!!.countDown()
+            assertFalse(caller.isAlive)
+            assertTrue(vm.state.value.items.single().status is ProxyStatus.Making)
+        } finally {
+            prefs.resume.countDown()
+            transcoder.hold!!.countDown()
+            transcoder.gate!!.countDown()
+        }
     }
 
     @Test
@@ -243,5 +283,27 @@ class ProxyViewModelTest {
 
         assertEquals(ProxyStatus.None, manager.statusOf(heavy))
         assertTrue(manager.statusOf(light) is ProxyStatus.Ready)
+    }
+}
+
+/** Preferences that can hold one chosen thread inside its Nth read of the "suggestion dismissed" flag. */
+private class PausablePrefs(private val inner: ProxyPrefs) : ProxyPrefs by inner {
+    val paused = CountDownLatch(1)
+    val resume = CountDownLatch(1)
+    @Volatile private var target: Thread? = null
+    @Volatile private var atCall = 0
+    private val calls = java.util.concurrent.atomic.AtomicInteger()
+
+    fun pauseCallsOf(thread: Thread, atCall: Int) {
+        this.atCall = atCall
+        target = thread
+    }
+
+    override fun suggestionDismissed(projectId: String): Boolean {
+        if (Thread.currentThread() === target && calls.incrementAndGet() == atCall) {
+            paused.countDown()
+            resume.await(60, TimeUnit.SECONDS)
+        }
+        return inner.suggestionDismissed(projectId)
     }
 }
