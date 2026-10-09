@@ -33,6 +33,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BeatTemplateViewModelTest {
@@ -103,7 +104,7 @@ class BeatTemplateViewModelTest {
 
         fun at(frame: Long) = vm.onIntent(EditorIntent.SetPlayhead(frame))
 
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
 
         fun beatFrames() = state.timeline.markers.filter { it.kind == MarkerKind.BEAT }.map { it.frame.value }
     }

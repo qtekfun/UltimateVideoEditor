@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.ui.res.pluralStringResource
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -76,9 +79,9 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
     var expanded by remember(clip.id) { mutableStateOf(state.timeline.trackOfClip(clip.id)?.type == TrackType.AUDIO) }
     val audio = clip.audio
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("Sound tools", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = { onIntent(EditorIntent.ToggleMixer) }) { Text("Mixer") }
-        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide" else "Show") }
+        Text(stringResource(R.string.ed_2b_sound_tools), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { onIntent(EditorIntent.ToggleMixer) }) { Text(stringResource(R.string.ed_2a_tool_mixer)) }
+        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) stringResource(R.string.common_hide) else stringResource(R.string.ed_2b_show)) }
     }
     if (!expanded) {
         if (!audio.isNeutral) Text(summaryOf(audio), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -93,27 +96,27 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
     }
 
     // Pan.
-    InspectorSlider("Pan", audio.pan.toFloat(), -1f..1f, panReadout(audio.pan), onIntent, end, paramId = ParamIds.PAN) {
+    InspectorSlider(stringResource(R.string.ed_2b_pan), audio.pan.toFloat(), -1f..1f, panReadout(audio.pan), onIntent, end, paramId = ParamIds.PAN) {
         change(audio.copy(pan = it.toDouble()))
     }
 
     // Fade handles, in seconds.
     val fpsValue = state.fps.num.toDouble() / state.fps.den
     val maxFade = min(clip.durationFrames.toDouble(), fpsValue * MAX_FADE_SECONDS).coerceAtLeast(1.0).toFloat()
-    InspectorSlider("Fade in", audio.fadeInFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, fadeReadout(audio.fadeInFrames, fpsValue), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_2b_fade_in), audio.fadeInFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, fadeReadout(audio.fadeInFrames, fpsValue), onIntent, end) {
         change(audio.copy(fadeInFrames = it.roundToInt().toLong()))
     }
-    InspectorSlider("Fade out", audio.fadeOutFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, fadeReadout(audio.fadeOutFrames, fpsValue), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_2b_fade_out), audio.fadeOutFrames.toFloat().coerceIn(0f, maxFade), 0f..maxFade, fadeReadout(audio.fadeOutFrames, fpsValue), onIntent, end) {
         change(audio.copy(fadeOutFrames = it.roundToInt().toLong()))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-        Text("Fade curve", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.ed_2b_fade_curve), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
         for (shape in FadeShape.entries) {
             FilterChip(
                 selected = audio.fadeShape == shape,
                 onClick = { commit(audio.copy(fadeShape = shape)) },
-                label = { Text(shape.label) },
-                modifier = Modifier.semantics { contentDescription = "Fade curve ${shape.label}" },
+                label = { Text(stringResource(shape.labelRes())) },
+                modifier = Modifier.described(stringResource(R.string.ed_2b_fade_curve_2, stringResource(shape.labelRes()))),
             )
         }
     }
@@ -122,16 +125,15 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
     val curvePoints = clip.paramKeys(ParamIds.GAIN_DB).size
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
-            if (curvePoints == 0) "Volume curve" else "Volume curve ($curvePoints points)",
+            if (curvePoints == 0) stringResource(R.string.ed_2b_volume_curve) else stringResource(R.string.ed_2b_volume_curve_points, curvePoints),
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = { onIntent(AudioShapeIntent.AddPointAtPlayhead) }) { Text("Add point at playhead") }
-        TextButton(onClick = { onIntent(EditorIntent.ClearParamTrack(ParamIds.GAIN_DB)) }, enabled = curvePoints > 0) { Text("Clear") }
+        TextButton(onClick = { onIntent(AudioShapeIntent.AddPointAtPlayhead) }) { Text(stringResource(R.string.ed_2b_add_point_at_playhead)) }
+        TextButton(onClick = { onIntent(EditorIntent.ClearParamTrack(ParamIds.GAIN_DB)) }, enabled = curvePoints > 0) { Text(stringResource(R.string.common_clear)) }
     }
     Text(
-        "On the timeline: drag the white circles at the top corners of the clip for the fades, double tap the clip to add a " +
-            "volume point, drag a point to shape the volume, double tap a point to remove it.",
+        stringResource(R.string.ed_2b_timeline_hint),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -149,7 +151,7 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
     LoudnessControls(state, audio, onIntent)
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { onIntent(EditorIntent.ResetClipAudio) }, enabled = !audio.isNeutral) { Text("Reset sound") }
+        TextButton(onClick = { onIntent(EditorIntent.ResetClipAudio) }, enabled = !audio.isNeutral) { Text(stringResource(R.string.ed_2b_reset_sound)) }
     }
 }
 
@@ -158,32 +160,32 @@ private fun EqControls(audio: ClipAudio, change: (ClipAudio) -> Unit, commit: (C
     val eq = audio.eq
     val end = EditorIntent.EndAudioEdit(commit = true)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("Equaliser", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = { commit(audio.copy(eq = ClipEq.FLAT)) }, enabled = !eq.isFlat) { Text("Flat") }
+        Text(stringResource(R.string.ed_2b_equaliser), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { commit(audio.copy(eq = ClipEq.FLAT)) }, enabled = !eq.isFlat) { Text(stringResource(R.string.ed_2b_flat)) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("Low cut", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.ed_2b_low_cut), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
         for (hz in HIGH_PASS_CHOICES) {
             FilterChip(
                 selected = eq.highPassHz == hz,
                 onClick = { commit(audio.copy(eq = eq.copy(highPassHz = hz))) },
-                label = { Text(if (hz == 0.0) "Off" else hertz(hz)) },
+                label = { Text(if (hz == 0.0) stringResource(R.string.ed_2b_off) else hertz(hz)) },
             )
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("High cut", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.ed_2b_high_cut), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
         for (hz in LOW_PASS_CHOICES) {
             FilterChip(
                 selected = eq.lowPassHz == hz,
                 onClick = { commit(audio.copy(eq = eq.copy(lowPassHz = hz))) },
-                label = { Text(if (hz == 0.0) "Off" else hertz(hz)) },
+                label = { Text(if (hz == 0.0) stringResource(R.string.ed_2b_off) else hertz(hz)) },
             )
         }
     }
     eq.bands.forEachIndexed { index, band ->
         InspectorSlider(
-            label = BAND_LABELS[index],
+            label = stringResource(BAND_LABELS[index]),
             value = band.gainDb.toFloat(),
             range = EqBand.MIN_GAIN_DB.toFloat()..EqBand.MAX_GAIN_DB.toFloat(),
             readout = "${signedDb(band.gainDb)} dB",
@@ -203,24 +205,24 @@ private fun NoiseControls(state: EditorState, clip: Clip, onIntent: (EditorInten
     var strength by remember(clip.id) { mutableFloatStateOf((denoise?.strength ?: DEFAULT_STRENGTH).toFloat()) }
     val busy = state.audioBusy != null
 
-    Text("Noise suppression", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.ed_2b_noise_suppression), style = MaterialTheme.typography.titleSmall)
     Text(
         text = when {
-            denoise != null -> "On at ${(denoise.strength * PERCENT).roundToInt()}%"
+            denoise != null -> stringResource(R.string.ed_2b_noise_on_at, (denoise.strength * PERCENT).roundToInt())
             region == null || (region.startFrame == null && region.endFrame == null) ->
-                "Park the playhead where only the noise can be heard, tap Mark start, move to the end of that quiet stretch, tap Mark end."
-            else -> "Quiet stretch: ${region.startFrame?.let { seconds(it / fpsValue) } ?: "?"} to ${region.endFrame?.let { seconds(it / fpsValue) } ?: "?"}"
+                stringResource(R.string.ed_2b_noise_park)
+            else -> stringResource(R.string.ed_2b_noise_quiet_stretch, region.startFrame?.let { seconds(it / fpsValue) } ?: "?", region.endFrame?.let { seconds(it / fpsValue) } ?: "?")
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { onIntent(EditorIntent.MarkNoiseRegion(atStart = true)) }, enabled = !busy) { Text("Mark start") }
-        TextButton(onClick = { onIntent(EditorIntent.MarkNoiseRegion(atStart = false)) }, enabled = !busy) { Text("Mark end") }
-        TextButton(onClick = { onIntent(EditorIntent.ClearNoiseRegion) }, enabled = region != null && !busy) { Text("Clear") }
+        TextButton(onClick = { onIntent(EditorIntent.MarkNoiseRegion(atStart = true)) }, enabled = !busy) { Text(stringResource(R.string.ed_2b_mark_start)) }
+        TextButton(onClick = { onIntent(EditorIntent.MarkNoiseRegion(atStart = false)) }, enabled = !busy) { Text(stringResource(R.string.ed_2b_mark_end)) }
+        TextButton(onClick = { onIntent(EditorIntent.ClearNoiseRegion) }, enabled = region != null && !busy) { Text(stringResource(R.string.common_clear)) }
     }
     val end = EditorIntent.EndAudioEdit(commit = true)
-    InspectorSlider("Strength", strength, STRENGTH_MIN..1f, "${(strength * PERCENT).roundToInt()}%", onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_2b_strength), strength, STRENGTH_MIN..1f, "${(strength * PERCENT).roundToInt()}%", onIntent, end) {
         strength = it
         // With the profile already measured the strength follows the slider live; otherwise it is used on Analyse.
         if (denoise != null) onIntent(EditorIntent.UpdateClipAudio(audio.copy(denoise = denoise.copy(strength = it.toDouble()))))
@@ -229,8 +231,8 @@ private fun NoiseControls(state: EditorState, clip: Clip, onIntent: (EditorInten
         TextButton(
             onClick = { onIntent(EditorIntent.AnalyzeNoise(strength.toDouble())) },
             enabled = !busy && region?.isComplete == true,
-        ) { Text(if (denoise == null) "Remove noise" else "Measure again") }
-        TextButton(onClick = { onIntent(EditorIntent.RemoveNoiseSuppression) }, enabled = denoise != null && !busy) { Text("Turn off") }
+        ) { Text(if (denoise == null) stringResource(R.string.ed_2b_remove_noise) else stringResource(R.string.ed_2b_measure_again)) }
+        TextButton(onClick = { onIntent(EditorIntent.RemoveNoiseSuppression) }, enabled = denoise != null && !busy) { Text(stringResource(R.string.ed_2b_turn_off)) }
     }
 }
 
@@ -249,22 +251,22 @@ private fun VoiceControls(clip: Clip, onIntent: (EditorIntent) -> Unit) {
         onIntent(end)
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("Voice effects", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = { commit(audio.copy(voice = null)) }, enabled = voice != null) { Text("Off") }
+        Text(stringResource(R.string.ed_2b_voice_effects), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { commit(audio.copy(voice = null)) }, enabled = voice != null) { Text(stringResource(R.string.ed_2b_off)) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
         for (preset in VoicePreset.entries) {
             FilterChip(
                 selected = voice?.preset == preset,
                 onClick = { commit(audio.copy(voice = preset.defaults())) },
-                label = { Text(preset.label) },
-                modifier = Modifier.semantics { contentDescription = "Voice effect ${preset.label}" },
+                label = { Text(stringResource(preset.labelRes())) },
+                modifier = Modifier.described(stringResource(R.string.ed_2b_voice_effect, stringResource(preset.labelRes()))),
             )
         }
     }
     if (voice == null) {
         Text(
-            "Change how this clip's voice sounds. Pick a preset, then adjust its sliders.",
+            stringResource(R.string.ed_2b_change_how_this_clip_s),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -274,7 +276,7 @@ private fun VoiceControls(clip: Clip, onIntent: (EditorIntent) -> Unit) {
         VoiceSliderRow(clip.id, voice, index, slider, ParamIds.voice(index), onIntent) { commit(audio.copy(voice = it)) }
     }
     Text(
-        "The clip is read again when you release a slider or change a key; a long echo or reverb keeps sounding after the clip's own sound ends.",
+        stringResource(R.string.ed_2b_the_clip_is_read_again),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -292,14 +294,15 @@ private fun VoiceSliderRow(
 ) {
     var local by remember(clipId, voice.preset, voice.values[index]) { mutableFloatStateOf(voice.values[index].toFloat()) }
     val readout = voiceReadout(slider, local.toDouble())
+    val sliderDescription = "${voiceSliderName(slider.name)} $readout"
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(slider.name, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+        Text(voiceSliderName(slider.name), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
         Slider(
             value = local.coerceIn(slider.min.toFloat(), slider.max.toFloat()),
             onValueChange = { local = it },
             onValueChangeFinished = { onCommit(voice.with(index, local.toDouble())) },
             valueRange = slider.min.toFloat()..slider.max.toFloat(),
-            modifier = Modifier.weight(1f).semantics { contentDescription = "${slider.name} $readout" },
+            modifier = Modifier.weight(1f).semantics { contentDescription = sliderDescription },
         )
         Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
         // The diamond keys the slider at the playhead; once it has keys the slider shows the value at the playhead.
@@ -318,45 +321,47 @@ internal fun voiceReadout(slider: VoiceSlider, value: Double): String = when {
 @Composable
 private fun LoudnessControls(state: EditorState, audio: ClipAudio, onIntent: (EditorIntent) -> Unit) {
     val busy = state.audioBusy != null
-    Text("Loudness", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.ed_2b_loudness), style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        for ((lufs, label) in LOUDNESS_TARGETS) {
+        for ((lufs, labelRes) in LOUDNESS_TARGETS) {
+            val label = stringResource(labelRes)
             FilterChip(
                 selected = audio.targetLufs == lufs,
                 enabled = !busy,
                 onClick = { onIntent(EditorIntent.NormalizeLoudness(lufs)) },
                 label = { Text(label) },
-                modifier = Modifier.semantics { contentDescription = "Normalise to ${lufs.roundToInt()} LUFS, $label" },
+                modifier = Modifier.described(stringResource(R.string.ed_2b_normalise_to_lufs, lufs.roundToInt(), label)),
             )
         }
     }
     val target = audio.targetLufs
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = if (target != null) "Normalised to ${target.roundToInt()} LUFS (${signedDb(audio.normalizeDb)} dB)" else "Not normalised",
+            text = if (target != null) stringResource(R.string.ed_2b_normalised_to_lufs_db, target.roundToInt(), signedDb(audio.normalizeDb)) else stringResource(R.string.ed_2b_not_normalised),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = { onIntent(EditorIntent.ClearNormalize) }, enabled = target != null && !busy) { Text("Clear") }
+        TextButton(onClick = { onIntent(EditorIntent.ClearNormalize) }, enabled = target != null && !busy) { Text(stringResource(R.string.common_clear)) }
     }
     val message = state.audioBusy
     if (message != null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CircularProgressIndicator(modifier = Modifier.height(18.dp).width(18.dp), strokeWidth = 2.dp)
             Text(message, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = { onIntent(EditorIntent.CancelAudioAnalysis) }) { Text("Cancel") }
+            TextButton(onClick = { onIntent(EditorIntent.CancelAudioAnalysis) }) { Text(stringResource(R.string.common_cancel)) }
         }
     }
 }
 
+@Composable
 private fun summaryOf(audio: ClipAudio): String = buildList {
-    if (audio.pan != 0.0) add("pan ${panReadout(audio.pan)}")
-    if (audio.fadeInFrames > 0 || audio.fadeOutFrames > 0) add("fades")
-    if (!audio.eq.isFlat) add("EQ")
-    if (audio.denoise != null) add("noise suppression")
-    audio.voice?.let { add("voice: ${it.preset.label}") }
-    if (audio.targetLufs != null) add("normalised")
+    if (audio.pan != 0.0) add(stringResource(R.string.ed_2b_sum_pan, panReadout(audio.pan)))
+    if (audio.fadeInFrames > 0 || audio.fadeOutFrames > 0) add(stringResource(R.string.ed_2b_sum_fades))
+    if (!audio.eq.isFlat) add(stringResource(R.string.ed_2b_sum_eq))
+    if (audio.denoise != null) add(stringResource(R.string.ed_2b_sum_noise))
+    audio.voice?.let { add(stringResource(R.string.ed_2b_sum_voice, stringResource(it.preset.labelRes()))) }
+    if (audio.targetLufs != null) add(stringResource(R.string.ed_2b_sum_normalised))
 }.joinToString(" · ")
 
 // ---------------------------------------------------------------------------------------------
@@ -394,8 +399,8 @@ internal fun MixerSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Mixer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                TextButton(onClick = { onIntent(EditorIntent.ToggleMixer) }) { Text("Done") }
+                Text(stringResource(R.string.ed_2a_tool_mixer), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = { onIntent(EditorIntent.ToggleMixer) }) { Text(stringResource(R.string.ed_2a_done)) }
             }
             for (track in mixerTracks(timeline)) {
                 MixerTrackRow(timeline, track, onIntent)
@@ -421,47 +426,48 @@ private fun MixerTrackRow(timeline: Timeline, track: Track, onIntent: (EditorInt
         FilterChip(
             selected = a.mute,
             onClick = { commit(a.copy(mute = !a.mute)) },
-            label = { Text("Mute") },
-            modifier = Modifier.semantics { contentDescription = "Mute track $label" },
+            label = { Text(stringResource(R.string.ed_2a_mute)) },
+            modifier = Modifier.described(stringResource(R.string.ed_2b_mute_track, label)),
         )
         FilterChip(
             selected = a.solo,
             onClick = { commit(a.copy(solo = !a.solo)) },
-            label = { Text("Solo") },
-            modifier = Modifier.semantics { contentDescription = "Solo track $label" },
+            label = { Text(stringResource(R.string.ed_2b_solo)) },
+            modifier = Modifier.described(stringResource(R.string.ed_2b_solo_track, label)),
         )
-        Text("${track.clips.size} clip${if (track.clips.size == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(pluralStringResource(R.plurals.ed_2b_clips_count, track.clips.size, track.clips.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Volume", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.ed_2b_volume), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
         Slider(
             value = a.volumeDb.toFloat().coerceIn(VOLUME_MIN, VOLUME_MAX),
             onValueChange = { change(a.copy(volumeDb = (it.toDouble() * TENTH).roundToInt() / TENTH)) },
             onValueChangeFinished = { onIntent(end) },
             valueRange = VOLUME_MIN..VOLUME_MAX,
-            modifier = Modifier.weight(1f).semantics { contentDescription = "Volume of track $label ${signedDb(a.volumeDb)} dB" },
+            modifier = Modifier.weight(1f).described(stringResource(R.string.ed_2b_volume_of_track_db, label, signedDb(a.volumeDb))),
         )
-        Text("${signedDb(a.volumeDb)} dB", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+        Text(stringResource(R.string.ed_2b_db, signedDb(a.volumeDb)), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Role", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
-        for ((role, name) in ROLE_CHOICES) {
+        Text(stringResource(R.string.ed_2b_role), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        for (role in ROLE_CHOICES) {
+            val name = stringResource(role.labelRes())
             FilterChip(selected = a.role == role, onClick = { commit(a.copy(role = role)) }, label = { Text(name) })
         }
     }
     val comp = a.compressor
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Compressor", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.ed_2b_compressor), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
         Switch(checked = comp != null, onCheckedChange = { commit(a.copy(compressor = if (it) BusCompressor() else null)) })
     }
     if (comp != null) {
-        MixerSlider("Threshold", comp.thresholdDb.toFloat(), -60f..0f, "${comp.thresholdDb.roundToInt()} dB", onIntent) {
+        MixerSlider(stringResource(R.string.ed_2b_threshold), comp.thresholdDb.toFloat(), -60f..0f, "${comp.thresholdDb.roundToInt()} dB", onIntent) {
             change(a.copy(compressor = comp.copy(thresholdDb = it.roundToInt().toDouble())))
         }
-        MixerSlider("Ratio", comp.ratio.toFloat(), 1f..10f, "${"%.1f".format(Locale.US, comp.ratio)}:1", onIntent) {
+        MixerSlider(stringResource(R.string.ed_2b_ratio), comp.ratio.toFloat(), 1f..10f, "${"%.1f".format(Locale.US, comp.ratio)}:1", onIntent) {
             change(a.copy(compressor = comp.copy(ratio = (it * TENTH).roundToInt() / TENTH)))
         }
-        MixerSlider("Make-up", comp.makeupDb.toFloat(), 0f..12f, "+${"%.1f".format(Locale.US, comp.makeupDb)} dB", onIntent) {
+        MixerSlider(stringResource(R.string.ed_2b_make_up), comp.makeupDb.toFloat(), 0f..12f, "+${"%.1f".format(Locale.US, comp.makeupDb)} dB", onIntent) {
             change(a.copy(compressor = comp.copy(makeupDb = (it * TENTH).roundToInt() / TENTH)))
         }
     }
@@ -475,7 +481,7 @@ private fun DuckingControls(timeline: Timeline, onIntent: (EditorIntent) -> Unit
     val hasVoice = tracks.any { it.audio.role == AudioRole.VOICE }
     val hasMusic = tracks.any { it.audio.role == AudioRole.MUSIC }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Duck music under voice", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.ed_2b_duck_music_under_voice), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
         Switch(
             checked = ducking != null,
             onCheckedChange = {
@@ -486,22 +492,22 @@ private fun DuckingControls(timeline: Timeline, onIntent: (EditorIntent) -> Unit
     }
     Text(
         text = when {
-            ducking == null -> "Music tracks dip while a voice track speaks. Give one track the Voice role and another the Music role."
-            !hasVoice || !hasMusic -> "Set the role of at least one track to Voice and one to Music for this to act."
-            else -> "The music dips by ${ducking.amountDb.roundToInt()} dB while the voice is heard and comes back after it."
+            ducking == null -> stringResource(R.string.ed_2b_duck_off)
+            !hasVoice || !hasMusic -> stringResource(R.string.ed_2b_duck_roles)
+            else -> stringResource(R.string.ed_2b_duck_on, ducking.amountDb.roundToInt())
         },
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     if (ducking != null) {
         fun change(next: Ducking) = onIntent(EditorIntent.UpdateDucking(next))
-        MixerSlider("Amount", ducking.amountDb.toFloat(), 1f..24f, "${ducking.amountDb.roundToInt()} dB", onIntent) {
+        MixerSlider(stringResource(R.string.ed_2b_amount), ducking.amountDb.toFloat(), 1f..24f, "${ducking.amountDb.roundToInt()} dB", onIntent) {
             change(ducking.copy(amountDb = it.roundToInt().toDouble()))
         }
-        MixerSlider("Trigger", ducking.thresholdDb.toFloat(), -60f..-15f, "${ducking.thresholdDb.roundToInt()} dB", onIntent) {
+        MixerSlider(stringResource(R.string.ed_2b_trigger), ducking.thresholdDb.toFloat(), -60f..-15f, "${ducking.thresholdDb.roundToInt()} dB", onIntent) {
             change(ducking.copy(thresholdDb = it.roundToInt().toDouble()))
         }
-        MixerSlider("Recovery", ducking.releaseMs.toFloat(), 100f..1500f, "${ducking.releaseMs.roundToInt()} ms", onIntent) {
+        MixerSlider(stringResource(R.string.ed_2b_recovery), ducking.releaseMs.toFloat(), 100f..1500f, "${ducking.releaseMs.roundToInt()} ms", onIntent) {
             change(ducking.copy(releaseMs = it.roundToInt().toDouble()))
         }
     }
@@ -553,7 +559,7 @@ internal fun LevelMeter(takePeaks: () -> PeakLevels, active: Boolean, modifier: 
         modifier = modifier
             .width(METER_WIDTH)
             .height(METER_HEIGHT)
-            .semantics { contentDescription = "Output level" },
+            .described(stringResource(R.string.ed_2b_output_level)),
     ) {
         val barHeight = size.height / 2f - 1f
         fun bar(level: Float, top: Float) {
@@ -618,6 +624,6 @@ private const val METER_FRAME_MILLIS = 33L
 
 private val HIGH_PASS_CHOICES = listOf(0.0, 80.0, 120.0, 200.0)
 private val LOW_PASS_CHOICES = listOf(0.0, 8000.0, 12000.0, 16000.0)
-private val BAND_LABELS = listOf("Low 100", "Mid 400", "Mid 1.5k", "High 5k", "Air 10k")
-private val LOUDNESS_TARGETS = listOf(-23.0 to "-23 broadcast", -16.0 to "-16 online", -14.0 to "-14 music")
-private val ROLE_CHOICES = listOf(AudioRole.NORMAL to "Normal", AudioRole.VOICE to "Voice", AudioRole.MUSIC to "Music")
+private val BAND_LABELS = listOf(R.string.ed_2b_band_low, R.string.ed_2b_band_mid, R.string.ed_2b_band_mid_high, R.string.ed_2b_band_high, R.string.ed_2b_band_air)
+private val LOUDNESS_TARGETS = listOf(-23.0 to R.string.ed_2b_lufs_broadcast, -16.0 to R.string.ed_2b_lufs_online, -14.0 to R.string.ed_2b_lufs_music)
+private val ROLE_CHOICES = listOf(AudioRole.NORMAL, AudioRole.VOICE, AudioRole.MUSIC)

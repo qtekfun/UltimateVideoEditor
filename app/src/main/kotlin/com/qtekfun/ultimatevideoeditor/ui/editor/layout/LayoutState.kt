@@ -99,11 +99,12 @@ enum class AudioLaneHeight(val factor: Float, @StringRes val labelRes: Int) {
     }
 }
 
-enum class LayoutPreset(@StringRes val labelRes: Int) {
-    DEFAULT(R.string.ed_2a_preset_default),
-    TIMELINE_FOCUS(R.string.ed_2a_preset_timeline_focus),
-    PREVIEW_FOCUS(R.string.ed_2a_preset_preview_focus),
-    TWO_PANELS(R.string.ed_2a_preset_two_panels),
+/** [labelRes] is the short name on the chip, [descriptionRes] the full name for the spoken description. */
+enum class LayoutPreset(@StringRes val labelRes: Int, @StringRes val descriptionRes: Int) {
+    DEFAULT(R.string.ed_2a_preset_default, R.string.ed_2b_preset_default_desc),
+    TIMELINE_FOCUS(R.string.ed_2a_preset_timeline_focus, R.string.ed_2b_preset_timeline_desc),
+    PREVIEW_FOCUS(R.string.ed_2a_preset_preview_focus, R.string.ed_2b_preset_preview_desc),
+    TWO_PANELS(R.string.ed_2a_preset_two_panels, R.string.ed_2b_preset_two_desc),
 }
 
 data class PanelState(val dock: Dock, val collapsed: Boolean = false)

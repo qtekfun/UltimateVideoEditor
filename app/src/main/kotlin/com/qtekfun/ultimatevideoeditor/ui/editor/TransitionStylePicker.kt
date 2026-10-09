@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -43,26 +45,26 @@ import com.qtekfun.ultimatevideoeditor.domain.TransitionType
 @Composable
 internal fun TransitionStylePicker(transition: Transition, onIntent: (EditorIntent) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-        Text(text = "Look", style = MaterialTheme.typography.labelMedium)
+        Text(text = stringResource(R.string.ed_2b_look), style = MaterialTheme.typography.labelMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (type in TransitionType.entries) {
                 FilterChip(
                     selected = transition.type == type,
                     onClick = { onIntent(EditorIntent.SetTransitionStyle(type, transition.direction)) },
-                    label = { Text(type.label) },
-                    modifier = Modifier.semantics { contentDescription = "Transition look ${type.label}" },
+                    label = { Text(stringResource(type.labelRes())) },
+                    modifier = Modifier.described(stringResource(R.string.ed_2b_transition_look, stringResource(type.labelRes()))),
                 )
             }
         }
         if (transition.type.hasDirection) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(text = "Direction", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+                Text(text = stringResource(R.string.ed_2b_direction), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
                 for (direction in TransitionDirection.entries) {
                     FilterChip(
                         selected = transition.direction == direction,
                         onClick = { onIntent(EditorIntent.SetTransitionStyle(transition.type, direction)) },
-                        label = { Text(direction.label) },
-                        modifier = Modifier.semantics { contentDescription = "Transition direction ${direction.label}" },
+                        label = { Text(stringResource(direction.labelRes())) },
+                        modifier = Modifier.described(stringResource(R.string.ed_2b_transition_direction, stringResource(direction.labelRes()))),
                     )
                 }
             }
@@ -79,7 +81,7 @@ private val INCOMING = Color(0xFFE8892B)
 private fun TransitionPreview(type: TransitionType, direction: TransitionDirection) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).semantics { contentDescription = "Preview of the ${type.label} transition" },
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).described(stringResource(R.string.ed_2b_preview_of_the_transition, stringResource(type.labelRes()))),
     ) {
         for (fraction in listOf(0.25, 0.5, 0.75)) {
             Canvas(modifier = Modifier.weight(1f).height(44.dp)) {

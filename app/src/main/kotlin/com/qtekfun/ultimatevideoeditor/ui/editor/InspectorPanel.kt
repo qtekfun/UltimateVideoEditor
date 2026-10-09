@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.ui.res.pluralStringResource
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,12 +87,12 @@ fun InspectorPanel(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (clip == null) "Select a clip to adjust it" else "Clip appearance",
+                text = if (clip == null) stringResource(R.string.ed_2b_select_a_clip_to_adjust) else stringResource(R.string.ed_2b_clip_appearance),
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { onIntent(EditorIntent.ResetAppearance) }, enabled = clip != null) { Text("Reset") }
-            TextButton(onClick = { onIntent(EditorIntent.ToggleInspector) }) { Text("Done") }
+            TextButton(onClick = { onIntent(EditorIntent.ResetAppearance) }, enabled = clip != null) { Text(stringResource(R.string.ed_2b_reset)) }
+            TextButton(onClick = { onIntent(EditorIntent.ToggleInspector) }) { Text(stringResource(R.string.ed_2a_done)) }
         }
         if (clip == null) return@Column
 
@@ -108,28 +111,28 @@ fun InspectorPanel(
         if (isVisual) {
             KeyframeControls(state, clip.keyframes.size, onIntent)
             InspectorSlider(
-                label = "Position X",
+                label = stringResource(R.string.ed_2b_position_x),
                 value = transform.positionX.toFloat(),
                 range = -state.canvasWidth.toFloat()..state.canvasWidth.toFloat(),
                 readout = "${transform.positionX.roundToInt()} px",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(positionX = it.toDouble()))) }
             InspectorSlider(
-                label = "Position Y",
+                label = stringResource(R.string.ed_2b_position_y),
                 value = transform.positionY.toFloat(),
                 range = -state.canvasHeight.toFloat()..state.canvasHeight.toFloat(),
                 readout = "${transform.positionY.roundToInt()} px",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(positionY = it.toDouble()))) }
             InspectorSlider(
-                label = "Scale",
+                label = stringResource(R.string.ed_2b_scale),
                 value = transform.scaleX.toFloat().coerceIn(SCALE_MIN, SCALE_MAX),
                 range = SCALE_MIN..SCALE_MAX,
                 readout = "${(transform.scaleX * PERCENT).roundToInt()}%",
                 onIntent = onIntent,
             ) { onIntent(EditorIntent.UpdateTransform(transform.copy(scaleX = it.toDouble(), scaleY = it.toDouble()))) }
             InspectorSlider(
-                label = "Rotation",
+                label = stringResource(R.string.ed_2b_rotation),
                 value = transform.rotationDegrees.toFloat().coerceIn(-ROTATION_LIMIT, ROTATION_LIMIT),
                 range = -ROTATION_LIMIT..ROTATION_LIMIT,
                 readout = "${transform.rotationDegrees.roundToInt()}°",
@@ -139,18 +142,18 @@ fun InspectorPanel(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                 for (delta in listOf(-QUARTER_TURN, QUARTER_TURN)) {
                     val sign = if (delta < 0) "-" else "+"
-                    val way = if (delta < 0) "counter-clockwise" else "clockwise"
+
                     TextButton(
                         onClick = {
                             onIntent(EditorIntent.UpdateTransform(transform.copy(rotationDegrees = PreviewGeometry.turnBy(transform.rotationDegrees, delta))))
                             onIntent(EditorIntent.EndAppearanceEdit(commit = true))
                         },
-                        modifier = Modifier.semantics { contentDescription = "Rotate 90 degrees $way" },
+                        modifier = Modifier.described(stringResource(if (delta < 0) R.string.ed_2b_rotate_ccw else R.string.ed_2b_rotate_cw)),
                     ) { Text("$sign${QUARTER_TURN.toInt()}°") }
                 }
             }
             InspectorSlider(
-                label = "Opacity",
+                label = stringResource(R.string.ed_2b_opacity),
                 value = transform.opacity.toFloat(),
                 range = 0f..1f,
                 readout = "${(transform.opacity * PERCENT).roundToInt()}%",
@@ -169,10 +172,10 @@ fun InspectorPanel(
         // A video clip with detached sound is silent: its volume and sound tools would change nothing, so they are on the audio clip.
         if (clip.hasMedia && !clip.audioDetached) {
             InspectorSlider(
-                label = "Volume",
+                label = stringResource(R.string.ed_2b_volume),
                 value = clip.gainDb.toFloat().coerceIn(GAIN_MIN, GAIN_MAX),
                 range = GAIN_MIN..GAIN_MAX,
-                readout = if (clip.gainDb <= GAIN_MIN) "mute" else "${formatDb(clip.gainDb)} dB",
+                readout = if (clip.gainDb <= GAIN_MIN) stringResource(R.string.ed_2b_readout_mute) else "${formatDb(clip.gainDb)} dB",
                 onIntent = onIntent,
                 paramId = ParamIds.GAIN_DB,
             ) { onIntent(EditorIntent.UpdateGain(if (it <= GAIN_MIN) ClipGain.MIN_DB else it.toDouble())) }
@@ -195,7 +198,7 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
     val speed = clip.speed
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = if (freeze) "Freeze frame" else "Speed",
+            text = if (freeze) stringResource(R.string.ed_2b_freeze_frame) else stringResource(R.string.ed_2b_speed),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
@@ -214,32 +217,32 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
         }
         var logSpeed by remember(clip.id, clip.durationFrames) { mutableFloatStateOf(log2(speed).toFloat()) }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "Custom", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(text = stringResource(R.string.ed_2b_custom), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
             Slider(
                 value = logSpeed.coerceIn(LOG_SPEED_MIN, LOG_SPEED_MAX),
                 onValueChange = { logSpeed = it },
                 onValueChangeFinished = { onIntent(speedIntent(2.0.pow(logSpeed.toDouble()))) },
                 valueRange = LOG_SPEED_MIN..LOG_SPEED_MAX,
-                modifier = Modifier.weight(1f).semantics { contentDescription = "Speed ${formatSpeed(2.0.pow(logSpeed.toDouble()))}" },
+                modifier = Modifier.weight(1f).described(stringResource(R.string.ed_2b_speed_2, formatSpeed(2.0.pow(logSpeed.toDouble())))),
             )
             Text(text = formatSpeed(2.0.pow(logSpeed.toDouble())), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
         }
         val shape = rampShapeOf(clip)
-        Text(text = "Speed curve", style = MaterialTheme.typography.labelMedium)
+        Text(text = stringResource(R.string.ed_2b_speed_curve), style = MaterialTheme.typography.labelMedium)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         ) {
-            for ((option, label) in RAMP_SHAPES) {
+            for (option in RAMP_SHAPES) {
                 FilterChip(
                     selected = shape == option,
                     onClick = { onIntent(EditorIntent.SetSpeedRamp(option)) },
-                    label = { Text(label) },
+                    label = { Text(stringResource(option.labelRes())) },
                 )
             }
         }
         var curveOpen by remember(clip.id) { mutableStateOf(false) }
-        TextButton(onClick = { curveOpen = !curveOpen }) { Text(if (curveOpen) "Hide curve editor" else "Edit curve") }
+        TextButton(onClick = { curveOpen = !curveOpen }) { Text(if (curveOpen) stringResource(R.string.ed_2b_hide_curve_editor) else stringResource(R.string.ed_2b_edit_curve)) }
         if (curveOpen && clip.durationFrames >= 2) {
             SpeedCurveEditor(
                 keys = clip.speedRamp,
@@ -251,32 +254,32 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
         if (isVisual && (speed < 1.0 || !rampless)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = "Smooth slow motion", style = MaterialTheme.typography.labelMedium)
+                    Text(text = stringResource(R.string.ed_2b_smooth_slow_motion), style = MaterialTheme.typography.labelMedium)
                     Text(
-                        text = "Makes in-between frames where the clip plays slower than real time",
+                        text = stringResource(R.string.ed_2b_makes_in_between_frames_where),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Switch(
                     checked = clip.smoothSlowMo,
                     onCheckedChange = { onIntent(EditorIntent.ToggleSmoothSlowMo) },
-                    modifier = Modifier.semantics { contentDescription = "Smooth slow motion" },
+                    modifier = Modifier.described(stringResource(R.string.ed_2b_smooth_slow_motion)),
                 )
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "Reverse", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(text = stringResource(R.string.ed_2b_reverse), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
             Switch(checked = clip.reverse, onCheckedChange = { onIntent(EditorIntent.ToggleReverse) })
         }
         if (speed > MAX_AUDIBLE_SPEED || speed < MIN_AUDIBLE_SPEED) {
-            Text(text = "Sound is muted outside 0.25x to 4x", style = MaterialTheme.typography.bodySmall)
+            Text(text = stringResource(R.string.ed_2b_sound_is_muted_outside_x), style = MaterialTheme.typography.bodySmall)
         }
     }
     if (isVisual) {
         TextButton(
             onClick = { onIntent(EditorIntent.FreezeFrame) },
             enabled = state.selectedClipVisible,
-        ) { Text("Freeze frame at the playhead") }
+        ) { Text(stringResource(R.string.ed_2b_freeze_frame_at_the_playhead)) }
     }
 }
 
@@ -310,15 +313,15 @@ internal fun formatSpeed(speed: Double): String {
 
 private val SPEED_PRESETS = listOf(0.25, 0.5, 1.0, 2.0, 4.0, 10.0)
 private val RAMP_SHAPES = listOf(
-    SpeedRampShape.NONE to "None",
-    SpeedRampShape.EASE_IN to "Ease in",
-    SpeedRampShape.EASE_OUT to "Ease out",
-    SpeedRampShape.EASE_IN_SMOOTH to "Ease in (round)",
-    SpeedRampShape.EASE_OUT_SMOOTH to "Ease out (round)",
-    SpeedRampShape.BELL to "Bell",
-    SpeedRampShape.MONTAGE to "Montage",
-    SpeedRampShape.HERO to "Hero",
-    SpeedRampShape.BULLET to "Bullet time",
+    SpeedRampShape.NONE,
+    SpeedRampShape.EASE_IN,
+    SpeedRampShape.EASE_OUT,
+    SpeedRampShape.EASE_IN_SMOOTH,
+    SpeedRampShape.EASE_OUT_SMOOTH,
+    SpeedRampShape.BELL,
+    SpeedRampShape.MONTAGE,
+    SpeedRampShape.HERO,
+    SpeedRampShape.BULLET,
 )
 private const val SPEED_MATCH = 0.01
 private val LOG_SPEED_MIN = log2(0.1).toFloat()
@@ -334,46 +337,41 @@ private fun KeyframeControls(state: EditorState, keyframeCount: Int, onIntent: (
     val atPlayhead = state.keyframeAtPlayhead
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = if (keyframeCount == 0) "Animation" else "Animation · $keyframeCount keyframe${if (keyframeCount == 1) "" else "s"}",
+            text = if (keyframeCount == 0) stringResource(R.string.ed_2b_animation) else pluralStringResource(R.plurals.ed_2b_animation_keys, keyframeCount, keyframeCount),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = { onIntent(EditorIntent.JumpToKeyframe(forward = false)) }, enabled = keyframeCount > 0) {
-            Icon(EditorIcons.SkipPrevious, contentDescription = "Previous keyframe", modifier = Modifier.size(20.dp))
+            Icon(EditorIcons.SkipPrevious, contentDescription = stringResource(R.string.ed_2b_previous_keyframe), modifier = Modifier.size(20.dp))
         }
         IconButton(onClick = { onIntent(EditorIntent.ToggleKeyframe) }) {
             Icon(
                 imageVector = if (atPlayhead != null) EditorIcons.KeyframeOn else EditorIcons.KeyframeOff,
-                contentDescription = if (atPlayhead != null) "Remove the keyframe at the playhead" else "Add a keyframe at the playhead",
+                contentDescription = if (atPlayhead != null) stringResource(R.string.ed_2b_remove_the_keyframe_at_the) else stringResource(R.string.ed_2b_add_a_keyframe_at_the),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp),
             )
         }
         IconButton(onClick = { onIntent(EditorIntent.JumpToKeyframe(forward = true)) }, enabled = keyframeCount > 0) {
-            Icon(EditorIcons.SkipNext, contentDescription = "Next keyframe", modifier = Modifier.size(20.dp))
+            Icon(EditorIcons.SkipNext, contentDescription = stringResource(R.string.ed_2b_next_keyframe), modifier = Modifier.size(20.dp))
         }
-        TextButton(onClick = { onIntent(EditorIntent.ClearKeyframes) }, enabled = keyframeCount > 0) { Text("Clear") }
+        TextButton(onClick = { onIntent(EditorIntent.ClearKeyframes) }, enabled = keyframeCount > 0) { Text(stringResource(R.string.common_clear)) }
     }
     if (atPlayhead != null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = "Then", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
-            for ((mode, label) in listOf(
-                Interpolation.LINEAR to "Linear",
-                Interpolation.EASE to "Ease",
-                Interpolation.HOLD to "Hold",
-                Interpolation.BEZIER to "Bezier",
-            )) {
+            Text(text = stringResource(R.string.ed_2b_then), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            for (mode in Interpolation.entries) {
                 FilterChip(
                     selected = atPlayhead.interpolation == mode,
                     onClick = { onIntent(EditorIntent.SetKeyframeInterpolation(mode)) },
-                    label = { Text(label) },
+                    label = { Text(stringResource(mode.labelRes())) },
                 )
             }
         }
         if (atPlayhead.interpolation == Interpolation.BEZIER) {
             // The handles of a pose keyframe live on the joint keyframe; any pose parameter id addresses it.
             CurveControls(
-                title = "Pose",
+                title = stringResource(R.string.ed_2b_pose),
                 key = ParamKey(atPlayhead.frame, 0.0, atPlayhead.interpolation, atPlayhead.out, atPlayhead.inn),
                 onShape = { mode, out, inn ->
                     onIntent(EditorIntent.SetParamKeyShape(PoseParams.POSITION_X.id, atPlayhead.frame, mode, out, inn))
@@ -393,11 +391,11 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
             text = it
             onIntent(EditorIntent.UpdateTitle(title.copy(text = it)))
         },
-        label = { Text("Title text") },
+        label = { Text(stringResource(R.string.ed_2b_title_text)) },
         modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) onIntent(EditorIntent.EndTitleEdit(commit = true)) },
     )
     InspectorSlider(
-        label = "Size",
+        label = stringResource(R.string.hub_sort_size),
         value = title.sizeFraction.toFloat().coerceIn(TITLE_SIZE_MIN, TITLE_SIZE_MAX),
         range = TITLE_SIZE_MIN..TITLE_SIZE_MAX,
         readout = "${(title.sizeFraction * PERCENT).roundToInt()}%",
@@ -410,7 +408,7 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
         onIntent(EditorIntent.EndTitleEdit(commit = true))
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = "Colour", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_colour), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
         for (swatch in TITLE_COLORS) {
             val selected = title.colorArgb == swatch.toArgb()
             Box(
@@ -420,12 +418,12 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
                     .background(swatch)
                     .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
                     .clickable { change(title.copy(colorArgb = swatch.toArgb())) }
-                    .semantics { contentDescription = "Title colour ${if (selected) "selected" else ""}" },
+                    .described(stringResource(if (selected) R.string.ed_2b_title_colour_selected else R.string.ed_2b_title_colour)),
             )
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = "Align", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_align), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
         for (alignment in TitleAlignment.entries) {
             TextButton(onClick = { change(title.copy(alignment = alignment)) }) {
                 Text(
@@ -434,7 +432,7 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
                 )
             }
         }
-        Text(text = "Bold", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 8.dp, end = 8.dp))
+        Text(text = stringResource(R.string.ed_2b_bold), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 8.dp, end = 8.dp))
         Switch(checked = title.bold, onCheckedChange = { change(title.copy(bold = it)) })
     }
     // A plain title can grow into layers (shapes, pictures, fonts, borders); captions with word timing cannot.
@@ -442,7 +440,7 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
         TextButton(onClick = {
             change(TitleLayerEdit.toLayered(title))
             onIntent(EditorIntent.SelectTitleLayer(0))
-        }) { Text("Edit as layers (shapes, pictures, fonts)") }
+        }) { Text(stringResource(R.string.ed_2b_edit_as_layers_shapes_pictures)) }
     }
 }
 
@@ -453,14 +451,14 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
     if (transition == null && state.clipAfterSelected == null) return
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = if (transition == null) "Transition to next clip" else "${transition.type.label} to next clip",
+            text = if (transition == null) stringResource(R.string.ed_2b_transition_to_next_clip) else stringResource(R.string.ed_2b_to_next_clip, stringResource(transition.type.labelRes())),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
         if (transition == null) {
-            TextButton(onClick = { onIntent(EditorIntent.AddTransition) }) { Text("Add") }
+            TextButton(onClick = { onIntent(EditorIntent.AddTransition) }) { Text(stringResource(R.string.ed_2b_add)) }
         } else {
-            TextButton(onClick = { onIntent(EditorIntent.RemoveTransition) }) { Text("Remove") }
+            TextButton(onClick = { onIntent(EditorIntent.RemoveTransition) }) { Text(stringResource(R.string.ed_2b_remove)) }
         }
     }
     if (transition == null) return
@@ -469,14 +467,14 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
     val seconds = frames.toDouble() * state.fps.den / state.fps.num
     val readout = "${(seconds * 100).roundToInt() / 100.0} s"
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text = "Length", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.hub_sort_length), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
         if (limit > Transition.MIN_DURATION_FRAMES) {
             Slider(
                 value = frames,
                 onValueChange = { frames = it },
                 onValueChangeFinished = { onIntent(EditorIntent.SetTransitionDuration(frames.roundToLong())) },
                 valueRange = Transition.MIN_DURATION_FRAMES.toFloat()..limit.toFloat(),
-                modifier = Modifier.weight(1f).semantics { contentDescription = "Crossfade length $readout" },
+                modifier = Modifier.weight(1f).described(stringResource(R.string.ed_2b_crossfade_length, readout)),
             )
         } else {
             Box(modifier = Modifier.weight(1f))
@@ -485,7 +483,7 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
     }
     if (limit <= Transition.MIN_DURATION_FRAMES) {
         Text(
-            text = "No extra footage around the cut allows a longer crossfade",
+            text = stringResource(R.string.ed_2b_no_extra_footage_around_the),
             style = MaterialTheme.typography.bodySmall,
         )
     }

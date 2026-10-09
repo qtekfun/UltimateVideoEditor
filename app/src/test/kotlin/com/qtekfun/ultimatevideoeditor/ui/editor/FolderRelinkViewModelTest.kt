@@ -38,6 +38,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /** "Relink by scanning a folder" (SPECS 5.40) through the editor view model, with a fake folder instead of the Storage Access Framework. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -147,7 +148,7 @@ class FolderRelinkViewModelTest {
         val effects: MutableList<EditorEffect>,
     ) {
         val state get() = vm.state.value
-        val messages get() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        val messages get() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
         val report get() = (state.folderRelink as FolderRelinkUi.Done).outcome
     }
 
@@ -188,7 +189,7 @@ class FolderRelinkViewModelTest {
         assertEquals(listOf("a1", "a2"), h.caches.invalidated)
         assertNotEquals(keyBefore, h.vm.assetKey("a1"))
         assertEquals("Relinked 2 of 3", h.messages.last())
-        assertEquals("Relinked 2 of 3", scanSummaryText(h.report))
+        assertEquals("Relinked 2 of 3", scanSummaryText(h.report).english())
         assertEquals(listOf("a3"), h.report.notFound.map { it.assetId })
         assertTrue(h.state.relinkOpen)
         advanceTimeBy(600)
@@ -383,8 +384,8 @@ class FolderRelinkViewModelTest {
 
     @Test
     fun `progress text names what is happening`() {
-        assertEquals("Scanning: 12 media files in 3 folders", scanProgressText(FolderRelinkUi.Running(files = 12, folders = 3)))
-        assertEquals("Checking the files found: 1 of 4", scanProgressText(FolderRelinkUi.Running(files = 12, folders = 3, checked = 1, total = 4)))
+        assertEquals("Scanning: 12 media files in 3 folders", scanProgressText(FolderRelinkUi.Running(files = 12, folders = 3)).english())
+        assertEquals("Checking the files found: 1 of 4", scanProgressText(FolderRelinkUi.Running(files = 12, folders = 3, checked = 1, total = 4)).english())
     }
 
     // region scanning another folder (SPECS 5.40)
@@ -435,14 +436,14 @@ class FolderRelinkViewModelTest {
 
         h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
         advanceUntilIdle()
-        assertEquals("Relinked 2 of 4", scanSummaryText(h.report))
+        assertEquals("Relinked 2 of 4", scanSummaryText(h.report).english())
         assertEquals(setOf("s1", "s2"), h.state.missingMedia.keys)
         assertEquals(listOf("s1", "s2"), h.report.notFound.map { it.assetId })
 
         h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
         advanceUntilIdle()
 
-        assertEquals("Relinked 4 of 4", scanSummaryText(h.report))
+        assertEquals("Relinked 4 of 4", scanSummaryText(h.report).english())
         assertEquals("Relinked 4 of 4", h.messages.last())
         assertEquals(setOf("v1", "v2", "s1", "s2"), h.report.relinked.map { it.old.id }.toSet())
         assertTrue(h.report.notFound.isEmpty())
@@ -500,7 +501,7 @@ class FolderRelinkViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("s2"), h.report.notFound.map { it.assetId })
-        assertEquals("Relinked 3 of 4", scanSummaryText(h.report))
+        assertEquals("Relinked 3 of 4", scanSummaryText(h.report).english())
         assertEquals(setOf("s2"), h.state.missingMedia.keys)
     }
 
@@ -516,7 +517,7 @@ class FolderRelinkViewModelTest {
             advanceUntilIdle()
         }
 
-        assertEquals("Relinked 4 of 4", scanSummaryText(h.report))
+        assertEquals("Relinked 4 of 4", scanSummaryText(h.report).english())
         assertTrue(h.state.missingMedia.isEmpty())
         assertTrue(h.report.notFound.isEmpty())
     }
@@ -668,17 +669,17 @@ class FolderRelinkViewModelTest {
     fun `the scan action reads Scan a folder before a scan and Scan another folder after it`() = runTest(dispatcher) {
         val (scanner, known) = twoFolders()
         val h = mixedHarness(scanner, known)
-        assertEquals("Scan a folder…", scanActionLabel(h.state.folderRelink))
+        assertEquals("Scan a folder…", scanActionLabel(h.state.folderRelink).english())
 
         h.vm.onIntent(EditorIntent.RelinkFromFolder("content://videos"))
         advanceUntilIdle()
-        assertEquals("Scan another folder…", scanActionLabel(h.state.folderRelink))
+        assertEquals("Scan another folder…", scanActionLabel(h.state.folderRelink).english())
 
         // Back to the list keeps the session: same label, same results behind it, the remaining items listed.
         h.vm.onIntent(EditorIntent.DismissFolderRelink)
         val back = h.state.folderRelink as FolderRelinkUi.Done
         assertTrue(back.showList)
-        assertEquals("Scan another folder…", scanActionLabel(back))
+        assertEquals("Scan another folder…", scanActionLabel(back).english())
         assertEquals(setOf("s1", "s2"), h.state.missingAssets.map { it.assetId }.toSet())
         assertTrue(h.state.relinkOpen)
     }
@@ -694,7 +695,7 @@ class FolderRelinkViewModelTest {
         h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
         advanceUntilIdle()
 
-        assertEquals("Relinked 4 of 4", scanSummaryText(h.report))
+        assertEquals("Relinked 4 of 4", scanSummaryText(h.report).english())
         assertFalse((h.state.folderRelink as FolderRelinkUi.Done).showList)
     }
 
@@ -729,7 +730,7 @@ class FolderRelinkViewModelTest {
 
         val done = h.state.folderRelink as FolderRelinkUi.Done
         assertTrue(done.showList)
-        assertEquals("Relinked 2 of 4", scanSummaryText(done.outcome))
+        assertEquals("Relinked 2 of 4", scanSummaryText(done.outcome).english())
     }
 
     @Test
@@ -743,12 +744,12 @@ class FolderRelinkViewModelTest {
         h.vm.onIntent(EditorIntent.HideRelink)
         assertEquals(FolderRelinkUi.Idle, h.state.folderRelink)
         h.vm.onIntent(EditorIntent.ShowRelink)
-        assertEquals("Scan a folder…", scanActionLabel(h.state.folderRelink))
+        assertEquals("Scan a folder…", scanActionLabel(h.state.folderRelink).english())
         h.vm.onIntent(EditorIntent.RelinkFromFolder("content://audio"))
         advanceUntilIdle()
 
         // Two items were missing when this session began, so it counts 2 of 2, not 4 of 4.
-        assertEquals("Relinked 2 of 2", scanSummaryText(h.report))
+        assertEquals("Relinked 2 of 2", scanSummaryText(h.report).english())
     }
 
     // endregion

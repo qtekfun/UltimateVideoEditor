@@ -132,13 +132,7 @@ class LibraryViewModelTest {
 
         fun at(frame: Long) = vm.onIntent(EditorIntent.SetPlayhead(frame))
 
-        fun messages(): List<String> = effects.mapNotNull {
-            when (it) {
-                is EditorEffect.ShowMessage -> it.text
-                is EditorEffect.ShowText -> it.text.english()
-                else -> null
-            }
-        }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
     }
 
     private fun TestScope.harness(clips: Boolean = true): Harness {

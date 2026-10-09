@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.ui.res.pluralStringResource
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,13 +27,12 @@ import kotlin.math.abs
 internal fun AudioLinkControls(state: EditorState, clip: Clip, onIntent: (EditorIntent) -> Unit) {
     val hasAudio = state.assets.firstOrNull { it.id == clip.assetId }?.hasAudio == true
     val info = ClipLinks.infoFor(state.timeline, clip.id, hasAudio)?.takeIf { it.relevant } ?: return
-    Text("Linked audio", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.ed_2b_linked_audio), style = MaterialTheme.typography.titleSmall)
     Text(summary(info), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     val offset = info.offsetFrames
     if (offset != null && offset != 0L && (info.linked || info.canRelink)) {
-        val side = if (offset > 0) "late" else "early"
         Text(
-            "The audio is ${abs(offset)} ${if (abs(offset) == 1L) "frame" else "frames"} $side against the picture",
+            pluralStringResource(if (offset > 0) R.plurals.ed_2b_audio_late else R.plurals.ed_2b_audio_early, abs(offset).toInt(), abs(offset).toInt()),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
         )
@@ -38,31 +40,34 @@ internal fun AudioLinkControls(state: EditorState, clip: Clip, onIntent: (Editor
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (info.canDetach) {
-                OutlinedButton(onClick = { onIntent(EditorIntent.DetachAudio) }) { Text("Detach audio") }
+                OutlinedButton(onClick = { onIntent(EditorIntent.DetachAudio) }) { Text(stringResource(R.string.ed_2a_tool_detach_audio)) }
             }
             if (info.linked) {
-                OutlinedButton(onClick = { onIntent(EditorIntent.UnlinkAudio) }) { Text("Unlink") }
+                OutlinedButton(onClick = { onIntent(EditorIntent.UnlinkAudio) }) { Text(stringResource(R.string.ed_2b_unlink)) }
             }
             if (info.canRelink) {
-                OutlinedButton(onClick = { onIntent(EditorIntent.RelinkAudio(realign = false)) }) { Text("Relink") }
+                OutlinedButton(onClick = { onIntent(EditorIntent.RelinkAudio(realign = false)) }) { Text(stringResource(R.string.ed_2b_relink)) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (info.canRelink && offset != null && offset != 0L) {
-                TextButton(onClick = { onIntent(EditorIntent.RelinkAudio(realign = true)) }) { Text("Relink and realign") }
+                TextButton(onClick = { onIntent(EditorIntent.RelinkAudio(realign = true)) }) { Text(stringResource(R.string.ed_2b_relink_and_realign)) }
             }
             if (info.canRestore) {
-                TextButton(onClick = { onIntent(EditorIntent.RestoreEmbeddedAudio) }) { Text("Restore embedded audio") }
+                TextButton(onClick = { onIntent(EditorIntent.RestoreEmbeddedAudio) }) { Text(stringResource(R.string.ed_2b_restore_embedded_audio)) }
             }
         }
     }
 }
 
-private fun summary(info: ClipLinks.LinkInfo): String = when {
-    info.isVideo && info.detached && info.linked -> "This clip's sound is on an audio lane, linked: they move, trim, split and delete together."
-    info.isVideo && info.detached -> "This clip is silent. Its sound is on an audio lane, unlinked, or gone; relink an audio clip or restore the embedded sound."
-    info.isVideo && info.canRelink -> "An audio clip of the same media is on the timeline. Relinking silences this clip's own sound."
-    info.isVideo -> "The sound is part of the clip. Detach it to cut, move or delete it on an audio lane."
-    info.linked -> "Linked to a video clip: they move, trim, split together. Deleting this audio keeps the picture, silent."
-    else -> "Not linked. A video clip of the same media is on the timeline."
-}
+@Composable
+private fun summary(info: ClipLinks.LinkInfo): String = stringResource(
+    when {
+        info.isVideo && info.detached && info.linked -> R.string.ed_2b_link_detached_linked
+        info.isVideo && info.detached -> R.string.ed_2b_link_detached
+        info.isVideo && info.canRelink -> R.string.ed_2b_link_can_relink
+        info.isVideo -> R.string.ed_2b_link_embedded
+        info.linked -> R.string.ed_2b_link_audio_linked
+        else -> R.string.ed_2b_link_not_linked
+    },
+)

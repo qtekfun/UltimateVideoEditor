@@ -68,10 +68,20 @@ the phone; a phone language the app does not have shows English.
 
 ## Spanish: tone and terminology
 
-Tone: informal "tú". Whatever you tap is an imperative ("Cancela", "Elimina", "Comparte", "Abre el proyecto", "Exporta el archivo de
-proyecto"; accessibility descriptions of buttons too), except "Aceptar" for OK; so are instructions to the person ("Elige una carpeta",
-"Libera espacio"). Titles, headings and field labels name the thing or the action as an infinitive or a noun ("Renombrar proyecto",
-"Exportar película", "Acerca de", "Carpeta de medios", "Buscar proyectos"). Sentence case; typographic quotes «así» around names; `%` with a space before it (`50 %`);
+Tone: informal "tú". Two registers, by what the text is:
+
+- **Names of actions** (buttons, menu items, icon-only buttons and their spoken descriptions, toolbar tool names, chips that act) use the
+  **infinitive**, the convention of Spanish apps: "Cancelar", "Eliminar", "Compartir", "Deshacer", "Rehacer", "Copiar", "Pegar",
+  "Duplicar", "Exportar", "Dividir en el cabezal", "Añadir un título en el cabezal". "Aceptar" for OK.
+- **Sentences addressed to the person** (hints, dialog bodies, messages, empty states, instructions) use the informal **imperative**:
+  "Elige una carpeta", "Libera espacio", "Pon el cabezal dentro del clip", "Toca dos veces para restablecer".
+- Titles, headings and field labels name the thing or the action as a noun or infinitive ("Renombrar proyecto", "Exportar película",
+  "Acerca de", "Carpeta de medios", "Buscar proyectos").
+- A description that mixes both keeps the action in the infinitive and the instruction in the imperative: "Añadir un marcador en el
+  cabezal; mantén pulsado para ver las herramientas".
+- **Short visible labels** (chips, docks, presets, sort keys): when Spanish is much longer than the English, use the shortest natural
+  term ("Línea de tiempo", not "Enfoque en la línea de tiempo") and put the long form in the content description (`Modifier.described`).
+Sentence case; typographic quotes «así» around names; `%` with a space before it (`50 %`);
 decimal comma comes from the locale, not from the string. Wording neutral between Spain and Latin America ("vídeo", "dispositivo",
 "teléfono"); no "vale", "ordenador", "móvil".
 
@@ -122,6 +132,24 @@ decimal comma comes from the locale, not from the string. Wording neutral betwee
 | detach audio | separar el audio |
 | link / linked | vincular / vinculado |
 | snap | imán |
+| keyframe | fotograma clave |
+| look (a saved grade) | estilo |
+| colour grade | corrección de color |
+| lift / gamma / gain | sombras / medios / luces |
+| qualifier | calificador |
+| matte | máscara |
+| crossfade length | duración del fundido encadenado |
+| stabilise | estabilizar |
+| normalise (loudness) | normalizar |
+| noise suppression | supresión de ruido |
+| voice effect | efecto de voz |
+| ducking | bajar la música bajo la voz (nombre propio de la función: «ducking» en el mezclador) |
+| equaliser | ecualizador |
+| compressor | compresor |
+| role (Voice / Music) | función (Voz / Música) |
+| relink | vincular de nuevo |
+| scan a folder | buscar en una carpeta |
+| missing media | medios no encontrados |
 | relink | volver a vincular |
 | missing | no encontrado / faltan |
 | share | compartir |

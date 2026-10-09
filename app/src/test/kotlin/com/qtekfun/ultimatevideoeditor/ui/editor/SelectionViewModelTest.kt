@@ -34,6 +34,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SelectionViewModelTest {
@@ -86,7 +87,7 @@ class SelectionViewModelTest {
         val timeline get() = state.timeline
         fun clips(trackId: String): List<Clip> = timeline.track(trackId)?.clips.orEmpty()
         fun starts(trackId: String): List<Long> = clips(trackId).map { it.timelineStart.value }
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
 
         fun hit(clipId: String, frame: Long = 5, kind: HitKind = HitKind.CLIP, track: Int = 0) = TimelineHit(kind, track, keyOf(clipId), frame)
 

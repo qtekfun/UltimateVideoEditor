@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -60,7 +62,7 @@ internal fun SpeedCurveEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(150.dp)
-                .semantics { contentDescription = "Speed curve editor. Tap to add a key, drag a key to change the speed." }
+                .described(stringResource(R.string.ed_2b_speed_curve_editor_tap_to))
                 .pointerInput(live, durationFrames) {
                     detectTapGestures { tap ->
                         val x = tap.x / size.width
@@ -140,25 +142,25 @@ internal fun SpeedCurveEditor(
         if (key != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Frame ${key.frame} · ${"%.2f".format(key.weightPermille / 1000f).trimEnd('0').trimEnd('.')}x",
+                    text = stringResource(R.string.ed_2b_speed_key_readout, key.frame, "%.2f".format(key.weightPermille / 1000f).trimEnd('0').trimEnd('.')),
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.weight(1f),
                 )
-                Text("Ease", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.ed_2b_ease), style = MaterialTheme.typography.labelMedium)
                 Switch(
                     checked = key.smooth,
                     onCheckedChange = { onCommit(SpeedCurveModel.toggleSmooth(live, selected)) },
-                    modifier = Modifier.semantics { contentDescription = "Ease the segment after this key" },
+                    modifier = Modifier.described(stringResource(R.string.ed_2b_ease_the_segment_after_this)),
                 )
                 TextButton(onClick = {
                     val removed = SpeedCurveModel.remove(live, selected)
                     selected = -1
                     onCommit(removed)
-                }) { Text("Delete key") }
+                }) { Text(stringResource(R.string.ed_2b_delete_key)) }
             }
         } else {
             Text(
-                text = "Tap the curve to add a key; drag a key up for faster, down for slower.",
+                text = stringResource(R.string.ed_2b_tap_the_curve_to_add),
                 style = MaterialTheme.typography.bodySmall,
             )
         }

@@ -36,6 +36,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class QualifierViewModelTest {
@@ -107,7 +108,7 @@ class QualifierViewModelTest {
 
         fun qualifierOf(clipId: String): Effect = clip(clipId).fx.effects.single { it.type == EffectType.QUALIFIER }
 
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
     }
 
     private fun TestScope.harness(sampler: FakeSampler = FakeSampler()): Harness {
