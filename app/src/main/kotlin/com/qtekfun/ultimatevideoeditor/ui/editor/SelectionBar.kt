@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,8 +93,8 @@ internal object SelectionIcons {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SelectModeButton(state: EditorState, onIntent: (EditorIntent) -> Unit) {
-    val description = if (state.selectMode) "Select mode is on: tap clips to add or remove them, drag on empty space to select a group. Tap to leave select mode" else
-        "Select several clips: tap them one by one, or drag a rectangle (a long press on a clip also adds it)"
+    val description = if (state.selectMode) stringResource(R.string.ed_2a_select_mode_is_on_tap) else
+        stringResource(R.string.ed_2a_select_several_clips_tap_them)
     Box {
         TooltipBox(
             positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
@@ -126,25 +128,25 @@ internal fun SelectionBar(state: EditorState, onIntent: (EditorIntent) -> Unit, 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = if (count == 0) "Select clips" else "$count selected",
+            text = if (count == 0) stringResource(R.string.ed_2a_select_clips) else stringResource(R.string.ed_2a_selected, count),
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(end = 8.dp),
         )
-        ToolButton(SelectionIcons.Copy, "Copy the selected clips", enabled = count > 0) { onIntent(SelectionIntent.Copy) }
-        ToolButton(SelectionIcons.Cut, "Cut the selected clips (copy, then delete)", enabled = count > 0) { onIntent(SelectionIntent.Cut) }
-        ToolButton(SelectionIcons.Paste, "Paste the copied clips at the playhead", enabled = hasClipboard) { onIntent(SelectionIntent.Paste) }
-        ToolButton(SelectionIcons.Duplicate, "Duplicate the selected clips right after the last one", enabled = count > 0) { onIntent(SelectionIntent.Duplicate) }
-        ToolButton(EditorIcons.Delete, "Delete the selected clips (the base closes its gaps)", enabled = count > 0) { onIntent(SelectionIntent.DeleteSelection) }
+        ToolButton(SelectionIcons.Copy, stringResource(R.string.ed_2a_copy_the_selected_clips), enabled = count > 0) { onIntent(SelectionIntent.Copy) }
+        ToolButton(SelectionIcons.Cut, stringResource(R.string.ed_2a_cut_the_selected_clips_copy), enabled = count > 0) { onIntent(SelectionIntent.Cut) }
+        ToolButton(SelectionIcons.Paste, stringResource(R.string.ed_2a_paste_the_copied_clips_at), enabled = hasClipboard) { onIntent(SelectionIntent.Paste) }
+        ToolButton(SelectionIcons.Duplicate, stringResource(R.string.ed_2a_duplicate_the_selected_clips_right), enabled = count > 0) { onIntent(SelectionIntent.Duplicate) }
+        ToolButton(EditorIcons.Delete, stringResource(R.string.ed_2a_delete_the_selected_clips_the), enabled = count > 0) { onIntent(SelectionIntent.DeleteSelection) }
         ToolButton(
             SelectionIcons.PasteAttributes,
-            "Paste the attributes (transform, effects, volume, speed) of the copied clip onto the selected clips",
+            stringResource(R.string.ed_2a_paste_attributes),
             enabled = count > 0 && hasClipboard,
         ) { onIntent(SelectionIntent.PasteAttributes) }
-        ToolButton(SelectionIcons.AlignLeft, "Align the starts of the selected clips", enabled = count > 1) { onIntent(SelectionIntent.Align(AlignEdge.START)) }
-        ToolButton(SelectionIcons.AlignRight, "Align the ends of the selected clips", enabled = count > 1) { onIntent(SelectionIntent.Align(AlignEdge.END)) }
+        ToolButton(SelectionIcons.AlignLeft, stringResource(R.string.ed_2a_align_the_starts_of_the), enabled = count > 1) { onIntent(SelectionIntent.Align(AlignEdge.START)) }
+        ToolButton(SelectionIcons.AlignRight, stringResource(R.string.ed_2a_align_the_ends_of_the), enabled = count > 1) { onIntent(SelectionIntent.Align(AlignEdge.END)) }
         TransitionsMenu(count > 0, onIntent)
         MoreMenu(count, onIntent)
-        ToolButton(SelectionIcons.Close, "Clear the selection", enabled = count > 0) { onIntent(SelectionIntent.ClearSelection) }
+        ToolButton(SelectionIcons.Close, stringResource(R.string.ed_2a_clear_the_selection), enabled = count > 0) { onIntent(SelectionIntent.ClearSelection) }
     }
 }
 
@@ -152,14 +154,14 @@ internal fun SelectionBar(state: EditorState, onIntent: (EditorIntent) -> Unit, 
 private fun TransitionsMenu(enabled: Boolean, onIntent: (EditorIntent) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        ToolButton(EditorIcons.Transition, "Add the same transition to the selected clips", enabled = enabled) { open = true }
+        ToolButton(EditorIcons.Transition, stringResource(R.string.ed_2a_add_the_same_transition_to), enabled = enabled) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("Crossfade at each cut") },
+                text = { Text(stringResource(R.string.ed_2a_crossfade_at_each_cut)) },
                 onClick = { open = false; onIntent(SelectionIntent.ApplyTransitions(GroupTransition.BETWEEN)) },
             )
             DropdownMenuItem(
-                text = { Text("Fade in and out (head and tail)") },
+                text = { Text(stringResource(R.string.ed_2a_fade_in_and_out_head)) },
                 onClick = { open = false; onIntent(SelectionIntent.ApplyTransitions(GroupTransition.HEAD_AND_TAIL)) },
             )
         }
@@ -170,24 +172,24 @@ private fun TransitionsMenu(enabled: Boolean, onIntent: (EditorIntent) -> Unit) 
 private fun MoreMenu(count: Int, onIntent: (EditorIntent) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        ToolButton(SelectionIcons.More, "More: select a lane or everything after the playhead, speed, volume, opacity") { open = true }
+        ToolButton(SelectionIcons.More, stringResource(R.string.ed_2a_more_select_a_lane_or)) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             @Composable fun item(label: String, enabled: Boolean = true, intent: EditorIntent) = DropdownMenuItem(
                 text = { Text(label) },
                 enabled = enabled,
                 onClick = { open = false; onIntent(intent) },
             )
-            item("Select the whole lane", intent = SelectionIntent.SelectLane)
-            item("Select everything from the playhead", intent = SelectionIntent.SelectFromPlayhead)
-            item("Select all clips", intent = SelectionIntent.SelectAll)
-            item("Speed 0.5x", count > 0, SelectionIntent.SetGroupSpeed(1, 2))
-            item("Speed 1x", count > 0, SelectionIntent.SetGroupSpeed(1, 1))
-            item("Speed 2x", count > 0, SelectionIntent.SetGroupSpeed(2, 1))
-            item("Volume 0 dB", count > 0, SelectionIntent.SetGroupGain(0.0))
-            item("Volume -6 dB", count > 0, SelectionIntent.SetGroupGain(-6.0))
-            item("Mute", count > 0, SelectionIntent.SetGroupGain(-96.0))
-            item("Opacity 100%", count > 0, SelectionIntent.SetGroupOpacity(1.0))
-            item("Opacity 50%", count > 0, SelectionIntent.SetGroupOpacity(0.5))
+            item(stringResource(R.string.ed_2a_select_lane), intent = SelectionIntent.SelectLane)
+            item(stringResource(R.string.ed_2a_select_from_playhead), intent = SelectionIntent.SelectFromPlayhead)
+            item(stringResource(R.string.ed_2a_select_all_clips), intent = SelectionIntent.SelectAll)
+            item(stringResource(R.string.ed_2a_speed_half), count > 0, SelectionIntent.SetGroupSpeed(1, 2))
+            item(stringResource(R.string.ed_2a_speed_1x), count > 0, SelectionIntent.SetGroupSpeed(1, 1))
+            item(stringResource(R.string.ed_2a_speed_2x), count > 0, SelectionIntent.SetGroupSpeed(2, 1))
+            item(stringResource(R.string.ed_2a_volume_0), count > 0, SelectionIntent.SetGroupGain(0.0))
+            item(stringResource(R.string.ed_2a_volume_minus_6), count > 0, SelectionIntent.SetGroupGain(-6.0))
+            item(stringResource(R.string.ed_2a_mute), count > 0, SelectionIntent.SetGroupGain(-96.0))
+            item(stringResource(R.string.ed_2a_opacity_value, 100), count > 0, SelectionIntent.SetGroupOpacity(1.0))
+            item(stringResource(R.string.ed_2a_opacity_value, 50), count > 0, SelectionIntent.SetGroupOpacity(0.5))
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -24,20 +26,21 @@ import com.qtekfun.ultimatevideoeditor.domain.DropKind
 @Composable
 internal fun DropModeChip(effective: DropKind?, choice: DropChoice, onFlip: () -> Unit, modifier: Modifier = Modifier) {
     val inserting = effective == DropKind.INSERT
+    val modeDescription = stringResource(if (inserting) R.string.ed_2a_drop_mode_insert else R.string.ed_2a_drop_mode_overwrite)
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.inverseSurface,
         contentColor = MaterialTheme.colorScheme.inverseOnSurface,
         tonalElevation = 6.dp,
         modifier = modifier
-            .semantics { contentDescription = "Drop mode: ${if (inserting) "insert" else "overwrite"}. Tap to switch." }
+            .described(modeDescription)
             .clickable(role = Role.Button, onClick = onFlip),
     ) {
         Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Segment("Insert", lit = inserting)
-            Segment("Overwrite", lit = !inserting)
+            Segment(stringResource(R.string.ed_2a_insert), lit = inserting)
+            Segment(stringResource(R.string.ed_2a_overwrite), lit = !inserting)
             if (choice == DropChoice.AUTO) {
-                Text("auto", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp, end = 8.dp))
+                Text(stringResource(R.string.ed_2a_auto), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp, end = 8.dp))
             }
         }
     }

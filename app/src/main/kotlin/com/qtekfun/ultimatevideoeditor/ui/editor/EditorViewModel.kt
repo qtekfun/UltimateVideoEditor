@@ -494,6 +494,7 @@ class EditorViewModel(
             is QuickEditIntent -> quickEditIntent(intent)
             is MarkerIntent -> markerIntent(intent)
             is EditorIntent.ReportError -> emit(EditorEffect.ShowMessage(intent.message))
+            is EditorIntent.ReportText -> emit(EditorEffect.ShowText(intent.text))
             is EditorIntent.MediaFailureReported -> mediaFailureReported(intent.assetKey, intent.detail)
             EditorIntent.RecheckMissingMedia -> recheckMissingMedia()
         }

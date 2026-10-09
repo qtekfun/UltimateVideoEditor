@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.layout.labelRes
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import android.net.Uri
@@ -193,7 +197,6 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.layout.SidePanelFrame
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.SplitMetrics
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.WindowMetrics
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.handleThickness
-import com.qtekfun.ultimatevideoeditor.ui.editor.layout.label
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.rememberTicker
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.sideCollapsed
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.bottomTrayShown
@@ -425,7 +428,7 @@ fun EditorScreen(
         ) { _, status ->
             // Called on a native worker thread. A file without audio is not an error worth showing.
             if (status == EngineStatus.IO_ERROR || status == EngineStatus.CODEC_ERROR) {
-                main.post { viewModel.onIntent(EditorIntent.ReportError("Could not read the audio of a clip ($status)")) }
+                main.post { viewModel.onIntent(EditorIntent.ReportText(UiText.res(R.string.ed_2a_audio_unreadable, status))) }
             }
         }
     }
@@ -453,9 +456,10 @@ fun EditorScreen(
             onAssetFailure = { key, message -> viewModel.onIntent(EditorIntent.MediaFailureReported(key, message)) },
             onSoftwareDecoding = { heavy ->
                 viewModel.onIntent(
-                    EditorIntent.ReportError(
-                        "Software decoding: this video format is not supported by the phone's decoder, so it is decoded on the CPU and may play slower" +
-                            if (heavy) ". A proxy is advised." else ".",
+                    EditorIntent.ReportText(
+                        UiText.res(
+                            if (heavy) R.string.ed_2a_software_decoding_heavy else R.string.ed_2a_software_decoding,
+                        ),
                     ),
                 )
                 if (heavy) proxyVm.onIntent(ProxyIntent.SoftwareDecodeHeavy)
@@ -660,7 +664,7 @@ fun EditorScreen(
         try {
             engine.setSnapshot(viewModel.snapshotOf(s))
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // The indicator of what releasing a dragged clip would do. After the snapshot effect, so the lane
@@ -678,7 +682,7 @@ fun EditorScreen(
         try {
             engine.setDropHint(indicator, lane, hint?.startFrame ?: 0L, hint?.endFrame ?: 0L)
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // The clips being dragged or trimmed (lifted with a shadow) and the snap line. After the snapshot effect so the keys
@@ -688,7 +692,7 @@ fun EditorScreen(
         try {
             engine.setDragOverlay(overlay?.guideFrame, overlay?.let { viewModel.dragOverlayKeys(it) } ?: LongArray(0))
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // The lane being dragged by its header and where it would land. After the snapshot effect, like the drop hint,
@@ -698,7 +702,7 @@ fun EditorScreen(
         try {
             engine.setLaneDrag(drag?.fromIndex ?: -1, drag?.toIndex ?: -1)
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportError(e.message ?: "The timeline could not be drawn"))
+            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // Follow the whole project's length until the user zooms by hand. Keyed on the committed
@@ -784,7 +788,7 @@ fun EditorScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(text = state.loadError.orEmpty(), style = MaterialTheme.typography.bodyLarge)
-                TextButton(onClick = onClose) { Text("Back") }
+                TextButton(onClick = onClose) { Text(stringResource(R.string.common_back)) }
             }
 
             else -> BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -816,7 +820,7 @@ fun EditorScreen(
                         if (collapsed) {
                             CollapsedStrip(
                                 side = side,
-                                label = panels.joinToString(" and ") { it.label().lowercase() },
+                                label = panels.map { stringResource(it.labelRes()).lowercase() }.reduce { left, right -> stringResource(R.string.list_and, left, right) },
                                 onExpand = { panels.forEach { layout.dispatch(LayoutAction.SetCollapsed(it, false)) } },
                             )
                         } else {
@@ -854,7 +858,7 @@ fun EditorScreen(
                     DragHandle(
                         orientation = Orientation.Horizontal,
                         customising = layout.customising,
-                        description = "Resize the ${if (side == Side.LEFT) "left" else "right"} panel. Double tap to reset.",
+                        description = stringResource(if (side == Side.LEFT) R.string.ed_2a_resize_left_panel else R.string.ed_2a_resize_right_panel),
                         onDelta = { dx ->
                             val current = if (side == Side.LEFT) layout.state.leftWidthDp else layout.state.rightWidthDp
                             val next = current + (if (side == Side.LEFT) dx else -dx) / density
@@ -896,7 +900,7 @@ fun EditorScreen(
                             val trayDock = layout.tray
                             if (bottomTrayShown(layout.state, inspectorOpen)) {
                                 if (trayDock.collapsed) {
-                                    CollapsedBottomBar("media tray", onExpand = { layout.dispatch(LayoutAction.SetCollapsed(Panel.TRAY, false)) })
+                                    CollapsedBottomBar(stringResource(Panel.TRAY.labelRes()).lowercase(), onExpand = { layout.dispatch(LayoutAction.SetCollapsed(Panel.TRAY, false)) })
                                 } else {
                                     trayPanel(true, Modifier.fillMaxWidth().wrapContentHeight())
                                 }
@@ -995,20 +999,20 @@ private fun EditorMain(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolButton(EditorIcons.Back, "Back") { viewModel.onIntent(EditorIntent.Back) }
+            ToolButton(EditorIcons.Back, stringResource(R.string.common_back)) { viewModel.onIntent(EditorIntent.Back) }
             Text(
                 text = state.projectName,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
-            ToolButton(EditorIcons.Help, "Toolbar guide: what every symbol and gesture does") { guideOpen = true }
-            ToolButton(EditorIcons.LayoutPanes, "Layout: presets, panels, track height and dividers", onClick = onOpenLayout)
-            ToolButton(EditorIcons.Undo, "Undo", enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
-            ToolButton(EditorIcons.Redo, "Redo", enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
+            ToolButton(EditorIcons.Help, stringResource(R.string.ed_2a_toolbar_guide_what_every_symbol)) { guideOpen = true }
+            ToolButton(EditorIcons.LayoutPanes, stringResource(R.string.ed_2a_layout_presets_panels_track_height), onClick = onOpenLayout)
+            ToolButton(EditorIcons.Undo, stringResource(R.string.ed_2a_undo), enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
+            ToolButton(EditorIcons.Redo, stringResource(R.string.ed_2a_redo), enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
             ToolButton(
                 EditorIcons.Export,
-                if (exportBlockedBy != null) "Export unavailable: another export is running ($exportBlockedBy)" else "Export movie",
+                if (exportBlockedBy != null) stringResource(R.string.ed_2a_export_unavailable, exportBlockedBy) else stringResource(R.string.ed_2a_export_movie),
                 enabled = !state.isPlaying,
                 onClick = onExport,
             )
@@ -1054,7 +1058,7 @@ private fun EditorMain(
                         PreviewSurface(previewEngine, Modifier.fillMaxSize(), wanted = wanted, onOutputSpace = { granted = it })
                         if (state.colorSpace.isHdr) {
                             Text(
-                                if (granted == OutputSpace.HLG_2020) "HDR HLG" else "HDR project, SDR preview",
+                                if (granted == OutputSpace.HLG_2020) stringResource(R.string.ed_2a_hdr_hlg) else stringResource(R.string.ed_2a_hdr_project_sdr_preview),
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                             )
@@ -1121,7 +1125,7 @@ private fun EditorMain(
                             )
                         }
                     } else {
-                        Text(text = "Preview unavailable", style = MaterialTheme.typography.labelLarge)
+                        Text(text = stringResource(R.string.ed_2a_preview_unavailable), style = MaterialTheme.typography.labelLarge)
                     }
                 }
 
@@ -1130,7 +1134,7 @@ private fun EditorMain(
                 DragHandle(
                     orientation = Orientation.Vertical,
                     customising = layout.customising,
-                    description = "Resize the preview and the timeline. Double tap to reset.",
+                    description = stringResource(R.string.ed_2a_resize_the_preview_and_the),
                     onDelta = { dy ->
                         val total = splitMetrics.flexiblePx
                         if (total > 0) {
@@ -1154,16 +1158,16 @@ private fun EditorMain(
                         LevelMeter(takePeaks, state.isPlaying)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ToolButton(EditorIcons.SkipPrevious, "Previous clip boundary") { viewModel.onIntent(EditorIntent.SeekPrevious) }
+                        ToolButton(EditorIcons.SkipPrevious, stringResource(R.string.ed_2a_previous_clip_boundary)) { viewModel.onIntent(EditorIntent.SeekPrevious) }
                         ToolButton(
                             icon = if (state.isPlaying) EditorIcons.Pause else EditorIcons.Play,
-                            description = if (state.isPlaying) "Pause" else "Play",
+                            description = if (state.isPlaying) stringResource(R.string.ed_2a_pause) else stringResource(R.string.ed_2a_play),
                         ) { viewModel.onIntent(EditorIntent.TogglePlay) }
-                        ToolButton(EditorIcons.SkipNext, "Next clip boundary") { viewModel.onIntent(EditorIntent.SeekNext) }
+                        ToolButton(EditorIcons.SkipNext, stringResource(R.string.ed_2a_next_clip_boundary)) { viewModel.onIntent(EditorIntent.SeekNext) }
                     }
                     Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
-                        ToolButton(EditorIcons.FrameImage, "Save frame as image: the picture under the playhead as PNG or JPEG", onClick = onSaveFrame)
-                        ToolButton(EditorIcons.Fit, "Fit the whole project") { engine.fitToContent() }
+                        ToolButton(EditorIcons.FrameImage, stringResource(R.string.ed_2a_save_frame_as_image_the), onClick = onSaveFrame)
+                        ToolButton(EditorIcons.Fit, stringResource(R.string.ed_2a_fit_the_whole_project)) { engine.fitToContent() }
                     }
                 }
 
@@ -1172,50 +1176,50 @@ private fun EditorMain(
                 val proxyIntent = LocalProxyIntent.current
                 val toolbarItem: @Composable (ToolbarItem, () -> Unit) -> Unit = { item, after ->
                     when (item) {
-                        ToolbarItem.IMPORT -> ToolButton(EditorIcons.Add, "Import media", enabled = !state.isImporting) { onImport(); after() }
-                        ToolbarItem.SPLIT -> ToolButton(EditorIcons.Split, "Split at playhead", enabled = hasSelection) {
+                        ToolbarItem.IMPORT -> ToolButton(EditorIcons.Add, stringResource(R.string.ed_2a_import_media), enabled = !state.isImporting) { onImport(); after() }
+                        ToolbarItem.SPLIT -> ToolButton(EditorIcons.Split, stringResource(R.string.ed_2a_split_at_playhead), enabled = hasSelection) {
                             viewModel.onIntent(EditorIntent.SplitAtPlayhead); after()
                         }
                         ToolbarItem.DETACH_AUDIO -> ToolButton(
                             EditorIcons.DetachAudio,
-                            "Detach audio: put the selected video clip's sound on an audio lane, linked to the clip",
+                            stringResource(R.string.ed_2a_detach_audio),
                             enabled = state.selectedClipId?.let { id ->
                                 val hasAudio = state.assets.firstOrNull { it.id == state.timeline.trackOfClip(id)?.clip(id)?.assetId }?.hasAudio == true
                                 ClipLinks.infoFor(state.timeline, id, hasAudio)?.canDetach == true
                             } == true,
                         ) { viewModel.onIntent(EditorIntent.DetachAudio); after() }
-                        ToolbarItem.DELETE -> ToolButton(EditorIcons.Delete, "Delete (the base track closes the gap, overlays leave one)", enabled = hasSelection) {
+                        ToolbarItem.DELETE -> ToolButton(EditorIcons.Delete, stringResource(R.string.ed_2a_delete_the_base_track_closes), enabled = hasSelection) {
                             viewModel.onIntent(EditorIntent.RippleDeleteSelected); after()
                         }
                         ToolbarItem.MARKER -> MarkerMenu(state, viewModel::onIntent)
                         ToolbarItem.SELECT_MODE -> SelectModeButton(state, viewModel::onIntent)
-                        ToolbarItem.CLOSE_GAP -> ToolButton(EditorIcons.CloseGap, "Close gap before clip (the base track does this by itself)", enabled = hasSelection && !state.selectedClipOnBase) {
+                        ToolbarItem.CLOSE_GAP -> ToolButton(EditorIcons.CloseGap, stringResource(R.string.ed_2a_close_gap_before_clip_the), enabled = hasSelection && !state.selectedClipOnBase) {
                             viewModel.onIntent(EditorIntent.RippleAppendSelected); after()
                         }
-                        ToolbarItem.TITLE -> ToolButton(EditorIcons.Title, "Add a title at the playhead") { viewModel.onIntent(EditorIntent.AddTitle); after() }
-                        ToolbarItem.CAPTIONS -> ToolButton(EditorIcons.Captions, "Captions: type them or import a .srt / .vtt file") { onCaptions(); after() }
-                        ToolbarItem.STICKERS -> ToolButton(EditorIcons.Sticker, "Stickers: open the media tray on the stickers tab") { onOpenTray(TrayTab.STICKERS); after() }
-                        ToolbarItem.TEMPLATES -> ToolButton(EditorIcons.TextTemplate, "Titles and text templates: open the media tray on the titles tab") { onOpenTray(TrayTab.TEMPLATES); after() }
+                        ToolbarItem.TITLE -> ToolButton(EditorIcons.Title, stringResource(R.string.ed_2a_add_a_title_at_the)) { viewModel.onIntent(EditorIntent.AddTitle); after() }
+                        ToolbarItem.CAPTIONS -> ToolButton(EditorIcons.Captions, stringResource(R.string.ed_2a_captions_type_them_or_import)) { onCaptions(); after() }
+                        ToolbarItem.STICKERS -> ToolButton(EditorIcons.Sticker, stringResource(R.string.ed_2a_stickers_open_the_media_tray)) { onOpenTray(TrayTab.STICKERS); after() }
+                        ToolbarItem.TEMPLATES -> ToolButton(EditorIcons.TextTemplate, stringResource(R.string.ed_2a_titles_and_text_templates_open)) { onOpenTray(TrayTab.TEMPLATES); after() }
                         ToolbarItem.QUICK_EDITS -> QuickEditMenu(state, viewModel::onIntent)
                         ToolbarItem.LIBRARY -> LibraryButton(viewModel::onIntent)
-                        ToolbarItem.PROXY -> ToolButton(EditorIcons.Proxy, "Proxy media: small copies for smooth editing of heavy video; export always uses the originals") {
+                        ToolbarItem.PROXY -> ToolButton(EditorIcons.Proxy, stringResource(R.string.ed_2a_proxy_media_small_copies_for)) {
                             proxyIntent(ProxyIntent.OpenSheet); after()
                         }
-                        ToolbarItem.MIXER -> ToolButton(EditorIcons.Mixer, "Mixer: track volume, mute, solo, compressor and ducking") {
+                        ToolbarItem.MIXER -> ToolButton(EditorIcons.Mixer, stringResource(R.string.ed_2a_mixer_track_volume_mute_solo)) {
                             viewModel.onIntent(EditorIntent.ToggleMixer); after()
                         }
-                        ToolbarItem.MULTICAM -> ToolButton(EditorIcons.Multicam, "Multicam: line up several cameras by their sound and cut between them") {
+                        ToolbarItem.MULTICAM -> ToolButton(EditorIcons.Multicam, stringResource(R.string.ed_2a_multicam_line_up_several_cameras)) {
                             viewModel.onIntent(EditorIntent.Multicam(MulticamIntent.Open)); after()
                         }
-                        ToolbarItem.SCOPES -> ToolButton(EditorIcons.Scopes, "Video scopes: waveform, RGB parade, vectorscope and histogram of the preview") {
+                        ToolbarItem.SCOPES -> ToolButton(EditorIcons.Scopes, stringResource(R.string.ed_2a_video_scopes_waveform_rgb_parade)) {
                             scopesOpen = !scopesOpen; after()
                         }
                         ToolbarItem.TRANSITION -> ToolButton(
                             EditorIcons.Transition,
-                            "Add a crossfade at the selected cut: select a clip next to another one, or put the playhead on a cut",
+                            stringResource(R.string.ed_2a_add_crossfade),
                             enabled = state.transitionCut != null,
                         ) { viewModel.onIntent(EditorIntent.AddTransition); after() }
-                        ToolbarItem.ADJUST -> ToolButton(EditorIcons.Tune, "Adjust clip: text, position, scale, rotation, opacity, volume, crossfade", enabled = hasSelection || state.inspectorOpen) {
+                        ToolbarItem.ADJUST -> ToolButton(EditorIcons.Tune, stringResource(R.string.ed_2a_adjust_clip_text_position_scale), enabled = hasSelection || state.inspectorOpen) {
                             viewModel.onIntent(EditorIntent.ToggleInspector); after()
                         }
                         ToolbarItem.TRACK_CONTROLS -> TrackControls(
@@ -1225,7 +1229,7 @@ private fun EditorMain(
                         ) {
                             viewModel.onIntent(EditorIntent.RemoveSelectedTrack)
                         }
-                        ToolbarItem.CANVAS -> ToolButton(EditorIcons.CanvasFormat, "Change the canvas format and resolution") {
+                        ToolbarItem.CANVAS -> ToolButton(EditorIcons.CanvasFormat, stringResource(R.string.ed_2a_change_the_canvas_format_and)) {
                             viewModel.onIntent(EditorIntent.ShowCanvasDialog); after()
                         }
                         ToolbarItem.SAFE_ZONE -> SafeZoneMenu(state.safeZone) { viewModel.onIntent(EditorIntent.SetSafeZone(it)) }
@@ -1243,7 +1247,7 @@ private fun EditorMain(
                     for (item in layout.toolbarOrder.visible) key(item) { toolbarItem(item) {} }
                     if (overflow.isNotEmpty()) {
                         Box {
-                            ToolButton(SelectionIcons.More, "More tools: ${overflow.joinToString { it.label }}") { moreOpen = true }
+                            ToolButton(SelectionIcons.More, stringResource(R.string.ed_2a_more_tools, overflow.map { stringResource(it.labelRes) }.joinToString())) { moreOpen = true }
                             DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                                 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
                                 FlowRow(
@@ -1356,15 +1360,15 @@ private fun TrackControls(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Box {
-        ToolButton(EditorIcons.Layers, "Add track") { menuOpen = true }
+        ToolButton(EditorIcons.Layers, stringResource(R.string.ed_2a_add_track)) { menuOpen = true }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(text = { Text("Video track") }, onClick = { menuOpen = false; onAdd(TrackType.VIDEO) })
-            DropdownMenuItem(text = { Text("Audio track") }, onClick = { menuOpen = false; onAdd(TrackType.AUDIO) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.ed_2a_video_track)) }, onClick = { menuOpen = false; onAdd(TrackType.VIDEO) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.ed_2a_audio_track)) }, onClick = { menuOpen = false; onAdd(TrackType.AUDIO) })
         }
     }
-    ToolButton(EditorIcons.Minus, "Remove selected track", enabled = selectedLabel != null, onClick = onRemove)
-    ToolButton(EditorIcons.LaneUp, "Move the selected lane up", enabled = selectedLabel != null) { onMove(-1) }
-    ToolButton(EditorIcons.LaneDown, "Move the selected lane down", enabled = selectedLabel != null) { onMove(1) }
+    ToolButton(EditorIcons.Minus, stringResource(R.string.ed_2a_remove_selected_track), enabled = selectedLabel != null, onClick = onRemove)
+    ToolButton(EditorIcons.LaneUp, stringResource(R.string.ed_2a_move_the_selected_lane_up), enabled = selectedLabel != null) { onMove(-1) }
+    ToolButton(EditorIcons.LaneDown, stringResource(R.string.ed_2a_move_the_selected_lane_down), enabled = selectedLabel != null) { onMove(1) }
     Text(
         text = selectedLabel ?: "",
         style = MaterialTheme.typography.labelLarge,
@@ -1377,9 +1381,9 @@ private fun TrackControls(
 private fun SafeZoneMenu(current: SafeZonePlatform?, onSelect: (SafeZonePlatform?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        ToolButton(EditorIcons.SafeZone, "Safe zones for TikTok, Reels and Shorts: ${current?.label ?: "off"}") { open = true }
+        ToolButton(EditorIcons.SafeZone, stringResource(R.string.ed_2a_safe_zones_for, current?.label ?: stringResource(R.string.ed_2a_off))) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("No safe zones") }, onClick = { open = false; onSelect(null) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.ed_2a_no_safe_zones)) }, onClick = { open = false; onSelect(null) })
             for (platform in SafeZonePlatform.entries) {
                 DropdownMenuItem(
                     text = { Text(if (platform == current) "${platform.label} ✓" else platform.label) },
@@ -1396,14 +1400,14 @@ private fun SafeZoneMenu(current: SafeZonePlatform?, onSelect: (SafeZonePlatform
 private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace, onIntent: (EditorIntent) -> Unit) {
     AlertDialog(
         onDismissRequest = { onIntent(EditorIntent.DismissCanvasDialog) },
-        title = { Text("Project ${width}×$height (${aspectLabelOf(width, height)})") },
+        title = { Text(stringResource(R.string.ed_2a_project, width, height, aspectLabelOf(width, height))) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Clips keep their relative position. Changing the canvas clears the undo history.",
+                    stringResource(R.string.ed_2a_clips_keep_their_relative_position),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Text("Colour space", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.hub_colour_space), style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (space in ProjectColorSpace.entries) {
                         FilterChip(
@@ -1415,8 +1419,7 @@ private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace,
                 }
                 if (colorSpace.isHdr) {
                     Text(
-                        "HDR projects are composited in HLG. SDR clips and titles sit at reference white; " +
-                            "the preview is tone-mapped to SDR on screens without HDR.",
+                        stringResource(R.string.ed_2a_hdr_projects_note),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -1435,7 +1438,7 @@ private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace,
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = { onIntent(EditorIntent.DismissCanvasDialog) }) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = { onIntent(EditorIntent.DismissCanvasDialog) }) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -1485,13 +1488,13 @@ private suspend fun requestWaveform(
             descriptor.detachFd() to cache
         }
     } catch (e: MediaImportException) {
-        viewModel.onIntent(EditorIntent.ReportError(e.message ?: "A media file cannot be read: ${displayName(asset)}"))
+        viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_media_unreadable, displayName(asset)))))
         return
     }
     try {
         engine.requestWaveform(viewModel.assetKey(asset.id), prepared.first, prepared.second)
     } catch (e: EngineException) {
-        viewModel.onIntent(EditorIntent.ReportError(e.message ?: "Waveform extraction failed"))
+        viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_waveform_failed))))
     }
 }
 
@@ -1515,7 +1518,7 @@ private suspend fun requestThumbnails(
     try {
         engine.requestThumbnails(viewModel.assetKey(asset.id), prepared.first, prepared.second)
     } catch (e: EngineException) {
-        viewModel.onIntent(EditorIntent.ReportError(e.message ?: "Thumbnail generation failed"))
+        viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_thumbnail_failed))))
     }
 }
 
