@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -80,7 +82,7 @@ object ExportCenter {
     }
 
     /** What the other long jobs are doing, in words for a refusal ("Exporting Holiday"), or null when none is running. */
-    private fun runningJob(except: LongJobs.Kind): String? =
+    private fun runningJob(except: LongJobs.Kind): UiText? =
         LongJobs.describe(instance?.state?.value, bundleInstance?.state?.value, importInstance?.state?.value, except)
 
     private fun startService(app: Context) {
@@ -100,12 +102,12 @@ internal fun deviceBundleVerifier(io: com.qtekfun.ultimatevideoeditor.data.Proje
         BundleVerification.Skipped
     } else {
         try {
-            val document = io.openSeekable(uri) ?: return@BundleVerifier BundleVerification.CouldNotVerify("the provider cannot reopen the file")
+            val document = io.openSeekable(uri) ?: return@BundleVerifier BundleVerification.CouldNotVerify(UiText.res(R.string.verify_reason_provider_cannot_reopen))
             document.use { BundleChecker.check(it.access, written) }
         } catch (e: IOException) {
-            BundleVerification.CouldNotVerify("the saved file could not be opened again (${e.javaClass.simpleName}: ${e.message})")
+            BundleVerification.CouldNotVerify(UiText.res(R.string.verify_reason_not_reopened, e.javaClass.simpleName, e.message.orEmpty()))
         } catch (e: SecurityException) {
-            BundleVerification.CouldNotVerify("the permission to read the saved file was lost")
+            BundleVerification.CouldNotVerify(UiText.res(R.string.verify_reason_permission_lost))
         }
     }
 }
@@ -117,10 +119,10 @@ internal fun deviceBundleVerifier(io: com.qtekfun.ultimatevideoeditor.data.Proje
 object LongJobs {
     enum class Kind { MOVIE, BACKUP, IMPORT }
 
-    fun describe(movie: ExportJobState?, backup: BundleJobState?, import: ImportJobState?, except: Kind): String? {
-        if (except != Kind.MOVIE) (movie as? ExportJobState.Running)?.let { return "Exporting ${it.projectName}" }
-        if (except != Kind.BACKUP) (backup as? BundleJobState.Running)?.let { return "Backing up ${it.projectName}" }
-        if (except != Kind.IMPORT) (import as? ImportJobState.Running)?.let { return "Importing ${it.sourceName}" }
+    fun describe(movie: ExportJobState?, backup: BundleJobState?, import: ImportJobState?, except: Kind): UiText? {
+        if (except != Kind.MOVIE) (movie as? ExportJobState.Running)?.let { return UiText.res(R.string.notif_exporting_project, it.projectName) }
+        if (except != Kind.BACKUP) (backup as? BundleJobState.Running)?.let { return UiText.res(R.string.bundle_backing_up_title, it.projectName) }
+        if (except != Kind.IMPORT) (import as? ImportJobState.Running)?.let { return UiText.res(R.string.import_title_running, ImportJobText.sourceLabel(it.sourceName)) }
         return null
     }
 }

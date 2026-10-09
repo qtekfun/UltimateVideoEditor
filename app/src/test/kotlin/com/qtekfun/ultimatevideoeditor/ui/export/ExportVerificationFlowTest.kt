@@ -19,6 +19,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 
 /** The post-export verification as the dialog, the notification and the project list see it. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -211,8 +213,8 @@ class ExportVerificationFlowTest {
         val text = exportResultText("", verified)
 
         assertEquals(ResultSeverity.OK, text.severity)
-        assertEquals("Checked: the video is complete (300 frames, 00:10)", text.headline)
-        assertEquals("300 frames, 10.0 s", text.detail)
+        assertEquals("Checked: the video is complete (300 frames, 00:10)", text.headline.english())
+        assertEquals("300 frames, 10.0 s", text.detail.english())
         assertFalse(text.offersExportAgain)
     }
 
@@ -221,18 +223,18 @@ class ExportVerificationFlowTest {
         val text = exportResultText("", warning)
 
         assertEquals(ResultSeverity.WARNING, text.severity)
-        assertEquals("WARNING: the last 20 frames look damaged", text.headline)
-        assertTrue(text.detail, text.detail.contains("decoding: the decoder stopped"))
+        assertEquals("WARNING: the last 20 frames look damaged", text.headline.english())
+        assertTrue(text.detail.english(), text.detail.english().contains("decoding: the decoder stopped"))
         assertTrue(text.offersExportAgain)
     }
 
     @Test
     fun `could not check never says checked`() {
-        val text = exportResultText("", VerificationOutcome.CouldNotVerify("this device has no decoder to read the file back"))
+        val text = exportResultText("", VerificationOutcome.CouldNotVerify(UiText.Raw("this device has no decoder to read the file back")))
 
         assertEquals(ResultSeverity.UNVERIFIED, text.severity)
-        assertEquals("Could not check the file", text.headline)
-        assertFalse(text.headline.contains("Checked"))
+        assertEquals("Could not check the file", text.headline.english())
+        assertFalse(text.headline.english().contains("Checked"))
         assertFalse(text.offersExportAgain)
     }
 
@@ -241,7 +243,7 @@ class ExportVerificationFlowTest {
         val text = exportResultText("", VerificationOutcome.Skipped)
 
         assertEquals(ResultSeverity.UNVERIFIED, text.severity)
-        assertEquals("Verification skipped (cancelled)", text.headline)
+        assertEquals("Verification skipped (cancelled)", text.headline.english())
     }
 
     @Test
@@ -249,37 +251,37 @@ class ExportVerificationFlowTest {
         val note = "3 frames could not be decoded and were repeated"
 
         val ok = exportResultText(note, verified)
-        assertEquals("Checked: the video is complete (300 frames, 00:10)", ok.headline)
-        assertTrue(ok.detail, ok.detail.contains("Note: $note."))
+        assertEquals("Checked: the video is complete (300 frames, 00:10)", ok.headline.english())
+        assertTrue(ok.detail.english(), ok.detail.english().contains("Note: $note."))
 
         val bad = exportResultText(note, warning)
-        assertTrue(bad.headline.startsWith("WARNING"))
-        assertTrue(bad.detail, bad.detail.contains(note) && bad.detail.contains("the decoder stopped"))
+        assertTrue(bad.headline.english().startsWith("WARNING"))
+        assertTrue(bad.detail.english(), bad.detail.english().contains(note) && bad.detail.english().contains("the decoder stopped"))
 
         val unverified = exportResultText(note, VerificationOutcome.Skipped)
-        assertTrue(unverified.detail.contains(note))
+        assertTrue(unverified.detail.english().contains(note))
     }
 
     @Test
     fun `the notification carries the verdict`() {
         val ok = checkNotNull(exportNotificationFor(done(v = verified)))
-        assertEquals("Export finished", ok.title)
-        assertEquals("h.mp4 is saved · Checked: the video is complete (300 frames, 00:10)", ok.text)
+        assertEquals("Export finished", ok.title.english())
+        assertEquals("h.mp4 is saved · Checked: the video is complete (300 frames, 00:10)", ok.text.english())
 
         val bad = checkNotNull(exportNotificationFor(done(v = warning)))
-        assertEquals("Export saved: check the file", bad.title)
-        assertTrue(bad.text, bad.text.contains("WARNING: the last 20 frames look damaged"))
+        assertEquals("Export saved: check the file", bad.title.english())
+        assertTrue(bad.text.english(), bad.text.english().contains("WARNING: the last 20 frames look damaged"))
 
-        val unknown = checkNotNull(exportNotificationFor(done(v = VerificationOutcome.CouldNotVerify("no decoder"))))
-        assertTrue(unknown.text, unknown.text.endsWith("Could not check the file"))
+        val unknown = checkNotNull(exportNotificationFor(done(v = VerificationOutcome.CouldNotVerify(UiText.Raw("no decoder")))))
+        assertTrue(unknown.text.english(), unknown.text.english().endsWith("Could not check the file"))
     }
 
     @Test
     fun `the notification while verifying is cancellable and says verifying`() {
         val model = checkNotNull(exportNotificationFor(ExportJobState.Running("p1", "Holiday", 420, 0, verifying = true)))
 
-        assertEquals("Verifying Holiday", model.title)
-        assertEquals("Checking the saved file · 42%", model.text)
+        assertEquals("Verifying Holiday", model.title.english())
+        assertEquals("Checking the saved file · 42%", model.text.english())
         assertTrue(model.ongoing)
         assertTrue(model.showCancel)
     }
@@ -287,10 +289,10 @@ class ExportVerificationFlowTest {
     @Test
     fun `the project list bar shows verifying and then the verdict`() {
         val verifying = exportBarFor(ExportJobState.Running("p1", "Holiday", 420, 0, verifying = true)) as ExportBar.Running
-        assertEquals("Verifying the saved file · 42%", verifying.detail)
+        assertEquals("Verifying the saved file · 42%", verifying.detail.english())
 
         val finished = exportBarFor(done(v = warning)) as ExportBar.Finished
-        assertEquals("WARNING: the last 20 frames look damaged", finished.result.headline)
+        assertEquals("WARNING: the last 20 frames look damaged", finished.result.headline.english())
         assertEquals(ResultSeverity.WARNING, finished.result.severity)
     }
 
@@ -299,6 +301,6 @@ class ExportVerificationFlowTest {
         assertTrue(com.qtekfun.ultimatevideoeditor.engine.verify.VerificationText.resultLine(verified).startsWith("verification=verified frames=300 "))
         assertEquals("verification=warning tail_frames=20 checks=decode", com.qtekfun.ultimatevideoeditor.engine.verify.VerificationText.resultLine(warning))
         assertEquals("verification=skipped", com.qtekfun.ultimatevideoeditor.engine.verify.VerificationText.resultLine(VerificationOutcome.Skipped))
-        assertTrue(com.qtekfun.ultimatevideoeditor.engine.verify.VerificationText.resultLine(VerificationOutcome.CouldNotVerify("no decoder")).startsWith("verification=could_not_verify"))
+        assertTrue(com.qtekfun.ultimatevideoeditor.engine.verify.VerificationText.resultLine(VerificationOutcome.CouldNotVerify(UiText.Raw("no decoder"))).startsWith("verification=could_not_verify"))
     }
 }

@@ -1,28 +1,32 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.ImportReport
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleItemKind
 import com.qtekfun.ultimatevideoeditor.data.interchange.ImportSteps
 import com.qtekfun.ultimatevideoeditor.ui.library.BundleExportText
 import com.qtekfun.ultimatevideoeditor.ui.library.ImportReportNotes
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.namedList
+import com.qtekfun.ultimatevideoeditor.ui.text.sentenceOf
 
 /** An import as the screens show it: dialog, bar and notification are all built from this one value (itself built from [ImportJobState] only). */
 data class ImportView(
     val phase: Phase,
-    val title: String,
+    val title: UiText,
     /** What is happening: "Importing project: file 3 of 12: IMG_0014.mov". Empty when finished. */
-    val step: String = "",
-    val stepShort: String = "",
+    val step: UiText = UiText.Empty,
+    val stepShort: UiText = UiText.Empty,
     /** "1.8 of 7.4 GB, about 2 min left". Empty when finished. */
-    val progressLine: String = "",
+    val progressLine: UiText = UiText.Empty,
     val rateLine: String = "",
     val percent: Int = 0,
     val indeterminate: Boolean = false,
     /** The end state's headline: "Imported: Holiday (7.4 GB, 14 media files, took 4:12)", or why it failed. */
-    val message: String = "",
+    val message: UiText = UiText.Empty,
     /** What the import did not do cleanly (missing media, a new name, LUTs and fonts) and what it did besides; empty when nothing. */
-    val detail: String = "",
+    val detail: UiText = UiText.Empty,
     /** The imported project, for Open; null unless it was imported. */
     val projectId: String? = null,
 ) {
@@ -33,8 +37,8 @@ data class ImportView(
     val canOpen: Boolean get() = projectId != null
 
     /** The one-line state for the bar. */
-    val barLine: String
-        get() = if (running) listOf(progressLine, if (percent > 0) "$percent%" else "").filter { it.isNotEmpty() }.joinToString(" · ") else message
+    val barLine: UiText
+        get() = if (running) UiText.join(" · ", progressLine, if (percent > 0) UiText.res(R.string.percent_value, percent) else UiText.Empty) else message
 }
 
 /** The view for [state], or null when there is nothing to show (idle, not shown yet, a quick import, cancelled, or waiting for a folder). */
@@ -46,7 +50,7 @@ fun importViewFor(state: ImportJobState): ImportView? = when (state) {
         } else {
             val p = state.progress
             ImportView(
-                ImportView.Phase.IMPORTING, "Importing ${state.sourceName}",
+                ImportView.Phase.IMPORTING, UiText.res(R.string.import_title_running, ImportJobText.sourceLabel(state.sourceName)),
                 step = ImportJobText.step(p), stepShort = ImportJobText.shortStep(p), progressLine = ImportJobText.progressLine(p),
                 rateLine = p.bytesPerSecond?.let { BundleJobText.rate(it) }.orEmpty(),
                 percent = p.percent, indeterminate = p.totalBytes <= 0 || p.doneBytes <= 0,
@@ -59,13 +63,13 @@ fun importViewFor(state: ImportJobState): ImportView? = when (state) {
             val notes = ImportReportText.problems(state.report).isNotEmpty()
             ImportView(
                 if (notes) ImportView.Phase.NOTES else ImportView.Phase.IMPORTED,
-                if (notes) "Imported, with notes" else "Project imported",
+                UiText.res(if (notes) R.string.import_title_notes else R.string.import_title_done),
                 message = ImportJobText.doneLine(state),
-                detail = ImportReportText.detailLines(state.report).joinToString("\n"),
+                detail = UiText.join("\n", ImportReportText.detailLines(state.report)),
                 projectId = state.report.project.id,
             )
         }
-    is ImportJobState.Failed -> ImportView(ImportView.Phase.FAILED, "Import failed", message = state.message)
+    is ImportJobState.Failed -> ImportView(ImportView.Phase.FAILED, UiText.res(R.string.import_title_failed), message = state.message)
 }
 
 /** The notification for [state]: the same words, no Android type. Null when there is nothing to show. */
@@ -74,7 +78,7 @@ fun importNotificationFor(state: ImportJobState): ExportNotificationModel? {
     return when (view.phase) {
         ImportView.Phase.IMPORTING -> ExportNotificationModel(
             title = view.title,
-            text = listOf(view.stepShort, view.progressLine).filter { it.isNotEmpty() }.joinToString(" · "),
+            text = UiText.join(" · ", view.stepShort, view.progressLine),
             progressPercent = view.percent,
             indeterminate = view.indeterminate,
             ongoing = true,
@@ -95,112 +99,120 @@ fun importNotificationFor(state: ImportJobState): ExportNotificationModel? {
 
 /** The words of an import's progress and result; pure, so the dialog, the bar and the notification say the same and it is tested. */
 object ImportJobText {
+    /** The picked file's name for a sentence; "the file" (in the language in use) when the provider did not give one. */
+    fun sourceLabel(sourceName: String): UiText =
+        if (sourceName == BundleImportExecutor.UNKNOWN_NAME) UiText.res(R.string.import_unknown_source) else UiText.Raw(sourceName)
+
     /** What is being read right now: "Importing project: file 3 of 12: IMG_0014.mov". */
-    fun step(progress: BundleProgress): String = "Importing project: " + when (progress.kind) {
-        BundleItemKind.MEDIA -> "file ${progress.mediaIndex}${if (progress.mediaCount > 0) " of ${progress.mediaCount}" else ""}: ${progress.itemName}"
-        BundleItemKind.RESOURCE -> "adding ${progress.itemName}"
-        BundleItemKind.THUMBNAIL -> "adding the project picture"
+    fun step(progress: BundleProgress): UiText = when (progress.kind) {
+        BundleItemKind.MEDIA ->
+            if (progress.mediaCount > 0) UiText.res(R.string.import_step_file_of, progress.mediaIndex, progress.mediaCount, progress.itemName)
+            else UiText.res(R.string.import_step_file, progress.mediaIndex, progress.itemName)
+        BundleItemKind.RESOURCE -> UiText.res(R.string.import_step_adding, progress.itemName)
+        BundleItemKind.THUMBNAIL -> UiText.res(R.string.import_step_picture)
         BundleItemKind.PROJECT -> when (progress.itemName) {
-            "" -> "opening the file"
-            ImportSteps.FINISHING -> "finishing"
-            else -> "reading the project data"
+            "" -> UiText.res(R.string.import_step_opening)
+            ImportSteps.FINISHING -> UiText.res(R.string.import_step_finishing)
+            else -> UiText.res(R.string.import_step_reading)
         }
     }
 
     /** The same without the file name, for the notification: "File 3 of 12". */
-    fun shortStep(progress: BundleProgress): String = when (progress.kind) {
-        BundleItemKind.MEDIA -> "File ${progress.mediaIndex}${if (progress.mediaCount > 0) " of ${progress.mediaCount}" else ""}"
-        BundleItemKind.RESOURCE -> "LUTs and fonts"
-        BundleItemKind.THUMBNAIL -> "Project data"
-        BundleItemKind.PROJECT -> if (progress.itemName == ImportSteps.FINISHING) "Finishing" else "Project data"
+    fun shortStep(progress: BundleProgress): UiText = when (progress.kind) {
+        BundleItemKind.MEDIA ->
+            if (progress.mediaCount > 0) UiText.res(R.string.import_short_file_of, progress.mediaIndex, progress.mediaCount)
+            else UiText.res(R.string.import_short_file, progress.mediaIndex)
+        BundleItemKind.RESOURCE -> UiText.res(R.string.bundle_short_resource)
+        BundleItemKind.THUMBNAIL -> UiText.res(R.string.bundle_short_project)
+        BundleItemKind.PROJECT -> if (progress.itemName == ImportSteps.FINISHING) UiText.res(R.string.import_short_finishing) else UiText.res(R.string.bundle_short_project)
     }
 
     /** "1.8 of 7.4 GB, about 2 min left"; "1.8 GB so far" while the size of the whole is not known (a stream has no directory). */
-    fun progressLine(progress: BundleProgress): String =
+    fun progressLine(progress: BundleProgress): UiText =
         if (progress.totalBytes > 0) {
             BundleJobText.progressLine(progress)
         } else if (progress.doneBytes > 0) {
-            BundleJobText.bytes(progress.doneBytes) + " so far"
+            UiText.res(R.string.import_so_far, BundleJobText.bytes(progress.doneBytes))
         } else {
-            ""
+            UiText.Empty
         }
 
     /** "Imported: Holiday (7.4 GB, 14 media files, took 4:12)". */
-    fun doneLine(done: ImportJobState.Done): String {
-        val parts = ArrayList<String>()
-        if (done.bytes > 0) parts += BundleJobText.bytes(done.bytes)
+    fun doneLine(done: ImportJobState.Done): UiText {
+        val parts = ArrayList<UiText>()
+        if (done.bytes > 0) parts += UiText.Raw(BundleJobText.bytes(done.bytes))
         val copied = done.report.bundle?.mediaCopied ?: done.report.lumaFusion?.mediaCopied
-        if (copied != null) parts += "$copied media file${if (copied == 1) "" else "s"}"
-        parts += "took ${formatTook(done.tookMs)}"
-        return "Imported: ${done.report.project.name} (${parts.joinToString(", ")})"
+        if (copied != null) parts += UiText.plural(R.plurals.count_media_files, copied)
+        parts += UiText.res(R.string.took_in, formatTook(done.tookMs))
+        return UiText.res(R.string.import_done_line, done.report.project.name, UiText.join(", ", parts))
     }
 
     /** The message of the project list for an import that ended before anything was shown. */
-    fun quickLine(report: ImportReport): String = ImportReportText.message(report)
+    fun quickLine(report: ImportReport): UiText = ImportReportText.message(report)
 
     /**
      * Why an import stopped, from the error that did it: a full disk, a lost permission, a file that is not a project, a provider that
      * went away; never a bare class name. Every line says that nothing was added to the project list.
      */
-    fun failure(error: Throwable): String {
+    fun failure(error: Throwable): UiText {
         val chain = generateSequence(error) { it.cause }.take(6).toList()
         val text = chain.mapNotNull { it.message }.joinToString(" | ")
         val reason = when {
-            chain.any { it is SecurityException } -> "The app no longer has permission to read that file. Pick it again."
-            text.contains("ENOSPC", ignoreCase = true) || text.contains("No space left", ignoreCase = true) || text.contains("not enough space", ignoreCase = true) ->
-                "The storage is full. Free some space and import again."
-            error is ProjectError.Bundle -> error.message.orEmpty()
-            error is ProjectError.Corrupt -> "This is not a readable project (${error.message.orEmpty().removePrefix("Project file is corrupt: ")})."
-            error is ProjectError.UnsupportedVersion -> error.message.orEmpty() + ". Update the app to open it."
-            chain.any { it is java.io.FileNotFoundException } || text.contains("Cannot read ") ->
-                "The file could not be opened. It may have been moved or deleted, or the app that provides it is gone."
+            chain.any { it is SecurityException } -> UiText.res(R.string.import_fail_permission)
+            text.contains("ENOSPC", ignoreCase = true) || text.contains("No space left", ignoreCase = true) || text.contains("not enough space", ignoreCase = true) -> // i18n-ok: matches the system's own English error text
+                UiText.res(R.string.import_fail_storage_full)
+            error is ProjectError.Bundle -> sentenceOf(error.message.orEmpty())
+            error is ProjectError.Corrupt -> UiText.res(R.string.import_fail_not_readable, error.message.orEmpty().removePrefix("Project file is corrupt: ")) // i18n-ok: the prefix ProjectError.Corrupt puts on its message
+            error is ProjectError.UnsupportedVersion -> UiText.res(R.string.import_fail_unsupported_version, error.message.orEmpty())
+            chain.any { it is java.io.FileNotFoundException } || text.contains("Cannot read ") -> UiText.res(R.string.import_fail_cannot_open)
             error is ProjectError.Io -> {
                 val cause = error.cause
-                "Reading or writing failed (${cause?.message?.takeIf { it.isNotBlank() } ?: cause?.javaClass?.simpleName ?: error.message})."
+                UiText.res(R.string.import_fail_io, cause?.message?.takeIf { it.isNotBlank() } ?: cause?.javaClass?.simpleName ?: error.message.orEmpty())
             }
-            else -> error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+            else -> sentenceOf(error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName)
         }
-        val sentence = reason.trim().let { if (it.endsWith(".") || it.endsWith(")") || it.endsWith("!")) it else "$it." }
-        return sentence.replaceFirstChar { it.uppercase() } + " Nothing was added to the project list."
+        return UiText.res(R.string.import_fail_nothing_added, reason)
     }
 }
 
 /** What an import did, in words: used by the project list's message, the report dialog and the result in the bar. Pure. */
 object ImportReportText {
     /** What an import did: the project's name and, for a bundle, what became of its media. */
-    fun message(report: ImportReport): String {
+    fun message(report: ImportReport): UiText {
         val name = report.project.name
+        val renamed = report.renamedFrom?.let { UiText.res(R.string.import_msg_renamed, name, it) } ?: UiText.Empty
         report.lumaFusion?.let { lf ->
             val omitted = lf.report.notImported.size
-            return "Imported \"$name\" from LumaFusion" +
-                (if (lf.mediaCopied > 0) ". ${lf.mediaCopied} media file${if (lf.mediaCopied == 1) "" else "s"} came with it" else "") +
-                (if (lf.missing.isNotEmpty()) ". Missing (relink in the editor): ${lf.missing.take(3).joinToString()}" else "") +
-                (if (omitted > 0) ". $omitted kind${if (omitted == 1) "" else "s"} of settings not imported" else "")
+            return UiText.join(
+                ". ",
+                UiText.res(R.string.import_msg_lumafusion, name),
+                if (lf.mediaCopied > 0) UiText.plural(R.plurals.import_media_came, lf.mediaCopied) else UiText.Empty,
+                if (lf.missing.isNotEmpty()) UiText.res(R.string.import_msg_missing, namedList(lf.missing, andMore = false)) else UiText.Empty,
+                if (omitted > 0) UiText.plural(R.plurals.import_settings_not_imported, omitted) else UiText.Empty,
+            )
         }
-        val bundle = report.bundle ?: return "Imported \"$name\"" + (report.renamedFrom?.let { ". Named \"$name\" because \"$it\" was taken" } ?: "")
-        return buildString {
-            append("Imported \"$name\"")
-            if (bundle.mediaCopied > 0) append(". ${bundle.mediaCopied} media file${if (bundle.mediaCopied == 1) "" else "s"} came with it")
-            BundleExportText.importSentence(bundle.resources)?.let { append(". $it") }
-            if (bundle.relinked > 0) append(". ${bundle.relinked} found on this device by name and size")
-            if (bundle.missing.isNotEmpty()) {
-                append(". Missing (relink in the editor): ${bundle.missing.take(3).joinToString()}")
-                if (bundle.missing.size > 3) append(" and ${bundle.missing.size - 3} more")
-            }
-            report.renamedFrom?.let { append(". Named \"$name\" because \"$it\" was taken") }
-        }
+        val bundle = report.bundle ?: return UiText.join(". ", UiText.res(R.string.import_msg_plain, name), renamed)
+        return UiText.join(
+            ". ",
+            UiText.res(R.string.import_msg_plain, name),
+            if (bundle.mediaCopied > 0) UiText.plural(R.plurals.import_media_came, bundle.mediaCopied) else UiText.Empty,
+            BundleExportText.importSentence(bundle.resources) ?: UiText.Empty,
+            if (bundle.relinked > 0) UiText.plural(R.plurals.import_relinked_by_name, bundle.relinked) else UiText.Empty,
+            if (bundle.missing.isNotEmpty()) UiText.res(R.string.import_msg_missing, namedList(bundle.missing)) else UiText.Empty,
+            renamed,
+        )
     }
 
     /** The list of LUTs and fonts an import could not install (and the like), or null when it went fully through. */
     fun notes(report: ImportReport): ImportReportNotes? {
         report.lumaFusion?.let { lf ->
-            val notImported = lf.report.notImported.map { "$it" }
+            val notImported = lf.report.notImported.map { UiText.Raw("$it") }
             return ImportReportNotes(
                 report.project.name,
                 notImported,
-                lf.report.imported,
-                problemsHeading = if (notImported.isEmpty()) null else "Not imported from LumaFusion (what each line says is used instead):",
-            ).let { if (notImported.isEmpty()) it.copy(notes = it.notes + "Nothing was left out.") else it }
+                lf.report.imported.map { UiText.Raw(it) },
+                problemsHeading = if (notImported.isEmpty()) null else UiText.res(R.string.import_lf_heading),
+            ).let { if (notImported.isEmpty()) it.copy(notes = it.notes + UiText.res(R.string.import_lf_nothing_left_out)) else it }
         }
         val resources = report.bundle?.resources ?: return null
         val problems = BundleExportText.importProblems(resources)
@@ -209,24 +221,22 @@ object ImportReportText {
     }
 
     /** What was not clean: media still missing, a new name, LUTs and fonts that could not be installed, LumaFusion settings left out. */
-    fun problems(report: ImportReport): List<String> = buildList {
-        report.renamedFrom?.let { add("The name \"$it\" was taken, so the project is called \"${report.project.name}\".") }
+    fun problems(report: ImportReport): List<UiText> = buildList {
+        report.renamedFrom?.let { add(UiText.res(R.string.import_prob_renamed, it, report.project.name)) }
         val missing = report.bundle?.missing ?: report.lumaFusion?.missing.orEmpty()
-        if (missing.isNotEmpty()) {
-            add("Missing media (relink in the editor): ${missing.take(3).joinToString()}" + if (missing.size > 3) " and ${missing.size - 3} more" else "")
-        }
+        if (missing.isNotEmpty()) add(UiText.res(R.string.import_prob_missing, namedList(missing)))
         report.bundle?.let { addAll(BundleExportText.importProblems(it.resources)) }
         report.lumaFusion?.let { lf ->
             if (lf.report.notImported.isNotEmpty()) {
-                add("${lf.report.notImported.size} kind${if (lf.report.notImported.size == 1) "" else "s"} of LumaFusion settings not imported: ${lf.report.notImported.take(3).joinToString()}")
+                add(UiText.Plural(R.plurals.import_prob_lf_kinds, lf.report.notImported.size, listOf(lf.report.notImported.size, namedList(lf.report.notImported.map { "$it" }, andMore = false))))
             }
         }
     }
 
     /** [problems] first, then the good news (relinked by name and size, LUTs and fonts installed). */
-    fun detailLines(report: ImportReport): List<String> = problems(report) + buildList {
+    fun detailLines(report: ImportReport): List<UiText> = problems(report) + buildList {
         report.bundle?.let { bundle ->
-            if (bundle.relinked > 0) add("${bundle.relinked} media file${if (bundle.relinked == 1) "" else "s"} found on this device by name and size.")
+            if (bundle.relinked > 0) add(UiText.plural(R.plurals.import_detail_relinked, bundle.relinked))
             addAll(BundleExportText.importNotes(bundle.resources))
         }
     }

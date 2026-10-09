@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.ImportReport
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleItemKind
@@ -42,7 +44,7 @@ class BundleImportExecutor(
     /** The picked file's name, asked from the provider on the IO dispatcher; null when it does not say. */
     private val displayName: (String) -> String? = { null },
     /** A description of the other long job when one is running ("Exporting Holiday"), else null. */
-    private val otherJobBusy: () -> String? = { null },
+    private val otherJobBusy: () -> UiText? = { null },
     private val publishEveryMs: Long = BundleProgressTracker.DEFAULT_PUBLISH_MS,
     private val revealAfterMs: Long = REVEAL_AFTER_MS,
 ) : ImportJobHost {
@@ -60,8 +62,8 @@ class BundleImportExecutor(
     override fun start(next: ImportJob): BundleStart {
         val tracker = BundleProgressTracker(clock, publishEveryMs)
         synchronized(lock) {
-            (mutableState.value as? ImportJobState.Running)?.let { return BundleStart.Refused("An import is already running: ${it.sourceName}. Wait for it to finish or cancel it first.") }
-            otherJobBusy()?.let { return BundleStart.Refused("Another long job is running ($it). Start the import when it has finished, or cancel that one first.") }
+            (mutableState.value as? ImportJobState.Running)?.let { return BundleStart.Refused(UiText.res(R.string.refused_import_running, ImportJobText.sourceLabel(it.sourceName))) }
+            otherJobBusy()?.let { return BundleStart.Refused(UiText.res(R.string.refused_other_job_import, it)) }
             cancelRequested = false
             startedAt = clock()
             mutableState.value = ImportJobState.Running(next.uri, UNKNOWN_NAME, BundleProgress(), startedAt)

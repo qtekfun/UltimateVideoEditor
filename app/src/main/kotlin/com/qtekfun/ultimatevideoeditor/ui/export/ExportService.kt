@@ -1,10 +1,14 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -13,6 +17,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.qtekfun.ultimatevideoeditor.MainActivity
+import com.qtekfun.ultimatevideoeditor.ui.language.AppLocale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +39,11 @@ class ExportService : Service() {
     private var lastStartId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    // The notification is worded in the app language, which on Android 12 and 12L is the one picked in About.
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val movie = ExportCenter.executor(this)
@@ -120,8 +130,8 @@ class ExportService : Service() {
     private fun notificationManager() = getSystemService(NotificationManager::class.java)
 
     private fun createChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "Export", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Progress of a movie export, a project backup or a project import"
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notif_channel_name), NotificationManager.IMPORTANCE_LOW).apply {
+            description = getString(R.string.notif_channel_description)
             setSound(null, null)
             enableVibration(false)
         }
@@ -132,8 +142,8 @@ class ExportService : Service() {
         val open = openIntentFor(model.projectId, model.bundle, model.import)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(if (model.ongoing) android.R.drawable.stat_sys_upload else android.R.drawable.stat_sys_upload_done)
-            .setContentTitle(model.title)
-            .setContentText(model.text)
+            .setContentTitle(model.title.resolve(this))
+            .setContentText(model.text.resolve(this))
             .setOngoing(model.ongoing)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -146,7 +156,7 @@ class ExportService : Service() {
         }
         model.shareUri?.let { uri ->
             val chooser = shareBundleIntent(uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            builder.addAction(0, "Share", PendingIntent.getActivity(this, 3, chooser, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            builder.addAction(0, getString(R.string.common_share), PendingIntent.getActivity(this, 3, chooser, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
         }
         if (model.showCancel) {
             val cancel = PendingIntent.getService(
@@ -155,7 +165,7 @@ class ExportService : Service() {
                 Intent(this, ExportService::class.java).setAction(ACTION_CANCEL),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            builder.addAction(0, "Cancel", cancel)
+            builder.addAction(0, getString(R.string.common_cancel), cancel)
         }
         return builder.build()
     }
@@ -185,7 +195,7 @@ class ExportService : Service() {
         private const val BUNDLE_RESULT_NOTIFICATION_ID = 7003
         private const val IMPORT_RESULT_NOTIFICATION_ID = 7004
         private const val PROGRESS_MAX = 100
-        private val PLACEHOLDER = ExportNotificationModel("Exporting", "Starting…", null, true, ongoing = true, showCancel = true)
+        private val PLACEHOLDER = ExportNotificationModel(UiText.res(R.string.notif_placeholder_title), UiText.res(R.string.notif_placeholder_text), null, true, ongoing = true, showCancel = true)
     }
 }
 

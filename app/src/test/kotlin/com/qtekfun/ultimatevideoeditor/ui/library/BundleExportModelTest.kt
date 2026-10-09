@@ -13,6 +13,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.EnglishStrings
 
 class BundleExportModelTest {
     private val preview = BundlePreview(
@@ -46,9 +50,9 @@ class BundleExportModelTest {
     fun `a draft can export once measured and not when it failed`() {
         assertFalse(BundleExportDraft().canExport)
         assertNull(BundleExportDraft().estimatedBytes)
-        assertEquals("Measuring…", BundleExportText.estimateLine(BundleExportDraft()))
+        assertEquals("Measuring…", BundleExportText.estimateLine(BundleExportDraft()).english())
         assertTrue(BundleExportDraft(preview = preview).canExport)
-        assertFalse(BundleExportDraft(preview = preview, failed = "no").canExport)
+        assertFalse(BundleExportDraft(preview = preview, failed = UiText.Raw("no")).canExport)
     }
 
     @Test
@@ -56,16 +60,16 @@ class BundleExportModelTest {
         val saved = Locale.getDefault()
         Locale.setDefault(Locale.US)
         try {
-            assertEquals("Media files: 3 (5.0 MB), 1 cannot be read and stay out", BundleExportText.mediaLine(preview))
-            assertEquals("Colour LUTs: 1 (2.9 KB), 1 not in this device's library", BundleExportText.lutLine(preview))
-            assertEquals("Fonts: 1 (2.0 KB)", BundleExportText.fontLine(preview))
+            assertEquals("Media files: 3 (5.0 MB), 1 cannot be read and stay out", BundleExportText.mediaLine(preview).english())
+            assertEquals("Colour LUTs: 1 (2.9 KB), 1 not in this device's library", BundleExportText.lutLine(preview)?.english())
+            assertEquals("Fonts: 1 (2.0 KB)", BundleExportText.fontLine(preview)?.english())
             assertNull(BundleExportText.lutLine(BundlePreview()))
             assertNull(BundleExportText.fontLine(BundlePreview()))
-            assertEquals("About 2.9 KB plus the project file", BundleExportText.estimateLine(BundleExportDraft(preview = preview)))
+            assertEquals("About 2.9 KB plus the project file", BundleExportText.estimateLine(BundleExportDraft(preview = preview)).english())
         } finally {
             Locale.setDefault(saved)
         }
-        assertTrue(BundleExportText.FONT_LICENCE_NOTE.contains("licence"))
+        assertTrue(EnglishStrings.text(R.string.bundle_font_licence_note).contains("licence"))
     }
 
     @Test
@@ -78,14 +82,14 @@ class BundleExportModelTest {
             lutsIncluded = 2,
             fontsIncluded = 1,
         )
-        val text = BundleExportText.exportMessage("Bundle exported", BundleChoice(includeMedia = true, includeFonts = true), result)
+        val text = BundleExportText.exportMessage(UiText.Raw("Bundle exported"), BundleChoice(includeMedia = true, includeFonts = true), result)
         assertEquals(
             "Bundle exported with 1 media file and 2 LUTs and 1 font. Not copied (cannot be read): a.mp4, b.mp4, c.mp4 and 1 more. " +
                 "Not included: font x (not in this device's library)",
-            text,
+            text.english(),
         )
-        val plain = BundleExportText.exportMessage("Bundle exported", BundleChoice(), BundleWriteResult(0, emptyList()))
-        assertEquals("Bundle exported", plain)
+        val plain = BundleExportText.exportMessage(UiText.Raw("Bundle exported"), BundleChoice(), BundleWriteResult(0, emptyList()))
+        assertEquals("Bundle exported", plain.english())
     }
 
     @Test
@@ -97,14 +101,14 @@ class BundleExportModelTest {
             failed = listOf(ResourceProblem("LUT Junk", "it is not a valid .cube file")),
             missing = listOf("font Missing"),
         )
-        assertEquals("2 LUT/fonts installed, 1 could not be installed, 1 still missing", BundleExportText.importSentence(report))
+        assertEquals("2 LUT/fonts installed, 1 could not be installed, 1 still missing", BundleExportText.importSentence(report)?.english())
         assertEquals(
             listOf("LUT Junk: it is not a valid .cube file", "font Missing: not in the bundle and not on this device"),
-            BundleExportText.importProblems(report),
+            BundleExportText.importProblems(report).english(),
         )
         assertEquals(3, BundleExportText.importNotes(report).size)
         assertNull(BundleExportText.importSentence(ResourceImportReport.EMPTY))
-        assertEquals(emptyList<String>(), BundleExportText.importProblems(ResourceImportReport(installed = listOf("LUT A"))))
-        assertEquals("1 LUT/font installed", BundleExportText.importSentence(ResourceImportReport(installed = listOf("LUT A"))))
+        assertEquals(emptyList<String>(), BundleExportText.importProblems(ResourceImportReport(installed = listOf("LUT A"))).english())
+        assertEquals("1 LUT/font installed", BundleExportText.importSentence(ResourceImportReport(installed = listOf("LUT A")))?.english())
     }
 }

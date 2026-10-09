@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
@@ -44,7 +45,7 @@ sealed interface ExportPhase {
         val exportMs: Long = 0,
         val verifyMs: Long = 0,
     ) : ExportPhase
-    data class Failed(val message: String) : ExportPhase
+    data class Failed(val message: UiText) : ExportPhase
 }
 
 data class ExportState(
@@ -127,5 +128,5 @@ sealed interface ExportEffect : UiEffect {
     data class ShareFile(val uri: String) : ExportEffect
 
     /** Shown in the editor, for example "Another export is running: Holiday". */
-    data class Message(val text: String) : ExportEffect
+    data class Message(val text: UiText) : ExportEffect
 }

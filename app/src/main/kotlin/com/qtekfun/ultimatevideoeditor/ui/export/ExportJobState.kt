@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportErrorCode
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportException
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportRequest
@@ -40,7 +42,7 @@ sealed interface ExportJobState {
     ) : ExportJobState
 
     /** [error] is null only when the engine reported a failure without a reason. */
-    data class Failed(override val projectId: String, val projectName: String, val error: ExportException?, val leftoverNote: String = "") : ExportJobState
+    data class Failed(override val projectId: String, val projectName: String, val error: ExportException?, val leftoverNote: UiText = UiText.Empty) : ExportJobState
 
     /** The user cancelled; the partial file is already removed. */
     data class Cancelled(override val projectId: String, val projectName: String) : ExportJobState
@@ -62,10 +64,14 @@ class ExportJob(
 )
 
 /** The text shown for a failed export, in the dialog and in the notification. */
-internal fun describeExportFailure(error: ExportException?, hdr: Boolean): String = when (error?.code) {
-    null -> "The export failed"
-    ExportErrorCode.UNSUPPORTED_FORMAT ->
-        "This device cannot encode with these settings: ${error.message}." + if (hdr) " Export as SDR instead." else ""
-    ExportErrorCode.IO_ERROR -> "A file error stopped the export: ${error.message}"
-    else -> "The export failed: ${error.message}"
+internal fun describeExportFailure(error: ExportException?, hdr: Boolean): UiText {
+    if (error == null) return UiText.res(R.string.export_failed)
+    // The engine's own remark is English technical text; one the app wrote itself carries its translatable form.
+    val reason = error.userText ?: UiText.Raw(error.message.orEmpty())
+    return when (error.code) {
+        ExportErrorCode.UNSUPPORTED_FORMAT ->
+            UiText.join(" ", UiText.res(R.string.export_fail_unsupported, reason), if (hdr) UiText.res(R.string.export_fail_sdr_instead) else UiText.Empty)
+        ExportErrorCode.IO_ERROR -> UiText.res(R.string.export_fail_io, reason)
+        else -> UiText.res(R.string.export_fail_other, reason)
+    }
 }

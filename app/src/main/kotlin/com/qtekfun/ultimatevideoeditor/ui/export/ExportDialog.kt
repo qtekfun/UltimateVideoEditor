@@ -1,5 +1,11 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import androidx.compose.ui.platform.LocalConfiguration
+import com.qtekfun.ultimatevideoeditor.ui.text.isNotEmpty
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -67,7 +73,7 @@ fun ExportHost(viewModel: ExportViewModel, onMessage: (String) -> Unit = {}) {
                     }
                 }
                 is ExportEffect.ShareFile -> shareExportedMovie(context, effect.uri)
-                is ExportEffect.Message -> onMessage(effect.text)
+                is ExportEffect.Message -> onMessage(effect.text.resolve(context))
             }
         }
     }
@@ -92,11 +98,13 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
         onDismissRequest = { onIntent(ExportIntent.Dismiss) },
         title = {
             Text(
-                when {
-                    phase is ExportPhase.Running && phase.verifying -> "Verifying…"
-                    phase is ExportPhase.Running -> "Exporting…"
-                    else -> "Export movie"
-                },
+                stringResource(
+                    when {
+                        phase is ExportPhase.Running && phase.verifying -> R.string.export_dlg_verifying_title
+                        phase is ExportPhase.Running -> R.string.export_dlg_exporting_title
+                        else -> R.string.export_dlg_title
+                    },
+                ),
             )
         },
         text = {
@@ -104,7 +112,7 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
                 ExportPhase.Configuring -> Settings(state, onIntent)
                 is ExportPhase.Running -> Progress(phase)
                 is ExportPhase.Done -> DoneMessage(phase, onIntent)
-                is ExportPhase.Failed -> Text(phase.message, color = MaterialTheme.colorScheme.error)
+                is ExportPhase.Failed -> Text(phase.message.asString(), color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
@@ -112,19 +120,19 @@ internal fun ExportDialog(state: ExportState, onIntent: (ExportIntent) -> Unit) 
                 ExportPhase.Configuring -> TextButton(
                     onClick = { onIntent(ExportIntent.ChooseLocation) },
                     enabled = state.resolution != null && state.frameRate != null,
-                ) { Text("Export…") }
+                ) { Text(stringResource(R.string.export_dlg_export_button)) }
 
                 // The export goes on; the notification and the project list keep showing it.
-                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Hide") }
-                is ExportPhase.Done -> TextButton(onClick = { onIntent(ExportIntent.Share) }) { Text("Share") }
-                is ExportPhase.Failed -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Close") }
+                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text(stringResource(R.string.common_hide)) }
+                is ExportPhase.Done -> TextButton(onClick = { onIntent(ExportIntent.Share) }) { Text(stringResource(R.string.common_share)) }
+                is ExportPhase.Failed -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text(stringResource(R.string.common_close)) }
             }
         },
         dismissButton = {
             when (phase) {
-                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Cancel) }) { Text(if (phase.verifying) "Skip check" else "Cancel") }
-                is ExportPhase.Done -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Close") }
-                else -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text("Cancel") }
+                is ExportPhase.Running -> TextButton(onClick = { onIntent(ExportIntent.Cancel) }) { Text(stringResource(if (phase.verifying) R.string.export_dlg_skip_check else R.string.common_cancel)) }
+                is ExportPhase.Done -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text(stringResource(R.string.common_close)) }
+                else -> TextButton(onClick = { onIntent(ExportIntent.Dismiss) }) { Text(stringResource(R.string.common_cancel)) }
             }
         },
     )
@@ -136,13 +144,13 @@ private fun DoneMessage(phase: ExportPhase.Done, onIntent: (ExportIntent) -> Uni
     val result = exportResultText(phase.note, phase.verification, phase.exportMs, phase.verifyMs)
     val colour = if (result.severity == ResultSeverity.OK) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
     Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Saved ${phase.fileName}.")
-        if (result.headline.isNotEmpty()) Text(result.headline, style = MaterialTheme.typography.titleSmall, color = colour)
-        if (result.timing.isNotEmpty()) Text(result.timing, style = MaterialTheme.typography.bodyMedium)
-        if (result.detail.isNotEmpty()) Text(result.detail, style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.export_dlg_saved, phase.fileName))
+        if (result.headline.isNotEmpty()) Text(result.headline.asString(), style = MaterialTheme.typography.titleSmall, color = colour)
+        if (result.timing.isNotEmpty()) Text(result.timing.asString(), style = MaterialTheme.typography.bodyMedium)
+        if (result.detail.isNotEmpty()) Text(result.detail.asString(), style = MaterialTheme.typography.bodySmall)
         if (result.offersExportAgain) {
-            Text("The file was kept. You can use it, or export again.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { onIntent(ExportIntent.ExportAgain) }) { Text("Export again") }
+            Text(stringResource(R.string.export_dlg_kept), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { onIntent(ExportIntent.ExportAgain) }) { Text(stringResource(R.string.export_dlg_export_again)) }
         }
     }
 }
@@ -161,9 +169,9 @@ private fun Progress(phase: ExportPhase.Running) {
     if (phase.verifying) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LinearProgressIndicator(progress = { phase.progressPermille / 1000f }, modifier = Modifier.fillMaxWidth())
-            Text("Verifying… ${phase.progressPermille / 10}%", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.export_dlg_verifying_percent, phase.progressPermille / 10), style = MaterialTheme.typography.labelLarge)
             Text(
-                "The movie is saved. Checking that its first and last frames are the right ones and not damaged.",
+                stringResource(R.string.export_dlg_verifying_body),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -171,17 +179,17 @@ private fun Progress(phase: ExportPhase.Running) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         LinearProgressIndicator(progress = { phase.progressPermille / 1000f }, modifier = Modifier.fillMaxWidth())
-        Text("${phase.progressPermille / 10}%", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.percent_value, phase.progressPermille / 10), style = MaterialTheme.typography.labelLarge)
         val elapsed = if (phase.startedAtMs > 0) formatDuration((now - phase.startedAtMs).coerceAtLeast(0)) else null
         val left = when {
-            estimate.stalled -> "Waiting for the encoder…"
-            estimate.remainingMs != null -> "About ${formatDuration(estimate.remainingMs)} left"
-            else -> "Estimating time left…"
+            estimate.stalled -> stringResource(R.string.export_dlg_waiting_encoder)
+            estimate.remainingMs != null -> stringResource(R.string.export_dlg_about_left, formatDuration(estimate.remainingMs))
+            else -> stringResource(R.string.export_dlg_estimating)
         }
-        Text(listOfNotNull(elapsed?.let { "$it elapsed" }, left).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
+        Text(listOfNotNull(elapsed?.let { stringResource(R.string.export_dlg_elapsed, it) }, left).joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
         if (estimate.framesPerSecond != null && estimate.speedFactor != null) {
             Text(
-                "%.0f frames/s · %.1fx real time".format(estimate.framesPerSecond, estimate.speedFactor),
+                stringResource(R.string.export_dlg_speed, estimate.framesPerSecond, estimate.speedFactor),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -198,26 +206,25 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
         modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Section("Upload to") {
+        Section(stringResource(R.string.export_dlg_upload_to)) {
             for (preset in ExportPresets.all) {
                 FilterChip(
                     selected = preset == state.preset,
                     onClick = { onIntent(ExportIntent.SelectPreset(preset)) },
-                    label = { Text(preset.label) },
+                    label = { Text(stringResource(preset.labelRes)) },
                 )
             }
         }
         state.preset?.let { preset ->
             if (state.projectAspect.isNotEmpty() && preset.aspect != state.projectAspect) {
                 Text(
-                    "${preset.label} is made for ${preset.aspect}; this project is ${state.projectAspect}. " +
-                        "Change the canvas in the editor to match.",
+                    stringResource(R.string.export_dlg_preset_mismatch, stringResource(preset.labelRes), preset.aspect, state.projectAspect),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
         }
-        Section("Resolution") {
+        Section(stringResource(R.string.export_dlg_resolution)) {
             for (option in state.resolutions) {
                 FilterChip(
                     selected = option == state.resolution,
@@ -226,7 +233,7 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
                 )
             }
         }
-        Section("Frame rate") {
+        Section(stringResource(R.string.export_dlg_frame_rate)) {
             for (rate in state.frameRates) {
                 FilterChip(
                     selected = rate == state.frameRate,
@@ -236,25 +243,25 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
             }
         }
         if (state.hdrAvailable) {
-            Section("Dynamic range") {
+            Section(stringResource(R.string.export_dlg_dynamic_range)) {
                 FilterChip(
                     selected = state.hdr,
                     onClick = { onIntent(ExportIntent.SelectHdr(true)) },
-                    label = { Text("HDR (HLG, 10-bit HEVC)") },
+                    label = { Text(stringResource(R.string.export_dlg_hdr)) },
                 )
                 FilterChip(
                     selected = !state.hdr,
                     onClick = { onIntent(ExportIntent.SelectHdr(false)) },
-                    label = { Text("SDR") },
+                    label = { Text(stringResource(R.string.export_dlg_sdr)) },
                 )
             }
         } else if (state.hdrUnsupportedNotice) {
             Text(
-                "This device cannot encode HDR at this size, so the movie is exported as SDR; HLG clips are tone-mapped.",
+                stringResource(R.string.export_dlg_hdr_unsupported),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        Section("Codec") {
+        Section(stringResource(R.string.export_dlg_codec)) {
             for (codec in ExportCodec.entries) {
                 FilterChip(
                     selected = codec == state.codec,
@@ -264,35 +271,33 @@ private fun Settings(state: ExportState, onIntent: (ExportIntent) -> Unit) {
             }
         }
         if (state.codec == ExportCodec.HEVC) {
-            Section("Smart export") {
+            Section(stringResource(R.string.export_dlg_smart)) {
                 FilterChip(
                     selected = state.smart,
                     onClick = { onIntent(ExportIntent.SelectSmart(!state.smart)) },
-                    label = { Text("Copy untouched parts without re-encoding (faster, larger file)") },
+                    label = { Text(stringResource(R.string.export_dlg_smart_chip)) },
                 )
             }
             if (state.smart) {
                 Text(
-                    "Stretches of one clip with nothing on them are copied as they are, bit for bit; the rest is encoded as usual. " +
-                        "The file stores the picture rotated and flags it, like your iPhone files do. " +
-                        "If nothing can be copied, or anything goes wrong, the whole movie is exported normally.",
+                    stringResource(R.string.export_dlg_smart_note),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
-        Section("Bitrate") {
+        Section(stringResource(R.string.export_dlg_bitrate)) {
             val recommendation = state.recommendation?.takeIf { it.fromSources }
             for (mbps in bitrateChoicesMbps()) {
                 FilterChip(
                     selected = mbps == state.bitrateMbps,
                     onClick = { onIntent(ExportIntent.SelectBitrate(mbps)) },
-                    label = { Recommendable("$mbps Mbps", recommendation?.bitrateMbps == mbps) },
+                    label = { Recommendable(stringResource(R.string.export_dlg_mbps, mbps), recommendation?.bitrateMbps == mbps) },
                 )
             }
         }
         state.recommendation?.let { recommendation ->
             bitrateAdvice(recommendation, state.sources, state.bitrateMbps)?.let { advice ->
-                Text(advice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(advice.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -306,7 +311,7 @@ private fun Recommendable(label: String, recommended: Boolean) {
     if (recommended) {
         Column {
             Text(label)
-            Text("recommended", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.export_dlg_recommended), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
     } else {
         Text(label)
@@ -319,13 +324,13 @@ private fun SizeLine(state: ExportState) {
     val estimate = state.sizeEstimate ?: return
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
-            "Estimated size: about ${formatBytes(estimate.bytes)} (${formatBytes(estimate.lowBytes)} to ${formatBytes(estimate.highBytes)})",
+            stringResource(R.string.export_dlg_estimated_size, formatBytes(estimate.bytes), formatBytes(estimate.lowBytes), formatBytes(estimate.highBytes)),
             style = MaterialTheme.typography.bodyMedium,
         )
         state.freeBytes?.let { free ->
             if (exceedsFreeSpace(estimate, free)) {
                 Text(
-                    "This may not fit: ${formatBytes(free)} free on this device's storage.",
+                    stringResource(R.string.export_dlg_may_not_fit, formatBytes(free)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -345,7 +350,9 @@ private fun Section(title: String, content: @Composable () -> Unit) {
     }
 }
 
+@Composable
 private fun rateLabel(rate: FrameRate): String {
     val value = rate.num.toDouble() / rate.den
-    return if (rate.den == 1) "${rate.num} fps" else "%.2f fps".format(value)
+    val locale = LocalConfiguration.current.locales[0]
+    return stringResource(R.string.fps_value, if (rate.den == 1) rate.num.toString() else "%.2f".format(locale, value))
 }

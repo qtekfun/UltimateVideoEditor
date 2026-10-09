@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.ui.about.StorageMeter
 import java.io.File
 
@@ -42,10 +44,10 @@ data class StorageSnapshot(
         }
 }
 
-enum class StorageKind(val label: String) {
-    PROJECTS("Projects"),
-    CACHE("Cache"),
-    PROXIES("Proxies"),
+enum class StorageKind(@StringRes val labelRes: Int) {
+    PROJECTS(R.string.hub_storage_projects),
+    CACHE(R.string.hub_storage_cache),
+    PROXIES(R.string.hub_storage_proxies),
 }
 
 data class StorageSegment(val kind: StorageKind, val bytes: Long, val fraction: Float)

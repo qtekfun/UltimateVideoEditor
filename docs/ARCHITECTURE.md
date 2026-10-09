@@ -126,6 +126,12 @@ Whenever a native structure changes, bump its version, keep the old reader, and 
    say in the pull request what you did and did not see (the *Verification debt* table in `PLAN.md` is the place to record it).
    Never run `connectedAndroidTest` on a device whose app data matters: it clears it.
 
+### Text and languages
+
+New user-visible text goes in `res/values/strings.xml` and its Spanish in `values-es/strings.xml`, never in code: `stringResource` in a
+composable, a `UiText` anywhere else (view model state, effects, notification models, pure builders). See SPECS 5.43 and
+`docs/TRANSLATING.md`; `HardCodedTextRatchetTest` fails for a new literal outside the allow-list.
+
 ## 7. Where to look
 
 | I want to change | Start at |

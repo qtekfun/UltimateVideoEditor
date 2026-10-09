@@ -51,6 +51,16 @@ accounts. The only permissions are the export's foreground-service ones and POST
 `OfflineGuaranteeTest` fails the build if one appears. Anything that would need a server or a downloaded model is out of
 scope; use classical, on-device algorithms instead. Details: `docs/PRIVACY.md`.
 
+## Languages
+English is the source language, Spanish the first translation. Every text the user reads comes from `res/values*/strings.xml`
+(`stringResource`/`pluralStringResource` in composables); text made outside a composable (view models, effects, notification models,
+pure classes with JVM tests) is a `UiText` (`ui/text/UiText.kt`), resolved where it is shown. Positional arguments, plurals for counts, no text
+built from fragments. A new language is a `values-xx/strings.xml` plus a line in `res/xml/locales_config.xml`: `docs/TRANSLATING.md`
+(rules, glossary), SPECS 5.43. `TranslationsGuardTest` and `HardCodedTextRatchetTest` (allow-list `app/src/test/i18n/unmigrated.txt`,
+only ever shrinks; do not add to it) fail the build for a missing translation or new hard-coded text; lint does the same on release.
+Tests assert on `UiText.english()`. Device scripts pin the app to English (`scripts/device-ui.sh`, `docs/QA.md`). No translation SDK or
+download, ever (privacy rule).
+
 ## Toolbar guide
 Every editor icon needs an entry in `ui/editor/guide/ToolbarGuide.kt` (in-app guide, also the source of the website's icons page via
 `scripts/gen-site.py`); `ToolbarGuideTest` fails otherwise. Pages/PDF workflows: `docs/RELEASE.md`, SPECS 5.36.

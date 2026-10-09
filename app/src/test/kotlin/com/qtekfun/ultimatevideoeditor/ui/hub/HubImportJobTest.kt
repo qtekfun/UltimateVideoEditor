@@ -32,6 +32,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /** The project list's side of the process-wide import: the bar, the delayed dialog's host, the messages and the one-job refusal. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -52,7 +55,7 @@ class HubImportJobTest {
         override val state: StateFlow<ImportJobState> = flow
         override val detailsOpen = MutableStateFlow(false)
         val started = ArrayList<ImportJob>()
-        var refuse: String? = null
+        var refuse: UiText? = null
         var cancels = 0
         var acknowledged = 0
         var shown = 0
@@ -122,7 +125,7 @@ class HubImportJobTest {
 
     @Test
     fun `an import refused because another long job runs says which`() {
-        imports.refuse = "Another long job is running (Exporting Wedding). Start the import when it has finished, or cancel that one first."
+        imports.refuse = UiText.Raw("Another long job is running (Exporting Wedding). Start the import when it has finished, or cancel that one first.")
         val vm = viewModel()
 
         val effects = effectsOf(vm) { vm.onIntent(HubIntent.ImportFrom("content://in/h.uvbundle")) }
@@ -183,7 +186,7 @@ class HubImportJobTest {
 
         val effects = effectsOf(vm) { imports.flow.value = ImportJobState.Done("u", "h.json", report, 0, 120, quick = true) }
 
-        assertEquals(listOf<HubEffect>(HubEffect.ShowMessage("Imported \"Holiday\". 14 media files came with it")), effects)
+        assertEquals(listOf("Imported \"Holiday\". 14 media files came with it"), effects.map { (it as HubEffect.ShowMessage).text.english() })
         assertNull(vm.state.value.importBar)
         assertEquals("forgotten, so the next import starts clean", 1, imports.acknowledged)
         assertEquals(ImportJobState.Idle, imports.flow.value)
@@ -204,14 +207,14 @@ class HubImportJobTest {
 
         imports.flow.value = ImportJobState.Done("u", "h.uvbundle", withProblems, 0, 120, quick = true)
 
-        assertEquals(listOf("teal.cube: damaged"), vm.state.value.importNotes?.problems)
+        assertEquals(listOf("teal.cube: damaged"), vm.state.value.importNotes?.problems?.english())
     }
 
     @Test
     fun `a failure stays in the bar until dismissed`() {
         val vm = viewModel()
 
-        imports.flow.value = ImportJobState.Failed("u", "Holiday.uvbundle", "The storage is full. Nothing was added to the project list.")
+        imports.flow.value = ImportJobState.Failed("u", "Holiday.uvbundle", UiText.Raw("The storage is full. Nothing was added to the project list."))
 
         assertEquals(ImportView.Phase.FAILED, vm.state.value.importBar?.phase)
         vm.onIntent(HubIntent.DismissImportBar)
@@ -224,7 +227,7 @@ class HubImportJobTest {
 
         val effects = effectsOf(vm) { imports.flow.value = ImportJobState.Cancelled("u", "Holiday.uvbundle") }
 
-        assertEquals(listOf<HubEffect>(HubEffect.ShowMessage("Import cancelled. Nothing was added to the project list.")), effects)
+        assertEquals(listOf<HubEffect>(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_import_cancelled))), effects)
         assertNull(vm.state.value.importBar)
     }
 

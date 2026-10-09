@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.isNotEmpty
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,36 +44,36 @@ internal fun ExportBarView(bar: ExportBar, onIntent: (HubIntent) -> Unit) {
         ) {
             when (bar) {
                 is ExportBar.Running -> {
-                    Text(if (bar.verifying) "Verifying ${bar.projectName}" else "Exporting ${bar.projectName}", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(if (bar.verifying) R.string.notif_verifying_project else R.string.notif_exporting_project, bar.projectName), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LinearProgressIndicator(progress = { bar.percent / 100f }, modifier = Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(bar.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onIntent(HubIntent.CancelExport) }) { Text("Cancel") }
+                        Text(bar.detail.asString(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onIntent(HubIntent.CancelExport) }) { Text(stringResource(R.string.common_cancel)) }
                     }
                 }
                 is ExportBar.Finished -> {
-                    Text("Export finished: ${bar.fileName}", style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.bar_export_finished, bar.fileName), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(bar.projectName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (bar.result.headline.isNotEmpty()) {
                         Text(
-                            bar.result.headline,
+                            bar.result.headline.asString(),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (bar.result.severity == ResultSeverity.OK) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (bar.result.timing.isNotEmpty()) Text(bar.result.timing, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (bar.result.timing.isNotEmpty()) Text(bar.result.timing.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { onIntent(HubIntent.ShareExport) }) { Text("Share") }
-                        TextButton(onClick = { onIntent(HubIntent.DismissExportBar) }) { Text("Dismiss") }
+                        TextButton(onClick = { onIntent(HubIntent.ShareExport) }) { Text(stringResource(R.string.common_share)) }
+                        TextButton(onClick = { onIntent(HubIntent.DismissExportBar) }) { Text(stringResource(R.string.common_dismiss)) }
                     }
                 }
                 is ExportBar.Failed -> {
-                    Text("Export of ${bar.projectName} failed", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(bar.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.bar_export_failed, bar.projectName), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(bar.message.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { onIntent(HubIntent.DismissExportBar) }) { Text("Dismiss") }
+                        TextButton(onClick = { onIntent(HubIntent.DismissExportBar) }) { Text(stringResource(R.string.common_dismiss)) }
                     }
                 }
             }
