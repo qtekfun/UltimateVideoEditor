@@ -1899,6 +1899,8 @@ language the app does not have shows English.
 errors for `MissingTranslation`, `ExtraTranslation`, `StringFormatInvalid`, `StringFormatMatches`, `StringFormatCount` and
 `MissingQuantity`. The device scripts pin the app to English (`scripts/device-ui.sh`, `docs/QA.md`).
 
+**Migrated in stage 2a:** the editor top bar and transport, the whole tool row and its menus (marker and beats, quick edits, tracks, safe zones, select mode, library button, More menu, toolbar-order editor), the selection bar, the layout sheet, the canvas dialog and the motion-tracking and silence/reframe controls; `ToolbarItem`, `LayoutPreset`, `LaneHeight`, `AudioLaneHeight` carry `labelRes`; `EditorIntent.ReportText(UiText)` for messages the screen reports.
+
 **Migrated in stage 1:** Projects screen (cards, sort, selection bar, dialogs, snackbars, storage card), New project sheet and its
 presets, About, the export dialog, the bars of the project list, the bundle and import dialogs, the export service's notifications and
 channel, the verification texts. **Still English:** the editor and everything on the allow-list.

@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.toolbar
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,11 +62,11 @@ internal fun ToolbarItem.icon(): ImageVector = when (this) {
 internal fun ToolbarEditorDialog(order: ToolbarOrder, onChange: ((ToolbarOrder) -> ToolbarOrder) -> Unit, onReset: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Toolbar") },
+        title = { Text(stringResource(R.string.ed_2a_toolbar)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Move the tools up or down to change their order in the bar. A hidden tool moves to the More menu at the end of the bar.",
+                    stringResource(R.string.ed_2a_move_the_tools_up_or),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
@@ -76,24 +79,24 @@ internal fun ToolbarEditorDialog(order: ToolbarOrder, onChange: ((ToolbarOrder) 
                     ) {
                         Icon(item.icon(), contentDescription = null, modifier = Modifier.size(22.dp))
                         Text(
-                            item.label,
+                            stringResource(item.labelRes),
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (hidden) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f).padding(start = 8.dp),
                         )
-                        ToolButton(EditorIcons.LaneUp, "Move ${item.label} earlier", enabled = index > 0) { onChange { it.move(item, -1) } }
-                        ToolButton(EditorIcons.LaneDown, "Move ${item.label} later", enabled = index < order.order.lastIndex) { onChange { it.move(item, 1) } }
+                        ToolButton(EditorIcons.LaneUp, stringResource(R.string.ed_2a_move_earlier, stringResource(item.labelRes)), enabled = index > 0) { onChange { it.move(item, -1) } }
+                        ToolButton(EditorIcons.LaneDown, stringResource(R.string.ed_2a_move_later, stringResource(item.labelRes)), enabled = index < order.order.lastIndex) { onChange { it.move(item, 1) } }
                         Switch(
                             checked = !hidden,
                             enabled = !item.mandatory,
                             onCheckedChange = { shown -> onChange { it.withHidden(item, !shown) } },
-                            modifier = Modifier.semantics { contentDescription = "Show ${item.label} in the bar" },
+                            modifier = Modifier.described(stringResource(R.string.ed_2a_show_in_the_bar, stringResource(item.labelRes))),
                         )
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        dismissButton = { TextButton(onClick = onReset, enabled = !order.isDefault) { Text("Reset to default") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ed_2a_done)) } },
+        dismissButton = { TextButton(onClick = onReset, enabled = !order.isDefault) { Text(stringResource(R.string.ed_2a_reset_to_default)) } },
     )
 }

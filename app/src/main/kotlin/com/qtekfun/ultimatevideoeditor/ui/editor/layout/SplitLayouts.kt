@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.layout
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -211,6 +213,7 @@ internal fun DragHandle(
     val currentOnEnd by rememberUpdatedState(onEnd)
     val currentOnReset by rememberUpdatedState(onReset)
     val vertical = orientation == Orientation.Vertical
+    val resetLabel = stringResource(R.string.ed_2a_reset_to_default)
     val finish = {
         val rest = coalescer.flush()
         if (rest != 0f) currentOnDelta(rest)
@@ -220,7 +223,7 @@ internal fun DragHandle(
         modifier = modifier
             .semantics {
                 contentDescription = description
-                customActions = listOf(CustomAccessibilityAction("Reset to default") { currentOnReset(); true })
+                customActions = listOf(CustomAccessibilityAction(resetLabel) { currentOnReset(); true })
             }
             .pointerInput(Unit) { detectTapGestures(onDoubleTap = { currentOnReset() }) }
             .pointerInput(orientation) {

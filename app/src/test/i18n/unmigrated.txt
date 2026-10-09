@@ -5,7 +5,40 @@
 # Plan and order of the stages: DECISIONS.md, "Translations".
 
 # Stage 2: editor toolbar, inspector and sheets
-ui/editor/
+# The editor, file by file (each one leaves this list when its stage migrates it)
+ui/editor/AudioControls.kt
+ui/editor/AudioLinkControls.kt
+ui/editor/ClipColorControls.kt
+ui/editor/ColorControls.kt
+ui/editor/EditorAudio.kt
+ui/editor/EditorLibrary.kt
+ui/editor/EditorPreview.kt
+ui/editor/EditorViewModel.kt
+ui/editor/FxControls.kt
+ui/editor/InspectorPanel.kt
+ui/editor/LookLibrary.kt
+ui/editor/LutPicker.kt
+ui/editor/ParamKeyframeUi.kt
+ui/editor/QualifierControls.kt
+ui/editor/RelinkUi.kt
+ui/editor/ScopeScale.kt
+ui/editor/ScopesPanel.kt
+ui/editor/SpeedCurveEditor.kt
+ui/editor/StabiliseControls.kt
+ui/editor/StickerSheet.kt
+ui/editor/ThumbnailFailures.kt
+ui/editor/TransitionStylePicker.kt
+ui/editor/captions/CaptionsSheet.kt
+ui/editor/captions/CaptionsViewModel.kt
+ui/editor/guide/ToolbarGuide.kt
+ui/editor/guide/ToolbarGuideScreen.kt
+ui/editor/multicam/MulticamController.kt
+ui/editor/multicam/MulticamSheet.kt
+ui/editor/proxy/ProxySheet.kt
+ui/editor/title/TitleLayerEditor.kt
+ui/editor/title/TitleLibraries.kt
+ui/editor/tray/MediaTray.kt
+ui/editor/tray/TrayDrag.kt
 # Stage 3: tray, library, captions, titles
 ui/library/LibrarySheet.kt
 ui/templates/

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.size
@@ -46,7 +48,7 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val markers = state.timeline.markers
     val beatCount = markers.count { it.kind == MarkerKind.BEAT }
-    val description = "Add a marker at the playhead; long press for beats and marker tools. ${markers.size - beatCount} markers, $beatCount beats"
+    val description = stringResource(R.string.ed_2a_add_a_marker_at_the, markers.size - beatCount, beatCount)
     Box {
         // Not a ToolButton: its tooltip also listens for a long press and would fight the menu.
         Box(
@@ -55,8 +57,8 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
                 .clip(CircleShape)
                 .combinedClickable(
                     role = Role.Button,
-                    onClickLabel = "Add a marker at the playhead",
-                    onLongClickLabel = "Open marker and beat tools",
+                    onClickLabel = stringResource(R.string.ed_2a_add_a_marker_at_the_2),
+                    onLongClickLabel = stringResource(R.string.ed_2a_open_marker_and_beat_tools),
                     onClick = { onIntent(MarkerIntent.AddAtPlayhead) },
                     onLongClick = { open = true },
                 )
@@ -67,32 +69,32 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("Previous marker") },
+                text = { Text(stringResource(R.string.ed_2a_previous_marker)) },
                 enabled = markers.isNotEmpty(),
                 onClick = { open = false; onIntent(MarkerIntent.SeekPrevious) },
             )
             DropdownMenuItem(
-                text = { Text("Next marker") },
+                text = { Text(stringResource(R.string.ed_2a_next_marker)) },
                 enabled = markers.isNotEmpty(),
                 onClick = { open = false; onIntent(MarkerIntent.SeekNext) },
             )
             DropdownMenuItem(
-                text = { Text(if (state.isAnalyzingBeats) "Finding beats…" else "Find beats in the selected clip") },
+                text = { Text(if (state.isAnalyzingBeats) stringResource(R.string.ed_2a_finding_beats) else stringResource(R.string.ed_2a_find_beats_in_the_selected)) },
                 enabled = state.selectedClipId != null && !state.isAnalyzingBeats,
                 onClick = { open = false; onIntent(EditorIntent.AnalyzeBeats) },
             )
             DropdownMenuItem(
-                text = { Text("Cut to beat from the selected clip") },
+                text = { Text(stringResource(R.string.ed_2a_cut_to_beat_from_the)) },
                 enabled = state.selectedClipOnBase && markers.isNotEmpty(),
                 onClick = { open = false; onIntent(EditorIntent.CutToBeatFromSelected) },
             )
             DropdownMenuItem(
-                text = { Text("Clear detected beats") },
+                text = { Text(stringResource(R.string.ed_2a_clear_detected_beats)) },
                 enabled = beatCount > 0,
                 onClick = { open = false; onIntent(EditorIntent.ClearBeatMarkers) },
             )
             DropdownMenuItem(
-                text = { Text(if (state.snapToMarkers) "Snap to markers: on ✓" else "Snap to markers: off") },
+                text = { Text(if (state.snapToMarkers) stringResource(R.string.ed_2a_snap_to_markers_on) else stringResource(R.string.ed_2a_snap_to_markers_off)) },
                 onClick = { open = false; onIntent(EditorIntent.ToggleMarkerSnap) },
             )
         }
@@ -120,7 +122,7 @@ internal fun TextTemplateChooser(
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            label = { Text("Text (optional)") },
+            label = { Text(stringResource(R.string.ed_2a_text_optional)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -128,7 +130,7 @@ internal fun TextTemplateChooser(
             TemplateRow(template) { onApply(template.id, text) }
         }
         if (userPresets.isNotEmpty()) {
-            Text("My presets", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.ed_2a_my_presets), style = MaterialTheme.typography.titleSmall)
             for (preset in userPresets) {
                 TemplateRow(preset) { onApplyPreset(preset, text) }
             }
@@ -141,7 +143,7 @@ private fun TemplateRow(template: TextTemplate, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = "Add ${template.name}", onClick = onClick)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_2a_add, template.name), onClick = onClick)
             .padding(vertical = 8.dp),
     ) {
         Text(template.name, style = MaterialTheme.typography.bodyLarge)
