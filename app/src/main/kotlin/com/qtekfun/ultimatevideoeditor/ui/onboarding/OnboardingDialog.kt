@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.onboarding
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,28 +37,28 @@ fun OnboardingTips(onFinished: () -> Unit) {
     val tip = Tips.all[state.index]
     AlertDialog(
         onDismissRequest = { state = state.dismiss() },
-        title = { Text(tip.title) },
+        title = { Text(tip.title.asString()) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(tip.body, style = MaterialTheme.typography.bodyMedium)
+                Text(tip.body.asString(), style = MaterialTheme.typography.bodyMedium)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp)
-                        .semantics { contentDescription = "Tip ${state.index + 1} of ${state.count}" },
+                        .described(stringResource(R.string.ed_s3_tip_of, state.index + 1, state.count)),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    Text("${state.index + 1} / ${state.count}", style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.ed_s3_tip_counter, state.index + 1, state.count), style = MaterialTheme.typography.labelMedium)
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { state = state.next() }) { Text(if (state.isLast) "Done" else "Next") }
+            TextButton(onClick = { state = state.next() }) { Text(if (state.isLast) stringResource(R.string.ed_2a_done) else stringResource(R.string.ed_s3_next)) }
         },
         dismissButton = {
             Row {
-                if (state.index > 0) TextButton(onClick = { state = state.previous() }) { Text("Back") }
-                TextButton(onClick = { state = state.dismiss() }) { Text("Skip") }
+                if (state.index > 0) TextButton(onClick = { state = state.previous() }) { Text(stringResource(R.string.common_back)) }
+                TextButton(onClick = { state = state.dismiss() }) { Text(stringResource(R.string.ed_s3_skip)) }
             }
         },
     )

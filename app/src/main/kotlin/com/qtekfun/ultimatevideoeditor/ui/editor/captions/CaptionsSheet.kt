@@ -1,5 +1,12 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 
+import androidx.compose.ui.res.pluralStringResource
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.text.AnnotatedString
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -97,35 +104,35 @@ internal fun CaptionsSheet(state: CaptionsState, onIntent: (CaptionsIntent) -> U
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Captions", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.ed_2a_tool_captions), style = MaterialTheme.typography.titleLarge)
             Text(
-                "Type captions or import a .srt / .vtt file. Everything stays on this device.",
+                stringResource(R.string.ed_s3_type_captions_or_import_a),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            Section("Add a caption") { DraftEditor(state, onIntent) }
-            Section("Import subtitles") {
+            Section(stringResource(R.string.ed_s3_section_add_caption)) { DraftEditor(state, onIntent) }
+            Section(stringResource(R.string.ed_s3_section_import)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = { picker.launch(arrayOf("*/*")) },
                         enabled = !state.importing,
-                    ) { Text(if (state.importing) "Reading…" else "Choose a .srt or .vtt file") }
+                    ) { Text(if (state.importing) stringResource(R.string.ed_2b_reading) else stringResource(R.string.ed_s3_choose_a_srt_or_vtt)) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Switch(checked = state.importAtPlayhead, onCheckedChange = { onIntent(CaptionsIntent.SetImportAtPlayhead(it)) })
-                    Text("Start at the playhead (otherwise at the start of the project)", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.ed_s3_start_at_the_playhead_otherwise), style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Section("Style") { StylePicker(state, onIntent) }
-            Section("Colours") { ColorOptions(state, onIntent) }
+            Section(stringResource(R.string.ed_s3_section_style)) { StylePicker(state, onIntent) }
+            Section(stringResource(R.string.ed_s3_section_colours)) { ColorOptions(state, onIntent) }
 
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+            state.error?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                 if (state.existingCaptions > 0) {
-                    OutlinedButton(onClick = { onIntent(CaptionsIntent.ApplyToExisting) }) { Text("Restyle ${state.existingCaptions} existing") }
+                    OutlinedButton(onClick = { onIntent(CaptionsIntent.ApplyToExisting) }) { Text(pluralStringResource(R.plurals.ed_s3_restyle_existing, state.existingCaptions, state.existingCaptions)) }
                 }
-                TextButton(onClick = { onIntent(CaptionsIntent.Close) }) { Text("Close") }
+                TextButton(onClick = { onIntent(CaptionsIntent.Close) }) { Text(stringResource(R.string.common_close)) }
             }
         }
     }
@@ -138,34 +145,34 @@ private fun DraftEditor(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit
     OutlinedTextField(
         value = state.draftText,
         onValueChange = { onIntent(CaptionsIntent.SetDraftText(it)) },
-        label = { Text("Caption text") },
+        label = { Text(stringResource(R.string.ed_s3_caption_text)) },
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         modifier = Modifier.fillMaxWidth(),
     )
     Stepper(
-        label = "Starts",
+        label = stringResource(R.string.ed_s3_starts),
         value = formatTimecode(state.draftStart, state.fps),
         onChange = { onIntent(CaptionsIntent.NudgeStart(it)) },
         second = second,
     )
     Stepper(
-        label = "Lasts",
+        label = stringResource(R.string.ed_s3_lasts),
         value = formatTimecode(state.draftLength, state.fps),
         onChange = { onIntent(CaptionsIntent.NudgeLength(it)) },
         second = second,
     )
-    Button(onClick = { onIntent(CaptionsIntent.AddDraft) }, enabled = state.canAdd) { Text("Add caption") }
+    Button(onClick = { onIntent(CaptionsIntent.AddDraft) }, enabled = state.canAdd) { Text(stringResource(R.string.ed_s3_add_caption)) }
 }
 
 @Composable
 private fun Stepper(label: String, value: String, second: Long, onChange: (Long) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(60.dp))
-        TextButton(onClick = { onChange(-second) }, modifier = Modifier.semantics { contentDescription = "$label one second earlier" }) { Text("-1 s") }
-        TextButton(onClick = { onChange(-1) }, modifier = Modifier.semantics { contentDescription = "$label one frame earlier" }) { Text("-1 f") }
+        TextButton(onClick = { onChange(-second) }, modifier = Modifier.described(stringResource(R.string.ed_s3_one_second_earlier, label))) { Text("-1 s") }
+        TextButton(onClick = { onChange(-1) }, modifier = Modifier.described(stringResource(R.string.ed_s3_one_frame_earlier, label))) { Text("-1 f") }
         Text(value, style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { onChange(1) }, modifier = Modifier.semantics { contentDescription = "$label one frame later" }) { Text("+1 f") }
-        TextButton(onClick = { onChange(second) }, modifier = Modifier.semantics { contentDescription = "$label one second later" }) { Text("+1 s") }
+        TextButton(onClick = { onChange(1) }, modifier = Modifier.described(stringResource(R.string.ed_s3_one_frame_later, label))) { Text("+1 f") }
+        TextButton(onClick = { onChange(second) }, modifier = Modifier.described(stringResource(R.string.ed_s3_one_second_later, label))) { Text("+1 s") }
     }
 }
 
@@ -211,48 +218,62 @@ private fun StyleCard(style: CaptionStyle, selected: Boolean, enabled: Boolean, 
             Text(sampleText(style), fontSize = 16.sp, fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal)
         }
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-            Text(style.label, style = MaterialTheme.typography.labelLarge)
+            Text(style.labelText().asString(), style = MaterialTheme.typography.labelLarge)
             Text(describe(style), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 /** An approximation of one frame of the style, built from the same colours and emphasis the renderer uses. */
-private fun sampleText(style: CaptionStyle) = buildAnnotatedString {
+@Composable
+private fun sampleText(style: CaptionStyle): AnnotatedString {
+    val say = stringResource(R.string.ed_s3_sample_say)
+    val loud = stringResource(R.string.ed_s3_sample_loud)
+    val now = stringResource(R.string.ed_s3_sample_now)
+    val typed = stringResource(R.string.ed_s3_sample_typed)
+    val untyped = stringResource(R.string.ed_s3_sample_untyped)
+    val static = stringResource(R.string.ed_s3_sample_static)
+    return buildSample(style, say, loud, now, typed, untyped, static)
+}
+
+private fun buildSample(style: CaptionStyle, say: String, loud: String, now: String, typed: String, untyped: String, static: String) = buildAnnotatedString {
     val base = SpanStyle(color = Color(style.colorArgb))
     val accent = SpanStyle(color = Color(style.highlightArgb), fontSize = 19.sp)
     when (style.animation) {
         TitleAnimation.KARAOKE -> {
-            withStyle(base) { append("Say it ") }
-            withStyle(accent) { append("loud") }
+            withStyle(base) { append(say) }
+            withStyle(accent) { append(loud) }
         }
         TitleAnimation.POP_IN -> {
-            withStyle(base) { append("Say it ") }
-            withStyle(accent) { append("now") }
+            withStyle(base) { append(say) }
+            withStyle(accent) { append(now) }
         }
         TitleAnimation.TYPEWRITER -> {
-            withStyle(base) { append("Say it lo") }
-            withStyle(SpanStyle(color = Color(style.colorArgb).copy(alpha = 0.25f))) { append("ud") }
+            withStyle(base) { append(typed) }
+            withStyle(SpanStyle(color = Color(style.colorArgb).copy(alpha = 0.25f))) { append(untyped) }
         }
-        TitleAnimation.NONE -> withStyle(base) { append("Say it loud") }
+        TitleAnimation.NONE -> withStyle(base) { append(static) }
     }
 }
 
-private fun describe(style: CaptionStyle): String = when {
-    style.animation == TitleAnimation.KARAOKE -> "Word lights up"
-    style.animation == TitleAnimation.POP_IN -> "Words pop in"
-    style.animation == TitleAnimation.TYPEWRITER -> "Types in"
-    style.entrance == CaptionEntrance.BOUNCE -> "Bounces in"
-    style.entrance == CaptionEntrance.SCALE_IN -> "Scales in"
-    else -> "Static"
-}
+@Composable
+private fun describe(style: CaptionStyle): String = stringResource(
+    when {
+        style.animation == TitleAnimation.KARAOKE -> R.string.ed_s3_desc_karaoke
+        style.animation == TitleAnimation.POP_IN -> R.string.ed_s3_desc_pop_in
+        style.animation == TitleAnimation.TYPEWRITER -> R.string.ed_s3_desc_typewriter
+        style.entrance == CaptionEntrance.BOUNCE -> R.string.ed_s3_desc_bounce
+        style.entrance == CaptionEntrance.SCALE_IN -> R.string.ed_s3_desc_scale_in
+        else -> R.string.ed_s3_desc_static
+    },
+)
 
 @Composable
 private fun ColorOptions(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit) {
     val style = state.style
-    ColorRow("Text", style.colorArgb, enabled = true) { onIntent(CaptionsIntent.SelectTextColor(it)) }
+    ColorRow(stringResource(R.string.ed_s3_color_text), style.colorArgb, enabled = true) { onIntent(CaptionsIntent.SelectTextColor(it)) }
     if (style.usesHighlight) {
-        ColorRow("Highlight", style.highlightArgb, enabled = true) { onIntent(CaptionsIntent.SelectHighlightColor(it)) }
+        ColorRow(stringResource(R.string.ed_s3_color_highlight), style.highlightArgb, enabled = true) { onIntent(CaptionsIntent.SelectHighlightColor(it)) }
     }
 }
 
@@ -260,7 +281,8 @@ private fun ColorOptions(state: CaptionsState, onIntent: (CaptionsIntent) -> Uni
 private fun ColorRow(label: String, current: Int, enabled: Boolean, onPick: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(76.dp))
-        for ((name, argb) in PALETTE) {
+        for ((nameRes, argb) in PALETTE) {
+            val name = stringResource(nameRes)
             val picked = argb == current
             Box(
                 modifier = Modifier
@@ -271,7 +293,7 @@ private fun ColorRow(label: String, current: Int, enabled: Boolean, onPick: (Int
                         if (picked) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         CircleShape,
                     )
-                    .semantics { contentDescription = "$label colour $name" }
+                    .described(stringResource(R.string.ed_s3_colour, label, name))
                     .clickable(enabled = enabled, role = Role.RadioButton) { onPick(argb) },
             )
         }
@@ -279,13 +301,13 @@ private fun ColorRow(label: String, current: Int, enabled: Boolean, onPick: (Int
 }
 
 private val PALETTE = listOf(
-    "white" to 0xFFFFFFFF.toInt(),
-    "yellow" to 0xFFFFE600.toInt(),
-    "cyan" to 0xFF00E5FF.toInt(),
-    "green" to 0xFF39FF14.toInt(),
-    "pink" to 0xFFFF4FD8.toInt(),
-    "orange" to 0xFFFF9100.toInt(),
-    "red" to 0xFFFF3B30.toInt(),
+    R.string.ed_s3_col_white to 0xFFFFFFFF.toInt(),
+    R.string.ed_s3_col_yellow to 0xFFFFE600.toInt(),
+    R.string.ed_s3_col_cyan to 0xFF00E5FF.toInt(),
+    R.string.ed_s3_col_green to 0xFF39FF14.toInt(),
+    R.string.ed_s3_col_pink to 0xFFFF4FD8.toInt(),
+    R.string.ed_s3_col_orange to 0xFFFF9100.toInt(),
+    R.string.ed_s3_col_red to 0xFFFF3B30.toInt(),
 )
 
 private const val SAMPLE_BACKGROUND = 0xFF26303B

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.frame
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.CubeLut
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
@@ -35,7 +37,9 @@ import java.io.IOException
 import java.nio.ByteBuffer
 
 /** A frame that could not be drawn, with the reason for the user. */
-class StillFrameException(message: String) : Exception(message)
+class StillFrameException(val text: UiText, message: String) : Exception(message) {
+    constructor(message: String) : this(UiText.Raw(message), message)
+}
 
 /** What to draw: [frame] of [timeline] on a surface of [width] x [height] (the whole picture, letterboxed from the project canvas). */
 class FrameRenderJob(
@@ -129,7 +133,7 @@ class NativeFrameRenderer(
         val uniform = isUniformPicture(still.pixels, still.cropWidth, still.cropHeight)
         log("frame ${job.frame} fps ${job.fps.num}/${job.fps.den} ${still.cropWidth}x${still.cropHeight} layers $layers uniform=$uniform first=${firstPixel(still.pixels)}")
         if (layers > 0 && uniform) {
-            throw StillFrameException("The picture came out as one flat colour although the frame has video. Nothing was saved; try again.")
+            throw StillFrameException(UiText.res(R.string.ed_s3_frame_flat), "The picture came out as one flat colour although the frame has video. Nothing was saved; try again.") // i18n-ok: log text
         }
         return RenderedFrame(still.cropWidth, still.cropHeight, still.pixels)
     }
@@ -141,20 +145,20 @@ class NativeFrameRenderer(
 
     private fun prepare(job: FrameRenderJob): ExportRequest {
         val plan = buildFramePlan(job.timeline, job.assets, job.fps, job.projectWidth, job.projectHeight, job.frame)
-            ?: throw StillFrameException("There is nothing to save yet. Add a clip to the timeline.")
+            ?: throw StillFrameException(UiText.res(R.string.ed_s3_frame_nothing), "There is nothing to save yet. Add a clip to the timeline.") // i18n-ok: log text
         log(
             "plan frame ${job.frame} project ${job.projectWidth}x${job.projectHeight} fps ${job.fps.num}/${job.fps.den} covering " +
                 plan.clips.joinToString { "[start ${it.startFrame} len ${it.durationFrames} srcIn ${it.sourceInFrame} layer ${it.layer} asset ${it.assetKey} title ${it.titleKey}]" },
         )
         val missing = plan.assetKeys.keys.filter { it in job.missingAssetIds }
         if (missing.isNotEmpty()) {
-            throw StillFrameException("The media of a clip at this frame is missing. Relink it in the editor first.")
+            throw StillFrameException(UiText.res(R.string.ed_s3_frame_media_missing), "The media of a clip at this frame is missing. Relink it in the editor first.") // i18n-ok: log text
         }
         val titleImages = plan.titles.map { (key, content) ->
             val bitmap = try {
                 titleRasterizer.rasterize(content, job.projectWidth, job.projectHeight)
             } catch (e: TitleRasterException) {
-                throw StillFrameException("A title could not be drawn: ${e.message}")
+                throw StillFrameException(UiText.res(R.string.ed_s3_frame_title_failed, e.message.orEmpty()), "A title could not be drawn: ${e.message}") // i18n-ok: log text
             }
             ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
         }
@@ -162,7 +166,7 @@ class NativeFrameRenderer(
             try {
                 stillRasterizer.rasterize(still.copy(frame = 0), job.projectWidth, job.projectHeight)
             } catch (e: StillRasterException) {
-                throw StillFrameException("A picture could not be drawn: ${e.message}")
+                throw StillFrameException(UiText.res(R.string.ed_s3_frame_picture_failed, e.message.orEmpty()), "A picture could not be drawn: ${e.message}") // i18n-ok: log text
             }
         }
         val pictures = StillPictureProvider(plan.stills, stillRasterizer, job.projectWidth, job.projectHeight)

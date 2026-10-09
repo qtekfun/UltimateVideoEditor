@@ -1,5 +1,12 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.title
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelText
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,7 +69,7 @@ import kotlin.math.roundToInt
 data class TitleTools(
     val fonts: List<FontEntry> = emptyList(),
     val presets: List<TextTemplate> = emptyList(),
-    val message: String? = null,
+    val message: UiText? = null,
     val onImportFont: () -> Unit = {},
     val onSavePreset: (name: String, content: TitleContent, intro: MotionPreset, outro: MotionPreset, seconds: Double) -> Unit = { _, _, _, _, _ -> },
     val onImportPreset: () -> Unit = {},
@@ -100,7 +107,7 @@ fun TitleLayerEditor(
     val end = EditorIntent.EndTitleEdit(commit = true)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Layers", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.ed_s3_layers), style = MaterialTheme.typography.titleSmall)
         AddLayerRow(title, assets, onAdd = { layer ->
             commit(TitleLayerEdit.add(title, layer))
             onIntent(EditorIntent.SelectTitleLayer(minOf(title.layers.size, com.qtekfun.ultimatevideoeditor.domain.TitleLayers.MAX_LAYERS - 1)))
@@ -109,7 +116,7 @@ fun TitleLayerEditor(
         for (index in title.layers.indices.reversed()) {
             val layer = title.layers[index]
             LayerRow(
-                label = layer.label,
+                label = layer.labelText().asString(),
                 selected = index == selectedLayer,
                 canMoveUp = index < title.layers.lastIndex,
                 canMoveDown = index > 0,
@@ -146,7 +153,7 @@ fun TitleLayerEditor(
             PlacementControls(layer, replace, live, end, onIntent)
         } else {
             Text(
-                "Tap a layer to edit it, then drag, pinch or twist on the preview to move it.",
+                stringResource(R.string.ed_s3_tap_a_layer_to_edit),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -168,12 +175,12 @@ private fun AddLayerRow(title: TitleContent, assets: List<MediaAssetDto>, onAdd:
     var photoMenu by remember { mutableStateOf(false) }
     val full = title.layers.size >= com.qtekfun.ultimatevideoeditor.domain.TitleLayers.MAX_LAYERS
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        TextButton(enabled = !full, onClick = { onAdd(TitleLayerEdit.newText()) }) { Text("+ Text") }
+        TextButton(enabled = !full, onClick = { onAdd(TitleLayerEdit.newText()) }) { Text(stringResource(R.string.ed_s3_text)) }
         Box {
-            TextButton(enabled = !full, onClick = { shapeMenu = true }) { Text("+ Shape") }
+            TextButton(enabled = !full, onClick = { shapeMenu = true }) { Text(stringResource(R.string.ed_s3_shape)) }
             DropdownMenu(expanded = shapeMenu, onDismissRequest = { shapeMenu = false }) {
-                for ((kind, name) in listOf(ShapeKind.RECT to "Rectangle", ShapeKind.ROUNDED_RECT to "Rounded rectangle", ShapeKind.ELLIPSE to "Ellipse", ShapeKind.LINE to "Line")) {
-                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                for (kind in ShapeKind.entries) {
+                    DropdownMenuItem(text = { Text(stringResource(kind.labelRes())) }, onClick = {
                         shapeMenu = false
                         onAdd(TitleLayerEdit.newShape(kind))
                     })
@@ -181,10 +188,10 @@ private fun AddLayerRow(title: TitleContent, assets: List<MediaAssetDto>, onAdd:
             }
         }
         Box {
-            TextButton(enabled = !full, onClick = { stickerMenu = true }) { Text("+ Sticker") }
+            TextButton(enabled = !full, onClick = { stickerMenu = true }) { Text(stringResource(R.string.ed_s3_sticker)) }
             DropdownMenu(expanded = stickerMenu, onDismissRequest = { stickerMenu = false }) {
                 for (sticker in StickerIds.all) {
-                    DropdownMenuItem(text = { Text(sticker.label) }, onClick = {
+                    DropdownMenuItem(text = { Text(sticker.labelText().asString()) }, onClick = {
                         stickerMenu = false
                         onAdd(TitleLayerEdit.newImage(StillKind.STICKER, sticker.id))
                     })
@@ -193,10 +200,10 @@ private fun AddLayerRow(title: TitleContent, assets: List<MediaAssetDto>, onAdd:
         }
         val photos = assets.filter { it.isImage }
         Box {
-            TextButton(enabled = !full && photos.isNotEmpty(), onClick = { photoMenu = true }) { Text("+ Photo") }
+            TextButton(enabled = !full && photos.isNotEmpty(), onClick = { photoMenu = true }) { Text(stringResource(R.string.ed_s3_photo)) }
             DropdownMenu(expanded = photoMenu, onDismissRequest = { photoMenu = false }) {
                 for ((n, photo) in photos.withIndex()) {
-                    DropdownMenuItem(text = { Text("Photo ${n + 1}") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.ed_s3_photo_2, n + 1)) }, onClick = {
                         photoMenu = false
                         onAdd(TitleLayerEdit.newImage(StillKind.PHOTO, photo.id))
                     })
@@ -222,15 +229,15 @@ private fun LayerRow(
     Surface(
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).semantics { contentDescription = "Layer $label${if (selected) ", selected" else ""}" },
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).described(stringResource(if (selected) R.string.ed_s3_layer_row_selected else R.string.ed_s3_layer_row, label)),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp)) {
             Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.weight(1f))
             Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                TextButton(enabled = canMoveUp, onClick = onUp) { Text("Up") }
-                TextButton(enabled = canMoveDown, onClick = onDown) { Text("Down") }
-                TextButton(onClick = onCopy) { Text("Copy") }
-                TextButton(enabled = canRemove, onClick = onRemove) { Text("Remove") }
+                TextButton(enabled = canMoveUp, onClick = onUp) { Text(stringResource(R.string.ed_2b_up)) }
+                TextButton(enabled = canMoveDown, onClick = onDown) { Text(stringResource(R.string.ed_2b_down)) }
+                TextButton(onClick = onCopy) { Text(stringResource(R.string.common_copy)) }
+                TextButton(enabled = canRemove, onClick = onRemove) { Text(stringResource(R.string.ed_2b_remove)) }
             }
         }
     }
@@ -257,15 +264,15 @@ private fun TextLayerControls(
             text = it
             live(replace(layer.copy(text = it)))
         },
-        label = { Text("Text") },
+        label = { Text(stringResource(R.string.ed_s3_text_2)) },
         modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) onIntent(end) },
     )
-    InspectorSlider("Size", layer.sizeFraction.toFloat().coerceIn(SIZE_MIN, SIZE_MAX), SIZE_MIN..SIZE_MAX, "${(layer.sizeFraction * PERCENT).roundToInt()}%", onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_size), layer.sizeFraction.toFloat().coerceIn(SIZE_MIN, SIZE_MAX), SIZE_MIN..SIZE_MAX, "${(layer.sizeFraction * PERCENT).roundToInt()}%", onIntent, end) {
         live(replace(layer.copy(sizeFraction = it.toDouble())))
     }
-    SwatchRow("Colour", layer.colorArgb) { commit(replace(layer.copy(colorArgb = it))) }
+    SwatchRow(stringResource(R.string.ed_2b_colour), layer.colorArgb) { commit(replace(layer.copy(colorArgb = it))) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Align", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(LABEL_WIDTH))
+        Text(stringResource(R.string.ed_2b_align), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(LABEL_WIDTH))
         for (alignment in TitleAlignment.entries) {
             TextButton(onClick = { commit(replace(layer.copy(alignment = alignment))) }) {
                 Text(
@@ -276,43 +283,43 @@ private fun TextLayerControls(
         }
     }
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterChip(selected = layer.bold, onClick = { commit(replace(layer.copy(bold = !layer.bold))) }, label = { Text("Bold") })
-        FilterChip(selected = layer.italic, onClick = { commit(replace(layer.copy(italic = !layer.italic))) }, label = { Text("Italic") })
+        FilterChip(selected = layer.bold, onClick = { commit(replace(layer.copy(bold = !layer.bold))) }, label = { Text(stringResource(R.string.ed_2b_bold)) })
+        FilterChip(selected = layer.italic, onClick = { commit(replace(layer.copy(italic = !layer.italic))) }, label = { Text(stringResource(R.string.ed_s3_italic)) })
         FilterChip(
             selected = layer.border != null,
             onClick = { commit(replace(layer.copy(border = if (layer.border == null) LayerStroke(BLACK, LayerStroke.DEFAULT_WIDTH) else null))) },
-            label = { Text("Border") },
+            label = { Text(stringResource(R.string.ed_s3_border)) },
         )
         FilterChip(
             selected = layer.shadow != null,
             onClick = { commit(replace(layer.copy(shadow = if (layer.shadow == null) LayerShadow.DEFAULT else null))) },
-            label = { Text("Shadow") },
+            label = { Text(stringResource(R.string.ed_s3_shadow)) },
         )
         FilterChip(
             selected = layer.box != null,
             onClick = { commit(replace(layer.copy(box = if (layer.box == null) LayerBox.DEFAULT else null))) },
-            label = { Text("Box") },
+            label = { Text(stringResource(R.string.ed_s3_box)) },
         )
     }
-    InspectorSlider("Spacing", layer.letterSpacing.toFloat(), -0.1f..0.5f, "%.2f em".format(layer.letterSpacing), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_spacing), layer.letterSpacing.toFloat(), -0.1f..0.5f, "%.2f em".format(layer.letterSpacing), onIntent, end) {
         live(replace(layer.copy(letterSpacing = it.toDouble())))
     }
-    InspectorSlider("Line height", layer.lineHeight.toFloat().coerceIn(0.8f, 2.0f), 0.8f..2.0f, "%.2f".format(layer.lineHeight), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_line_height), layer.lineHeight.toFloat().coerceIn(0.8f, 2.0f), 0.8f..2.0f, "%.2f".format(layer.lineHeight), onIntent, end) {
         live(replace(layer.copy(lineHeight = it.toDouble())))
     }
     layer.border?.let { border ->
-        SwatchRow("Border", border.colorArgb) { commit(replace(layer.copy(border = border.copy(colorArgb = it)))) }
-        InspectorSlider("Border w.", border.widthFraction.toFloat(), 0.001f..0.02f, "%.1f%%".format(border.widthFraction * PERCENT), onIntent, end) {
+        SwatchRow(stringResource(R.string.ed_s3_f_border), border.colorArgb) { commit(replace(layer.copy(border = border.copy(colorArgb = it)))) }
+        InspectorSlider(stringResource(R.string.ed_s3_f_border_w), border.widthFraction.toFloat(), 0.001f..0.02f, "%.1f%%".format(border.widthFraction * PERCENT), onIntent, end) {
             live(replace(layer.copy(border = border.copy(widthFraction = it.toDouble()))))
         }
     }
     layer.shadow?.let { shadow -> ShadowControls(shadow, onIntent, end) { live(replace(layer.copy(shadow = it))) } }
     layer.box?.let { box ->
-        SwatchRow("Box", box.colorArgb) { commit(replace(layer.copy(box = box.copy(colorArgb = it)))) }
-        InspectorSlider("Padding", box.paddingFraction.toFloat(), 0f..0.06f, "%.1f%%".format(box.paddingFraction * PERCENT), onIntent, end) {
+        SwatchRow(stringResource(R.string.ed_s3_f_box), box.colorArgb) { commit(replace(layer.copy(box = box.copy(colorArgb = it)))) }
+        InspectorSlider(stringResource(R.string.ed_2a_padding), box.paddingFraction.toFloat(), 0f..0.06f, "%.1f%%".format(box.paddingFraction * PERCENT), onIntent, end) {
             live(replace(layer.copy(box = box.copy(paddingFraction = it.toDouble()))))
         }
-        InspectorSlider("Corners", box.cornerRadiusFraction.toFloat(), 0f..0.06f, "%.1f%%".format(box.cornerRadiusFraction * PERCENT), onIntent, end) {
+        InspectorSlider(stringResource(R.string.ed_s3_f_corners), box.cornerRadiusFraction.toFloat(), 0f..0.06f, "%.1f%%".format(box.cornerRadiusFraction * PERCENT), onIntent, end) {
             live(replace(layer.copy(box = box.copy(cornerRadiusFraction = it.toDouble()))))
         }
     }
@@ -321,23 +328,23 @@ private fun TextLayerControls(
 
 @Composable
 private fun FontChooser(selected: String?, tools: TitleTools, onPick: (String?) -> Unit) {
-    Text("Font", style = MaterialTheme.typography.labelMedium)
+    Text(stringResource(R.string.ed_s3_font), style = MaterialTheme.typography.labelMedium)
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterChip(selected = selected == null, onClick = { onPick(null) }, label = { Text("System") })
+        FilterChip(selected = selected == null, onClick = { onPick(null) }, label = { Text(stringResource(R.string.ed_s3_system)) })
         for (font in tools.fonts) {
             FilterChip(selected = selected == font.id, onClick = { onPick(font.id) }, label = { Text(font.family) })
         }
-        TextButton(onClick = tools.onImportFont) { Text("Import font…") }
+        TextButton(onClick = tools.onImportFont) { Text(stringResource(R.string.ed_s3_import_font)) }
     }
     if (selected != null && tools.fonts.none { it.id == selected }) {
         Text(
-            "This font is not on this device, so the default font is shown. Import the same font file to restore the look.",
+            stringResource(R.string.ed_s3_this_font_is_not_on),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
         )
     }
     Text(
-        "Fonts you import stay on this device. Make sure you may use them in your videos.",
+        stringResource(R.string.ed_s3_fonts_you_import_stay_on),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -357,16 +364,17 @@ private fun ShapeLayerControls(
     onIntent: (EditorIntent) -> Unit,
 ) {
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for ((kind, name) in listOf(ShapeKind.RECT to "Rectangle", ShapeKind.ROUNDED_RECT to "Rounded", ShapeKind.ELLIPSE to "Ellipse", ShapeKind.LINE to "Line")) {
+        for (kind in ShapeKind.entries) {
+            val name = stringResource(if (kind == ShapeKind.ROUNDED_RECT) R.string.ed_s3_shape_rounded else kind.labelRes())
             FilterChip(selected = layer.kind == kind, onClick = { commit(replace(layer.copy(kind = kind))) }, label = { Text(name) })
         }
     }
-    InspectorSlider("Width", layer.widthFraction.toFloat().coerceIn(0.02f, 1.5f), 0.02f..1.5f, "${(layer.widthFraction * PERCENT).roundToInt()}%", onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_width), layer.widthFraction.toFloat().coerceIn(0.02f, 1.5f), 0.02f..1.5f, "${(layer.widthFraction * PERCENT).roundToInt()}%", onIntent, end) {
         live(replace(layer.copy(widthFraction = it.toDouble())))
     }
     val heightRange = if (layer.kind == ShapeKind.LINE) 0.002f..0.05f else 0.02f..1.5f
     InspectorSlider(
-        if (layer.kind == ShapeKind.LINE) "Thickness" else "Height",
+        stringResource(if (layer.kind == ShapeKind.LINE) R.string.ed_s3_f_thickness else R.string.ed_s3_f_height),
         layer.heightFraction.toFloat().coerceIn(heightRange.start, heightRange.endInclusive),
         heightRange,
         "${(layer.heightFraction * PERCENT).roundToInt()}%",
@@ -374,26 +382,26 @@ private fun ShapeLayerControls(
         end,
     ) { live(replace(layer.copy(heightFraction = it.toDouble()))) }
     if (layer.kind == ShapeKind.ROUNDED_RECT) {
-        InspectorSlider("Corners", layer.cornerRadiusFraction.toFloat(), 0f..0.5f, "${(layer.cornerRadiusFraction * PERCENT).roundToInt()}%", onIntent, end) {
+        InspectorSlider(stringResource(R.string.ed_s3_f_corners), layer.cornerRadiusFraction.toFloat(), 0f..0.5f, "${(layer.cornerRadiusFraction * PERCENT).roundToInt()}%", onIntent, end) {
             live(replace(layer.copy(cornerRadiusFraction = it.toDouble())))
         }
     }
-    SwatchRow("Fill", layer.fillArgb) { commit(replace(layer.copy(fillArgb = it))) }
+    SwatchRow(stringResource(R.string.ed_s3_f_fill), layer.fillArgb) { commit(replace(layer.copy(fillArgb = it))) }
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         FilterChip(
             selected = layer.stroke != null,
             onClick = { commit(replace(layer.copy(stroke = if (layer.stroke == null) LayerStroke(WHITE, LayerStroke.DEFAULT_WIDTH) else null))) },
-            label = { Text("Outline") },
+            label = { Text(stringResource(R.string.ed_s3_outline)) },
         )
         FilterChip(
             selected = layer.shadow != null,
             onClick = { commit(replace(layer.copy(shadow = if (layer.shadow == null) LayerShadow.DEFAULT else null))) },
-            label = { Text("Shadow") },
+            label = { Text(stringResource(R.string.ed_s3_shadow)) },
         )
     }
     layer.stroke?.let { stroke ->
-        SwatchRow("Outline", stroke.colorArgb) { commit(replace(layer.copy(stroke = stroke.copy(colorArgb = it)))) }
-        InspectorSlider("Outline w.", stroke.widthFraction.toFloat(), 0.001f..0.02f, "%.1f%%".format(stroke.widthFraction * PERCENT), onIntent, end) {
+        SwatchRow(stringResource(R.string.ed_s3_f_outline), stroke.colorArgb) { commit(replace(layer.copy(stroke = stroke.copy(colorArgb = it)))) }
+        InspectorSlider(stringResource(R.string.ed_s3_f_outline_w), stroke.widthFraction.toFloat(), 0.001f..0.02f, "%.1f%%".format(stroke.widthFraction * PERCENT), onIntent, end) {
             live(replace(layer.copy(stroke = stroke.copy(widthFraction = it.toDouble()))))
         }
     }
@@ -411,28 +419,28 @@ private fun ImageLayerControls(
     onIntent: (EditorIntent) -> Unit,
 ) {
     if (layer.kind == StillKind.PHOTO && assets.none { it.id == layer.id }) {
-        Text("This photo is no longer in the project, so the layer is not drawn.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        Text(stringResource(R.string.ed_s3_this_photo_is_no_longer), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     }
-    InspectorSlider("Size", layer.sizeFraction.toFloat().coerceIn(0.05f, 1.5f), 0.05f..1.5f, "${(layer.sizeFraction * PERCENT).roundToInt()}%", onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_size), layer.sizeFraction.toFloat().coerceIn(0.05f, 1.5f), 0.05f..1.5f, "${(layer.sizeFraction * PERCENT).roundToInt()}%", onIntent, end) {
         live(replace(layer.copy(sizeFraction = it.toDouble())))
     }
     FilterChip(
         selected = layer.shadow != null,
         onClick = { commit(replace(layer.copy(shadow = if (layer.shadow == null) LayerShadow.DEFAULT else null))) },
-        label = { Text("Shadow") },
+        label = { Text(stringResource(R.string.ed_s3_shadow)) },
     )
     layer.shadow?.let { shadow -> ShadowControls(shadow, onIntent, end) { live(replace(layer.copy(shadow = it))) } }
 }
 
 @Composable
 private fun ShadowControls(shadow: LayerShadow, onIntent: (EditorIntent) -> Unit, end: EditorIntent, onChange: (LayerShadow) -> Unit) {
-    InspectorSlider("Shadow blur", shadow.blurFraction.toFloat(), 0f..0.03f, "%.1f%%".format(shadow.blurFraction * PERCENT), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_shadow_blur), shadow.blurFraction.toFloat(), 0f..0.03f, "%.1f%%".format(shadow.blurFraction * PERCENT), onIntent, end) {
         onChange(shadow.copy(blurFraction = it.toDouble()))
     }
-    InspectorSlider("Shadow x", shadow.dxFraction.toFloat(), -0.03f..0.03f, "%.1f%%".format(shadow.dxFraction * PERCENT), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_shadow_x), shadow.dxFraction.toFloat(), -0.03f..0.03f, "%.1f%%".format(shadow.dxFraction * PERCENT), onIntent, end) {
         onChange(shadow.copy(dxFraction = it.toDouble()))
     }
-    InspectorSlider("Shadow y", shadow.dyFraction.toFloat(), -0.03f..0.03f, "%.1f%%".format(shadow.dyFraction * PERCENT), onIntent, end) {
+    InspectorSlider(stringResource(R.string.ed_s3_f_shadow_y), shadow.dyFraction.toFloat(), -0.03f..0.03f, "%.1f%%".format(shadow.dyFraction * PERCENT), onIntent, end) {
         onChange(shadow.copy(dyFraction = it.toDouble()))
     }
 }
@@ -449,54 +457,54 @@ private fun PlacementControls(
 ) {
     val p = layer.placement
     val change: (LayerPlacement) -> Unit = { live(replace(layer.withPlacement(it))) }
-    Text("Placement in the title", style = MaterialTheme.typography.labelMedium)
-    InspectorSlider("Across", p.offsetX.toFloat().coerceIn(-1f, 1f), -1f..1f, "${(p.offsetX * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(offsetX = it.toDouble())) }
-    InspectorSlider("Down", p.offsetY.toFloat().coerceIn(-1f, 1f), -1f..1f, "${(p.offsetY * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(offsetY = it.toDouble())) }
-    InspectorSlider("Scale", p.scale.toFloat().coerceIn(0.1f, 4f), 0.1f..4f, "${(p.scale * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(scale = it.toDouble())) }
-    InspectorSlider("Rotation", p.rotationDegrees.toFloat().coerceIn(-180f, 180f), -180f..180f, "${p.rotationDegrees.roundToInt()}°", onIntent, end) { change(p.copy(rotationDegrees = it.toDouble())) }
-    InspectorSlider("Opacity", p.opacity.toFloat(), 0f..1f, "${(p.opacity * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(opacity = it.toDouble())) }
+    Text(stringResource(R.string.ed_s3_placement_in_the_title), style = MaterialTheme.typography.labelMedium)
+    InspectorSlider(stringResource(R.string.ed_s3_f_across), p.offsetX.toFloat().coerceIn(-1f, 1f), -1f..1f, "${(p.offsetX * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(offsetX = it.toDouble())) }
+    InspectorSlider(stringResource(R.string.ed_s3_f_down), p.offsetY.toFloat().coerceIn(-1f, 1f), -1f..1f, "${(p.offsetY * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(offsetY = it.toDouble())) }
+    InspectorSlider(stringResource(R.string.ed_2b_scale), p.scale.toFloat().coerceIn(0.1f, 4f), 0.1f..4f, "${(p.scale * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(scale = it.toDouble())) }
+    InspectorSlider(stringResource(R.string.ed_2b_rotation), p.rotationDegrees.toFloat().coerceIn(-180f, 180f), -180f..180f, "${p.rotationDegrees.roundToInt()}°", onIntent, end) { change(p.copy(rotationDegrees = it.toDouble())) }
+    InspectorSlider(stringResource(R.string.ed_2b_opacity), p.opacity.toFloat(), 0f..1f, "${(p.opacity * PERCENT).roundToInt()}%", onIntent, end) { change(p.copy(opacity = it.toDouble())) }
 }
 
 @Composable
 private fun MotionSection(intro: MotionPreset, outro: MotionPreset, onIntro: (MotionPreset) -> Unit, onOutro: (MotionPreset) -> Unit, apply: () -> Unit) {
-    Text("Animation", style = MaterialTheme.typography.titleSmall)
-    Text("In", style = MaterialTheme.typography.labelMedium)
+    Text(stringResource(R.string.ed_2b_animation), style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.ed_s3_in), style = MaterialTheme.typography.labelMedium)
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (preset in MotionPreset.entries) FilterChip(selected = intro == preset, onClick = { onIntro(preset) }, label = { Text(preset.label) })
+        for (preset in MotionPreset.entries) FilterChip(selected = intro == preset, onClick = { onIntro(preset) }, label = { Text(stringResource(preset.labelRes())) })
     }
-    Text("Out", style = MaterialTheme.typography.labelMedium)
+    Text(stringResource(R.string.ed_s3_out), style = MaterialTheme.typography.labelMedium)
     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (preset in MotionPreset.entries) FilterChip(selected = outro == preset, onClick = { onOutro(preset) }, label = { Text(preset.label) })
+        for (preset in MotionPreset.entries) FilterChip(selected = outro == preset, onClick = { onOutro(preset) }, label = { Text(stringResource(preset.labelRes())) })
     }
-    TextButton(onClick = apply) { Text("Apply animation (replaces keyframes)") }
+    TextButton(onClick = apply) { Text(stringResource(R.string.ed_s3_apply_animation_replaces_keyframes)) }
 }
 
 @Composable
 private fun PresetSection(title: TitleContent, clipSeconds: Double, intro: MotionPreset, outro: MotionPreset, tools: TitleTools) {
     var name by remember { mutableStateOf("") }
-    Text("Presets", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.ed_2a_presets), style = MaterialTheme.typography.titleSmall)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Preset name") }, singleLine = true, modifier = Modifier.weight(1f))
+        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.ed_s3_preset_name)) }, singleLine = true, modifier = Modifier.weight(1f))
         TextButton(onClick = {
             // The preset keeps the in and out animation chosen above, not the clip's own keyframes.
             tools.onSavePreset(name, title, intro, outro, clipSeconds.coerceAtLeast(TextTemplate.MIN_SECONDS))
             name = ""
-        }) { Text("Save") }
+        }) { Text(stringResource(R.string.ed_2b_save)) }
     }
     for (preset in tools.presets) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(preset.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.weight(1f))
             Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                TextButton(onClick = { tools.onExportPreset(preset) }) { Text("Export") }
-                TextButton(onClick = { tools.onDeletePreset(preset) }) { Text("Delete") }
+                TextButton(onClick = { tools.onExportPreset(preset) }) { Text(stringResource(R.string.notif_channel_name)) }
+                TextButton(onClick = { tools.onDeletePreset(preset) }) { Text(stringResource(R.string.common_delete)) }
             }
         }
     }
-    TextButton(onClick = tools.onImportPreset) { Text("Import a .uvtitle file…") }
+    TextButton(onClick = tools.onImportPreset) { Text(stringResource(R.string.ed_s3_import_a_uvtitle_file)) }
     tools.message?.let { message ->
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            TextButton(onClick = tools.onClearMessage) { Text("OK") }
+            Text(message.asString(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = tools.onClearMessage) { Text(stringResource(R.string.common_ok)) }
         }
     }
 }
@@ -505,6 +513,8 @@ private fun PresetSection(title: TitleContent, clipSeconds: Double, intro: Motio
 private fun SwatchRow(label: String, selectedArgb: Int, onPick: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(LABEL_WIDTH))
+        val description = stringResource(R.string.ed_s3_swatch, label)
+        val descriptionSelected = stringResource(R.string.ed_s3_swatch_selected, label)
         for (swatch in SWATCHES) {
             val selected = selectedArgb == swatch.toArgb()
             Box(
@@ -514,7 +524,7 @@ private fun SwatchRow(label: String, selectedArgb: Int, onPick: (Int) -> Unit) {
                     .background(swatch)
                     .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape)
                     .clickable { onPick(swatch.toArgb()) }
-                    .semantics { contentDescription = "$label colour ${if (selected) "selected" else ""}" },
+                    .described(if (selected) descriptionSelected else description),
             )
         }
     }

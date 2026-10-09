@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.onboarding
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 
 /** Remembers whether the first-run tips were shown. Local preferences only. */
@@ -26,31 +29,27 @@ class PreferencesOnboardingStore(context: Context) : OnboardingStore {
     }
 
     private companion object {
-        const val KEY_SEEN = "tipsSeen"
+        const val KEY_SEEN = "tipsSeen" // i18n-ok: a preference key
     }
 }
 
 /** One dismissible tip card. */
-data class Tip(val title: String, val body: String)
+data class Tip(val title: UiText, val body: UiText)
 
 /** The three first-run tips, in order: they point at the key actions (import, split, export, layout, help). */
 object Tips {
     val all: List<Tip> = listOf(
         Tip(
-            title = "Bring in your clips",
-            body = "Create a project, then import clips with + or drag them from the media tray onto the timeline. " +
-                "Your files are never copied: the project only remembers where they are.",
+            title = UiText.res(R.string.ed_s3_tip1_title),
+            body = UiText.res(R.string.ed_s3_tip1_body),
         ),
         Tip(
-            title = "Cut and arrange",
-            body = "Tap a clip to select it, move the playhead and use Split (the scissors). The bottom track is the " +
-                "guide and closes gaps by itself; tracks above it are free. The layout button lets you resize " +
-                "the preview, timeline and panels.",
+            title = UiText.res(R.string.ed_s3_tip2_title),
+            body = UiText.res(R.string.ed_s3_tip2_body),
         ),
         Tip(
-            title = "Export and get help",
-            body = "Tap the arrow at the top right to export an MP4. Long-press any icon to see its name, or tap the ? at the top of the editor for a guide to every symbol. " +
-                "About in the hub menu has the guide, privacy and these tips again.",
+            title = UiText.res(R.string.ed_s3_tip3_title),
+            body = UiText.res(R.string.ed_s3_tip3_body),
         ),
     )
 }

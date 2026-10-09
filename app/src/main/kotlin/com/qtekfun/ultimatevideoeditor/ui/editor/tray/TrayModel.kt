@@ -1,23 +1,25 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.tray
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 
 /** Tabs of the media tray. Only [MEDIA] and [AUDIO] list project assets. */
-enum class TrayTab(val label: String) {
-    MEDIA("Media"),
-    STICKERS("Stickers"),
-    TEMPLATES("Titles"),
-    AUDIO("Audio"),
+enum class TrayTab(@StringRes val labelRes: Int) {
+    MEDIA(R.string.ed_s3_tray_media),
+    STICKERS(R.string.ed_s3_tray_stickers),
+    TEMPLATES(R.string.ed_s3_tray_titles),
+    AUDIO(R.string.ed_s3_tray_audio),
 }
 
 /** What the media tab shows. [UNUSED] lists assets that no clip on the timeline refers to. */
-enum class AssetFilter(val label: String) {
-    ALL("All"),
-    VIDEO("Video"),
-    PHOTO("Photos"),
-    UNUSED("Unused"),
+enum class AssetFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.ed_s3_filter_all),
+    VIDEO(R.string.ed_s3_filter_video),
+    PHOTO(R.string.ed_s3_filter_photos),
+    UNUSED(R.string.ed_s3_filter_unused),
 }
 
 enum class TrayLayout { GRID, LIST }

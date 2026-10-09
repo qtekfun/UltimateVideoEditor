@@ -1,11 +1,12 @@
 package com.qtekfun.ultimatevideoeditor.ui.frame
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.domain.stillframe.FrameContent
 import com.qtekfun.ultimatevideoeditor.domain.stillframe.JPEG_QUALITY
 import com.qtekfun.ultimatevideoeditor.domain.stillframe.frameContent
 import com.qtekfun.ultimatevideoeditor.domain.stillframe.frameFileName
-import com.qtekfun.ultimatevideoeditor.domain.stillframe.frameNotice
 import com.qtekfun.ultimatevideoeditor.domain.stillframe.frameTarget
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportException
 import com.qtekfun.ultimatevideoeditor.mvi.MviViewModel
@@ -47,10 +48,10 @@ class StillFrameViewModel(
         }
     }
 
-    private fun refusalWhileExporting(): String? = when (val availability = exportAvailability(exports.state.value, projectId)) {
+    private fun refusalWhileExporting(): UiText? = when (val availability = exportAvailability(exports.state.value, projectId)) {
         ExportAvailability.Available -> null
-        is ExportAvailability.BlockedBy -> "Cannot save a frame: another export is running (${availability.projectName})."
-        ExportAvailability.RunningHere -> "Cannot save a frame while this project is exporting. Wait for the export to finish."
+        is ExportAvailability.BlockedBy -> UiText.res(R.string.ed_s3_frame_busy_other, availability.projectName)
+        ExportAvailability.RunningHere -> UiText.res(R.string.ed_s3_frame_busy_here)
     }
 
     private fun save(input: StillFrameInput) {
@@ -61,7 +62,7 @@ class StillFrameViewModel(
         }
         val content = frameContent(input.timeline, input.frame)
         if (content == FrameContent.EMPTY) {
-            emit(StillFrameEffect.Message("There is nothing to save yet. Add a clip to the timeline."))
+            emit(StillFrameEffect.Message(UiText.res(R.string.ed_s3_frame_nothing)))
             return
         }
         val target = frameTarget(input.projectWidth, input.projectHeight)
@@ -86,8 +87,8 @@ class StillFrameViewModel(
                 val bytes = encoder.encodeJpeg(frame, JPEG_QUALITY)
                 val saved = sink.saveJpeg(name, bytes)
                 val notes = buildList {
-                    if (target.reduced) add("The project is larger than 4096 px: saved at ${target.size.width} x ${target.size.height}.")
-                    frameNotice(content)?.let(::add)
+                    if (target.reduced) add(UiText.res(R.string.ed_s3_frame_reduced, target.size.width, target.size.height))
+                    frameNoticeText(content)?.let(::add)
                 }
                 val result = SavedFrame(saved.uri, saved.displayName, saved.folder, frame.width, frame.height, notes)
                 lastSaved = result
@@ -95,21 +96,21 @@ class StillFrameViewModel(
                 emit(StillFrameEffect.Saved(result))
             } catch (e: CancellationException) {
                 reduce { copy(phase = StillFramePhase.Idle) }
-                emit(StillFrameEffect.Message("Saving the frame was cancelled."))
+                emit(StillFrameEffect.Message(UiText.res(R.string.ed_s3_frame_cancelled)))
                 throw e
             } catch (e: StillFrameException) {
-                failed(e.message ?: "The picture could not be made.")
+                failed(e.text)
             } catch (e: ExportException) {
-                failed("The picture could not be drawn: ${e.message}")
+                failed(UiText.res(R.string.ed_s3_frame_not_drawn, e.message.orEmpty()))
             } catch (e: IOException) {
-                failed("The picture could not be saved: ${e.message}")
+                failed(UiText.res(R.string.ed_s3_frame_not_saved, e.message.orEmpty()))
             } catch (e: OutOfMemoryError) {
-                failed("Not enough memory for a picture this large.")
+                failed(UiText.res(R.string.ed_s3_frame_memory))
             }
         }
     }
 
-    private fun failed(message: String) {
+    private fun failed(message: UiText) {
         reduce { copy(phase = StillFramePhase.Failed(message)) }
         emit(StillFrameEffect.Message(message))
     }
@@ -117,4 +118,12 @@ class StillFrameViewModel(
     override fun onCleared() {
         job?.cancel()
     }
+}
+
+/** The note that goes with a picture that is black on purpose, or null when the frame has a picture. */
+internal fun frameNoticeText(content: FrameContent): UiText? = when (content) {
+    FrameContent.PICTURE -> null
+    FrameContent.GAP -> UiText.res(R.string.ed_s3_frame_notice_gap)
+    FrameContent.PAST_END -> UiText.res(R.string.ed_s3_frame_notice_past_end)
+    FrameContent.EMPTY -> UiText.res(R.string.ed_s3_frame_notice_empty)
 }

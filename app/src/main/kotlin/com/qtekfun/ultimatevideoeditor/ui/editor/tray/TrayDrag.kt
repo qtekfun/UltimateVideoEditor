@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.tray
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import android.os.SystemClock
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateOffsetAsState

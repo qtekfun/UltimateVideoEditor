@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
+import com.qtekfun.ultimatevideoeditor.ui.text.UiTextIOException
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import android.content.ContentResolver
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
@@ -26,10 +30,10 @@ fun interface SubtitleSource {
 
 class ContentResolverSubtitleSource(private val resolver: ContentResolver) : SubtitleSource {
     override suspend fun read(uri: String): ByteArray {
-        val input = resolver.openInputStream(Uri.parse(uri)) ?: throw IOException("The file could not be opened")
+        val input = resolver.openInputStream(Uri.parse(uri)) ?: throw UiTextIOException(UiText.res(R.string.ed_s3_sub_cannot_open), "The file could not be opened") // i18n-ok: log text
         input.use { stream ->
             val bytes = stream.readAtMost((Subtitles.MAX_BYTES + 1).toInt())
-            if (bytes.size > Subtitles.MAX_BYTES) throw IOException("This file is too large to be a subtitle file")
+            if (bytes.size > Subtitles.MAX_BYTES) throw UiTextIOException(UiText.res(R.string.ed_s3_sub_too_large), "This file is too large to be a subtitle file") // i18n-ok: log text
             return bytes
         }
     }
@@ -113,18 +117,19 @@ class CaptionsViewModel(
                 val bytes = withContext(ioDispatcher) { source.read(uri) }
                 val file = Subtitles.parse(bytes)
                 if (file.cues.isEmpty()) {
-                    reduce { copy(importing = false, error = "No subtitles were found in this file (it must be .srt or .vtt)") }
+                    reduce { copy(importing = false, error = UiText.res(R.string.ed_s3_sub_none_found)) }
                     return@launch
                 }
                 val offset = FrameIndex(if (current.importAtPlayhead) current.playhead else 0)
                 val cues = Subtitles.toCues(file, current.fps, offset)
                 val clips = current.style.clipsFor(cues, current.canvasHeight, idGenerator)
                 emit(CaptionsEffect.ClipsReady(clips, intoExistingTrack = false))
-                val skipped = if (file.skipped > 0) " (${file.skipped} unreadable blocks skipped)" else ""
-                emit(CaptionsEffect.ShowMessage("Added ${clips.size} captions$skipped"))
+                val added = UiText.plural(R.plurals.ed_s3_added_captions, clips.size)
+                val message = if (file.skipped > 0) UiText.join("", added, UiText.plural(R.plurals.ed_s3_skipped_blocks, file.skipped)) else added
+                emit(CaptionsEffect.ShowMessage(message))
                 reduce { copy(importing = false, isOpen = false, existingCaptions = existingCaptions + clips.size) }
             } catch (e: IOException) {
-                reduce { copy(importing = false, error = e.message ?: "The file could not be read") }
+                reduce { copy(importing = false, error = reasonOf(e, UiText.res(R.string.ed_s3_sub_unreadable))) }
             }
         }
     }

@@ -1,5 +1,10 @@
 package com.qtekfun.ultimatevideoeditor.ui.library
 
+import androidx.compose.ui.res.pluralStringResource
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
@@ -106,13 +111,13 @@ private fun LibrarySheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Media library", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                Text("${state.assets.size} files", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.ed_2a_tool_library), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Text(pluralStringResource(R.plurals.ed_s3_files, state.assets.size, state.assets.size), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             OutlinedTextField(
                 value = library.query.text,
                 onValueChange = { onIntent(LibraryIntent.QueryChanged(it)) },
-                label = { Text("Search names, tags and notes") },
+                label = { Text(stringResource(R.string.ed_s3_search_names_tags_and_notes)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -121,7 +126,7 @@ private fun LibrarySheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
                     FilterChip(
                         selected = library.query.filter == filter,
                         onClick = { onIntent(LibraryIntent.FilterSelected(filter)) },
-                        label = { Text(if (filter == LibraryFilter.UNUSED) "Unused ($unusedCount)" else filter.label) },
+                        label = { Text(if (filter == LibraryFilter.UNUSED) stringResource(R.string.ed_s3_unused, unusedCount) else stringResource(filter.labelRes)) },
                     )
                 }
             }
@@ -144,7 +149,7 @@ private fun LibrarySheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
             }
             if (items.isEmpty()) {
                 Text(
-                    if (state.assets.isEmpty()) "No media yet. Use + in the toolbar or the tray to import files." else "Nothing matches.",
+                    if (state.assets.isEmpty()) stringResource(R.string.ed_s3_no_media_yet_use_in) else stringResource(R.string.ed_s3_nothing_matches),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
@@ -167,13 +172,12 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
     }
     val background = if (highlighted) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val fps = FrameRate(item.asset.nativeFpsNum.coerceAtLeast(1), item.asset.nativeFpsDen.coerceAtLeast(1))
-    val description = buildString {
-        append(item.name).append(", ").append(kindLabel(item.kind))
-        append(", used ${item.usage} time${if (item.usage == 1) "" else "s"}")
-        if (item.missing) append(", file missing")
-    }
+    val kindText = stringResource(item.kind.labelRes())
+    val usedText = pluralStringResource(R.plurals.ed_s3_used_times_long, item.usage, item.usage)
+    val missingText = stringResource(R.string.ed_s3_file_missing)
+    val description = listOfNotNull(item.name, kindText, usedText, missingText.takeIf { item.missing }).joinToString(", ")
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(background).padding(8.dp).semantics { contentDescription = description },
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(background).padding(8.dp).described(description),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -182,21 +186,22 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
             if (bitmap != null) {
                 Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(56.dp))
             } else if (!item.missing) {
-                Text(kindLabel(item.kind).take(1), style = MaterialTheme.typography.titleMedium)
+                Text(kindText.take(1), style = MaterialTheme.typography.titleMedium)
             }
             if (item.missing) {
-                Box(Modifier.size(56.dp).background(Color(0xAAB00020)), contentAlignment = Alignment.Center) { Text("Missing", style = MaterialTheme.typography.labelSmall, color = Color.White) }
+                Box(Modifier.size(56.dp).background(Color(0xAAB00020)), contentAlignment = Alignment.Center) { Text(stringResource(R.string.ed_s3_missing), style = MaterialTheme.typography.labelSmall, color = Color.White) }
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-            val proxyLabel = proxyStatusOf(item.asset.id).badgeLabel()
+            val proxyLabel = proxyStatusOf(item.asset.id).badgeLabel()?.asString()
+            val unusedText = stringResource(R.string.ed_s3_unused_lc)
             val meta = buildList {
-                add(kindLabel(item.kind))
+                add(kindText)
                 if (item.kind != AssetKind.PHOTO) add(formatTimecode(item.durationFrames, fps))
                 item.badge?.let { add(it) }
                 proxyLabel?.let { add(it) }
-                add(if (item.usage == 0) "unused" else "used ${item.usage}×")
+                add(if (item.usage == 0) unusedText else stringResource(R.string.ed_s3_used_times, item.usage))
             }.joinToString(" · ")
             Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (item.tags.isNotEmpty()) {
@@ -204,29 +209,29 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
             }
             item.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onIntent(LibraryIntent.FindInTimeline(item.asset.id)) }, enabled = item.usage > 0) { Text("Find in timeline") }
-                TextButton(onClick = { onIntent(LibraryIntent.EditAsset(item.asset.id)) }) { Text("Tags & note") }
+                TextButton(onClick = { onIntent(LibraryIntent.FindInTimeline(item.asset.id)) }, enabled = item.usage > 0) { Text(stringResource(R.string.ed_s3_find_in_timeline)) }
+                TextButton(onClick = { onIntent(LibraryIntent.EditAsset(item.asset.id)) }) { Text(stringResource(R.string.ed_s3_tags_note)) }
             }
         }
     }
 }
 
 @Composable
-private fun LibraryFooter(unusedCount: Int, busy: String?, onIntent: (EditorIntent) -> Unit) {
+private fun LibraryFooter(unusedCount: Int, busy: UiText?, onIntent: (EditorIntent) -> Unit) {
     var exportOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-        if (busy != null) Text(busy, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (busy != null) Text(busy.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { onIntent(LibraryIntent.AskDeleteUnused) }, enabled = unusedCount > 0) { Text("Remove unused ($unusedCount)", maxLines = 1) }
+            TextButton(onClick = { onIntent(LibraryIntent.AskDeleteUnused) }, enabled = unusedCount > 0) { Text(stringResource(R.string.ed_s3_remove_unused, unusedCount), maxLines = 1) }
             Box {
-                TextButton(onClick = { exportOpen = true }, enabled = busy == null) { Text("Export…", maxLines = 1) }
+                TextButton(onClick = { exportOpen = true }, enabled = busy == null) { Text(stringResource(R.string.export_dlg_export_button), maxLines = 1) }
                 DropdownMenu(expanded = exportOpen, onDismissRequest = { exportOpen = false }) {
                     for (kind in InterchangeKind.entries) {
-                        DropdownMenuItem(text = { Text(kind.label) }, onClick = { exportOpen = false; onIntent(LibraryIntent.RequestExport(kind)) })
+                        DropdownMenuItem(text = { Text(stringResource(kind.labelRes)) }, onClick = { exportOpen = false; onIntent(LibraryIntent.RequestExport(kind)) })
                     }
                 }
             }
-            TextButton(onClick = { onIntent(LibraryIntent.Close) }) { Text("Close", maxLines = 1) }
+            TextButton(onClick = { onIntent(LibraryIntent.Close) }) { Text(stringResource(R.string.common_close), maxLines = 1) }
         }
     }
 }
@@ -241,21 +246,21 @@ private fun AssetEditDialog(draft: AssetEditDraft, onIntent: (EditorIntent) -> U
                 OutlinedTextField(
                     value = draft.tags,
                     onValueChange = { onIntent(LibraryIntent.TagsChanged(it)) },
-                    label = { Text("Tags (separated by commas)") },
-                    supportingText = { Text("Up to ${Library.MAX_TAGS} tags of ${Library.MAX_TAG_LENGTH} characters") },
+                    label = { Text(stringResource(R.string.ed_s3_tags_separated_by_commas)) },
+                    supportingText = { Text(stringResource(R.string.ed_s3_up_to_tags_of_characters, Library.MAX_TAGS, Library.MAX_TAG_LENGTH)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = draft.note,
                     onValueChange = { onIntent(LibraryIntent.NoteChanged(it)) },
-                    label = { Text("Note") },
+                    label = { Text(stringResource(R.string.ed_2a_note)) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onIntent(LibraryIntent.ConfirmAssetEdit) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = { onIntent(LibraryIntent.DismissAssetEdit) }) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onIntent(LibraryIntent.ConfirmAssetEdit) }) { Text(stringResource(R.string.ed_2b_save)) } },
+        dismissButton = { TextButton(onClick = { onIntent(LibraryIntent.DismissAssetEdit) }) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -263,15 +268,12 @@ private fun AssetEditDialog(draft: AssetEditDraft, onIntent: (EditorIntent) -> U
 private fun DeleteUnusedDialog(count: Int, onIntent: (EditorIntent) -> Unit) {
     AlertDialog(
         onDismissRequest = { onIntent(LibraryIntent.DismissDeleteUnused) },
-        title = { Text("Remove $count unused file${if (count == 1) "" else "s"}?") },
+        title = { Text(pluralStringResource(R.plurals.ed_s3_remove_unused_title, count, count)) },
         text = {
-            Text(
-                "They are taken out of the project's library only; the files on your device are not touched. " +
-                    "Files that Undo could still bring back to the timeline are kept.",
-            )
+            Text(stringResource(R.string.ed_s3_delete_unused_text))
         },
-        confirmButton = { TextButton(onClick = { onIntent(LibraryIntent.ConfirmDeleteUnused) }) { Text("Remove") } },
-        dismissButton = { TextButton(onClick = { onIntent(LibraryIntent.DismissDeleteUnused) }) { Text("Keep") } },
+        confirmButton = { TextButton(onClick = { onIntent(LibraryIntent.ConfirmDeleteUnused) }) { Text(stringResource(R.string.ed_2b_remove)) } },
+        dismissButton = { TextButton(onClick = { onIntent(LibraryIntent.DismissDeleteUnused) }) { Text(stringResource(R.string.ed_s3_keep)) } },
     )
 }
 
@@ -283,12 +285,6 @@ internal fun markerColour(color: MarkerColor): Color = when (color) {
     MarkerColor.GREEN -> Color(0xFF43A047)
     MarkerColor.BLUE -> Color(0xFF1E88E5)
     MarkerColor.PURPLE -> Color(0xFF8E24AA)
-}
-
-private fun kindLabel(kind: AssetKind) = when (kind) {
-    AssetKind.VIDEO -> "Video"
-    AssetKind.AUDIO -> "Audio"
-    AssetKind.PHOTO -> "Photo"
 }
 
 private const val THUMBNAIL_PX = 112
