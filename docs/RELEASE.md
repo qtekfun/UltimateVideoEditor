@@ -122,6 +122,9 @@ To publish: set `versionName` in `gradle/version.properties`, merge, then `git t
    Any FAIL blocks the release until it is fixed or the check is shown to be wrong (and then the check is fixed).
 8. Tag `v<versionName>`, run the release workflow, download the artifacts, check the checksums, keep `mapping.txt.gz`.
 9. Store listing updated (below).
+10. **Languages:** `lintRelease` and `TranslationsGuardTest` are green (every language has every string, same format arguments); on the
+    reference phone switch the language in About and look at the Projects screen, an export notification and the longest Spanish dialog
+    (`docs/QA.md`, "Language"). The app bundle keeps all languages in the base install (`bundle.language.enableSplit = false`).
 
 Device regression log (`scripts/qa-smoke.sh`, one line per release):
 

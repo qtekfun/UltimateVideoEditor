@@ -16,6 +16,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 class ExportDefaultsTest {
 
@@ -123,15 +124,15 @@ class ExportDefaultsTest {
         val r = recommend(sources)
         assertEquals(80, r.bitrateMbps)
         assertTrue(r.capped)
-        assertEquals("Your clips go up to 120 Mbps; the highest choice is 80 Mbps", bitrateAdvice(r, sources, 80))
+        assertEquals("Your clips go up to 120 Mbps; the highest choice is 80 Mbps", bitrateAdvice(r, sources, 80)?.english())
     }
 
     @Test
     fun `advice names the clips' rate and says whether the choice keeps quality`() {
         val sources = used(video("a", 52.0))
         val r = recommend(sources)
-        assertEquals("Your clips go up to 52 Mbps: 80 Mbps keeps their quality", bitrateAdvice(r, sources, 80))
-        assertEquals("Your clips go up to 52 Mbps: at 20 Mbps some of their quality is lost", bitrateAdvice(r, sources, 20))
+        assertEquals("Your clips go up to 52 Mbps: 80 Mbps keeps their quality", bitrateAdvice(r, sources, 80)?.english())
+        assertEquals("Your clips go up to 52 Mbps: at 20 Mbps some of their quality is lost", bitrateAdvice(r, sources, 20)?.english())
         assertNull(bitrateAdvice(recommend(UsedSources()), UsedSources(), 20))
     }
 

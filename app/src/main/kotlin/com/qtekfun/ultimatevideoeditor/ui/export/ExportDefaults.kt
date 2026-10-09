@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
@@ -130,19 +132,19 @@ private fun neededMbps(width: Int, height: Int, sources: UsedSources): Double? {
 }
 
 /** The line under the Bitrate chips, or null when no source rate is known. */
-fun bitrateAdvice(recommendation: ExportRecommendation, sources: UsedSources, selectedMbps: Int): String? {
+fun bitrateAdvice(recommendation: ExportRecommendation, sources: UsedSources, selectedMbps: Int): UiText? {
     val clipsMbps = sources.maxBitrateMbps ?: return null
     val shown = formatMbps(clipsMbps)
     val highest = bitrateChoicesMbps().last()
     return when {
-        recommendation.capped -> "Your clips go up to $shown Mbps; the highest choice is $highest Mbps"
+        recommendation.capped -> UiText.res(R.string.export_advice_capped, shown, highest)
         selectedMbps >= (recommendation.sourceMbps ?: clipsMbps) - RATE_EPSILON ->
-            "Your clips go up to $shown Mbps: $selectedMbps Mbps keeps their quality"
-        else -> "Your clips go up to $shown Mbps: at $selectedMbps Mbps some of their quality is lost"
+            UiText.res(R.string.export_advice_keeps, shown, selectedMbps)
+        else -> UiText.res(R.string.export_advice_loses, shown, selectedMbps)
     }
 }
 
-private fun formatMbps(mbps: Double): String = if (mbps >= 10) "%.0f".format(mbps) else "%.1f".format(mbps)
+private fun formatMbps(mbps: Double): String = if (mbps >= 10) "%.0f".format(Locale.getDefault(), mbps) else "%.1f".format(Locale.getDefault(), mbps)
 
 /** The estimated size of the finished file, with the spread the encoder's rate control can add or take away. */
 data class SizeEstimate(val bytes: Long, val lowBytes: Long, val highBytes: Long)

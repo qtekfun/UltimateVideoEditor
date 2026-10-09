@@ -10,6 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.FileNotFoundException
 import java.io.IOException
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 
 class BundleJobTextTest {
     private val gib = 1024L * 1024 * 1024
@@ -30,33 +32,33 @@ class BundleJobTextTest {
 
     @Test
     fun `done of total is in the unit of the total`() {
-        assertEquals("1.8 of 7.4 GB", BundleJobText.bytesOf((1.8 * gib).toLong(), (7.4 * gib).toLong()))
-        assertEquals("0.5 of 7.4 GB", BundleJobText.bytesOf(512 * mib, (7.4 * gib).toLong()))
-        assertEquals("200.0 of 300.0 MB", BundleJobText.bytesOf(200 * mib, 300 * mib))
+        assertEquals("1.8 of 7.4 GB", BundleJobText.bytesOf((1.8 * gib).toLong(), (7.4 * gib).toLong()).english())
+        assertEquals("0.5 of 7.4 GB", BundleJobText.bytesOf(512 * mib, (7.4 * gib).toLong()).english())
+        assertEquals("200.0 of 300.0 MB", BundleJobText.bytesOf(200 * mib, 300 * mib).english())
     }
 
     @Test
     fun `time left is rounded and worded`() {
-        assertEquals("a few seconds left", BundleJobText.left(4_000))
-        assertEquals("about 40 s left", BundleJobText.left(39_000))
-        assertEquals("about 2 min left", BundleJobText.left(120_000))
-        assertEquals("about 5 min left", BundleJobText.left(290_000))
-        assertEquals("about 1 h 5 min left", BundleJobText.left((65 * 60_000).toLong()))
-        assertEquals("about 2 h left", BundleJobText.left(2 * 3_600_000L))
+        assertEquals("a few seconds left", BundleJobText.left(4_000).english())
+        assertEquals("about 40 s left", BundleJobText.left(39_000).english())
+        assertEquals("about 2 min left", BundleJobText.left(120_000).english())
+        assertEquals("about 5 min left", BundleJobText.left(290_000).english())
+        assertEquals("about 1 h 5 min left", BundleJobText.left((65 * 60_000).toLong()).english())
+        assertEquals("about 2 h left", BundleJobText.left(2 * 3_600_000L).english())
     }
 
     @Test
     fun `the step line names the media file and its place`() {
-        assertEquals("Packing media 3 of 12: IMG_0014.mov", BundleJobText.step(packing))
-        assertEquals("Media 3 of 12", BundleJobText.shortStep(packing))
-        assertEquals("Writing the project data", BundleJobText.step(BundleProgress()))
-        assertEquals("Adding warm.cube", BundleJobText.step(BundleProgress(kind = BundleItemKind.RESOURCE, itemName = "warm.cube")))
+        assertEquals("Packing media 3 of 12: IMG_0014.mov", BundleJobText.step(packing).english())
+        assertEquals("Media 3 of 12", BundleJobText.shortStep(packing).english())
+        assertEquals("Writing the project data", BundleJobText.step(BundleProgress()).english())
+        assertEquals("Adding warm.cube", BundleJobText.step(BundleProgress(kind = BundleItemKind.RESOURCE, itemName = "warm.cube")).english())
     }
 
     @Test
     fun `the progress line is bytes then time left`() {
-        assertEquals("1.8 of 7.4 GB, about 2 min left", BundleJobText.progressLine(packing))
-        assertEquals("1.8 of 7.4 GB", BundleJobText.progressLine(packing.copy(remainingMs = null)))
+        assertEquals("1.8 of 7.4 GB, about 2 min left", BundleJobText.progressLine(packing).english())
+        assertEquals("1.8 of 7.4 GB", BundleJobText.progressLine(packing.copy(remainingMs = null)).english())
     }
 
     @Test
@@ -65,11 +67,11 @@ class BundleJobTextTest {
 
         assertEquals(
             "Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, 2 LUTs, 1 font, took 4:12)",
-            BundleJobText.savedLine("Holiday.uvbundle", result, (7.4 * gib).toLong(), 252_000),
+            BundleJobText.savedLine("Holiday.uvbundle", result, (7.4 * gib).toLong(), 252_000).english(),
         )
         assertEquals(
             "Backup saved: a.uvbundle (12.0 KB, 1 media file, took 3 s)",
-            BundleJobText.savedLine("a.uvbundle", BundleWriteResult(1, emptyList()), 12 * 1024, 3_000),
+            BundleJobText.savedLine("a.uvbundle", BundleWriteResult(1, emptyList()), 12 * 1024, 3_000).english(),
         )
     }
 
@@ -77,21 +79,21 @@ class BundleJobTextTest {
     fun `what could not go in is listed`() {
         val result = BundleWriteResult(1, listOf("a.mov", "b.mov", "c.mov", "d.mov"), resourcesSkipped = listOf("Arial"))
 
-        assertEquals("Not copied (cannot be read): a.mov, b.mov, c.mov and 1 more. Not included: Arial", BundleJobText.skippedLine(result))
-        assertEquals("", BundleJobText.skippedLine(BundleWriteResult(1, emptyList())))
+        assertEquals("Not copied (cannot be read): a.mov, b.mov, c.mov and 1 more. Not included: Arial", BundleJobText.skippedLine(result).english())
+        assertEquals("", BundleJobText.skippedLine(BundleWriteResult(1, emptyList())).english())
     }
 
     @Test
     fun `failures name their cause`() {
-        assertTrue(BundleJobText.failure(IOException("write failed: ENOSPC (No space left on device)")).contains("storage is full"))
-        assertTrue(BundleJobText.failure(com.qtekfun.ultimatevideoeditor.data.ProjectError.Io("export bundle to content://x", IOException("No space left on device"))).contains("storage is full"))
-        assertTrue(BundleJobText.failure(SecurityException("denied")).contains("permission"))
-        assertTrue(BundleJobText.failure(FileNotFoundException("gone")).contains("could not be opened"))
+        assertTrue(BundleJobText.failure(IOException("write failed: ENOSPC (No space left on device)")).english().contains("storage is full"))
+        assertTrue(BundleJobText.failure(com.qtekfun.ultimatevideoeditor.data.ProjectError.Io("export bundle to content://x", IOException("No space left on device"))).english().contains("storage is full"))
+        assertTrue(BundleJobText.failure(SecurityException("denied")).english().contains("permission"))
+        assertTrue(BundleJobText.failure(FileNotFoundException("gone")).english().contains("could not be opened"))
         assertEquals(
             "Could not read clip.mov while writing the bundle (EIO)",
-            BundleJobText.failure(IOException("could not read clip.mov while writing the bundle", IOException("EIO"))),
+            BundleJobText.failure(IOException("could not read clip.mov while writing the bundle", IOException("EIO"))).english(),
         )
-        assertEquals("IllegalStateException", BundleJobText.failure(IllegalStateException()))
+        assertEquals("IllegalStateException", BundleJobText.failure(IllegalStateException()).english())
     }
 
     private val running = BundleJobState.Running("p1", "Holiday", packing, 0)
@@ -100,15 +102,15 @@ class BundleJobTextTest {
     fun `the running view feeds the bar the dialog and the notification the same words`() {
         val view = bundleViewFor(running)!!
 
-        assertEquals("Backing up Holiday", view.title)
-        assertEquals("Packing media 3 of 12: IMG_0014.mov", view.step)
-        assertEquals("1.8 of 7.4 GB, about 2 min left", view.progressLine)
+        assertEquals("Backing up Holiday", view.title.english())
+        assertEquals("Packing media 3 of 12: IMG_0014.mov", view.step.english())
+        assertEquals("1.8 of 7.4 GB, about 2 min left", view.progressLine.english())
         assertEquals("42.0 MB/s", view.rateLine)
         assertEquals(24, view.percent)
         assertTrue(view.running)
         val note = bundleNotificationFor(running)!!
-        assertEquals("Backing up Holiday", note.title)
-        assertEquals("Media 3 of 12 · 1.8 of 7.4 GB, about 2 min left", note.text)
+        assertEquals("Backing up Holiday", note.title.english())
+        assertEquals("Media 3 of 12 · 1.8 of 7.4 GB, about 2 min left", note.text.english())
         assertEquals(24, note.progressPercent)
         assertTrue(note.ongoing && note.showCancel && note.bundle)
         assertNull(note.shareUri)
@@ -125,8 +127,8 @@ class BundleJobTextTest {
     fun `verifying shows an indeterminate check with Cancel`() {
         val note = bundleNotificationFor(running.copy(verifying = true))!!
 
-        assertEquals("Checking the backup of Holiday", note.title)
-        assertEquals("Checking the saved file", note.text)
+        assertEquals("Checking the backup of Holiday", note.title.english())
+        assertEquals("Checking the saved file", note.text.english())
         assertTrue(note.indeterminate && note.showCancel && note.ongoing)
     }
 
@@ -138,13 +140,13 @@ class BundleJobTextTest {
         val done = BundleJobState.Done("p1", "Holiday", "content://out/h.uvbundle", "Holiday.uvbundle", result, verified, 252_000)
 
         val view = bundleViewFor(done)!!
-        assertEquals("Backup saved", view.title)
-        assertEquals("Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, took 4:12)", view.message)
-        assertTrue(view.detail, view.detail.startsWith("Checked: the file is complete"))
+        assertEquals("Backup saved", view.title.english())
+        assertEquals("Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, took 4:12)", view.message.english())
+        assertTrue(view.detail.english(), view.detail.english().startsWith("Checked: the file is complete"))
         assertTrue(view.canShare)
         val note = bundleNotificationFor(done)!!
-        assertEquals("Backup saved", note.title)
-        assertEquals("Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, took 4:12)", note.text)
+        assertEquals("Backup saved", note.title.english())
+        assertEquals("Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, took 4:12)", note.text.english())
         assertEquals("content://out/h.uvbundle", note.shareUri)
         assertFalse(note.ongoing || note.showCancel)
     }
@@ -154,22 +156,22 @@ class BundleJobTextTest {
         val done = BundleJobState.Done("p1", "Holiday", "content://out/h.uvbundle", "Holiday.uvbundle", result, BundleVerification.Warning(listOf("Its table of contents cannot be read")), 1_000)
 
         val view = bundleViewFor(done)!!
-        assertEquals("Backup saved, but check the file", view.title)
-        assertTrue(view.detail, view.detail.contains("table of contents"))
+        assertEquals("Backup saved, but check the file", view.title.english())
+        assertTrue(view.detail.english(), view.detail.english().contains("table of contents"))
         assertFalse(view.canShare)
-        assertTrue(bundleNotificationFor(done)!!.text.contains("table of contents"))
+        assertTrue(bundleNotificationFor(done)!!.text.english().contains("table of contents"))
     }
 
     @Test
     fun `failed and cancelled with a leftover are shown, a clean cancel is not`() {
-        val failed = BundleJobState.Failed("p1", "Holiday", "The storage is full.", " A partly written file could not be removed: x.")
-        assertEquals("Backup failed", bundleViewFor(failed)?.title)
-        assertEquals("Backup failed", bundleNotificationFor(failed)?.title)
-        assertTrue(bundleViewFor(failed)!!.message.contains("could not be removed"))
+        val failed = BundleJobState.Failed("p1", "Holiday", UiText.Raw("The storage is full."), UiText.Raw("A partly written file could not be removed: x."))
+        assertEquals("Backup failed", bundleViewFor(failed)?.title?.english())
+        assertEquals("Backup failed", bundleNotificationFor(failed)?.title?.english())
+        assertTrue(bundleViewFor(failed)!!.message.english().contains("could not be removed"))
         assertNull(bundleViewFor(BundleJobState.Cancelled("p1", "Holiday")))
         assertNull(bundleNotificationFor(BundleJobState.Cancelled("p1", "Holiday")))
         assertNull(bundleViewFor(BundleJobState.Idle))
-        assertEquals("Backup cancelled", bundleViewFor(BundleJobState.Cancelled("p1", "Holiday", " Left over."))?.title)
+        assertEquals("Backup cancelled", bundleViewFor(BundleJobState.Cancelled("p1", "Holiday", UiText.Raw("Left over.")))?.title?.english())
     }
 
     @Test

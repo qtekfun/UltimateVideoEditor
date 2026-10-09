@@ -16,6 +16,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BundleExportExecutorTest {
@@ -38,7 +41,7 @@ class BundleExportExecutorTest {
     private val io = Io()
     private var started = 0
     private var now = 1_000L
-    private var otherBusy: String? = null
+    private var otherBusy: UiText? = null
     private var verifier: BundleVerifier? = BundleVerifier { _, written, _ -> BundleVerification.Verified(written.entries.size, written.bytesWritten) }
 
     private fun executor() = BundleExportExecutor(
@@ -81,7 +84,7 @@ class BundleExportExecutorTest {
         assertEquals(252_300L, done.tookMs)
         assertTrue(done.verification is BundleVerification.Verified)
         val view = bundleViewFor(done)
-        assertEquals("Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, took 4:12)", view?.message)
+        assertEquals("Backup saved: Holiday.uvbundle (7.4 GB, 14 media files, took 4:12)", view?.message?.english())
         assertTrue(executor.detailsOpen.value)
     }
 
@@ -140,10 +143,10 @@ class BundleExportExecutorTest {
         executor.start(job { observer -> executor.cancel(); if (observer.isCancelled()) throw BundleWriteCancelled(); result })
 
         val cancelled = executor.state.value as BundleJobState.Cancelled
-        assertTrue(cancelled.leftoverNote, cancelled.leftoverNote.contains("could not be removed: Holiday.uvbundle"))
+        assertTrue(cancelled.leftoverNote.english(), cancelled.leftoverNote.english().contains("could not be removed: Holiday.uvbundle"))
         val view = bundleViewFor(cancelled)
         assertEquals(BundleView.Phase.CANCELLED, view?.phase)
-        assertTrue(view?.message.orEmpty().contains("incomplete; delete it"))
+        assertTrue(view?.message?.english().orEmpty().contains("incomplete; delete it"))
         assertTrue("the dialog stays open to say so", executor.detailsOpen.value)
     }
 
@@ -165,9 +168,9 @@ class BundleExportExecutorTest {
         executor.start(job { throw IOException("No space left on device") })
 
         val failed = executor.state.value as BundleJobState.Failed
-        assertEquals("The storage is full. Free some space or choose another location.", failed.message)
+        assertEquals("The storage is full. Free some space or choose another location.", failed.message.english())
         assertEquals(1, io.deleted.size)
-        assertTrue(bundleViewFor(failed)?.message.orEmpty().contains("could not be removed"))
+        assertTrue(bundleViewFor(failed)?.message?.english().orEmpty().contains("could not be removed"))
     }
 
     @Test
@@ -176,7 +179,7 @@ class BundleExportExecutorTest {
 
         executor.start(job { throw SecurityException("Permission Denial") })
 
-        assertTrue((executor.state.value as BundleJobState.Failed).message.contains("permission"))
+        assertTrue((executor.state.value as BundleJobState.Failed).message.english().contains("permission"))
     }
 
     @Test
@@ -187,20 +190,20 @@ class BundleExportExecutorTest {
         executor.start(job { refusal = executor.start(job("Second")); result })
 
         val refused = refusal as BundleStart.Refused
-        assertTrue(refused.reason, refused.reason.contains("already running: Holiday"))
+        assertTrue(refused.reason.english(), refused.reason.english().contains("already running: Holiday"))
         assertEquals(1, started)
         assertTrue(executor.state.value is BundleJobState.Done)
     }
 
     @Test
     fun `a backup is refused while a movie export runs and nothing is started`() {
-        otherBusy = "Exporting Wedding"
+        otherBusy = UiText.Raw("Exporting Wedding")
         val executor = executor()
 
         val start = executor.start(job())
 
         val refused = start as BundleStart.Refused
-        assertTrue(refused.reason, refused.reason.contains("Exporting Wedding"))
+        assertTrue(refused.reason.english(), refused.reason.english().contains("Exporting Wedding"))
         assertEquals(0, started)
         assertEquals(BundleJobState.Idle, executor.state.value)
     }
@@ -238,7 +241,7 @@ class BundleExportExecutorTest {
         val done = executor.state.value as BundleJobState.Done
         val view = bundleViewFor(done)
         assertEquals(BundleView.Phase.WARNING, view?.phase)
-        assertEquals("Backup saved, but check the file", view?.title)
+        assertEquals("Backup saved, but check the file", view?.title?.english())
         assertFalse("a damaged file is not offered for sharing", view?.canShare == true)
         assertNull(bundleNotificationFor(done)?.shareUri)
     }
@@ -300,7 +303,7 @@ class BundleExportExecutorTest {
     @Test
     fun `the movie export is refused while a backup runs, with words`() {
         val backups = executor()
-        var movieRefusal: String? = null
+        var movieRefusal: UiText? = null
 
         backups.start(
             job {
@@ -317,7 +320,7 @@ class BundleExportExecutorTest {
                     },
                     scope = CoroutineScope(SupervisorJob() + dispatcher),
                     ioDispatcher = dispatcher,
-                    otherJobBusy = { (backups.state.value as? BundleJobState.Running)?.let { "Backing up ${it.projectName}" } },
+                    otherJobBusy = { (backups.state.value as? BundleJobState.Running)?.let { UiText.res(R.string.bundle_backing_up_title, it.projectName) } },
                 )
                 assertFalse(movie.start(ExportJob("p2", "Wedding", "content://out/w.mp4") { throw AssertionError("must not prepare") }))
                 movieRefusal = movie.refusalReason()
@@ -325,7 +328,7 @@ class BundleExportExecutorTest {
             },
         )
 
-        assertTrue(movieRefusal, movieRefusal.orEmpty().contains("Backing up Holiday"))
+        assertTrue(movieRefusal?.english().orEmpty(), movieRefusal?.english().orEmpty().contains("Backing up Holiday"))
     }
 }
 

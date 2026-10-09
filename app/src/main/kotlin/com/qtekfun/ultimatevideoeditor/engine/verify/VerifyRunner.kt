@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import java.io.IOException
 
 /** Decodes frames of the finished output file. Implemented with MediaCodec on a device and with fakes in tests. */
@@ -46,7 +48,7 @@ class VerifyRunner(
                 exp.durationUs,
             )
         } catch (e: IOException) {
-            return VerificationOutcome.CouldNotVerify("the file could not be read back (${e.message})")
+            return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_not_readable, e.message.orEmpty()))
         }
         val findings = mutableListOf<Finding>()
         findings += ContainerCheck.check(file, exp)
@@ -57,10 +59,10 @@ class VerifyRunner(
         if (cancel()) return VerificationOutcome.Skipped
         if (file.video == null) return warning(findings, exp)
         if (frames == null) {
-            return if (findings.isEmpty()) VerificationOutcome.CouldNotVerify("this device has no decoder to read the file back") else warning(findings, exp)
+            return if (findings.isEmpty()) VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_no_decoder)) else warning(findings, exp)
         }
         if (signatures.isEmpty() && findings.isEmpty()) {
-            return VerificationOutcome.CouldNotVerify("the pictures were not recorded while exporting, so they cannot be compared")
+            return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_no_pictures))
         }
 
         val plan = plan(exp, signatures)

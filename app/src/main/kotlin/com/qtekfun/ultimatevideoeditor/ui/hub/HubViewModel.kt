@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.ClipPeeker
 import com.qtekfun.ultimatevideoeditor.data.ImportReport
@@ -52,6 +54,8 @@ class HubViewModel(
     private val viewStore: HubViewStore = NoHubViewStore,
     /** Measures the storage card off the main thread; null leaves the card out (tests that do not need it). */
     private val storageScanner: StorageScanner? = null,
+    /** The name a new project starts with, in the language in use when the sheet opens (the base of "New project 2"). */
+    private val defaultProjectName: () -> String = { "New project" },
 ) : MviViewModel<HubState, HubIntent, HubEffect>(HubState().withView(viewStore.load())) {
 
     /** Read once, before this process marks anything: what the previous run left open. */
@@ -91,7 +95,7 @@ class HubViewModel(
                 jobs.acknowledge()
             }
             is ImportJobState.Cancelled -> {
-                emit(HubEffect.ShowMessage("Import cancelled. Nothing was added to the project list."))
+                emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_import_cancelled)))
                 jobs.acknowledge()
             }
             is ImportJobState.Done -> {
@@ -185,7 +189,7 @@ class HubViewModel(
                 emit(HubEffect.LaunchExportPicker(intent.project.id, "${intent.project.name}.json"))
             is HubIntent.ExportTo -> launchProjectOp {
                 projects.exportTo(intent.projectId, intent.uri)
-                emit(HubEffect.ShowMessage("Project exported"))
+                emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_project_exported)))
             }
             is HubIntent.ImportFrom -> if (importJobs != null) {
                 // Returns at once: the picker's result handler never waits for the file. The work is on the IO dispatcher.
@@ -209,7 +213,7 @@ class HubViewModel(
                         throw e
                     } catch (e: Exception) {
                         // Whatever went wrong is shown with its cause: an import never fails silently.
-                        emit(HubEffect.ShowMessage("Import failed: ${e.javaClass.simpleName}: ${e.message}"))
+                        emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_import_failed, e.javaClass.simpleName, e.message.orEmpty())))
                     }
                 }
             }
@@ -222,14 +226,14 @@ class HubViewModel(
                 val retry = pendingImportUri
                 pendingImportUri = null
                 if (settings == null) {
-                    emit(HubEffect.ShowMessage("Choosing a media folder is not available"))
+                    emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_folder_unavailable)))
                 } else {
                     try {
                         settings.set(intent.uri)
-                        emit(HubEffect.ShowMessage("Media folder set"))
+                        emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_folder_set)))
                         if (retry != null) onIntent(HubIntent.ImportFrom(retry))
                     } catch (e: SecurityException) {
-                        emit(HubEffect.ShowMessage("Could not keep access to that folder: ${e.message}"))
+                        emit(HubEffect.ShowMessage(UiText.res(R.string.folder_access_failed, e.message.orEmpty())))
                     }
                 }
             }
@@ -270,12 +274,12 @@ class HubViewModel(
             is HubIntent.RecoverProject -> launchProjectOp {
                 val project = projects.recover(intent.projectId)
                 refreshNow()
-                emit(HubEffect.ShowMessage("Recovered \"${project.name}\" from its last good copy"))
+                emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_recovered, project.name)))
             }
             is HubIntent.DeleteUnreadable -> launchProjectOp {
                 projects.delete(intent.projectId)
                 refreshNow()
-                emit(HubEffect.ShowMessage("Removed the unreadable project"))
+                emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_removed_unreadable)))
             }
             HubIntent.ResumeSession -> state.value.resumeProject?.let {
                 resumeHandled = true
@@ -347,8 +351,8 @@ class HubViewModel(
             }
             reduce { exitSelection() }
             refreshNow()
-            if (failure != null) emit(HubEffect.ShowMessage("Duplicated $made of ${targets.size} projects. $failure"))
-            else if (made > 1) emit(HubEffect.ShowMessage("Duplicated $made projects"))
+            if (failure != null) emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_duplicated_some, made, targets.size, failure)))
+            else if (made > 1) emit(HubEffect.ShowMessage(UiText.plural(R.plurals.hub_msg_duplicated, made)))
         }
     }
 
@@ -363,7 +367,7 @@ class HubViewModel(
     }
 
     private fun suggestedName(existing: List<ProjectSummary>): String =
-        ProjectNames.unique(DEFAULT_PROJECT_NAME, existing.map { it.name }, ProjectRepository.MAX_NAME_LENGTH) { b, n -> "$b $n" }
+        ProjectNames.unique(defaultProjectName(), existing.map { it.name }, ProjectRepository.MAX_NAME_LENGTH) { b, n -> "$b $n" }
 
     /** The sheet as it opens: the last choices (or the defaults) and a free project name. */
     private fun initialDraft(existing: List<ProjectSummary>): NewProjectDraft {
@@ -388,7 +392,7 @@ class HubViewModel(
     private fun matchFromClip(uri: String) {
         val reader = peeker
         if (reader == null) {
-            emit(HubEffect.ShowMessage("Reading a clip's format is not available"))
+            emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_peek_unavailable)))
             return
         }
         reduceDraft { copy(isMatching = true, matchError = null) }
@@ -397,7 +401,7 @@ class HubViewModel(
                 val clip = reader.peek(uri)
                 reduceDraft { matched(clip) }
             } catch (e: MediaImportException) {
-                reduceDraft { copy(isMatching = false, matchError = e.message ?: "Cannot read the selected file") }
+                reduceDraft { copy(isMatching = false, matchError = e.message?.let { UiText.Raw(it) } ?: UiText.res(R.string.hub_match_cannot_read)) }
             }
         }
     }
@@ -504,17 +508,17 @@ class HubViewModel(
             }
             reduce { copy(deleteTargets = emptyList(), selected = emptySet()) }
             refreshNow()
-            if (failed > 0) emit(HubEffect.ShowMessage("Could not delete $failed of ${targets.size} projects. $failure"))
-            else if (targets.size > 1) emit(HubEffect.ShowMessage("Deleted ${targets.size} projects"))
+            if (failed > 0) emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_delete_some_failed, failed, targets.size, failure.orEmpty())))
+            else if (targets.size > 1) emit(HubEffect.ShowMessage(UiText.plural(R.plurals.hub_msg_deleted, targets.size)))
         }
     }
 
     /** Runs a store operation; a [ProjectError] is shown to the user instead of being dropped. */
     /** What an import did: the project's name and, for a bundle, what became of its media. */
-    internal fun importMessage(report: ImportReport): String = ImportReportText.message(report)
+    internal fun importMessage(report: ImportReport): UiText = ImportReportText.message(report)
 
-    internal fun bundleExportMessage(choice: BundleChoice, result: BundleWriteResult): String =
-        BundleExportText.exportMessage("Bundle exported", choice, result)
+    internal fun bundleExportMessage(choice: BundleChoice, result: BundleWriteResult): UiText =
+        BundleExportText.exportMessage(UiText.res(R.string.bundle_exported), choice, result)
 
     /** The list of LUTs and fonts an import could not install, or null when it went fully through. */
     internal fun importNotesOf(report: ImportReport): ImportReportNotes? = ImportReportText.notes(report)
@@ -527,7 +531,7 @@ class HubViewModel(
             val draft = try {
                 BundleExportDraft(preview = projects.bundlePreview(project.id), choice = state.value.bundleExport?.draft?.choice ?: choice)
             } catch (e: ProjectError) {
-                BundleExportDraft(choice = choice, failed = e.message ?: "The project could not be read")
+                BundleExportDraft(choice = choice, failed = e.message?.let { UiText.Raw(it) } ?: UiText.res(R.string.bundle_project_unreadable))
             }
             // The dialog may have been closed or reopened for another project while the project was measured.
             reduce { if (bundleExport?.project?.id == project.id) copy(bundleExport = HubBundleExport(project, draft)) else this }
@@ -540,13 +544,12 @@ class HubViewModel(
                 block()
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false) }
-                emit(HubEffect.ShowMessage(e.message ?: "Project operation failed"))
+                emit(HubEffect.ShowMessage(e.message?.let { UiText.Raw(it) } ?: UiText.res(R.string.hub_msg_operation_failed)))
             }
         }
     }
 
     private companion object {
-        const val DEFAULT_PROJECT_NAME = "New project"
         const val MAX_TYPED_DIGITS = 5
     }
 }

@@ -51,7 +51,9 @@ class VersionWiringTest {
     @Test
     fun `About shows the engine's own version`() {
         val about = QaSources.main("kotlin/com/qtekfun/ultimatevideoeditor/ui/about/AboutScreen.kt").readText()
-        assertTrue(about.contains("\"Engine v\$it\""))
+        // The words live in the string resources: the screen formats the version it is given with them, and none is typed in.
+        assertTrue(about.contains("R.string.about_engine_version"))
+        assertTrue(QaSources.main("res/values/strings.xml").readText().contains(">Engine v%1\$s<"))
         val hub = QaSources.main("kotlin/com/qtekfun/ultimatevideoeditor/ui/hub/HubScreen.kt").readText()
         assertTrue("the Projects screen no longer carries a version footer", !hub.contains("Loading engine"))
     }

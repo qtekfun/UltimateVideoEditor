@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.engine.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.engine.still.PictureBudget
 import com.qtekfun.ultimatevideoeditor.engine.verify.FrameSignature
 import java.nio.ByteBuffer
@@ -24,7 +25,7 @@ enum class ExportErrorCode(val value: Int) {
 }
 
 /** Thrown by native code for synchronous failures; constructed from JNI as `(int, String)`. */
-class ExportException(val code: ExportErrorCode, message: String) : Exception(message) {
+class ExportException(val code: ExportErrorCode, message: String, val userText: UiText? = null) : Exception(message) {
     @Suppress("unused") // called from JNI
     constructor(code: Int, message: String) : this(ExportErrorCode.fromValue(code), message)
 }

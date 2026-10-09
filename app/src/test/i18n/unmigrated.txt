@@ -1,0 +1,21 @@
+# Files under src/main/kotlin/com/qtekfun/ultimatevideoeditor that still have words typed into the code (English only for now).
+# One path prefix per line, relative to that folder. HardCodedTextRatchetTest fails for any other file that has such words,
+# and fails for an entry that no longer has any: when a stage migrates a screen, delete its entry here. The list only shrinks.
+# A line starting with ! takes a path back out of an earlier entry (a file of a mostly unmigrated folder that is done).
+# Plan and order of the stages: DECISIONS.md, "Translations".
+
+# Stage 2: editor toolbar, inspector and sheets
+ui/editor/
+# Stage 3: tray, library, captions, titles
+ui/library/LibrarySheet.kt
+ui/templates/
+ui/frame/
+# Stage 4: toolbar guide, onboarding, help
+ui/onboarding/
+# Stage 5: error messages from the lower layers (typed errors with a UiText instead of English text)
+data/
+domain/
+engine/
+!engine/verify/Verification.kt
+proxy/
+crash/

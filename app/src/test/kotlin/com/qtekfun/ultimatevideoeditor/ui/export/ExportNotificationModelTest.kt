@@ -8,6 +8,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 class ExportNotificationModelTest {
     private fun running(permille: Int, estimate: ExportEstimate = ExportEstimate()) =
@@ -17,8 +18,8 @@ class ExportNotificationModelTest {
     fun `a running export shows the project, whole percent and a cancel action`() {
         val model = checkNotNull(exportNotificationFor(running(425)))
 
-        assertEquals("Exporting Holiday", model.title)
-        assertEquals("42%", model.text)
+        assertEquals("Exporting Holiday", model.title.english())
+        assertEquals("42%", model.text.english())
         assertEquals(42, model.progressPercent)
         assertTrue(model.ongoing)
         assertTrue(model.showCancel)
@@ -33,10 +34,10 @@ class ExportNotificationModelTest {
     @Test
     fun `the time left is added when it is known and dropped when the export is stalled`() {
         val known = checkNotNull(exportNotificationFor(running(500, ExportEstimate(remainingMs = 90_000))))
-        assertEquals("50% · about 1:30 left", known.text)
+        assertEquals("50% · about 1:30 left", known.text.english())
 
         val stalled = checkNotNull(exportNotificationFor(running(500, ExportEstimate(remainingMs = 90_000, stalled = true))))
-        assertEquals("50%", stalled.text)
+        assertEquals("50%", stalled.text.english())
     }
 
     @Test
@@ -53,15 +54,15 @@ class ExportNotificationModelTest {
     @Test
     fun `finished and failed exports get a plain, dismissible notification`() {
         val done = checkNotNull(exportNotificationFor(ExportJobState.Done("p1", "Holiday", "content://x", "Holiday.mp4")))
-        assertEquals("Export finished", done.title)
-        assertTrue(done.text.contains("Holiday.mp4"))
+        assertEquals("Export finished", done.title.english())
+        assertTrue(done.text.english().contains("Holiday.mp4"))
         assertFalse(done.ongoing)
         assertFalse(done.showCancel)
         assertNull(done.progressPercent)
 
         val failed = checkNotNull(exportNotificationFor(ExportJobState.Failed("p1", "Holiday", ExportException(ExportErrorCode.CODEC_ERROR, "boom"))))
-        assertEquals("Export failed", failed.title)
-        assertTrue(failed.text.contains("boom"))
+        assertEquals("Export failed", failed.title.english())
+        assertTrue(failed.text.english().contains("boom"))
         assertFalse(failed.ongoing)
     }
 

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.qtekfun.ultimatevideoeditor.engine.verify.ChannelByteSource
@@ -29,13 +31,13 @@ class DeviceExportVerifier(private val io: ExportIO, private val runner: VerifyR
         val reader = try {
             ParcelFileDescriptor.adoptFd(io.openForRead(target.uri))
         } catch (e: IOException) {
-            return VerificationOutcome.CouldNotVerify("the saved file could not be opened (${e.message})")
+            return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_not_opened, e.message.orEmpty()))
         }
         reader.use {
             val decoderFd = try {
                 ParcelFileDescriptor.adoptFd(io.openForRead(target.uri))
             } catch (e: IOException) {
-                return VerificationOutcome.CouldNotVerify("the saved file could not be opened (${e.message})")
+                return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_not_opened, e.message.orEmpty()))
             }
             val frames = try {
                 MediaCodecFrameSource.open(decoderFd.fileDescriptor, target.expectation, target.signatures.map { it.frame }.toSet(), decoderFd)
@@ -51,11 +53,11 @@ class DeviceExportVerifier(private val io: ExportIO, private val runner: VerifyR
                 Log.i(TAG, VerificationText.resultLine(outcome))
                 return outcome
             } catch (e: IOException) {
-                return VerificationOutcome.CouldNotVerify("the saved file could not be read back (${e.message})")
+                return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_saved_not_read, e.message.orEmpty()))
             } catch (e: RuntimeException) {
                 // A bug in the verifier must not look like a pass nor take the app down: it is reported as "could not verify".
                 Log.e(TAG, "verification failed unexpectedly", e)
-                return VerificationOutcome.CouldNotVerify("the check failed inside the app (${e.javaClass.simpleName})")
+                return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_failed_inside, e.javaClass.simpleName))
             } finally {
                 frames?.close()
             }

@@ -991,6 +991,7 @@ Each save keeps a `project.json.bak`. If a project fails to load, use **Recover*
 Open the **More options** menu in the project list and choose **About, privacy and help**.
 
 - **Appearance**: the **Pure black backgrounds** switch (see [Appearance](#appearance-dark-and-pure-black)).
+- **Language**: System default, English or Español (see [Language](#language)).
 - **Version** of the build and of the engine, the **licence** (GPL-3.0) with the full text, and where the source code lives.
 - **Privacy**: what the app stores and why it needs no permissions, the same text as `docs/PRIVACY.md`.
 - **Third-party software**: the libraries inside the app and their licences.
@@ -1005,6 +1006,18 @@ Open the **More options** menu in the project list and choose **About, privacy a
   function names the system recorded. This all stays on the phone.
 - **Show tips again**: three short tips (import, cut and arrange, export and help) appear on first launch and can be
   brought back here.
+
+## Language
+
+ultimateVE is available in English and Spanish (Español); more languages can be added by dropping in a translation file (see
+`docs/TRANSLATING.md`). By default the app follows the language of your phone; a phone language the app does not have shows English.
+To choose another one open **About, privacy and help** and pick it under **Language**: **System default**, **English** or **Español**.
+The screen reloads at once and the choice is remembered on this phone only. On Android 13 and later the same setting is in
+**Settings → Apps → ultimateVE → Language**; on Android 12 the picker in About is the only place. The translations are part of
+the app: nothing is downloaded.
+
+In this release the Projects screen, New project, About, and the dialogs, progress bars and notifications of exports, backups and imports
+are translated; the editor, the toolbar guide and this guide are still in English and are translated step by step.
 
 ## Appearance: dark and pure black
 

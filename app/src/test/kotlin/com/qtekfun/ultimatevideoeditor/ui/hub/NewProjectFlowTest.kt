@@ -27,6 +27,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.IOException
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewProjectFlowTest {
@@ -144,7 +145,7 @@ class NewProjectFlowTest {
 
         val draft = vm.draft()
         assertEquals(1920 to 1080, draft.width to draft.height)
-        assertEquals("1920 × 1080, 30 fps, SDR", draft.summary)
+        assertEquals("1920 × 1080, 30 fps, SDR", draft.summary.english())
         assertEquals(StartMode.BLANK, draft.startMode)
         assertTrue(draft.canCreate)
     }
@@ -160,7 +161,7 @@ class NewProjectFlowTest {
         assertEquals(2160 to 3840, vm.draft().width to vm.draft().height)
         vm.onIntent(HubIntent.DraftFpsSelected(ProjectPresets.fps.first { it.label == "59.94" }))
         vm.onIntent(HubIntent.DraftColorSpaceSelected(ProjectPresets.colorSpaces[1]))
-        assertEquals("2160 × 3840, 59.94 fps, HLG", vm.draft().summary)
+        assertEquals("2160 × 3840, 59.94 fps, HLG", vm.draft().summary.english())
     }
 
     @Test
@@ -189,7 +190,7 @@ class NewProjectFlowTest {
 
         vm.onIntent(HubIntent.DraftQuickPreset(ProjectPresets.quick.first { it.id == "vertical" }))
 
-        assertEquals("1080 × 1920, 30 fps, SDR", vm.draft().summary)
+        assertEquals("1080 × 1920, 30 fps, SDR", vm.draft().summary.english())
     }
 
     @Test
@@ -200,7 +201,7 @@ class NewProjectFlowTest {
 
         vm.onIntent(HubIntent.DraftFpsSelected(ProjectPresets.fps.first { it.label == "25" }))
 
-        assertEquals("1920 × 1080, 25 fps, SDR", vm.draft().summary)
+        assertEquals("1920 × 1080, 25 fps, SDR", vm.draft().summary.english())
     }
 
     @Test
@@ -260,7 +261,7 @@ class NewProjectFlowTest {
         vm.onIntent(HubIntent.MatchFromClip("content://trip"))
 
         val draft = vm.draft()
-        assertEquals("3840 × 2160, 29.97 fps, HLG", draft.summary)
+        assertEquals("3840 × 2160, 29.97 fps, HLG", draft.summary.english())
         assertTrue(draft.aspect.custom)
         assertEquals(hlgClip, draft.matchedClip)
         assertFalse(draft.isMatching)
@@ -282,10 +283,10 @@ class NewProjectFlowTest {
         vm.onIntent(HubIntent.DraftFpsSelected(ProjectPresets.fps.first { it.label == "50" }))
 
         vm.onIntent(HubIntent.MatchFromClip("content://photo"))
-        assertEquals("4002 × 3002, 50 fps, SDR", vm.draft().summary)
+        assertEquals("4002 × 3002, 50 fps, SDR", vm.draft().summary.english())
 
         vm.onIntent(HubIntent.MatchFromClip("content://pq"))
-        assertEquals("1920 × 1080, 25 fps, HLG", vm.draft().summary)
+        assertEquals("1920 × 1080, 25 fps, HLG", vm.draft().summary.english())
     }
 
     @Test
@@ -310,7 +311,7 @@ class NewProjectFlowTest {
 
         vm.onIntent(HubIntent.MatchFromClip("content://gone"))
 
-        assertEquals("Cannot open the selected file", vm.draft().matchError)
+        assertEquals("Cannot open the selected file", vm.draft().matchError?.english())
         assertFalse(vm.draft().isMatching)
         assertFalse(vm.draft().canCreate)
 
@@ -335,7 +336,7 @@ class NewProjectFlowTest {
 
         vm.onIntent(HubIntent.ShowNewProject)
 
-        assertEquals("1080 × 1920, 60 fps, SDR", vm.draft().summary)
+        assertEquals("1080 × 1920, 60 fps, SDR", vm.draft().summary.english())
         assertEquals("New project 2", vm.draft().name)
     }
 
@@ -351,7 +352,7 @@ class NewProjectFlowTest {
 
         assertEquals(0, defaults.saves)
         vm.onIntent(HubIntent.ShowNewProject)
-        assertEquals("1920 × 1080, 30 fps, SDR", vm.draft().summary)
+        assertEquals("1920 × 1080, 30 fps, SDR", vm.draft().summary.english())
     }
 
     @Test
@@ -361,7 +362,7 @@ class NewProjectFlowTest {
 
         vm.onIntent(HubIntent.ShowNewProject)
 
-        assertEquals("1920 × 1080, 23.976 fps, SDR", vm.draft().summary)
+        assertEquals("1920 × 1080, 23.976 fps, SDR", vm.draft().summary.english())
     }
 
     // endregion

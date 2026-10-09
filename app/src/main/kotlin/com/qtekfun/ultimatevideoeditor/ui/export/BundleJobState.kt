@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleItemKind
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleVerification
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleWriteObserver
@@ -54,10 +55,10 @@ sealed interface BundleJobState {
         val tookMs: Long,
     ) : BundleJobState
 
-    data class Failed(val projectId: String, val projectName: String, val message: String, val leftoverNote: String = "") : BundleJobState
+    data class Failed(val projectId: String, val projectName: String, val message: UiText, val leftoverNote: UiText = UiText.Empty) : BundleJobState
 
     /** The user cancelled. [leftoverNote] is not empty only when the provider refused to delete the partial file. */
-    data class Cancelled(val projectId: String, val projectName: String, val leftoverNote: String = "") : BundleJobState
+    data class Cancelled(val projectId: String, val projectName: String, val leftoverNote: UiText = UiText.Empty) : BundleJobState
 
     val isRunning: Boolean get() = this is Running
 }
@@ -75,7 +76,7 @@ sealed interface BundleStart {
     data object Started : BundleStart
 
     /** Not started, and [reason] says why in words for the user (another long job is running). */
-    data class Refused(val reason: String) : BundleStart
+    data class Refused(val reason: UiText) : BundleStart
 }
 
 /** What the project list, the editors and the dialog need from the process-wide backup; [BundleExportExecutor] is the real one. */

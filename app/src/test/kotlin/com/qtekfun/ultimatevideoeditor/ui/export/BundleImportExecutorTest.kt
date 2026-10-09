@@ -28,13 +28,15 @@ import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BundleImportExecutorTest {
     private val testScope = TestScope()
     private val dispatcher = StandardTestDispatcher(testScope.testScheduler)
     private var started = 0
-    private var otherBusy: String? = null
+    private var otherBusy: UiText? = null
 
     private fun executor(name: String? = "Holiday.uvbundle") = BundleImportExecutor(
         scope = CoroutineScope(SupervisorJob() + dispatcher),
@@ -107,9 +109,9 @@ class BundleImportExecutorTest {
         testScope.advanceTimeBy(2_000)
         testScope.runCurrent()
         val view = importViewFor(executor.state.value)!!
-        assertEquals("Importing project: file 3 of 14: IMG_0014.mov", view.step)
-        assertEquals("Importing Holiday.uvbundle", view.title)
-        assertTrue(view.progressLine, view.progressLine.startsWith("1.7 of 7.4 GB"))
+        assertEquals("Importing project: file 3 of 14: IMG_0014.mov", view.step.english())
+        assertEquals("Importing Holiday.uvbundle", view.title.english())
+        assertTrue(view.progressLine.english(), view.progressLine.english().startsWith("1.7 of 7.4 GB"))
 
         testScope.advanceUntilIdle()
         val done = executor.state.value as ImportJobState.Done
@@ -117,7 +119,7 @@ class BundleImportExecutorTest {
         assertEquals(252_000L, done.tookMs)
         assertEquals(7_945_689_497, done.bytes)
         val finished = importViewFor(done)!!
-        assertEquals("Imported: Holiday (7.4 GB, 14 media files, took 4:12)", finished.message)
+        assertEquals("Imported: Holiday (7.4 GB, 14 media files, took 4:12)", finished.message.english())
         assertEquals(ImportView.Phase.IMPORTED, finished.phase)
         assertEquals("id-1", finished.projectId)
         assertTrue(executor.detailsOpen.value)
@@ -196,10 +198,10 @@ class BundleImportExecutorTest {
         testScope.advanceUntilIdle()
 
         val failed = executor.state.value as ImportJobState.Failed
-        assertEquals("The storage is full. Free some space and import again. Nothing was added to the project list.", failed.message)
+        assertEquals("The storage is full. Free some space and import again. Nothing was added to the project list.", failed.message.english())
         val view = importViewFor(failed)!!
         assertEquals(ImportView.Phase.FAILED, view.phase)
-        assertEquals("Import failed", view.title)
+        assertEquals("Import failed", view.title.english())
         assertTrue("the user was looking at the dialog: it stays", executor.detailsOpen.value)
         assertEquals(false, importNotificationFor(failed)?.ongoing)
     }
@@ -255,7 +257,7 @@ class BundleImportExecutorTest {
         testScope.advanceUntilIdle()
 
         val refused = refusal as BundleStart.Refused
-        assertTrue(refused.reason, refused.reason.contains("already running: Holiday.uvbundle"))
+        assertTrue(refused.reason.english(), refused.reason.english().contains("already running: Holiday.uvbundle"))
         assertTrue(executor.state.value is ImportJobState.Done)
     }
 
@@ -281,7 +283,7 @@ class BundleImportExecutorTest {
 
         val refused = executor.start(job()) as BundleStart.Refused
 
-        assertTrue(refused.reason, refused.reason.contains("Backing up Wedding"))
+        assertTrue(refused.reason.english(), refused.reason.english().contains("Backing up Wedding"))
         assertEquals(ImportJobState.Idle, executor.state.value)
     }
 
@@ -295,8 +297,8 @@ class BundleImportExecutorTest {
         val seenByMovie = LongJobs.describe(noMovie, BundleJobState.Idle, imports.state.value, LongJobs.Kind.MOVIE)
         val seenByImport = LongJobs.describe(noMovie, BundleJobState.Idle, imports.state.value, LongJobs.Kind.IMPORT)
 
-        assertEquals("Importing Holiday.uvbundle", seenByBackup)
-        assertEquals("Importing Holiday.uvbundle", seenByMovie)
+        assertEquals("Importing Holiday.uvbundle", seenByBackup?.english())
+        assertEquals("Importing Holiday.uvbundle", seenByMovie?.english())
         assertNull("an import does not refuse itself with its own name", seenByImport)
 
         val backup = BundleExportExecutor(
@@ -311,13 +313,13 @@ class BundleImportExecutorTest {
             otherJobBusy = { seenByBackup },
         )
         val refused = backup.start(BundleJob("p1", "Holiday", "content://out/h.uvbundle") { throw AssertionError("must not run") }) as BundleStart.Refused
-        assertTrue(refused.reason, refused.reason.contains("Importing Holiday.uvbundle"))
+        assertTrue(refused.reason.english(), refused.reason.english().contains("Importing Holiday.uvbundle"))
     }
 
     @Test
     fun `the words name each running job and nothing else`() {
         val running = BundleJobState.Running("p", "Holiday", BundleProgress(), 0)
-        assertEquals("Backing up Holiday", LongJobs.describe(noMovie, running, ImportJobState.Idle, LongJobs.Kind.MOVIE))
+        assertEquals("Backing up Holiday", LongJobs.describe(noMovie, running, ImportJobState.Idle, LongJobs.Kind.MOVIE)?.english())
         assertNull(LongJobs.describe(noMovie, running, ImportJobState.Idle, LongJobs.Kind.BACKUP))
         assertNull(LongJobs.describe(noMovie, BundleJobState.Idle, ImportJobState.Done("u", "n", report, 0, 0, true), LongJobs.Kind.MOVIE))
     }

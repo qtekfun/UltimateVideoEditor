@@ -34,6 +34,7 @@ import com.qtekfun.ultimatevideoeditor.ui.about.AboutController
 import com.qtekfun.ultimatevideoeditor.ui.about.AboutScreen
 import com.qtekfun.ultimatevideoeditor.ui.about.AppVersion
 import com.qtekfun.ultimatevideoeditor.ui.about.StorageMeter
+import com.qtekfun.ultimatevideoeditor.ui.language.AppLocale
 import com.qtekfun.ultimatevideoeditor.ui.onboarding.OnboardingTips
 import com.qtekfun.ultimatevideoeditor.ui.onboarding.PreferencesOnboardingStore
 import com.qtekfun.ultimatevideoeditor.data.AndroidClipPeeker
@@ -128,6 +129,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // The language picked in About (Android 12 and 12L); from Android 13 the system applies it and this changes nothing.
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -228,6 +234,8 @@ class MainActivity : ComponentActivity() {
                                     cacheDir = cacheDir.path,
                                     freeBytes = { filesDir.usableSpace },
                                 ),
+                                // Read when the sheet opens, in the language in use then (the view model outlives a language change).
+                                defaultProjectName = { AppLocale.localized(applicationContext).getString(R.string.hub_default_project_name) },
                             )
                         }
                     },
@@ -292,7 +300,15 @@ class MainActivity : ComponentActivity() {
                 }
                 val projectId = openProjectId
                 if (projectId == null && showAbout) {
-                    AboutScreen(aboutController, appearance, mediaFolderSettings, onBack = { showAbout = false })
+                    AboutScreen(
+                        aboutController,
+                        appearance,
+                        mediaFolderSettings,
+                        languages = AppLocale.supported(this@MainActivity),
+                        selectedLanguage = AppLocale.chosen(this@MainActivity),
+                        onSelectLanguage = { AppLocale.select(this@MainActivity, it) },
+                        onBack = { showAbout = false },
+                    )
                 } else if (projectId == null) {
                     // Project timestamps and names may have changed while editing.
                     LaunchedEffect(Unit) { hubViewModel.onIntent(HubIntent.Refresh) }

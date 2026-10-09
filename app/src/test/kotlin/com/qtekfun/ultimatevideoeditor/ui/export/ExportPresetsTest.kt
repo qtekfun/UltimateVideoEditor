@@ -14,10 +14,10 @@ class ExportPresetsTest {
     fun `every preset is distinct and has sane numbers`() {
         assertEquals(ExportPresets.all.size, ExportPresets.all.map { it.id }.toSet().size)
         for (p in ExportPresets.all) {
-            assertTrue(p.label, p.shortSide in listOf(720, 1080, 1440, 2160))
-            assertTrue(p.label, p.maxFps in 24..60)
-            assertTrue(p.label, p.bitrateMbps in bitrateChoicesMbps())
-            assertTrue(p.label, Regex("\\d+:\\d+").matches(p.aspect))
+            assertTrue(p.id, p.shortSide in listOf(720, 1080, 1440, 2160))
+            assertTrue(p.id, p.maxFps in 24..60)
+            assertTrue(p.id, p.bitrateMbps in bitrateChoicesMbps())
+            assertTrue(p.id, Regex("\\d+:\\d+").matches(p.aspect))
         }
     }
 

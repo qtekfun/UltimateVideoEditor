@@ -139,6 +139,11 @@ size_of() { adb_ shell stat -c %s "'$out'" 2>/dev/null | tr -d '\r'; }
 drive_ui() {
     require_awake_unlocked
     if service_running; then echo "an export is already running in $pkg; not starting another (use --attach)" >&2; return 5; fi
+    # The app is translated and this script finds its buttons by their English text: pin the app to English first (Android 13+: the
+    # system's per-app language for this package only; it does not stop the app, a running export carries on in its service).
+    if [ "$(adb_ shell getprop ro.build.version.sdk | tr -d '\r')" -ge 33 ] 2>/dev/null; then
+        adb_ shell cmd locale set-app-locales "$pkg" --locales en > /dev/null 2>&1 || true
+    fi
     if ! focus | grep -q "$pkg/"; then
         adb_ shell am start -n "$pkg/com.qtekfun.ultimatevideoeditor.MainActivity" > /dev/null
         sleep 3
