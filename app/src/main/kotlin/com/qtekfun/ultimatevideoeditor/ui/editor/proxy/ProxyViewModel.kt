@@ -170,19 +170,25 @@ class ProxyViewModel(
         }
     }
 
+    /**
+     * Re-reads the manager into the state. The read happens inside the reducer so that a compare-and-set that
+     * loses to another writer retries with fresh data: refreshes come from the worker thread (progress, changes)
+     * as well as from intents, and a snapshot taken outside the reducer could overwrite a newer one with a
+     * stale status (a job shown as queued for good after it started).
+     */
     private fun refresh(bumpResolve: Boolean = false) {
-        val videos = assets.filter { it.canHaveProxy() }
-        val items = videos.map { ProxyItem(it.id, MissingMedia.nameOf(it), manager.statusOf(it)) }
-        val enabled = manager.isEnabled(projectId)
-        val suggestion = ProxySuggester.evaluate(
-            assets = assets,
-            infoOf = manager::infoOf,
-            hasProxy = { manager.statusOf(it) !is ProxyStatus.None && manager.statusOf(it) !is ProxyStatus.OutOfDate && manager.statusOf(it) !is ProxyStatus.Failed },
-            stalls = stalls,
-            enabled = enabled,
-            dismissed = manager.prefs.suggestionDismissed(projectId),
-        )
         reduce {
+            val videos = assets.filter { it.canHaveProxy() }
+            val items = videos.map { ProxyItem(it.id, MissingMedia.nameOf(it), manager.statusOf(it)) }
+            val enabled = manager.isEnabled(projectId)
+            val suggestion = ProxySuggester.evaluate(
+                assets = assets,
+                infoOf = manager::infoOf,
+                hasProxy = { manager.statusOf(it) !is ProxyStatus.None && manager.statusOf(it) !is ProxyStatus.OutOfDate && manager.statusOf(it) !is ProxyStatus.Failed },
+                stalls = stalls,
+                enabled = enabled,
+                dismissed = manager.prefs.suggestionDismissed(projectId),
+            )
             copy(
                 enabled = enabled,
                 items = items,

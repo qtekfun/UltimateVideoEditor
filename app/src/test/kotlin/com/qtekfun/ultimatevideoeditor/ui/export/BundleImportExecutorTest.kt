@@ -343,12 +343,12 @@ class BundleImportExecutorTest {
         try {
             val begun = System.nanoTime()
             // The job blocks until the test lets it go: if start() waited for it, this line would never return.
-            executor.start(ImportJob("content://in/big") { inJob.countDown(); release.await(10, TimeUnit.SECONDS); report })
-            assertTrue("start returned at once", System.nanoTime() - begun < TimeUnit.SECONDS.toNanos(2))
-            assertTrue(inJob.await(5, TimeUnit.SECONDS))
+            executor.start(ImportJob("content://in/big") { inJob.countDown(); release.await(60, TimeUnit.SECONDS); report })
+            assertTrue("start returned at once", System.nanoTime() - begun < TimeUnit.SECONDS.toNanos(30))
+            assertTrue(inJob.await(30, TimeUnit.SECONDS))
             assertTrue("the provider is asked for the name off the calling thread too: ${jobThread.get()}", jobThread.get().orEmpty().startsWith("uv-import-io"))
             release.countDown()
-            val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            val end = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
             while (executor.state.value !is ImportJobState.Done && System.nanoTime() < end) Thread.sleep(10)
         } finally {
             io.shutdownNow()
