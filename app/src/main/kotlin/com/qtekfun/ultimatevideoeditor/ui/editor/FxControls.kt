@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -60,15 +62,15 @@ private fun EffectsHeader(fx: ClipFx, onIntent: (EditorIntent) -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = if (fx.effects.isEmpty()) "Effects" else "Effects · ${fx.effects.size}",
+            text = if (fx.effects.isEmpty()) stringResource(R.string.ed_2b_effects) else stringResource(R.string.ed_2b_effects_2, fx.effects.size),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
         Box {
-            TextButton(onClick = { menuOpen = true }, enabled = fx.effects.size < ClipFx.MAX_EFFECTS) { Text("Add") }
+            TextButton(onClick = { menuOpen = true }, enabled = fx.effects.size < ClipFx.MAX_EFFECTS) { Text(stringResource(R.string.ed_2b_add)) }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("LUT…") },
+                    text = { Text(stringResource(R.string.ed_2b_lut)) },
                     onClick = {
                         menuOpen = false
                         onIntent(EditorIntent.OpenLutPicker)
@@ -77,7 +79,7 @@ private fun EffectsHeader(fx: ClipFx, onIntent: (EditorIntent) -> Unit) {
                 // A LUT needs a library entry, so it has its own item above instead of a default-valued row.
                 for (type in EffectType.entries.filter { it != EffectType.LUT }) {
                     DropdownMenuItem(
-                        text = { Text(type.label) },
+                        text = { Text(stringResource(type.labelRes())) },
                         onClick = {
                             menuOpen = false
                             onIntent(EditorIntent.AddEffect(type))
@@ -86,30 +88,30 @@ private fun EffectsHeader(fx: ClipFx, onIntent: (EditorIntent) -> Unit) {
                 }
             }
         }
-        TextButton(onClick = { onIntent(EditorIntent.ClearFx) }, enabled = !fx.isNeutral) { Text("Clear all") }
+        TextButton(onClick = { onIntent(EditorIntent.ClearFx) }, enabled = !fx.isNeutral) { Text(stringResource(R.string.ed_2b_clear_all)) }
     }
 }
 
 @Composable
 private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorIntent) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        val lutName = if (effect.type == EffectType.LUT) LocalLutNames.current[effect.values[0].toInt()] ?: "missing" else null
+        val lutName = if (effect.type == EffectType.LUT) LocalLutNames.current[effect.values[0].toInt()] ?: stringResource(R.string.ed_2b_lut_missing) else null
         Text(
-            text = if (effect.type == EffectType.LUT) "LUT · $lutName" else effect.type.label,
+            text = if (effect.type == EffectType.LUT) stringResource(R.string.ed_2b_lut_2, lutName.orEmpty()) else stringResource(effect.type.labelRes()),
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.weight(1f),
         )
         TextButton(
             onClick = { onIntent(EditorIntent.MoveEffect(effect.id, index - 1)) },
             enabled = index > 0,
-            modifier = Modifier.semantics { contentDescription = "Move ${effect.type.label} up" },
-        ) { Text("Up") }
+            modifier = Modifier.described(stringResource(R.string.ed_2b_move_up, stringResource(effect.type.labelRes()))),
+        ) { Text(stringResource(R.string.ed_2b_up)) }
         TextButton(
             onClick = { onIntent(EditorIntent.MoveEffect(effect.id, index + 1)) },
             enabled = index < count - 1,
-            modifier = Modifier.semantics { contentDescription = "Move ${effect.type.label} down" },
-        ) { Text("Down") }
-        TextButton(onClick = { onIntent(EditorIntent.RemoveEffect(effect.id)) }) { Text("Remove") }
+            modifier = Modifier.described(stringResource(R.string.ed_2b_move_down, stringResource(effect.type.labelRes()))),
+        ) { Text(stringResource(R.string.ed_2b_down)) }
+        TextButton(onClick = { onIntent(EditorIntent.RemoveEffect(effect.id)) }) { Text(stringResource(R.string.ed_2b_remove)) }
     }
     if (effect.type == EffectType.COLOR_GRADE) {
         ColorGradeEditor(effect, onIntent)
@@ -126,7 +128,7 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
         // The LUT is chosen in the picker; only its intensity is a slider.
         if (effect.type == EffectType.LUT && i == 0) return@forEachIndexed
         InspectorSlider(
-            label = param.name,
+            label = effectParamName(param.name),
             value = effect.values[i].toFloat(),
             range = param.min.toFloat()..param.max.toFloat(),
             readout = formatValue(effect.values[i], param.max - param.min),
@@ -141,8 +143,11 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
 @Composable
 private fun KeyColourSwatches(effect: Effect, onIntent: (EditorIntent) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = "Key colour", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
-        for ((name, rgb) in KEY_COLOURS) {
+        Text(text = stringResource(R.string.ed_2b_key_colour), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        for ((nameRes, rgb) in KEY_COLOURS) {
+            val name = stringResource(nameRes)
+            val selectedDescription = stringResource(R.string.ed_2b_key_colour_selected, name)
+            val plainDescription = stringResource(R.string.ed_2b_key_colour_named, name)
             val selected = rgb.indices.all { kotlin.math.abs(effect.values[it] - rgb[it]) < KEY_MATCH }
             Box(
                 modifier = Modifier
@@ -160,7 +165,7 @@ private fun KeyColourSwatches(effect: Effect, onIntent: (EditorIntent) -> Unit) 
                         onIntent(EditorIntent.UpdateEffect(effect.id, values))
                         onIntent(EditorIntent.EndFxEdit(commit = true))
                     }
-                    .semantics { contentDescription = "Key colour $name${if (selected) ", selected" else ""}" },
+                    .described(if (selected) selectedDescription else plainDescription),
             )
         }
     }
@@ -168,13 +173,13 @@ private fun KeyColourSwatches(effect: Effect, onIntent: (EditorIntent) -> Unit) 
 
 @Composable
 private fun BlendControls(mode: BlendMode, onIntent: (EditorIntent) -> Unit) {
-    Text(text = "Blend", style = MaterialTheme.typography.titleSmall)
+    Text(text = stringResource(R.string.ed_2b_blend), style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
         for (candidate in BlendMode.entries) {
             FilterChip(
                 selected = candidate == mode,
                 onClick = { onIntent(EditorIntent.SetBlendMode(candidate)) },
-                label = { Text(candidate.label) },
+                label = { Text(stringResource(candidate.labelRes())) },
             )
         }
     }
@@ -186,39 +191,39 @@ private fun MaskControls(mask: ClipMask?, onIntent: (EditorIntent) -> Unit) {
         onIntent(EditorIntent.UpdateMask(next))
         onIntent(EditorIntent.EndFxEdit(commit = true))
     }
-    Text(text = "Mask", style = MaterialTheme.typography.titleSmall)
+    Text(text = stringResource(R.string.ed_2b_mask), style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = mask == null, onClick = { change(null) }, label = { Text("Off") })
+        FilterChip(selected = mask == null, onClick = { change(null) }, label = { Text(stringResource(R.string.ed_2b_off)) })
         FilterChip(
             selected = mask?.shape == MaskShape.RECTANGLE,
             onClick = { change((mask ?: ClipMask()).copy(shape = MaskShape.RECTANGLE)) },
-            label = { Text("Rectangle") },
+            label = { Text(stringResource(R.string.ed_2b_rectangle)) },
         )
         FilterChip(
             selected = mask?.shape == MaskShape.ELLIPSE,
             onClick = { change((mask ?: ClipMask()).copy(shape = MaskShape.ELLIPSE)) },
-            label = { Text("Ellipse") },
+            label = { Text(stringResource(R.string.ed_2b_ellipse)) },
         )
     }
     if (mask == null) return
     val finish = EditorIntent.EndFxEdit(commit = true)
-    InspectorSlider("Centre X", mask.centerX.toFloat(), -HALF..HALF, percent(mask.centerX), onIntent, finish) {
+    InspectorSlider(stringResource(R.string.ed_2b_mask_centre_x), mask.centerX.toFloat(), -HALF..HALF, percent(mask.centerX), onIntent, finish) {
         onIntent(EditorIntent.UpdateMask(mask.copy(centerX = it.toDouble())))
     }
-    InspectorSlider("Centre Y", mask.centerY.toFloat(), -HALF..HALF, percent(mask.centerY), onIntent, finish) {
+    InspectorSlider(stringResource(R.string.ed_2b_mask_centre_y), mask.centerY.toFloat(), -HALF..HALF, percent(mask.centerY), onIntent, finish) {
         onIntent(EditorIntent.UpdateMask(mask.copy(centerY = it.toDouble())))
     }
-    InspectorSlider("Width", mask.width.toFloat().coerceAtMost(MASK_SLIDER_MAX), MASK_SLIDER_MIN..MASK_SLIDER_MAX, percent(mask.width), onIntent, finish) {
+    InspectorSlider(stringResource(R.string.ed_2b_q_width), mask.width.toFloat().coerceAtMost(MASK_SLIDER_MAX), MASK_SLIDER_MIN..MASK_SLIDER_MAX, percent(mask.width), onIntent, finish) {
         onIntent(EditorIntent.UpdateMask(mask.copy(width = it.toDouble())))
     }
-    InspectorSlider("Height", mask.height.toFloat().coerceAtMost(MASK_SLIDER_MAX), MASK_SLIDER_MIN..MASK_SLIDER_MAX, percent(mask.height), onIntent, finish) {
+    InspectorSlider(stringResource(R.string.ed_2b_mask_height), mask.height.toFloat().coerceAtMost(MASK_SLIDER_MAX), MASK_SLIDER_MIN..MASK_SLIDER_MAX, percent(mask.height), onIntent, finish) {
         onIntent(EditorIntent.UpdateMask(mask.copy(height = it.toDouble())))
     }
-    InspectorSlider("Feather", mask.feather.toFloat(), 0f..ClipMask.MAX_FEATHER.toFloat(), percent(mask.feather), onIntent, finish) {
+    InspectorSlider(stringResource(R.string.ed_2b_mask_feather), mask.feather.toFloat(), 0f..ClipMask.MAX_FEATHER.toFloat(), percent(mask.feather), onIntent, finish) {
         onIntent(EditorIntent.UpdateMask(mask.copy(feather = it.toDouble())))
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        Text(text = "Invert", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_invert), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
         Switch(checked = mask.invert, onCheckedChange = { change(mask.copy(invert = it)) })
     }
 }
@@ -242,9 +247,9 @@ private const val MASK_SLIDER_MIN = 0.05f
 private const val MASK_SLIDER_MAX = 1.5f
 
 private val KEY_COLOURS = listOf(
-    "green" to doubleArrayOf(0.0, 1.0, 0.0),
-    "blue" to doubleArrayOf(0.0, 0.0, 1.0),
-    "red" to doubleArrayOf(1.0, 0.0, 0.0),
-    "white" to doubleArrayOf(1.0, 1.0, 1.0),
-    "black" to doubleArrayOf(0.0, 0.0, 0.0),
+    R.string.ed_2a_colour_green to doubleArrayOf(0.0, 1.0, 0.0),
+    R.string.ed_2a_colour_blue to doubleArrayOf(0.0, 0.0, 1.0),
+    R.string.ed_2a_colour_red to doubleArrayOf(1.0, 0.0, 0.0),
+    R.string.ed_2b_colour_white to doubleArrayOf(1.0, 1.0, 1.0),
+    R.string.ed_2b_colour_black to doubleArrayOf(0.0, 0.0, 0.0),
 )

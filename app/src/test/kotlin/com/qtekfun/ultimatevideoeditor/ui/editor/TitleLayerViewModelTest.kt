@@ -33,6 +33,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TitleLayerViewModelTest {
@@ -73,7 +74,7 @@ class TitleLayerViewModelTest {
     private class Harness(val vm: EditorViewModel, val effects: MutableList<EditorEffect>) {
         val state get() = vm.state.value
 
-        fun messages() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
 
         val title get() = state.timeline.tracks.flatMap { it.clips }.first { it.title != null }
     }

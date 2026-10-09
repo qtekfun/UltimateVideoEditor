@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.engine.timeline.EngineStatus
 import java.util.concurrent.ConcurrentHashMap
 
@@ -12,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class ThumbnailFailures(
     private val projectId: String,
     private val log: (String) -> Unit,
-    private val show: (String) -> Unit,
+    private val show: (UiText) -> Unit,
     private val alreadyShown: MutableSet<String> = shownInThisProcess,
 ) {
     private class Source(val name: String, val uri: String)
@@ -35,7 +37,7 @@ internal class ThumbnailFailures(
     companion object {
         private val shownInThisProcess: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
-        fun message(name: String?, status: EngineStatus): String =
-            if (name == null) "Could not generate a filmstrip ($status)" else "No filmstrip for $name ($status)"
+        fun message(name: String?, status: EngineStatus): UiText =
+            if (name == null) UiText.res(R.string.ed_2b_filmstrip_failed, status) else UiText.res(R.string.ed_2b_filmstrip_missing, name, status)
     }
 }

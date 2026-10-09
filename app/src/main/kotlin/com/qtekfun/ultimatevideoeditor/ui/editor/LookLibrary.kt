@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.LookStore
@@ -23,7 +26,7 @@ data class GradeClipboard(val values: List<Double>, val curves: GradeCurves)
 data class LookLibraryState(
     val looks: List<GradeLook> = emptyList(),
     val clipboard: GradeClipboard? = null,
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 /**
@@ -53,7 +56,7 @@ class LookLibraryViewModel(
     fun save(name: String, grade: Effect) {
         val clean = name.trim()
         if (clean.isEmpty()) {
-            _state.update { it.copy(error = "Give the look a name") }
+            _state.update { it.copy(error = UiText.res(R.string.ed_2b_look_needs_name)) }
             return
         }
         if (grade.type != EffectType.COLOR_GRADE) return
@@ -67,7 +70,7 @@ class LookLibraryViewModel(
                 withContext(io) { store.save(look) }
                 _state.update { it.copy(looks = (it.looks + look).sortedBy { l -> l.name.lowercase() }, error = null) }
             } catch (e: IOException) {
-                _state.update { it.copy(error = e.message ?: "The look could not be saved") }
+                _state.update { it.copy(error = rawOr(e.message, UiText.res(R.string.ed_2b_look_not_saved))) }
             }
         }
     }

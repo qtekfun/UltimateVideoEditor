@@ -39,6 +39,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EditorViewModelTest {
@@ -1023,7 +1024,7 @@ class EditorViewModelTest {
 
         assertEquals(2, h.clips("v1").size)
         assertFalse(h.state.isImporting)
-        assertEquals("Unsupported file", (h.effects.single() as EditorEffect.ShowMessage).text)
+        assertEquals("Unsupported file", (h.effects.single() as EditorEffect.ShowMessage).text.english())
     }
 
     @Test
@@ -1328,7 +1329,7 @@ class EditorViewModelTest {
 
         h.vm.onIntent(EditorIntent.BeginAppearanceEdit)
 
-        assertEquals("Select a clip first", (h.effects.single() as EditorEffect.ShowMessage).text)
+        assertEquals("Select a clip first", (h.effects.single() as EditorEffect.ShowMessage).text.english())
     }
 
     @Test

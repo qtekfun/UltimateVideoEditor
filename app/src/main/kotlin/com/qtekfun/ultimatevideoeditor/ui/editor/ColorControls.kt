@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -76,18 +79,18 @@ internal fun ColorGradeEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) 
     }
     LookRow(effect, onIntent)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        ColorWheel("Lift", effect, LIFT, onIntent, Modifier.weight(1f))
-        ColorWheel("Gamma", effect, GAMMA, onIntent, Modifier.weight(1f))
-        ColorWheel("Gain", effect, GAIN, onIntent, Modifier.weight(1f))
+        ColorWheel(stringResource(R.string.ed_2b_lift), effect, LIFT, onIntent, Modifier.weight(1f))
+        ColorWheel(stringResource(R.string.ed_2b_gamma), effect, GAMMA, onIntent, Modifier.weight(1f))
+        ColorWheel(stringResource(R.string.ed_2b_gain), effect, GAIN, onIntent, Modifier.weight(1f))
     }
     for (channel in 0 until 3) {
         val index = OFFSET + channel
         val param = EffectType.COLOR_GRADE.params[index]
-        GradeSlider(param.name, effect.values[index], param.min, param.max, onIntent, finish, ParamIds.fx(effect.id, index)) { change(index, it) }
+        GradeSlider(effectParamName(param.name), effect.values[index], param.min, param.max, onIntent, finish, ParamIds.fx(effect.id, index)) { change(index, it) }
     }
     for (index in 15..20) {
         val param = EffectType.COLOR_GRADE.params[index]
-        GradeSlider(param.name, effect.values[index], param.min, param.max, onIntent, finish, ParamIds.fx(effect.id, index)) { change(index, it) }
+        GradeSlider(effectParamName(param.name), effect.values[index], param.min, param.max, onIntent, finish, ParamIds.fx(effect.id, index)) { change(index, it) }
     }
     CurvesEditor(effect, onIntent)
     TextButton(
@@ -96,7 +99,7 @@ internal fun ColorGradeEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) 
             onIntent(finish)
         },
         enabled = effect.values != GRADE_DEFAULTS || effect.curves != null,
-    ) { Text("Reset colour grade") }
+    ) { Text(stringResource(R.string.ed_2b_reset_colour_grade)) }
 }
 
 @Composable
@@ -133,23 +136,23 @@ private fun LookRow(effect: Effect, onIntent: (EditorIntent) -> Unit) {
     var browsing by remember { mutableStateOf(false) }
     val clipboard = actions.state.clipboard
     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { browsing = true }) { Text("Looks · ${actions.state.looks.size}") }
-        TextButton(onClick = { saving = true }) { Text("Save look") }
-        TextButton(onClick = { actions.copy(effect) }) { Text("Copy grade") }
+        TextButton(onClick = { browsing = true }) { Text(stringResource(R.string.ed_2b_looks, actions.state.looks.size)) }
+        TextButton(onClick = { saving = true }) { Text(stringResource(R.string.ed_2b_save_look)) }
+        TextButton(onClick = { actions.copy(effect) }) { Text(stringResource(R.string.ed_2b_copy_grade)) }
         TextButton(
             onClick = { clipboard?.let { onIntent(EditorIntent.ApplyGrade(it.values, it.curves)) } },
             enabled = clipboard != null,
-        ) { Text("Paste grade") }
+        ) { Text(stringResource(R.string.ed_2b_paste_grade)) }
     }
     if (saving) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { saving = false },
-            title = { Text("Save look") },
+            title = { Text(stringResource(R.string.ed_2b_save_look)) },
             text = {
                 Column {
-                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
-                    actions.state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.hub_sort_name)) }, singleLine = true)
+                    actions.state.error?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
             },
             confirmButton = {
@@ -159,19 +162,19 @@ private fun LookRow(effect: Effect, onIntent: (EditorIntent) -> Unit) {
                         saving = false
                     },
                     enabled = name.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(stringResource(R.string.ed_2b_save)) }
             },
-            dismissButton = { TextButton(onClick = { saving = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { saving = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
     if (browsing) {
         AlertDialog(
             onDismissRequest = { browsing = false },
-            title = { Text("Looks") },
+            title = { Text(stringResource(R.string.ed_2b_looks_2)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (actions.state.looks.isEmpty()) {
-                        Text("No looks yet. Grade a clip and choose Save look.", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.ed_2b_no_looks_yet_grade_a), style = MaterialTheme.typography.bodyMedium)
                     }
                     for (look in actions.state.looks) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -181,17 +184,17 @@ private fun LookRow(effect: Effect, onIntent: (EditorIntent) -> Unit) {
                                     onIntent(EditorIntent.ApplyGrade(look.values, look.curves))
                                     browsing = false
                                 },
-                                modifier = Modifier.semantics { contentDescription = "Apply look ${look.name}" },
-                            ) { Text("Apply") }
+                                modifier = Modifier.described(stringResource(R.string.ed_2b_apply_look, look.name)),
+                            ) { Text(stringResource(R.string.ed_2a_apply)) }
                             TextButton(
                                 onClick = { actions.delete(look.id) },
-                                modifier = Modifier.semantics { contentDescription = "Delete look ${look.name}" },
-                            ) { Text("Delete") }
+                                modifier = Modifier.described(stringResource(R.string.ed_2b_delete_look, look.name)),
+                            ) { Text(stringResource(R.string.common_delete)) }
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { browsing = false }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = { browsing = false }) { Text(stringResource(R.string.common_close)) } },
         )
     }
 }
@@ -220,15 +223,12 @@ private fun ColorWheel(title: String, effect: Effect, first: Int, onIntent: (Edi
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         Text(title, style = MaterialTheme.typography.labelMedium)
+        val wheelDescription = stringResource(R.string.ed_2b_wheel_description, title, "%.2f".format(effect.values[first]), "%.2f".format(effect.values[first + 1]), "%.2f".format(effect.values[first + 2]))
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .semantics {
-                    contentDescription = "$title wheel, red %.2f green %.2f blue %.2f".format(
-                        effect.values[first], effect.values[first + 1], effect.values[first + 2],
-                    )
-                }
+                .described(wheelDescription)
                 .pointerInput(first) {
                     // Only a drag that starts on the puck moves it; a swipe elsewhere over the wheel scrolls the panel.
                     detectGrabbedDrag(
@@ -282,7 +282,7 @@ private fun ColorWheel(title: String, effect: Effect, first: Int, onIntent: (Edi
             },
             onValueChangeFinished = { onIntent(finish) },
             valueRange = -1f..1f,
-            modifier = Modifier.semantics { contentDescription = "$title master %.2f".format(master) },
+            modifier = Modifier.described(stringResource(R.string.ed_2b_master_description, title, "%.2f".format(master))),
         )
         TextButton(
             onClick = {
@@ -296,15 +296,15 @@ private fun ColorWheel(title: String, effect: Effect, first: Int, onIntent: (Edi
                 onIntent(finish)
             },
             enabled = (0..3).any { effect.values[first + it] != 0.0 },
-            modifier = Modifier.semantics { contentDescription = "Reset $title" },
-        ) { Text("Reset") }
+            modifier = Modifier.described(stringResource(R.string.ed_2b_reset_2, title)),
+        ) { Text(stringResource(R.string.ed_2b_reset)) }
     }
 }
 
 // --- curves ---------------------------------------------------------------------------------
 
 private val CURVE_COLOURS = listOf(Color.White, Color(0xFFFF5A52), Color(0xFF4CD964), Color(0xFF4DA3FF))
-private val CURVE_NAMES = listOf("Master", "Red", "Green", "Blue")
+private val CURVE_NAMES = listOf(R.string.ed_2b_curve_master, R.string.ed_2a_colour_red, R.string.ed_2a_colour_green, R.string.ed_2a_colour_blue)
 private const val GRAB_RADIUS = 0.08
 private const val DRAW_STEPS = 64
 
@@ -336,10 +336,10 @@ private fun CurvesEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
         onIntent(EditorIntent.UpdateGrade(current.id, current.values, updated))
     }
 
-    Text("Curves", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.ed_2b_curves), style = MaterialTheme.typography.titleSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
         for (i in CURVE_NAMES.indices) {
-            FilterChip(selected = channel == i, onClick = { channel = i }, label = { Text(CURVE_NAMES[i]) })
+            FilterChip(selected = channel == i, onClick = { channel = i }, label = { Text(stringResource(CURVE_NAMES[i])) })
         }
     }
     Canvas(
@@ -347,7 +347,7 @@ private fun CurvesEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
             .fillMaxWidth()
             .aspectRatio(1f)
             .padding(horizontal = 24.dp)
-            .semantics { contentDescription = "${CURVE_NAMES[channel]} curve, ${curve.points.size} points. Tap to add a point, long press a point to remove it." }
+            .described(stringResource(R.string.ed_2b_curve_points_tap_to_add, stringResource(CURVE_NAMES[channel]), curve.points.size))
             .pointerInput(channel) {
                 // Only a drag that starts on a point moves it; a swipe elsewhere over the plot scrolls the panel.
                 var index: Int? = null
@@ -427,7 +427,7 @@ private fun CurvesEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
                 onIntent(finish)
             },
             enabled = !curve.isIdentity,
-        ) { Text("Reset ${CURVE_NAMES[channel].lowercase()} curve") }
+        ) { Text(stringResource(R.string.ed_2b_reset_curve, stringResource(CURVE_NAMES[channel]).lowercase())) }
         Box(modifier = Modifier.weight(1f))
     }
 }

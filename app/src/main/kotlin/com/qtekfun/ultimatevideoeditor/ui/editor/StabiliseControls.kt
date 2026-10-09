@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -46,11 +48,11 @@ internal fun StabiliseControls(clip: Clip, stab: StabUiState, onIntent: (EditorI
 
     Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("Stabilise", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ed_2b_stabilise), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
             Switch(
                 checked = settings != null,
                 onCheckedChange = { on -> onIntent(EditorIntent.SetStabilise(if (on) Stabilise() else null)) },
-                modifier = Modifier.semantics { contentDescription = "Stabilise this clip" },
+                modifier = Modifier.described(stringResource(R.string.ed_2b_stabilise_this_clip)),
             )
         }
         if (settings == null) return@Column
@@ -58,48 +60,50 @@ internal fun StabiliseControls(clip: Clip, stab: StabUiState, onIntent: (EditorI
         // The slider moves freely while dragged and commits one undo step when released.
         var strength by remember(clip.id, settings.strength) { mutableFloatStateOf(settings.strength.toFloat()) }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Strength", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(stringResource(R.string.ed_2b_strength), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
             Slider(
                 value = strength,
                 onValueChange = { strength = it },
                 onValueChangeFinished = { onIntent(EditorIntent.SetStabilise(settings.copy(strength = strength.toDouble()))) },
                 valueRange = 0f..1f,
-                modifier = Modifier.weight(1f).semantics { contentDescription = "Stabilise strength ${(strength * 100).roundToInt()} percent" },
+                modifier = Modifier.weight(1f).described(stringResource(R.string.ed_2b_stabilise_strength_percent, (strength * 100).roundToInt())),
             )
-            Text("${(strength * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.percent_value, (strength * 100).roundToInt()), style = MaterialTheme.typography.labelMedium)
         }
-        Text("Crop", style = MaterialTheme.typography.labelMedium)
+        Text(stringResource(R.string.ed_2b_crop), style = MaterialTheme.typography.labelMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (crop in StabCrop.entries) {
                 FilterChip(
                     selected = settings.crop == crop,
                     onClick = { onIntent(EditorIntent.SetStabilise(settings.copy(crop = crop))) },
-                    label = { Text(crop.label) },
+                    label = { Text(stringResource(crop.labelRes())) },
                 )
             }
         }
         Text(
-            when (settings.crop) {
-                StabCrop.TIGHT -> "Zooms in so no edge shows."
-                StabCrop.MEDIUM -> "Half the zoom; a little edge fill may show."
-                StabCrop.FULL -> "No zoom; edges repeat the border pixels."
-            },
+            stringResource(
+                when (settings.crop) {
+                    StabCrop.TIGHT -> R.string.ed_2b_crop_tight_note
+                    StabCrop.MEDIUM -> R.string.ed_2b_crop_medium_note
+                    StabCrop.FULL -> R.string.ed_2b_crop_full_note
+                },
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         val progress = stab.progress
         if (progress != null) {
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Analysing camera motion ${(progress * 100).roundToInt()} percent" })
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().described(stringResource(R.string.ed_2b_analysing_camera_motion_percent, (progress * 100).roundToInt())))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Analysing camera motion… ${(progress * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                TextButton(onClick = { onIntent(EditorIntent.CancelStabilise) }) { Text("Cancel") }
+                Text(stringResource(R.string.ed_2b_analysing_camera_motion, (progress * 100).roundToInt()), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = { onIntent(EditorIntent.CancelStabilise) }) { Text(stringResource(R.string.common_cancel)) }
             }
         } else {
             when (stab.status) {
-                StabStatus.Ready -> Text("Ready: the correction follows the camera path.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                StabStatus.Stale -> AnalyseRow("The clip reaches outside the analysed part. Analyse again to cover it.", "Analyse again", onIntent)
-                StabStatus.NotAnalysed, StabStatus.Off -> AnalyseRow("Not analysed yet: the camera motion has to be measured once for this file.", "Analyse", onIntent)
+                StabStatus.Ready -> Text(stringResource(R.string.ed_2b_ready_the_correction_follows_the), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                StabStatus.Stale -> AnalyseRow(stringResource(R.string.ed_2b_stab_stale), stringResource(R.string.ed_2a_analyse_again), onIntent)
+                StabStatus.NotAnalysed, StabStatus.Off -> AnalyseRow(stringResource(R.string.ed_2b_stab_not_analysed), stringResource(R.string.ed_2a_analyse), onIntent)
             }
         }
     }

@@ -1899,6 +1899,8 @@ language the app does not have shows English.
 errors for `MissingTranslation`, `ExtraTranslation`, `StringFormatInvalid`, `StringFormatMatches`, `StringFormatCount` and
 `MissingQuantity`. The device scripts pin the app to English (`scripts/device-ui.sh`, `docs/QA.md`).
 
+**Migrated in stage 2b:** the inspector (appearance, speed and curve, animation, titles, transition, sound tools, linked audio, source colour, colour grade, looks, curves, qualifier, effects, blend, mask, stabiliser, keyframe lanes), the mixer, the LUT and look pickers, the missing-media banners and dialogs, the folder-scan texts and the save-failed dialog; every message of the editor view model (`EditorEffect.ShowMessage` now carries a `UiText`; a `String` still works for text of the lower layers). The domain enums are shown through `ui/editor/EditorLabels.kt` (`labelRes()` per enum, `paramLabel()` for keyframe lanes) so the domain keeps its English names.
+
 **Migrated in stage 2a:** the editor top bar and transport, the whole tool row and its menus (marker and beats, quick edits, tracks, safe zones, select mode, library button, More menu, toolbar-order editor), the selection bar, the layout sheet, the canvas dialog and the motion-tracking and silence/reframe controls; `ToolbarItem`, `LayoutPreset`, `LaneHeight`, `AudioLaneHeight` carry `labelRes`; `EditorIntent.ReportText(UiText)` for messages the screen reports.
 
 **Migrated in stage 1:** Projects screen (cards, sort, selection bar, dialogs, snackbars, storage card), New project sheet and its
