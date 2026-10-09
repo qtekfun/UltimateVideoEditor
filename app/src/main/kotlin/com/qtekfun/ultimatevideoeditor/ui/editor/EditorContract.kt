@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.MediaProblem
 import com.qtekfun.ultimatevideoeditor.data.relink.FolderRelinkOutcome
 import com.qtekfun.ultimatevideoeditor.data.MissingAsset
@@ -720,6 +721,9 @@ sealed interface EditorIntent : UiIntent {
 
 sealed interface EditorEffect : UiEffect {
     data class ShowMessage(val text: String) : EditorEffect
+
+    /** A message already in resource form (a translatable [UiText]); shown like [ShowMessage] in the language in use. */
+    data class ShowText(val text: UiText) : EditorEffect
     data object Close : EditorEffect
 
     /** Open the document picker to choose a replacement for [assetId]. */

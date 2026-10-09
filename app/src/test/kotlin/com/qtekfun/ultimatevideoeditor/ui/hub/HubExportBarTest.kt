@@ -25,6 +25,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HubExportBarTest {
@@ -119,7 +120,7 @@ class HubExportBarTest {
         jobs.flow.value = ExportJobState.Failed("p1", "Holiday", ExportException(ExportErrorCode.IO_ERROR, "disk full"))
 
         val bar = vm.state.value.exportBar as ExportBar.Failed
-        assertTrue(bar.message, bar.message.contains("disk full"))
+        assertTrue(bar.message.english(), bar.message.english().contains("disk full"))
 
         vm.onIntent(HubIntent.DismissExportBar)
         assertNull(vm.state.value.exportBar)

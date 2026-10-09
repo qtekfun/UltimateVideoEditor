@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportCodec
 
@@ -11,7 +13,7 @@ import com.qtekfun.ultimatevideoeditor.engine.export.ExportCodec
  */
 data class ExportPreset(
     val id: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val shortSide: Int,
     val maxFps: Int,
     val codec: ExportCodec,
@@ -21,12 +23,12 @@ data class ExportPreset(
 
 object ExportPresets {
     val all: List<ExportPreset> = listOf(
-        ExportPreset("youtube-1080", "YouTube 1080p", 1080, 60, ExportCodec.H264, 12, "16:9"),
-        ExportPreset("youtube-4k", "YouTube 4K", 2160, 60, ExportCodec.HEVC, 35, "16:9"),
-        ExportPreset("youtube-shorts", "YouTube Shorts", 1080, 60, ExportCodec.H264, 12, "9:16"),
-        ExportPreset("tiktok", "TikTok", 1080, 30, ExportCodec.H264, 8, "9:16"),
-        ExportPreset("instagram-reels", "Instagram Reels", 1080, 30, ExportCodec.H264, 8, "9:16"),
-        ExportPreset("instagram-feed", "Instagram feed", 1080, 30, ExportCodec.H264, 8, "4:5"),
+        ExportPreset("youtube-1080", R.string.export_preset_youtube_1080, 1080, 60, ExportCodec.H264, 12, "16:9"),
+        ExportPreset("youtube-4k", R.string.export_preset_youtube_4k, 2160, 60, ExportCodec.HEVC, 35, "16:9"),
+        ExportPreset("youtube-shorts", R.string.export_preset_youtube_shorts, 1080, 60, ExportCodec.H264, 12, "9:16"),
+        ExportPreset("tiktok", R.string.export_preset_tiktok, 1080, 30, ExportCodec.H264, 8, "9:16"),
+        ExportPreset("instagram-reels", R.string.export_preset_instagram_reels, 1080, 30, ExportCodec.H264, 8, "9:16"),
+        ExportPreset("instagram-feed", R.string.export_preset_instagram_feed, 1080, 30, ExportCodec.H264, 8, "4:5"),
     )
 }
 

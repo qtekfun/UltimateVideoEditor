@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /** The time the export and its check took, as the summary says it. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -32,18 +33,18 @@ class ExportTimingTest {
 
     @Test
     fun `the timing line names the export and, when it ran, the check`() {
-        assertEquals("Exported in 3:12, checked in 4 s", exportTimingLine(192_000, 3_600))
-        assertEquals("Exported in 3:12", exportTimingLine(192_000, 0))
-        assertEquals("", exportTimingLine(0, 3_600))
+        assertEquals("Exported in 3:12, checked in 4 s", exportTimingLine(192_000, 3_600).english())
+        assertEquals("Exported in 3:12", exportTimingLine(192_000, 0).english())
+        assertEquals("", exportTimingLine(0, 3_600).english())
     }
 
     @Test
     fun `the result text carries the timing next to the verdict`() {
         val verified = VerificationOutcome.Verified(VerifiedFacts(300, 10_000_000, 12, 150, 800))
         val text = exportResultText("", verified, 192_000, 3_600)
-        assertEquals("Exported in 3:12, checked in 4 s", text.timing)
+        assertEquals("Exported in 3:12, checked in 4 s", text.timing.english())
         assertEquals(ResultSeverity.OK, text.severity)
-        assertEquals("", exportResultText("", verified).timing)
+        assertEquals("", exportResultText("", verified).timing.english())
     }
 
     private class Io : ExportIO {
@@ -95,6 +96,6 @@ class ExportTimingTest {
         val done = executor.state.value as ExportJobState.Done
         assertEquals(192_000L, done.exportMs)
         assertEquals(4_000L, done.verifyMs)
-        assertTrue(exportResultText(done.note, done.verification, done.exportMs, done.verifyMs).timing.startsWith("Exported in 3:12"))
+        assertTrue(exportResultText(done.note, done.verification, done.exportMs, done.verifyMs).timing.english().startsWith("Exported in 3:12"))
     }
 }

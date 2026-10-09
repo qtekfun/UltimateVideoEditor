@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.ImportReport
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleWriteObserver
 import kotlinx.coroutines.flow.StateFlow
@@ -36,7 +37,7 @@ sealed interface ImportJobState {
     ) : ImportJobState
 
     /** It failed; [message] names the cause and says nothing was added. Stays in the bar until dismissed. */
-    data class Failed(val uri: String, val sourceName: String, val message: String) : ImportJobState
+    data class Failed(val uri: String, val sourceName: String, val message: UiText) : ImportJobState
 
     /** The user cancelled; everything the import had made is removed. */
     data class Cancelled(val uri: String, val sourceName: String) : ImportJobState

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import kotlinx.coroutines.flow.StateFlow
 
 /** What the project list and the editors need from the process-wide export; [ExportExecutor] is the real one. */
@@ -28,11 +30,11 @@ sealed interface ExportBar {
         /** The movie is finished and its file is being checked. */
         val verifying: Boolean = false,
     ) : ExportBar {
-        val detail: String
+        val detail: UiText
             get() = when {
-                verifying -> "Verifying the saved file · $percent%"
-                remainingMs != null -> "$percent% · about ${formatDuration(remainingMs)} left"
-                else -> "$percent%"
+                verifying -> UiText.res(R.string.bar_verifying_saved, percent)
+                remainingMs != null -> UiText.res(R.string.percent_value_left, percent, formatDuration(remainingMs))
+                else -> UiText.res(R.string.percent_value, percent)
             }
     }
 
@@ -42,13 +44,13 @@ sealed interface ExportBar {
         val uri: String,
         val fileName: String,
         /** What the post-export check found (empty headline when none ran). */
-        val result: ExportResultText = ExportResultText(ResultSeverity.UNVERIFIED, "", ""),
+        val result: ExportResultText = ExportResultText(ResultSeverity.UNVERIFIED, UiText.Empty, UiText.Empty),
     ) : ExportBar
 
     data class Failed(
         override val projectId: String,
         override val projectName: String,
-        val message: String,
+        val message: UiText,
     ) : ExportBar
 }
 
@@ -65,7 +67,7 @@ fun exportBarFor(state: ExportJobState): ExportBar? = when (state) {
     is ExportJobState.Done ->
         ExportBar.Finished(state.projectId, state.projectName, state.uri, state.fileName, exportResultText(state.note, state.verification, state.exportMs, state.verifyMs))
     is ExportJobState.Failed ->
-        ExportBar.Failed(state.projectId, state.projectName, describeExportFailure(state.error, hdr = false) + state.leftoverNote)
+        ExportBar.Failed(state.projectId, state.projectName, UiText.join("", describeExportFailure(state.error, hdr = false), state.leftoverNote))
 }
 
 /** Whether the Export button of the editor of one project may open its dialog right now. */
@@ -77,7 +79,7 @@ sealed interface ExportAvailability {
 
     /** Another project is exporting; only one export runs at a time. */
     data class BlockedBy(val projectName: String) : ExportAvailability {
-        val message: String get() = "Another export is running: $projectName"
+        val message: UiText get() = UiText.res(R.string.export_blocked_by, projectName)
     }
 }
 

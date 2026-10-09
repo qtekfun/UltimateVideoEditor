@@ -138,6 +138,36 @@ android {
         compose = true
         prefab = true
     }
+
+    testOptions {
+        unitTests.all {
+            // Numbers, dates and sizes are formatted with the language in use; the tests assert on English text, so the JVM
+            // must not pick up the language of the machine that runs them.
+            it.systemProperty("user.language", "en")
+            it.systemProperty("user.country", "US")
+        }
+    }
+
+    bundle {
+        // The in-app language picker must be able to show a language the phone is not set to, so an app bundle keeps every language in
+        // the base install instead of splitting them off by device language.
+        language {
+            enableSplit = false
+        }
+    }
+
+    lint {
+        // Translations are bundled and checked by the build: a string missing in a language, left over after its source went away, or
+        // with other format arguments than the source would show a wrong or empty text, or crash, on a device.
+        error += listOf(
+            "MissingTranslation",
+            "ExtraTranslation",
+            "StringFormatInvalid",
+            "StringFormatMatches",
+            "StringFormatCount",
+            "MissingQuantity",
+        )
+    }
 }
 
 kotlin {

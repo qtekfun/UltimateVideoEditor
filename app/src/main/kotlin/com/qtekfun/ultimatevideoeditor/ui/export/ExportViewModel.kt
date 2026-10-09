@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.namedList
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
@@ -218,7 +221,7 @@ class ExportViewModel(
             is ExportJobState.Failed -> {
                 mirrored = job
                 reduce {
-                    copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Failed(describeExportFailure(job.error, hdr) + job.leftoverNote))
+                    copy(visible = true, hiddenWhileRunning = false, phase = ExportPhase.Failed(UiText.join("", describeExportFailure(job.error, hdr), job.leftoverNote)))
                 }
             }
             is ExportJobState.Cancelled -> {
@@ -274,13 +277,11 @@ class ExportViewModel(
     }
 
     /** Names the clips that need unreadable media, or null when every file can be opened. */
-    private fun missingMediaProblem(): String? {
+    private fun missingMediaProblem(): UiText? {
         val source = input ?: return null
         val clips = MissingMedia.clipsUsing(source.timeline, source.missingAssetIds, source.fps)
         if (clips.isEmpty()) return null
-        val shown = clips.take(MAX_NAMED_CLIPS).joinToString(", ") { it.where }
-        val more = if (clips.size > MAX_NAMED_CLIPS) " and ${clips.size - MAX_NAMED_CLIPS} more" else ""
-        return "Cannot export: the media for ${clips.size} clip(s) is missing ($shown$more). Relink it in the editor first."
+        return UiText.plural(R.plurals.export_missing_media, clips.size, clips.size, namedList(clips.map { it.where }, MAX_NAMED_CLIPS))
     }
 
     /** The check of the last export found a problem and the user chose to export again: the file stays, the settings come back. */
@@ -307,12 +308,12 @@ class ExportViewModel(
             return
         }
         if (current.hdr && !hdrSupport.supportsHlgExport(resolution.width, resolution.height, rate.num, rate.den)) {
-            reduce { copy(phase = ExportPhase.Failed("This device cannot export HDR at ${resolution.label}. Choose SDR or a lower resolution.")) }
+            reduce { copy(phase = ExportPhase.Failed(UiText.res(R.string.export_hdr_unsupported, resolution.label))) }
             return
         }
         reduce { copy(phase = ExportPhase.Running(0, startedAtMs = clock())) }
         val job = ExportJob(projectId, current.projectName, uri) { buildRequest(source, uri, resolution, rate, current) }
-        if (!executor.start(job)) reduce { copy(phase = ExportPhase.Failed(executor.refusalReason() ?: "Another export is already running.")) }
+        if (!executor.start(job)) reduce { copy(phase = ExportPhase.Failed(executor.refusalReason() ?: UiText.res(R.string.export_already_running))) }
     }
 
     /** Opens every descriptor and builds what the engine needs. Runs on the executor's IO dispatcher. */
@@ -324,12 +325,12 @@ class ExportViewModel(
         current: ExportState,
     ): ExportRequest {
         val plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight)
-            ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.")
+            ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.", UiText.res(R.string.export_nothing))
         val titleImages = plan.titles.map { (key, content) ->
             val bitmap = try {
                 titleRasterizer.rasterize(content, source.projectWidth, source.projectHeight)
             } catch (e: TitleRasterException) {
-                throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A title could not be drawn: ${e.message}")
+                throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A title could not be drawn: ${e.message}", UiText.res(R.string.export_title_not_drawn, e.message.orEmpty()))
             }
             ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
         }
@@ -341,7 +342,7 @@ class ExportViewModel(
             try {
                 stillRasterizer.rasterize(still.copy(frame = 0), source.projectWidth, source.projectHeight)
             } catch (e: StillRasterException) {
-                throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A picture could not be drawn: ${e.message}")
+                throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A picture could not be drawn: ${e.message}", UiText.res(R.string.export_picture_not_drawn, e.message.orEmpty()))
             }
         }
         val pictures = StillPictureProvider(stillByKey, stillRasterizer, source.projectWidth, source.projectHeight)
@@ -357,7 +358,7 @@ class ExportViewModel(
         } catch (e: IOException) {
             opened.values.forEach(io::close)
             if (outputFd >= 0) io.close(outputFd)
-            throw ExportException(ExportErrorCode.IO_ERROR, "Cannot open a file for the export: ${e.message}")
+            throw ExportException(ExportErrorCode.IO_ERROR, "Cannot open a file for the export: ${e.message}", UiText.res(R.string.export_cannot_open_file, e.message.orEmpty()))
         }
 
         val settings = ExportSettings(

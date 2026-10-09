@@ -1,20 +1,25 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
-/** Which check found a problem; [label] is what the user reads. */
-enum class VerifyCheck(val label: String) {
-    CONTAINER("file structure"),
-    FRAME_COUNT("frame count"),
-    TIMING("timestamps"),
-    AUDIO("audio"),
-    SAMPLE_DATA("stored data"),
-    DECODE("decoding"),
-    FRAME_ORDER("frame order"),
-    FLAT_FRAME("blank frames"),
-    PICTURE("picture"),
+import androidx.annotation.StringRes
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+
+/** Which check found a problem; [labelRes] is the name the user reads. */
+enum class VerifyCheck(@StringRes val labelRes: Int) {
+    CONTAINER(R.string.verify_check_container),
+    FRAME_COUNT(R.string.verify_check_frame_count),
+    TIMING(R.string.verify_check_timing),
+    AUDIO(R.string.verify_check_audio),
+    SAMPLE_DATA(R.string.verify_check_sample_data),
+    DECODE(R.string.verify_check_decode),
+    FRAME_ORDER(R.string.verify_check_frame_order),
+    FLAT_FRAME(R.string.verify_check_flat_frame),
+    PICTURE(R.string.verify_check_picture),
 }
 
 /**
- * One thing that is wrong with the file. [tailFrames] says how many frames at the very end are affected (0 when the
+ * One thing that is wrong with the file. [message] is a technical remark of the verifier in English (its numbers and timestamps);
+ * the words around it are translated (see [VerificationText]). [tailFrames] says how many frames at the very end are affected (0 when the
  * problem is not at the end or cannot be counted); the headline uses it: "the last N frames look damaged".
  */
 data class Finding(val check: VerifyCheck, val message: String, val tailFrames: Long = 0)
@@ -69,7 +74,7 @@ sealed interface VerificationOutcome {
     }
 
     /** The check itself could not run (no decoder, the file could not be opened, an error inside the verifier). */
-    data class CouldNotVerify(val reason: String) : VerificationOutcome
+    data class CouldNotVerify(val reason: UiText) : VerificationOutcome
 
     /** The user cancelled while it ran. */
     data object Skipped : VerificationOutcome
@@ -83,36 +88,36 @@ sealed interface VerificationOutcome {
 
 /** The words for an outcome, shared by the dialog, the notification and the QA result file. */
 object VerificationText {
-    fun headline(o: VerificationOutcome): String = when (o) {
-        is VerificationOutcome.Verified -> "Checked: the video is complete (${o.facts.frames} frames, ${formatClock(o.facts.durationUs)})"
+    fun headline(o: VerificationOutcome): UiText = when (o) {
+        is VerificationOutcome.Verified ->
+            UiText.plural(R.plurals.verify_headline_complete, o.facts.frames.toInt(), o.facts.frames, formatClock(o.facts.durationUs))
         is VerificationOutcome.Warning -> warningHeadline(o)
-        is VerificationOutcome.CouldNotVerify -> "Could not check the file"
-        VerificationOutcome.Skipped -> "Verification skipped (cancelled)"
+        is VerificationOutcome.CouldNotVerify -> UiText.res(R.string.verify_headline_could_not)
+        VerificationOutcome.Skipped -> UiText.res(R.string.verify_headline_skipped)
     }
 
-    private fun warningHeadline(o: VerificationOutcome.Warning): String {
+    private fun warningHeadline(o: VerificationOutcome.Warning): UiText {
         val tail = o.damagedTailFrames
         val which = o.findings.map { it.check }.distinct()
         return when {
             tail > 0 && which.any { it == VerifyCheck.FRAME_COUNT || it == VerifyCheck.CONTAINER } && which.none { it == VerifyCheck.PICTURE || it == VerifyCheck.DECODE } ->
-                "WARNING: ${lastFrames(tail)} ${if (tail == 1L) "looks" else "look"} missing"
-            tail > 0 -> "WARNING: ${lastFrames(tail)} ${if (tail == 1L) "looks" else "look"} damaged"
-            else -> "WARNING: the exported file did not pass the check"
+                UiText.plural(R.plurals.verify_headline_tail_missing, tail.toInt())
+            tail > 0 -> UiText.plural(R.plurals.verify_headline_tail_damaged, tail.toInt())
+            else -> UiText.res(R.string.verify_headline_failed)
         }
     }
 
     /** A second line: what was checked, or which checks failed and why. */
-    fun detail(o: VerificationOutcome): String = when (o) {
+    fun detail(o: VerificationOutcome): UiText = when (o) {
         is VerificationOutcome.Verified -> {
             val f = o.facts
-            "${f.frames} frames, ${formatSeconds(f.durationUs)}"
+            UiText.plural(R.plurals.verify_detail_facts, f.frames.toInt(), f.frames, formatSeconds(f.durationUs))
         }
-        is VerificationOutcome.Warning -> o.findings.joinToString(" ") { "${it.check.label}: ${it.message}." }
-        is VerificationOutcome.CouldNotVerify -> "${o.reason}. The file was not checked; play its end before relying on it."
-        VerificationOutcome.Skipped -> "The file was not checked."
+        is VerificationOutcome.Warning ->
+            UiText.join(" ", o.findings.map { UiText.res(R.string.verify_detail_finding, UiText.res(it.check.labelRes), it.message) })
+        is VerificationOutcome.CouldNotVerify -> UiText.res(R.string.verify_detail_could_not, o.reason)
+        VerificationOutcome.Skipped -> UiText.res(R.string.verify_detail_skipped)
     }
-
-    private fun lastFrames(n: Long) = if (n == 1L) "the last frame" else "the last $n frames"
 
     /** mm:ss, or h:mm:ss from an hour. */
     fun formatClock(us: Long): String {
@@ -134,7 +139,8 @@ object VerificationText {
             java.util.Locale.ROOT, o.facts.worst.lumaMean, o.facts.worst.chromaMean, o.facts.worst.badCellShare,
         )
         is VerificationOutcome.Warning -> "verification=warning tail_frames=${o.damagedTailFrames} checks=${o.findings.joinToString(",") { it.check.name.lowercase() }}"
-        is VerificationOutcome.CouldNotVerify -> "verification=could_not_verify reason=${o.reason.replace('\n', ' ')}"
+        is VerificationOutcome.CouldNotVerify -> "verification=could_not_verify reason=${o.reason.toString().replace('\n', ' ')}"
         VerificationOutcome.Skipped -> "verification=skipped"
     }
 }
+

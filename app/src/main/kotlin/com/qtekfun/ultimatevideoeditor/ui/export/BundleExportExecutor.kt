@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.isEmpty
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleItemKind
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleVerification
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleWriteCancelled
@@ -39,7 +42,7 @@ class BundleExportExecutor(
     private val onStarted: () -> Unit = {},
     private val verifier: BundleVerifier? = null,
     /** A description of the other long job when one is running ("Exporting Holiday"), else null. */
-    private val otherJobBusy: () -> String? = { null },
+    private val otherJobBusy: () -> UiText? = { null },
     private val publishEveryMs: Long = BundleProgressTracker.DEFAULT_PUBLISH_MS,
 ) : BundleJobHost {
     private val mutableState = MutableStateFlow<BundleJobState>(BundleJobState.Idle)
@@ -55,8 +58,8 @@ class BundleExportExecutor(
     override fun start(next: BundleJob): BundleStart {
         val tracker = BundleProgressTracker(clock, publishEveryMs)
         synchronized(lock) {
-            (mutableState.value as? BundleJobState.Running)?.let { return BundleStart.Refused("A backup is already running: ${it.projectName}. Wait for it to finish or cancel it first.") }
-            otherJobBusy()?.let { return BundleStart.Refused("Another long job is running ($it). Start the backup when it has finished, or cancel that one first.") }
+            (mutableState.value as? BundleJobState.Running)?.let { return BundleStart.Refused(UiText.res(R.string.refused_backup_running, it.projectName)) }
+            otherJobBusy()?.let { return BundleStart.Refused(UiText.res(R.string.refused_other_job_backup, it)) }
             cancelRequested = false
             startedAt = clock()
             mutableState.value = BundleJobState.Running(next.projectId, next.projectName, BundleProgress(), startedAt)
@@ -126,19 +129,21 @@ class BundleExportExecutor(
 
     private fun stopped(job: BundleJob) {
         val removed = io.deleteOutput(job.outputUri)
-        val leftover = if (removed) "" else leftoverNote(job)
+        val leftover = if (removed) UiText.Empty else leftoverNote(job)
         mutableState.value = BundleJobState.Cancelled(job.projectId, job.projectName, leftover)
         if (leftover.isEmpty()) mutableDetails.value = false
     }
 
     private fun failed(job: BundleJob, error: Exception) {
         val removed = io.deleteOutput(job.outputUri)
-        mutableState.value = BundleJobState.Failed(job.projectId, job.projectName, BundleJobText.failure(error), if (removed) "" else leftoverNote(job))
+        mutableState.value = BundleJobState.Failed(job.projectId, job.projectName, BundleJobText.failure(error), if (removed) UiText.Empty else leftoverNote(job))
     }
 
     /** A failed or cancelled backup never leaves a half-written file unmentioned: when the provider refuses to delete it, say so. */
-    private fun leftoverNote(job: BundleJob) =
-        " A partly written file could not be removed: ${io.displayName(job.outputUri) ?: "the chosen file"}. It is incomplete; delete it."
+    private fun leftoverNote(job: BundleJob): UiText {
+        val name = io.displayName(job.outputUri)
+        return if (name != null) UiText.res(R.string.leftover_file, name) else UiText.res(R.string.leftover_chosen_file)
+    }
 
     private fun finish(job: BundleJob, result: BundleWriteResult) {
         val name = io.displayName(job.outputUri) ?: suggestedBundleName(job.projectName)
@@ -150,7 +155,7 @@ class BundleExportExecutor(
             verification = if (cancelled()) BundleVerification.Skipped else try {
                 check.verify(job.outputUri, result, ::cancelled)
             } catch (e: RuntimeException) {
-                BundleVerification.CouldNotVerify("the check failed (${e.javaClass.simpleName}: ${e.message})")
+                BundleVerification.CouldNotVerify(UiText.res(R.string.verify_reason_check_failed, e.javaClass.simpleName, e.message.orEmpty()))
             }
         }
         val took = (clock() - startedAt).coerceAtLeast(0)

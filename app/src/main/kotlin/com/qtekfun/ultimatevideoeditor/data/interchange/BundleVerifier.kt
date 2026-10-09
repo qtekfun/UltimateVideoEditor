@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import kotlinx.serialization.json.Json
 import java.io.IOException
 
@@ -12,7 +14,7 @@ sealed interface BundleVerification {
     data class Warning(val problems: List<String>) : BundleVerification
 
     /** The check itself could not run (the file could not be opened again); nothing is known either way. */
-    data class CouldNotVerify(val reason: String) : BundleVerification
+    data class CouldNotVerify(val reason: UiText) : BundleVerification
 
     /** The user cancelled the check. */
     data object Skipped : BundleVerification
@@ -37,7 +39,7 @@ object BundleChecker {
             problems += "Its table of contents cannot be read (${e.message?.removePrefix("The bundle is damaged: ") ?: "unreadable"}), so the file is incomplete or damaged"
             return BundleVerification.Warning(problems)
         } catch (e: IOException) {
-            return BundleVerification.CouldNotVerify("the saved file could not be read back (${e.javaClass.simpleName}: ${e.message})")
+            return BundleVerification.CouldNotVerify(UiText.res(R.string.verify_reason_bundle_unreadable, e.javaClass.simpleName, e.message.orEmpty()))
         }
         val byName = reader.entries.filter { !it.isDirectory }.associateBy { it.name }
         if (reader.entries.size != written.entries.size) {

@@ -33,6 +33,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ExportViewModelTest {
@@ -359,7 +362,7 @@ class ExportViewModelTest {
 
         val phase = vm.state.value.phase
         assertTrue(phase is ExportPhase.Failed)
-        assertTrue((phase as ExportPhase.Failed).message.contains("no hevc"))
+        assertTrue((phase as ExportPhase.Failed).message.english().contains("no hevc"))
         assertEquals(listOf("content://out/movie.mp4"), io.deleted)
         assertTrue(runner.handle.closed)
     }
@@ -409,7 +412,7 @@ class ExportViewModelTest {
         vm.onIntent(ExportIntent.LocationChosen("content://out/movie.mp4"))
 
         assertTrue(io.opened.isEmpty())
-        assertTrue((vm.state.value.phase as ExportPhase.Failed).message.contains("nothing to export"))
+        assertTrue((vm.state.value.phase as ExportPhase.Failed).message.english().contains("nothing to export"))
     }
 
     @Test
@@ -551,7 +554,7 @@ class ExportViewModelTest {
         vm.onIntent(ExportIntent.Open(input()))
         job.cancel()
 
-        assertEquals(listOf<ExportEffect>(ExportEffect.Message("Another export is running: My movie")), messages)
+        assertEquals(listOf<ExportEffect>(ExportEffect.Message(UiText.res(R.string.export_blocked_by, "My movie"))), messages)
         assertFalse(vm.state.value.visible)
         assertFalse(runner.handle.cancelled)
     }
@@ -749,7 +752,7 @@ class ExportViewModelTest {
         vm.onIntent(ExportIntent.LocationChosen("content://out/movie.mp4"))
 
         assertNull(runner.request)
-        assertTrue((vm.state.value.phase as ExportPhase.Failed).message.contains("HDR"))
+        assertTrue((vm.state.value.phase as ExportPhase.Failed).message.english().contains("HDR"))
     }
 
     @Test
@@ -760,7 +763,7 @@ class ExportViewModelTest {
 
         runner.listener!!.onFinished(ExportException(ExportErrorCode.UNSUPPORTED_FORMAT, "no ten-bit surface"))
 
-        val message = (vm.state.value.phase as ExportPhase.Failed).message
+        val message = (vm.state.value.phase as ExportPhase.Failed).message.english()
         assertTrue(message.contains("no ten-bit surface"))
         assertTrue(message.contains("SDR"))
     }

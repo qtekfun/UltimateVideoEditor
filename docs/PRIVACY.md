@@ -28,7 +28,8 @@ All of it is on your device, in the app's private storage unless you export it y
 | Projects (`project.json` and its `.bak`) | App-private `files/projects/` | Your timelines |
 | Waveform and thumbnail caches | App-private cache folders | Speed; safe to delete |
 | 3D LUT library | App-private storage | LUT files you imported |
-| Preferences (layout, last choices, whether the first-run tips were shown) | App-private preferences | Remember your settings |
+| Preferences (layout, last choices, the language you picked, whether the first-run tips were shown) | App-private preferences | Remember your settings |
+| Translations (English, Spanish and any later language) | Inside the app (string resources, bundled at build time) | Nothing is downloaded and no translation service is used; the language setting is Android's own per-app language, kept on the phone |
 | Last crash reports (`files/crash/last-crash.txt` and four older ones, at most 64 KB each) | App-private storage | Lets you share a bug report if you choose (it also summarises a native crash or ANR the system recorded for the app: no media or project names); deletable in About |
 | Your media | **Not copied**: projects keep a `content://` reference | Saves space; you stay in control |
 

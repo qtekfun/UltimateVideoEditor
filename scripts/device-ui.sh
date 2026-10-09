@@ -7,9 +7,15 @@
 #   ui_tap_text "Play"      tap the node whose text or content description is exactly (or starts with) the argument
 #   ui_has_text "Reopen"    succeeds when such a node is on screen
 #   ui_open_project "Name"  from the hub: dismiss the reopen offer, open the project card with that name
-#   ui_launch               force-stop and start the app on the hub
+#   ui_force_english        pin the app to English (the scripts look for English words; the app is translated), see below
+#   ui_launch               pin English, force-stop and start the app on the hub
 #
 # uiautomator crashes when two sessions dump at once, so every dump takes /tmp/uiautomator.lock.
+#
+# Language: the app follows the phone's language (it is translated, see docs/TRANSLATING.md) but these scripts find buttons by their
+# English text, so ui_launch pins the app to English first: on Android 13+ with the system's per-app language
+# (`cmd locale set-app-locales <pkg> --locales en`, which touches only that package), on Android 12 with the app's own language
+# preference (shared_prefs/language.xml, written with run-as, which needs a debug build). Use it with a suffixed QA build.
 
 adb_() { adb -s "$serial" "$@"; }
 
@@ -77,7 +83,21 @@ ui_require_unlocked() {
     fi
 }
 
+ui_force_english() {
+    local sdk
+    sdk="$(adb_ shell getprop ro.build.version.sdk | tr -d '\r')"
+    if [ "${sdk:-0}" -ge 33 ]; then
+        adb_ shell cmd locale set-app-locales "$pkg" --locales en >/dev/null 2>&1 || echo "ui: could not pin $pkg to English" >&2
+    else
+        adb_ shell am force-stop "$pkg"
+        printf '%s' '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><map><string name="tag">en</string></map>' \
+            | adb_ shell "run-as $pkg sh -c 'mkdir -p shared_prefs && cat > shared_prefs/language.xml'" \
+            || echo "ui: could not pin $pkg to English (run-as needs a debug build)" >&2
+    fi
+}
+
 ui_launch() {
+    ui_force_english
     adb_ shell am force-stop "$pkg"
     adb_ shell am start -n "$pkg/com.qtekfun.ultimatevideoeditor.MainActivity" >/dev/null
     sleep 3

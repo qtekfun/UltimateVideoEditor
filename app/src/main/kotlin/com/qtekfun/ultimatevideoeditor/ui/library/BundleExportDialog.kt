@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.library
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,31 +40,31 @@ fun BundleExportDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Project bundle") },
+        title = { Text(stringResource(R.string.bundle_dlg_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 val preview = draft.preview
                 when {
-                    draft.failed != null -> Text(draft.failed, color = MaterialTheme.colorScheme.error)
+                    draft.failed != null -> Text(draft.failed.asString(), color = MaterialTheme.colorScheme.error)
                     preview == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Text("Measuring the project…")
+                        Text(stringResource(R.string.bundle_dlg_measuring))
                     }
                     else -> {
                         Text(
-                            "A bundle is one file you can move to another phone. It always has the project; choose what else goes in.",
+                            stringResource(R.string.bundle_dlg_intro),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         SwitchRow(
-                            title = BundleExportText.mediaLine(preview),
+                            title = BundleExportText.mediaLine(preview).asString(),
                             checked = draft.choice.includeMedia,
                             enabled = preview.mediaCount > 0,
                             onChange = { onChoice(draft.choice.copy(includeMedia = it)) },
                         )
                         BundleExportText.lutLine(preview)?.let { line ->
                             SwitchRow(
-                                title = line,
+                                title = line.asString(),
                                 checked = draft.choice.includeLuts,
                                 enabled = preview.luts.any { it.available },
                                 onChange = { onChoice(draft.choice.copy(includeLuts = it)) },
@@ -69,27 +72,27 @@ fun BundleExportDialog(
                         }
                         BundleExportText.fontLine(preview)?.let { line ->
                             SwitchRow(
-                                title = line,
+                                title = line.asString(),
                                 checked = draft.choice.includeFonts,
                                 enabled = preview.fonts.any { it.available },
                                 onChange = { onChoice(draft.choice.copy(includeFonts = it)) },
-                                note = BundleExportText.FONT_LICENCE_NOTE,
+                                note = stringResource(R.string.bundle_font_licence_note),
                             )
                         }
                         if (!preview.hasResources) {
                             Text(
-                                "This project uses no imported LUTs or fonts.",
+                                stringResource(R.string.bundle_dlg_no_resources),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Text(BundleExportText.estimateLine(draft), style = MaterialTheme.typography.titleSmall)
+                        Text(BundleExportText.estimateLine(draft).asString(), style = MaterialTheme.typography.titleSmall)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onConfirm, enabled = draft.canExport) { Text("Choose where to save…") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onConfirm, enabled = draft.canExport) { Text(stringResource(R.string.bundle_dlg_choose_where)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -113,16 +116,16 @@ private fun SwitchRow(title: String, checked: Boolean, enabled: Boolean, onChang
 fun ImportReportDialog(notes: ImportReportNotes, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("\"${notes.projectName}\" imported") },
+        title = { Text(stringResource(R.string.import_dlg_title, notes.projectName)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (notes.problems.isNotEmpty()) {
-                    Text(notes.problemsHeading ?: "These LUTs and fonts are not available, so the project shows them as missing:", style = MaterialTheme.typography.bodyMedium)
-                    for (line in notes.problems) Text("• $line", style = MaterialTheme.typography.bodySmall)
+                    Text(notes.problemsHeading?.asString() ?: stringResource(R.string.import_dlg_heading), style = MaterialTheme.typography.bodyMedium)
+                    for (line in notes.problems) Text(stringResource(R.string.list_bullet, line.asString()), style = MaterialTheme.typography.bodySmall)
                 }
-                for (line in notes.notes) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                for (line in notes.notes) Text(line.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) } },
     )
 }

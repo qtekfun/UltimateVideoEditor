@@ -22,6 +22,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /**
  * The preview shows a "Media missing" card for a clip whose file is gone; an export must never contain it (SPECS 5.40). Export refuses
@@ -101,7 +102,7 @@ class ExportMissingMediaTest {
 
         val phase = vm.state.value.phase
         assertTrue(phase.toString(), phase is ExportPhase.Failed)
-        assertTrue((phase as ExportPhase.Failed).message.contains("media for 1 clip(s) is missing"))
+        assertTrue((phase as ExportPhase.Failed).message.english().contains("media for 1 clip is missing"))
         assertTrue("no file picker is opened", vm.state.value.phase is ExportPhase.Failed)
     }
 

@@ -1,19 +1,22 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.data.ProjectSummary
 
 /** The key the project list is ordered by. [defaultAscending] is the direction that reads naturally for it. */
-enum class ProjectSort(val label: String, val defaultAscending: Boolean) {
-    LAST_EDITED("Last edited", false),
-    NAME("Name", true),
-    SIZE("Size", false),
-    LENGTH("Length", false),
+enum class ProjectSort(@StringRes val labelRes: Int, val defaultAscending: Boolean) {
+    LAST_EDITED(R.string.hub_sort_last_edited, false),
+    NAME(R.string.hub_sort_name, true),
+    SIZE(R.string.hub_sort_size, false),
+    LENGTH(R.string.hub_sort_length, false),
 }
 
 /** How the projects are laid out. */
-enum class HubViewMode(val label: String) {
-    LIST("List"),
-    GRID("Grid"),
+/** [descriptionRes] is the spoken name of the layout button ("List view"). */
+enum class HubViewMode(@StringRes val descriptionRes: Int) {
+    LIST(R.string.hub_view_list),
+    GRID(R.string.hub_view_grid),
 }
 
 /** Pure ordering of the project list; no Android, so every key and direction is tested on the JVM. */

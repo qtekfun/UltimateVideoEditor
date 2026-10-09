@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
 import com.qtekfun.ultimatevideoeditor.data.MediaCaches
@@ -3793,9 +3794,9 @@ class EditorViewModel(
                 if (dirty && !persist()) throw IOException("the project could not be saved first")
                 BundleExportDraft(preview = interchange.bundlePreview(projectId), choice = choice)
             } catch (e: ProjectError) {
-                BundleExportDraft(choice = choice, failed = e.message ?: "The project could not be read")
+                BundleExportDraft(choice = choice, failed = UiText.Raw(e.message ?: "The project could not be read"))
             } catch (e: IOException) {
-                BundleExportDraft(choice = choice, failed = e.message ?: "The project could not be read")
+                BundleExportDraft(choice = choice, failed = UiText.Raw(e.message ?: "The project could not be read"))
             }
             reduce {
                 val current = library.bundleDraft ?: return@reduce this // closed while measuring
@@ -3847,7 +3848,7 @@ class EditorViewModel(
         reduce { copy(library = library.copy(busy = "Writing ${kind.label.substringBefore(" (")}…")) }
         viewModelScope.launch {
             try {
-                emit(EditorEffect.ShowMessage(writeExport(kind, uri, project)))
+                emit(EditorEffect.ShowText(writeExport(kind, uri, project)))
             } catch (e: ProjectError) {
                 emit(EditorEffect.ShowMessage("Export failed: ${e.message}"))
             } catch (e: IOException) {
@@ -3859,7 +3860,7 @@ class EditorViewModel(
     }
 
     /** Writes the export and returns the message to show: what was written and what the format left out. */
-    private suspend fun writeExport(kind: InterchangeKind, uri: String, project: ProjectDto): String {
+    private suspend fun writeExport(kind: InterchangeKind, uri: String, project: ProjectDto): UiText {
         when (kind) {
             InterchangeKind.BUNDLE, InterchangeKind.BUNDLE_WITH_MEDIA -> {
                 // The bundle is made from the project file, so what is on screen has to be saved first.
@@ -3870,24 +3871,24 @@ class EditorViewModel(
                 // A long job that outlives this editor: its dialog, the project list's bar and the notification show how far it is
                 // and how it ended, so nothing here waits for the copy.
                 when (val started = interchange.startBundleExport(projectId, project.name, uri, choice)) {
-                    BundleStart.Started -> return "Backup started: progress is shown on screen and in the notification"
-                    is BundleStart.Refused -> throw IOException(started.reason)
+                    BundleStart.Started -> return UiText.Raw("Backup started: progress is shown on screen and in the notification")
+                    is BundleStart.Refused -> return started.reason
                     null -> Unit
                 }
                 val result = interchange.exportBundle(projectId, uri, choice)
-                return BundleExportText.exportMessage("Bundle written", choice, result)
+                return BundleExportText.exportMessage(UiText.Raw("Bundle written"), choice, result)
             }
             InterchangeKind.EDL -> {
                 val export = Edl.export(project)
                 if (export.files.isEmpty()) throw IOException("there are no video or audio clips to put in an EDL")
                 val bytes = if (export.files.size == 1) export.files.single().text.toByteArray(Charsets.UTF_8) else Edl.zip(export.files)
                 interchange.writeDocument(uri, bytes)
-                return "EDL written (${export.files.size} track${if (export.files.size == 1) "" else "s"})" + leftOut(export.notes)
+                return UiText.Raw("EDL written (${export.files.size} track${if (export.files.size == 1) "" else "s"})" + leftOut(export.notes))
             }
             InterchangeKind.FCPXML -> {
                 val export = Fcpxml.export(project)
                 interchange.writeDocument(uri, export.xml.toByteArray(Charsets.UTF_8))
-                return "FCPXML written" + leftOut(export.notes)
+                return UiText.Raw("FCPXML written" + leftOut(export.notes))
             }
         }
     }

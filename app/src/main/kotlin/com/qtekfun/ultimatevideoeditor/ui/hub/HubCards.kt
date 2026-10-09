@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -59,7 +63,7 @@ internal fun ProjectThumbnail(project: ProjectSummary, thumbnails: ProjectThumbn
         if (image != null) {
             Image(
                 bitmap = image.asImageBitmap(),
-                contentDescription = "First frame of ${project.name}",
+                contentDescription = stringResource(R.string.hub_first_frame_of, project.name),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -129,7 +133,7 @@ internal fun ContinueCard(model: ContinueModel, thumbnails: ProjectThumbnails?, 
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    if (model.resume) "Pick up where you left off" else "Continue",
+                    stringResource(if (model.resume) R.string.hub_pick_up else R.string.hub_continue),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -142,26 +146,26 @@ internal fun ContinueCard(model: ContinueModel, thumbnails: ProjectThumbnails?, 
                 )
                 if (model.resume) {
                     Text(
-                        "The app closed while \"${project.name}\" was open. Your edits were saved as you made them.",
+                        stringResource(R.string.hub_app_closed_while_open, project.name),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = { onIntent(HubIntent.ResumeSession) }) { Text("Reopen") }
-                        TextButton(onClick = { onIntent(HubIntent.DismissResume) }) { Text("Dismiss") }
+                        Button(onClick = { onIntent(HubIntent.ResumeSession) }) { Text(stringResource(R.string.hub_reopen)) }
+                        TextButton(onClick = { onIntent(HubIntent.DismissResume) }) { Text(stringResource(R.string.common_dismiss)) }
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "${HubFormat.length(project)} · ${HubFormat.sizeLine(project)}",
+                            UiText.join(" · ", HubFormat.length(project), HubFormat.sizeLine(project)).asString(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f, fill = false),
                         )
                         if (HubFormat.isHdr(project)) StatusChip("HDR")
-                        HubFormat.missing(project)?.let { StatusChip(it, error = true) }
+                        HubFormat.missing(project)?.let { StatusChip(it.asString(), error = true) }
                     }
-                    Button(onClick = { onIntent(HubIntent.OpenProject(project.id)) }) { Text("Continue editing") }
+                    Button(onClick = { onIntent(HubIntent.OpenProject(project.id)) }) { Text(stringResource(R.string.hub_continue_editing)) }
                 }
             }
         }
@@ -182,12 +186,17 @@ internal fun StorageCard(projectCount: Int, storage: StorageSnapshot?, onOpen: (
         StorageKind.CACHE to MaterialTheme.colorScheme.secondary,
         StorageKind.PROXIES to MaterialTheme.colorScheme.tertiary,
     )
+    val countText = HubFormat.projectCount(projectCount).asString()
     val summary = storage?.let { s ->
-        "Storage. ${HubFormat.projectCount(projectCount)}. ${AboutController.formatBytes(s.freeBytes)} free. " +
-            s.segments.joinToString(". ") { "${it.kind.label} ${AboutController.formatBytes(it.bytes)}" }
-    } ?: "Storage. ${HubFormat.projectCount(projectCount)}. Measuring"
+        stringResource(
+            R.string.hub_storage_summary,
+            countText,
+            AboutController.formatBytes(s.freeBytes),
+            s.segments.map { stringResource(R.string.hub_storage_legend, stringResource(it.kind.labelRes), AboutController.formatBytes(it.bytes)) }.joinToString(". "),
+        )
+    } ?: stringResource(R.string.hub_storage_summary_measuring, countText)
     Card(
-        modifier = modifier.fillMaxWidth().clickable(onClickLabel = "Open About to manage storage", role = Role.Button, onClick = onOpen)
+        modifier = modifier.fillMaxWidth().clickable(onClickLabel = stringResource(R.string.hub_storage_open_about), role = Role.Button, onClick = onOpen)
             .semantics(mergeDescendants = true) { contentDescription = summary },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
@@ -195,12 +204,12 @@ internal fun StorageCard(projectCount: Int, storage: StorageSnapshot?, onOpen: (
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(HubIcons.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 Text(
-                    HubFormat.projectCount(projectCount),
+                    countText,
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(start = 8.dp).weight(1f),
                 )
                 Text(
-                    storage?.let { "${AboutController.formatBytes(it.freeBytes)} free" } ?: "Measuring…",
+                    storage?.let { stringResource(R.string.hub_storage_free, AboutController.formatBytes(it.freeBytes)) } ?: stringResource(R.string.common_measuring),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -221,14 +230,14 @@ internal fun StorageCard(projectCount: Int, storage: StorageSnapshot?, onOpen: (
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(colours.getValue(kind)))
                         Text(
-                            "${kind.label} ${bytes?.let { AboutController.formatBytes(it) } ?: "…"}",
+                            stringResource(R.string.hub_storage_legend, stringResource(kind.labelRes), bytes?.let { AboutController.formatBytes(it) } ?: stringResource(R.string.hub_unknown_size)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            Text(HubFormat.FOOTAGE_HINT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.hub_footage_hint), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

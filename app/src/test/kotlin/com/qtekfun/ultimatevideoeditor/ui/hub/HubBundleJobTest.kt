@@ -30,6 +30,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HubBundleJobTest {
@@ -49,7 +50,7 @@ class HubBundleJobTest {
         override val state: StateFlow<BundleJobState> = flow
         override val detailsOpen = MutableStateFlow(false)
         val started = ArrayList<BundleJob>()
-        var refuse: String? = null
+        var refuse: UiText? = null
         var cancels = 0
         var acknowledged = 0
         var shown = 0
@@ -111,12 +112,12 @@ class HubBundleJobTest {
 
     @Test
     fun `a refused backup says why`() {
-        bundles.refuse = "Another long job is running (Exporting Wedding)."
+        bundles.refuse = UiText.Raw("Another long job is running (Exporting Wedding).")
         val vm = viewModel()
 
         val effects = effectsOf(vm) { vm.onIntent(HubIntent.ExportBundleTo("p1", "content://out/x.uvbundle", BundleChoice())) }
 
-        assertEquals(listOf<HubEffect>(HubEffect.ShowMessage("Another long job is running (Exporting Wedding).")), effects)
+        assertEquals(listOf<HubEffect>(HubEffect.ShowMessage(UiText.Raw("Another long job is running (Exporting Wedding)."))), effects)
     }
 
     @Test
