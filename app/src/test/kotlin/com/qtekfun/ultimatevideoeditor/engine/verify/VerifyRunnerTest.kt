@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 class VerifyRunnerTest {
     private val total = 300L // 10 s at 30 fps
@@ -79,7 +80,7 @@ class VerifyRunnerTest {
 
         val w = warning(outcome)
         assertEquals(listOf(VerifyCheck.CONTAINER), w.findings.map { it.check })
-        assertTrue(VerificationText.headline(w).startsWith("WARNING"))
+        assertTrue(VerificationText.headline(w).english().startsWith("WARNING"))
     }
 
     @Test
@@ -100,7 +101,7 @@ class VerifyRunnerTest {
         val w = warning(outcome)
         assertTrue(w.findings.any { it.check == VerifyCheck.FRAME_COUNT })
         assertEquals(1L, w.damagedTailFrames)
-        assertEquals("WARNING: the last frame looks missing", VerificationText.headline(w))
+        assertEquals("WARNING: the last frame looks missing", VerificationText.headline(w).english())
     }
 
     @Test
@@ -110,7 +111,7 @@ class VerifyRunnerTest {
 
         val w = warning(outcome)
         assertEquals(30L, w.damagedTailFrames)
-        assertTrue(VerificationText.headline(w), VerificationText.headline(w).contains("last 30 frames look missing"))
+        assertTrue(VerificationText.headline(w).english(), VerificationText.headline(w).english().contains("last 30 frames look missing"))
     }
 
     @Test
@@ -120,7 +121,7 @@ class VerifyRunnerTest {
         val w = warning(outcome)
         assertTrue(w.findings.any { it.check == VerifyCheck.DECODE })
         assertEquals(20L, w.findings.first { it.check == VerifyCheck.DECODE }.tailFrames)
-        assertTrue(VerificationText.headline(w).contains("last 20 frames look damaged"))
+        assertTrue(VerificationText.headline(w).english().contains("last 20 frames look damaged"))
     }
 
     @Test
@@ -205,7 +206,7 @@ class VerifyRunnerTest {
         val outcome = run(file().bytes, good(), cancel = { true })
 
         assertEquals(VerificationOutcome.Skipped, outcome)
-        assertEquals("Verification skipped (cancelled)", VerificationText.headline(outcome))
+        assertEquals("Verification skipped (cancelled)", VerificationText.headline(outcome).english())
         assertFalse(outcome.isVerified)
     }
 
@@ -222,7 +223,7 @@ class VerifyRunnerTest {
         val outcome = run(file().bytes, null)
 
         assertTrue(outcome is VerificationOutcome.CouldNotVerify)
-        assertEquals("Could not check the file", VerificationText.headline(outcome))
+        assertEquals("Could not check the file", VerificationText.headline(outcome).english())
     }
 
     @Test

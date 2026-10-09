@@ -14,6 +14,12 @@ licensed under the Apache License 2.0.
 The app is built with the Android Jetpack libraries, Kotlin, kotlinx.coroutines and kotlinx.serialization, all
 licensed under the Apache License 2.0.
 
+## Translations
+
+The Spanish (and any later) translations of the app's texts are written by the project's contributors, are part of the source tree
+(`app/src/main/res/values-*/strings.xml`) and are licensed under GPL-3.0 like the rest of the app. No third-party translation data,
+machine-translation service or SDK is used (`docs/PRIVACY.md`, `docs/TRANSLATING.md`).
+
 ## Licence compatibility
 
 MIT and Apache-2.0 components may be combined into a GPL-3.0 work (Apache-2.0 is compatible with GPL-3.0, not

@@ -1866,6 +1866,43 @@ drive is pulled and re-plugged: loss marks and messages once, bursts, lane keys,
 again full / partial / none, second loss, no `project.json` write), `MediaStatusSidecarTest` (no rewrite, list order kept, staleness,
 damage, copies), `decode_sim_tests.cpp` (`errorsCarryTheirAsset`). Manual: `docs/QA.md` D11 (pull the drive while the project is open).
 
+### 5.43 Languages and translations
+
+English is the source language; Spanish (`es`) is the first translation. Rules, workflow for a contributor and the Spanish glossary:
+`docs/TRANSLATING.md`. Decisions and the stage plan: `DECISIONS.md`, "Translations".
+
+**Resources.** `res/values/strings.xml` (source) and `res/values-xx/strings.xml`; `res/xml/locales_config.xml` lists the languages
+(`android:localeConfig`, which also gives Android 13+ its per-app language setting). Positional format arguments, `<plurals>` for
+every count, no text built from fragments. The app bundle keeps every language in the base install (`bundle.language.enableSplit =
+false`), so the picker can show a language the phone is not set to.
+
+**Text outside composables.** `ui/text/UiText.kt`: `Res(id, args)`, `Plural(id, quantity, args)`, `Raw(text)`, `Joined(parts, separator)`
+and `Capitalised(text)`; arguments may be `UiText` themselves. It holds ids and is turned into words where it is shown: `asString()`
+in a composable, `resolve(context)` in the export service. Used by `HubEffect.ShowMessage`, `ExportEffect.Message`,
+`EditorEffect.ShowText`, `ExportNotificationModel`, `ExportBar`, `BundleView`, `ImportView`, `ExportResultText`, `VerificationText`,
+`BundleJobText`, `ImportJobText`, `ImportReportText`, `BundleExportText`, `SelectionActions`, `NewProjectDraft` and the refusals of the
+long-job executors. Text that is data (names, system messages) is a plain argument or `Raw`.
+
+**Formatting.** Sizes, durations, decimals and dates use `Locale.getDefault()`, which is the language in use (the framework sets it from
+the per-app language on Android 13+, `AppLocale.wrap` on Android 12). Percentages are `%1$d%%` in the string. Unit symbols (B, KB, MB, GB, s,
+min, h) stay in code.
+
+**Choosing the language** (`ui/language`). About, section Language: System default, then each language of `locales_config.xml` under
+its own name. Android 13+: reads and writes `LocaleManager.applicationLocales`; the system recreates the activity; the preference file
+(`language`, key `tag`) is synced from the system at start (`AppLocale.syncPreference`). Android 12 and 12L: the preference is the setting;
+`AppLocale.wrap` is applied in `attachBaseContext` of `MainActivity`, `UVEditorApp` and `ExportService`, and the activity is recreated.
+`AppLocale.localized(context)` gives code that outlives the activity (the default project name) the language in force now. A phone
+language the app does not have shows English.
+
+**Guards.** `TranslationsGuardTest` (keys both ways, format arguments, no empty text, plural forms per language, every string formats,
+`locales_config.xml`), `HardCodedTextRatchetTest` with `src/test/i18n/unmigrated.txt` (shrinks stage by stage), `UiTextTest`, lint
+errors for `MissingTranslation`, `ExtraTranslation`, `StringFormatInvalid`, `StringFormatMatches`, `StringFormatCount` and
+`MissingQuantity`. The device scripts pin the app to English (`scripts/device-ui.sh`, `docs/QA.md`).
+
+**Migrated in stage 1:** Projects screen (cards, sort, selection bar, dialogs, snackbars, storage card), New project sheet and its
+presets, About, the export dialog, the bars of the project list, the bundle and import dialogs, the export service's notifications and
+channel, the verification texts. **Still English:** the editor and everything on the allow-list.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must

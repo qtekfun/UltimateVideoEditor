@@ -23,6 +23,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.IOException
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HubRecoveryTest {
@@ -122,7 +123,7 @@ class HubRecoveryTest {
 
         // The error is shown to the user, not dropped.
         val message = vm.effects.first() as HubEffect.ShowMessage
-        assertTrue(message.text.contains("no readable backup"))
+        assertTrue(message.text.english().contains("no readable backup"))
         assertFalse(vm.state.value.unreadable.single().recoverable)
     }
 

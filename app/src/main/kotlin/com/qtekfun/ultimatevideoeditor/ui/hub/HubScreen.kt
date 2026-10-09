@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -112,7 +116,7 @@ fun HubScreen(
         viewModel.effects.collect { effect ->
             when (effect) {
                 HubEffect.LaunchMediaFolderPicker -> folderLauncher.launch(null)
-                is HubEffect.ShowMessage -> snackbar.showSnackbar(effect.text)
+                is HubEffect.ShowMessage -> snackbar.showSnackbar(effect.text.resolve(context))
                 is HubEffect.LaunchExportPicker -> {
                     pendingExportId = effect.projectId
                     exportLauncher.launch(effect.suggestedFileName)
@@ -168,6 +172,7 @@ internal fun HubContent(
     onOpenAbout: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     // Back leaves selection mode first, then closes the search field; with neither open it goes on to the system.
     BackHandler(enabled = state.handlesBack) {
         onIntent(if (state.selecting) HubIntent.ExitSelection else HubIntent.ToggleSearch)
@@ -203,7 +208,7 @@ internal fun HubContent(
                 ExtendedFloatingActionButton(
                     onClick = { onIntent(HubIntent.ShowNewProject) },
                     icon = { Icon(NewProjectIcon, contentDescription = null) },
-                    text = { Text("New project") },
+                    text = { Text(stringResource(R.string.hub_new_project)) },
                 )
             }
         },
@@ -215,7 +220,7 @@ internal fun HubContent(
                 state.bundleBar?.let { BundleBarView(it, onIntent) }
                 state.importBar?.let { ImportBarView(it, onIntent) }
                 if (state.selecting) {
-                    SelectionBar(state.selectionActions, onIntent) { reason -> scope.launch { snackbar.showSnackbar(reason) } }
+                    SelectionBar(state.selectionActions, onIntent) { reason -> scope.launch { snackbar.showSnackbar(reason.resolve(context)) } }
                 }
             }
         },
@@ -253,27 +258,21 @@ internal fun HubContent(
     if (state.mediaFolderPrompt) {
         AlertDialog(
             onDismissRequest = { onIntent(HubIntent.DismissMediaFolderPrompt) },
-            title = { Text("Choose a folder for the media") },
+            title = { Text(stringResource(R.string.hub_folder_prompt_title)) },
             text = {
-                Text(
-                    "This LumaFusion package contains the footage of the project. It is copied into a folder you choose, " +
-                        "on this device or on a USB drive or SD card, so you can see and manage the files. " +
-                        "ultimateVE creates its own subfolder called ultimateVE inside that folder, and puts the footage in ultimateVE/Media, " +
-                        "in one folder named after the project. Nothing is put loose in the folder you pick. " +
-                        "Deleting the project later does not delete the files. You can change the folder in About, under Media folder.",
-                )
+                Text(stringResource(R.string.hub_folder_prompt_body))
             },
-            confirmButton = { TextButton(onClick = { onIntent(HubIntent.ChooseMediaFolder) }) { Text("Choose folder") } },
-            dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissMediaFolderPrompt) }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { onIntent(HubIntent.ChooseMediaFolder) }) { Text(stringResource(R.string.common_choose_folder)) } },
+            dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissMediaFolderPrompt) }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
     state.importNotes?.let { notes -> ImportReportDialog(notes) { onIntent(HubIntent.DismissImportNotes) } }
     state.renameDraft?.let { draft ->
         TextDialog(
-            title = "Rename project",
+            title = stringResource(R.string.hub_rename_title),
             value = draft.name,
             nameTaken = state.renameNameTaken,
-            confirmLabel = "Rename",
+            confirmLabel = stringResource(R.string.common_rename),
             onValueChange = { onIntent(HubIntent.RenameNameChanged(it)) },
             onConfirm = { onIntent(HubIntent.ConfirmRename) },
             onDismiss = { onIntent(HubIntent.DismissDialogs) },
@@ -283,15 +282,15 @@ internal fun HubContent(
         val targets = state.deleteTargets
         AlertDialog(
             onDismissRequest = { onIntent(HubIntent.DismissDialogs) },
-            title = { Text(if (targets.size == 1) "Delete project?" else "Delete ${targets.size} projects?") },
+            title = { Text(if (targets.size == 1) stringResource(R.string.hub_delete_title_one) else pluralStringResource(R.plurals.hub_delete_title_many, targets.size, targets.size)) },
             text = {
                 Text(
-                    if (targets.size == 1) "\"${targets.single().name}\" will be removed from this device. Source media is not touched."
-                    else "${targets.size} projects will be removed from this device. Source media is not touched.",
+                    if (targets.size == 1) stringResource(R.string.hub_delete_body_one, targets.single().name)
+                    else pluralStringResource(R.plurals.hub_delete_body_many, targets.size, targets.size),
                 )
             },
-            confirmButton = { TextButton(onClick = { onIntent(HubIntent.ConfirmDelete) }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissDialogs) }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { onIntent(HubIntent.ConfirmDelete) }) { Text(stringResource(R.string.common_delete)) } },
+            dismissButton = { TextButton(onClick = { onIntent(HubIntent.DismissDialogs) }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }
@@ -304,7 +303,7 @@ private fun SearchField(state: HubState, onIntent: (HubIntent) -> Unit) {
     OutlinedTextField(
         value = state.query,
         onValueChange = { onIntent(HubIntent.SearchChanged(it)) },
-        label = { Text("Search projects") },
+        label = { Text(stringResource(R.string.hub_search_projects)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).focusRequester(focus),
     )
@@ -372,19 +371,19 @@ private fun WelcomeState(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         WordmarkGlyph(size = 72.dp)
-        Text("Welcome to ultimateVE", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 16.dp))
+        Text(stringResource(R.string.hub_welcome_title), style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 16.dp))
         Text(
-            "Create a project to start editing, or bring one in. Your footage stays where it is; projects only point to it.",
+            stringResource(R.string.hub_welcome_body),
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
         Button(onClick = { onIntent(HubIntent.ShowNewProject) }, modifier = Modifier.padding(top = 20.dp)) {
             Icon(NewProjectIcon, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("New project", modifier = Modifier.padding(start = 8.dp))
+            Text(stringResource(R.string.hub_new_project), modifier = Modifier.padding(start = 8.dp))
         }
-        OutlinedButton(onClick = onImport) { Text("Import a project") }
-        if (onTemplates != null) TextButton(onClick = onTemplates) { Text("Start from a template") }
+        OutlinedButton(onClick = onImport) { Text(stringResource(R.string.hub_import_project)) }
+        if (onTemplates != null) TextButton(onClick = onTemplates) { Text(stringResource(R.string.hub_start_from_template)) }
         if (unreadable.isNotEmpty()) UnreadableProjects(unreadable, onIntent)
     }
 }
@@ -394,7 +393,7 @@ private fun WelcomeState(
 private fun UnreadableProjects(unreadable: List<UnreadableProject>, onIntent: (HubIntent) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
         Text(
-            if (unreadable.size == 1) "1 project file could not be read." else "${unreadable.size} project files could not be read.",
+            pluralStringResource(R.plurals.hub_unreadable_count, unreadable.size, unreadable.size),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
         )
@@ -406,9 +405,9 @@ private fun UnreadableProjects(unreadable: List<UnreadableProject>, onIntent: (H
                     modifier = Modifier.weight(1f),
                 )
                 if (item.recoverable) {
-                    TextButton(onClick = { onIntent(HubIntent.RecoverProject(item.id)) }) { Text("Recover") }
+                    TextButton(onClick = { onIntent(HubIntent.RecoverProject(item.id)) }) { Text(stringResource(R.string.common_recover)) }
                 }
-                TextButton(onClick = { onIntent(HubIntent.DeleteUnreadable(item.id)) }) { Text("Delete") }
+                TextButton(onClick = { onIntent(HubIntent.DeleteUnreadable(item.id)) }) { Text(stringResource(R.string.common_delete)) }
             }
         }
     }
@@ -433,11 +432,11 @@ private fun TextDialog(
                 onValueChange = onValueChange,
                 singleLine = true,
                 isError = nameTaken,
-                supportingText = if (nameTaken) ({ Text(NAME_TAKEN_MESSAGE) }) else null,
+                supportingText = if (nameTaken) ({ Text(stringResource(R.string.hub_name_taken)) }) else null,
             )
         },
         confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank() && !nameTaken) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 

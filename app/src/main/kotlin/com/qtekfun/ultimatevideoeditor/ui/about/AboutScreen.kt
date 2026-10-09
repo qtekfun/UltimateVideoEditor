@@ -1,5 +1,15 @@
 package com.qtekfun.ultimatevideoeditor.ui.about
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectable
+import com.qtekfun.ultimatevideoeditor.ui.language.AppLanguages
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -46,6 +56,10 @@ fun AboutScreen(
     controller: AboutController,
     appearance: AppearanceStore,
     mediaFolder: com.qtekfun.ultimatevideoeditor.data.interchange.MediaFolderSettings,
+    /** The languages the app is translated into (bare codes such as "es"), the one picked (null follows the system) and the picker's action. */
+    languages: List<String>,
+    selectedLanguage: String?,
+    onSelectLanguage: (String?) -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -54,9 +68,10 @@ fun AboutScreen(
     var tipsMessage by remember { mutableStateOf(false) }
     var guideOpen by rememberSaveable { mutableStateOf(false) }
     var browserMissing by remember { mutableStateOf(false) }
-    val privacy = remember { readAsset(context, "legal/PRIVACY.md") }
-    val notices = remember { readAsset(context, "legal/THIRD_PARTY_NOTICES.md") }
-    val licence = remember { readAsset(context, "legal/LICENSE.txt") }
+    val unavailable = stringResource(R.string.about_unavailable)
+    val privacy = remember { readAsset(context, "legal/PRIVACY.md", unavailable) }
+    val notices = remember { readAsset(context, "legal/THIRD_PARTY_NOTICES.md", unavailable) }
+    val licence = remember { readAsset(context, "legal/LICENSE.txt", unavailable) }
 
     if (guideOpen) {
         ToolbarGuideScreen(onClose = { guideOpen = false })
@@ -67,8 +82,8 @@ fun AboutScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About ultimateVE") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                title = { Text(stringResource(R.string.about_title)) },
+                navigationIcon = { TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) } },
             )
         },
     ) { padding ->
@@ -82,26 +97,40 @@ fun AboutScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Section("Appearance") {
+            Section(stringResource(R.string.about_appearance)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Pure black backgrounds")
+                        Text(stringResource(R.string.about_pure_black))
                         Text(
-                            "The app is always dark. This makes the backgrounds black instead of dark grey, which saves power on OLED screens.",
+                            stringResource(R.string.about_pure_black_hint),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                     Switch(checked = appearance.amoled, onCheckedChange = { appearance.amoled = it })
                 }
             }
-            Section("Media folder") {
+            Section(stringResource(R.string.about_language)) {
+                Text(stringResource(R.string.about_language_hint), style = MaterialTheme.typography.bodySmall)
+                for (tag in listOf<String?>(null) + languages) {
+                    val label = if (tag == null) stringResource(R.string.language_system) else AppLanguages.nativeName(tag)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .selectable(selected = tag == selectedLanguage, role = Role.RadioButton, onClick = { onSelectLanguage(tag) }),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = tag == selectedLanguage, onClick = null)
+                        Text(label, modifier = Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+            Section(stringResource(R.string.about_media_folder)) {
                 var folderLabel by remember { mutableStateOf(mediaFolder.label()) }
                 var hasFolder by remember { mutableStateOf(mediaFolder.treeUri() != null) }
-                var folderError by remember { mutableStateOf<String?>(null) }
+                var folderError by remember { mutableStateOf<UiText?>(null) }
                 var layout by remember { mutableStateOf<com.qtekfun.ultimatevideoeditor.data.interchange.LayoutSummary?>(null) }
                 // Reading the folder goes through the document provider: keep it off the main thread.
                 androidx.compose.runtime.LaunchedEffect(folderLabel, hasFolder) {
@@ -115,90 +144,91 @@ fun AboutScreen(
                             hasFolder = true
                             folderError = null
                         } catch (e: SecurityException) {
-                            folderError = "Could not keep access to that folder: ${e.message}"
+                            folderError = UiText.res(R.string.folder_access_failed, e.message.orEmpty())
                         }
                     }
                 }
-                Text("Media folder for imported packages")
+                Text(stringResource(R.string.about_media_folder_for_packages))
                 Text(
-                    "ultimateVE keeps its files in its own subfolder, called ultimateVE, inside the folder you choose (nothing is put loose in the folder itself). " +
-                        "Footage that comes inside a LumaFusion package is copied to ultimateVE/Media, in one folder per project, so you can see and manage the files (a USB drive or SD card works too). " +
-                        "Project backups (.uvbundle) open the file picker in ultimateVE/Project-Backups. Deleting a project never deletes these files.",
+                    stringResource(R.string.about_media_folder_hint),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
                     when {
-                        !hasFolder -> "No folder chosen yet: you are asked when you import a package."
-                        folderLabel != null -> "Folder: $folderLabel"
-                        else -> "A folder is set but cannot be read now (drive unplugged or access removed). Choose it again."
+                        !hasFolder -> stringResource(R.string.about_folder_none)
+                        folderLabel != null -> stringResource(R.string.about_folder_label, folderLabel.orEmpty())
+                        else -> stringResource(R.string.about_folder_unreadable)
                     },
                 )
                 layout?.let { summary ->
-                    Text("Files go to: ${summary.path}")
+                    Text(stringResource(R.string.about_files_go_to, summary.path))
                     if (!summary.rootExists) {
-                        Text("Nothing there yet: the subfolders are created when they are first used.", style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.about_nothing_there), style = MaterialTheme.typography.bodySmall)
                     }
                     for (category in summary.categories) {
-                        val what = if (category.name == com.qtekfun.ultimatevideoeditor.data.interchange.MediaLayout.MEDIA) "project folders" else "files"
-                        Text("${category.name}: ${category.items} $what", style = MaterialTheme.typography.bodySmall)
+                        val isMedia = category.name == com.qtekfun.ultimatevideoeditor.data.interchange.MediaLayout.MEDIA
+                        Text(
+                            pluralStringResource(if (isMedia) R.plurals.about_category_folders else R.plurals.about_category_files, category.items, category.name, category.items),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                     if (summary.looseFiles > 0) {
                         Text(
-                            "${summary.looseFiles} files from earlier imports are directly in the chosen folder. They stay where they are, because projects point at them.",
+                            pluralStringResource(R.plurals.about_loose_files, summary.looseFiles, summary.looseFiles),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
-                folderError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                OutlinedButton(onClick = { picker.launch(null) }) { Text(if (hasFolder) "Change" else "Choose folder") }
+                folderError?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                OutlinedButton(onClick = { picker.launch(null) }) { Text(stringResource(if (hasFolder) R.string.common_change else R.string.common_choose_folder)) }
             }
-            Section("Version") {
-                Text("ultimateVE ${snapshot.version.display}")
-                snapshot.engineVersion?.let { Text("Engine v$it", style = MaterialTheme.typography.bodySmall) }
+            Section(stringResource(R.string.about_version)) {
+                Text(stringResource(R.string.about_version_line, snapshot.version.display))
+                snapshot.engineVersion?.let { Text(stringResource(R.string.about_engine_version, it), style = MaterialTheme.typography.bodySmall) }
             }
-            Section("Licence") {
-                Text("${AboutController.LICENCE_NAME}. Free software: you can redistribute it and change it under the terms of the licence, with no warranty.")
-                SelectionContainer { Text("Source code: ${snapshot.repositoryUrl}", style = MaterialTheme.typography.bodySmall) }
-                Expandable("Full licence text", licence)
+            Section(stringResource(R.string.about_licence)) {
+                Text(stringResource(R.string.about_licence_body, AboutController.LICENCE_NAME))
+                SelectionContainer { Text(stringResource(R.string.about_source_code, snapshot.repositoryUrl), style = MaterialTheme.typography.bodySmall) }
+                Expandable(stringResource(R.string.about_full_licence), licence)
             }
-            Section("Privacy") {
-                Text("Nothing leaves your device: no network permission, no accounts, no analytics, no crash-reporting service.")
-                Expandable("Read the privacy statement", privacy, markdown = true)
+            Section(stringResource(R.string.about_privacy)) {
+                Text(stringResource(R.string.about_privacy_body))
+                Expandable(stringResource(R.string.about_read_privacy), privacy, markdown = true)
             }
-            Section("Third-party software") {
-                Expandable("Notices", notices, markdown = true)
+            Section(stringResource(R.string.about_third_party)) {
+                Expandable(stringResource(R.string.about_notices), notices, markdown = true)
             }
-            Section("Storage") {
-                Text("Projects: ${AboutController.formatBytes(snapshot.usage.projectsBytes)}")
-                Text("Caches (waveforms, thumbnails, analysis): ${AboutController.formatBytes(snapshot.usage.cacheBytes)}")
-                Text("Proxy copies: ${AboutController.formatBytes(snapshot.usage.proxyBytes)} (manage them in the proxy sheet of the editor)")
-                OutlinedButton(onClick = { confirmClear = true }) { Text("Clear caches") }
+            Section(stringResource(R.string.about_storage)) {
+                Text(stringResource(R.string.about_storage_projects, AboutController.formatBytes(snapshot.usage.projectsBytes)))
+                Text(stringResource(R.string.about_storage_caches, AboutController.formatBytes(snapshot.usage.cacheBytes)))
+                Text(stringResource(R.string.about_storage_proxies, AboutController.formatBytes(snapshot.usage.proxyBytes)))
+                OutlinedButton(onClick = { confirmClear = true }) { Text(stringResource(R.string.about_clear_caches)) }
             }
-            Section("Last crash report") {
+            Section(stringResource(R.string.about_crash)) {
                 val report = snapshot.crashReport
                 if (report == null) {
-                    Text("No crash has been recorded.")
+                    Text(stringResource(R.string.about_crash_none))
                 } else {
-                    Text("The app stored this report on your device when it last crashed. It holds no project or media names. It is only shared if you tap Share.")
-                    Expandable("Show report", report)
+                    Text(stringResource(R.string.about_crash_body))
+                    Expandable(stringResource(R.string.about_crash_show), report)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { copyToClipboard(context, report) }) { Text("Copy") }
-                        OutlinedButton(onClick = { share(context, report) }) { Text("Share") }
-                        OutlinedButton(onClick = { controller.deleteCrashReport(); snapshot = controller.snapshot() }) { Text("Delete") }
+                        OutlinedButton(onClick = { copyToClipboard(context, report) }) { Text(stringResource(R.string.common_copy)) }
+                        OutlinedButton(onClick = { share(context, report) }) { Text(stringResource(R.string.common_share)) }
+                        OutlinedButton(onClick = { controller.deleteCrashReport(); snapshot = controller.snapshot() }) { Text(stringResource(R.string.common_delete)) }
                     }
                 }
             }
-            Section("Help") {
-                OutlinedButton(onClick = { guideOpen = true }) { Text("Toolbar guide") }
-                Text("What every symbol of the editor does. It is part of the app and works offline.", style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = { browserMissing = !openOnlineGuide(context) }) { Text("Online guide") }
+            Section(stringResource(R.string.about_help)) {
+                OutlinedButton(onClick = { guideOpen = true }) { Text(stringResource(R.string.about_toolbar_guide)) }
+                Text(stringResource(R.string.about_toolbar_guide_hint), style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { browserMissing = !openOnlineGuide(context) }) { Text(stringResource(R.string.about_online_guide)) }
                 Text(
-                    "Opens the full user guide in your browser (${AboutController.ONLINE_GUIDE_URL}). The app itself stays offline: it loads nothing, your browser does.",
+                    stringResource(R.string.about_online_guide_hint, AboutController.ONLINE_GUIDE_URL),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                if (browserMissing) Text("No browser was found on this device.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = { controller.showTipsAgain(); tipsMessage = true }) { Text("Show tips again") }
-                if (tipsMessage) Text("The tips will appear the next time you open the project list.", style = MaterialTheme.typography.bodySmall)
+                if (browserMissing) Text(stringResource(R.string.about_no_browser), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { controller.showTipsAgain(); tipsMessage = true }) { Text(stringResource(R.string.about_show_tips)) }
+                if (tipsMessage) Text(stringResource(R.string.about_tips_message), style = MaterialTheme.typography.bodySmall)
             }
         }
         }
@@ -207,12 +237,12 @@ fun AboutScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear caches?") },
-            text = { Text("Waveforms, thumbnails and analysis results are rebuilt when needed. Projects and media are not touched.") },
+            title = { Text(stringResource(R.string.about_clear_title)) },
+            text = { Text(stringResource(R.string.about_clear_body)) },
             confirmButton = {
-                TextButton(onClick = { controller.clearCaches(); snapshot = controller.snapshot(); confirmClear = false }) { Text("Clear") }
+                TextButton(onClick = { controller.clearCaches(); snapshot = controller.snapshot(); confirmClear = false }) { Text(stringResource(R.string.common_clear)) }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }
@@ -229,24 +259,24 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun Expandable(label: String, text: String, markdown: Boolean = false) {
     var open by remember { mutableStateOf(false) }
-    TextButton(onClick = { open = !open }) { Text(if (open) "Hide" else label) }
+    TextButton(onClick = { open = !open }) { Text(if (open) stringResource(R.string.common_hide) else label) }
     if (!open) return
     SelectionContainer {
         if (markdown) MarkdownView(text) else Text(text, style = MaterialTheme.typography.bodySmall)
     }
 }
 
-private fun readAsset(context: Context, path: String): String =
-    runCatching { context.assets.open(path).bufferedReader().use { it.readText() } }.getOrDefault("(unavailable)")
+private fun readAsset(context: Context, path: String, unavailable: String): String =
+    runCatching { context.assets.open(path).bufferedReader().use { it.readText() } }.getOrDefault(unavailable)
 
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("ultimateVE crash report", text))
+    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.about_crash_clip_label), text))
 }
 
 private fun share(context: Context, text: String) {
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-    context.startActivity(Intent.createChooser(send, "Share crash report"))
+    context.startActivity(Intent.createChooser(send, context.getString(R.string.about_crash_share_title)))
 }
 
 /** Hands the guide's address to the browser (the user tapped for it); returns false when no app can open it. */

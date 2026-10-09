@@ -35,6 +35,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HubBundleTest {
@@ -178,11 +179,11 @@ class HubBundleTest {
         source.save(sampleProject())
         val vmA = viewModel(source)
         val message = vmA.nextEffect { vmA.onIntent(HubIntent.ExportBundleTo("p1", "doc://b", BundleChoice(includeMedia = true))) }
-        assertTrue(message.toString(), (message as HubEffect.ShowMessage).text.startsWith("Bundle exported with 1 media file"))
+        assertTrue(message.toString(), (message as HubEffect.ShowMessage).text.english().startsWith("Bundle exported with 1 media file"))
 
         val target = viewModel(repository("b"))
         val imported = target.nextEffect { target.onIntent(HubIntent.ImportFrom("doc://b")) }
-        val text = (imported as HubEffect.ShowMessage).text
+        val text = (imported as HubEffect.ShowMessage).text.english()
         assertTrue(text, text.startsWith("Imported \"Sample & Co\". 1 media file came with it"))
         assertTrue(text, text.contains("Missing (relink in the editor):"))
         assertEquals(listOf("Sample & Co"), target.state.value.projects.map { it.name })
@@ -197,17 +198,17 @@ class HubBundleTest {
         source.save(withResources(lutKey, fontId))
         val vmA = viewModel(source)
         val exported = vmA.nextEffect { vmA.onIntent(HubIntent.ExportBundleTo("p1", "doc://b", BundleChoice())) } as HubEffect.ShowMessage
-        assertTrue(exported.text, exported.text.contains("1 LUT"))
+        assertTrue(exported.text.english(), exported.text.english().contains("1 LUT"))
 
         val target = viewModel(repository("b"))
         val imported = target.nextEffect { target.onIntent(HubIntent.ImportFrom("doc://b")) } as HubEffect.ShowMessage
-        assertTrue(imported.text, imported.text.contains("1 LUT/font installed"))
-        assertTrue(imported.text, imported.text.contains("1 still missing"))
+        assertTrue(imported.text.english(), imported.text.english().contains("1 LUT/font installed"))
+        assertTrue(imported.text.english(), imported.text.english().contains("1 still missing"))
         val notes = target.state.value.importNotes!!
         assertEquals("Sample & Co", notes.projectName)
         assertEquals(1, notes.problems.size)
-        assertTrue(notes.problems.single(), notes.problems.single().startsWith("font Private Font"))
-        assertTrue(notes.notes.single(), notes.notes.single().startsWith("Installed: LUT grade"))
+        assertTrue(notes.problems.single().english(), notes.problems.single().english().startsWith("font Private Font"))
+        assertTrue(notes.notes.single().english(), notes.notes.single().english().startsWith("Installed: LUT grade"))
         assertNotNull(luts("b").info(lutKey))
 
         target.onIntent(HubIntent.DismissImportNotes)

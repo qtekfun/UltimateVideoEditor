@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -63,20 +67,21 @@ import java.util.Date
 @Composable
 internal fun SortBar(state: HubState, onIntent: (HubIntent) -> Unit, modifier: Modifier = Modifier) {
     var menuOpen by remember { mutableStateOf(false) }
+    val sortedByDescription = stringResource(R.string.hub_sorted_by_description, stringResource(state.sort.labelRes))
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box {
             TextButton(
                 onClick = { menuOpen = true },
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Sorted by ${state.sort.label}. Change the order" },
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = sortedByDescription },
             ) {
-                Text("Sorted by ${state.sort.label}", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.hub_sorted_by, stringResource(state.sort.labelRes)), style = MaterialTheme.typography.labelLarge)
                 Icon(HubIcons.DropDown, contentDescription = null)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 for (sort in ProjectSort.entries) {
                     DropdownMenuItem(
-                        text = { Text(sort.label) },
-                        leadingIcon = { if (sort == state.sort) Icon(HubIcons.Check, contentDescription = "Current order") else Box(Modifier.size(24.dp)) },
+                        text = { Text(stringResource(sort.labelRes)) },
+                        leadingIcon = { if (sort == state.sort) Icon(HubIcons.Check, contentDescription = stringResource(R.string.hub_current_order)) else Box(Modifier.size(24.dp)) },
                         onClick = { menuOpen = false; onIntent(HubIntent.SortSelected(sort)) },
                     )
                 }
@@ -85,7 +90,7 @@ internal fun SortBar(state: HubState, onIntent: (HubIntent) -> Unit, modifier: M
         IconButton(onClick = { onIntent(HubIntent.ToggleSortDirection) }) {
             Icon(
                 if (state.sortAscending) EditorIcons.LaneUp else EditorIcons.LaneDown,
-                contentDescription = if (state.sortAscending) "Ascending. Switch to descending" else "Descending. Switch to ascending",
+                contentDescription = stringResource(if (state.sortAscending) R.string.hub_ascending else R.string.hub_descending),
             )
         }
         Box(Modifier.weight(1f))
@@ -100,7 +105,7 @@ internal fun SortBar(state: HubState, onIntent: (HubIntent) -> Unit, modifier: M
                     label = {
                         Icon(
                             if (mode == HubViewMode.LIST) HubIcons.ViewList else HubIcons.GridView,
-                            contentDescription = "${mode.label} view",
+                            contentDescription = stringResource(mode.descriptionRes),
                             modifier = Modifier.size(20.dp),
                         )
                     },
@@ -124,7 +129,7 @@ private fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-private fun dateText(project: ProjectSummary, now: Long): String =
+private fun dateText(project: ProjectSummary, now: Long): UiText =
     HubFormat.relativeDate(project.lastModifiedMillis, now) { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
 
 /** The per-project menu (the row's trailing button): rename, duplicate, export, delete. */
@@ -132,14 +137,14 @@ private fun dateText(project: ProjectSummary, now: Long): String =
 internal fun ProjectMenuButton(project: ProjectSummary, onIntent: (HubIntent) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) { Icon(HubIcons.MoreVert, contentDescription = "Actions for ${project.name}") }
+        IconButton(onClick = { open = true }) { Icon(HubIcons.MoreVert, contentDescription = stringResource(R.string.hub_actions_for, project.name)) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Rename") }, onClick = { open = false; onIntent(HubIntent.RequestRename(project)) })
-            DropdownMenuItem(text = { Text("Duplicate") }, onClick = { open = false; onIntent(HubIntent.Clone(project.id)) })
-            DropdownMenuItem(text = { Text("Export project file") }, onClick = { open = false; onIntent(HubIntent.RequestExport(project)) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.common_rename)) }, onClick = { open = false; onIntent(HubIntent.RequestRename(project)) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.common_duplicate)) }, onClick = { open = false; onIntent(HubIntent.Clone(project.id)) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.hub_export_project_file)) }, onClick = { open = false; onIntent(HubIntent.RequestExport(project)) })
             // One entry: the dialog it opens asks what the bundle should hold (media files, LUTs, fonts).
-            DropdownMenuItem(text = { Text("Export bundle for another phone…") }, onClick = { open = false; onIntent(HubIntent.RequestExportBundle(project)) })
-            DropdownMenuItem(text = { Text("Delete") }, onClick = { open = false; onIntent(HubIntent.RequestDelete(project)) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.hub_export_bundle_menu)) }, onClick = { open = false; onIntent(HubIntent.RequestExportBundle(project)) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.common_delete)) }, onClick = { open = false; onIntent(HubIntent.RequestDelete(project)) })
         }
     }
 }
@@ -161,8 +166,8 @@ internal fun ProjectRow(
     Card(
         modifier = modifier.fillMaxWidth().semantics { this.selected = selected }
             .combinedClickable(
-                onClickLabel = if (selecting) "Toggle selection" else "Open project",
-                onLongClickLabel = "Select",
+                onClickLabel = stringResource(if (selecting) R.string.hub_toggle_selection else R.string.hub_open_project),
+                onLongClickLabel = stringResource(R.string.hub_select),
                 onClick = { onIntent(if (selecting) HubIntent.ToggleSelected(project.id) else HubIntent.OpenProject(project.id)) },
                 onLongClick = { onIntent(if (selecting) HubIntent.ToggleSelected(project.id) else HubIntent.EnterSelection(project.id)) },
             ),
@@ -174,23 +179,23 @@ internal fun ProjectRow(
         ) {
             Box {
                 ProjectThumbnail(project, thumbnails, Modifier.width(64.dp).height(40.dp).clip(RoundedCornerShape(6.dp)))
-                DurationBadge(HubFormat.length(project), Modifier.align(Alignment.BottomEnd).padding(2.dp))
+                DurationBadge(HubFormat.length(project).asString(), Modifier.align(Alignment.BottomEnd).padding(2.dp))
                 if (selecting) SelectionMark(selected, Modifier.align(Alignment.TopStart).padding(2.dp))
             }
             Column(modifier = Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(project.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    HubFormat.formatLine(project),
+                    HubFormat.formatLine(project).asString(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                HubFormat.missing(project)?.let { StatusChip(it, error = true, modifier = Modifier.padding(top = 2.dp)) }
+                HubFormat.missing(project)?.let { StatusChip(it.asString(), error = true, modifier = Modifier.padding(top = 2.dp)) }
             }
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp, end = if (selecting) 0.dp else 4.dp)) {
                 HubFormat.bytes(bytes)?.let { Text(it, style = MaterialTheme.typography.labelMedium) }
-                Text(dateText(project, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(dateText(project, now).asString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!selecting) ProjectMenuButton(project, onIntent)
         }
@@ -212,8 +217,8 @@ internal fun ProjectPoster(
     Column(
         modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).semantics { this.selected = selected }
             .combinedClickable(
-                onClickLabel = if (selecting) "Toggle selection" else "Open project",
-                onLongClickLabel = "Select",
+                onClickLabel = stringResource(if (selecting) R.string.hub_toggle_selection else R.string.hub_open_project),
+                onLongClickLabel = stringResource(R.string.hub_select),
                 onClick = { onIntent(if (selecting) HubIntent.ToggleSelected(project.id) else HubIntent.OpenProject(project.id)) },
                 onLongClick = { onIntent(if (selecting) HubIntent.ToggleSelected(project.id) else HubIntent.EnterSelection(project.id)) },
             ),
@@ -227,15 +232,15 @@ internal fun ProjectPoster(
                 Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(shape)
                     .then(if (selected) Modifier.border(BorderStroke(3.dp, MaterialTheme.colorScheme.primary), shape) else Modifier),
             )
-            DurationBadge(HubFormat.length(project), Modifier.align(Alignment.BottomEnd).padding(6.dp))
+            DurationBadge(HubFormat.length(project).asString(), Modifier.align(Alignment.BottomEnd).padding(6.dp))
             if (selecting) SelectionMark(selected, Modifier.align(Alignment.TopStart).padding(8.dp))
             if (HubFormat.isHdr(project)) StatusChip("HDR", modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
-            HubFormat.missing(project)?.let { StatusChip(it, error = true, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)) }
+            HubFormat.missing(project)?.let { StatusChip(it.asString(), error = true, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f).padding(horizontal = 2.dp)) {
                 Text(project.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(dateText(project, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(dateText(project, now).asString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!selecting) ProjectMenuButton(project, onIntent)
         }
@@ -249,7 +254,7 @@ internal fun ProjectPoster(
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun SelectionBar(actions: SelectionActions, onIntent: (HubIntent) -> Unit, onExplain: (String) -> Unit) {
+internal fun SelectionBar(actions: SelectionActions, onIntent: (HubIntent) -> Unit, onExplain: (UiText) -> Unit) {
     Surface(tonalElevation = 6.dp, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 8.dp, vertical = 4.dp),
@@ -257,23 +262,23 @@ internal fun SelectionBar(actions: SelectionActions, onIntent: (HubIntent) -> Un
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val exportReason = actions.exportDisabledReason ?: SelectionActions.ONE_AT_A_TIME
-            BarAction(HubIcons.Copy, "Duplicate", actions.duplicate, "Select a project first", { onIntent(HubIntent.DuplicateSelected) }, onExplain, Modifier.weight(1f))
-            BarAction(EditorIcons.Layers, "Export bundle", actions.exportBundle, exportReason, { onIntent(HubIntent.ExportSelectedBundle) }, onExplain, Modifier.weight(1f))
-            BarAction(EditorIcons.Export, "Export file", actions.exportFile, exportReason, { onIntent(HubIntent.ExportSelectedFile) }, onExplain, Modifier.weight(1f))
-            BarAction(EditorIcons.Delete, "Delete", actions.delete, "Select a project first", { onIntent(HubIntent.DeleteSelected) }, onExplain, Modifier.weight(1f))
+            BarAction(HubIcons.Copy, stringResource(R.string.common_duplicate), actions.duplicate, UiText.res(R.string.hub_select_first), { onIntent(HubIntent.DuplicateSelected) }, onExplain, Modifier.weight(1f))
+            BarAction(EditorIcons.Layers, stringResource(R.string.hub_bar_export_bundle), actions.exportBundle, exportReason, { onIntent(HubIntent.ExportSelectedBundle) }, onExplain, Modifier.weight(1f))
+            BarAction(EditorIcons.Export, stringResource(R.string.hub_bar_export_file), actions.exportFile, exportReason, { onIntent(HubIntent.ExportSelectedFile) }, onExplain, Modifier.weight(1f))
+            BarAction(EditorIcons.Delete, stringResource(R.string.common_delete), actions.delete, UiText.res(R.string.hub_select_first), { onIntent(HubIntent.DeleteSelected) }, onExplain, Modifier.weight(1f))
             var more by remember { mutableStateOf(false) }
             Box {
-                IconButton(onClick = { more = true }) { Icon(HubIcons.MoreVert, contentDescription = "More actions") }
+                IconButton(onClick = { more = true }) { Icon(HubIcons.MoreVert, contentDescription = stringResource(R.string.hub_more_actions)) }
                 DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                     DropdownMenuItem(
-                        text = { Text("Rename") },
+                        text = { Text(stringResource(R.string.common_rename)) },
                         leadingIcon = { Icon(HubIcons.Edit, contentDescription = null) },
                         enabled = actions.rename,
                         onClick = { more = false; onIntent(HubIntent.RenameSelected) },
                     )
                     if (!actions.rename) {
                         Text(
-                            "Rename works on one project.",
+                            stringResource(R.string.hub_rename_one_only),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -291,9 +296,9 @@ private fun BarAction(
     icon: ImageVector,
     label: String,
     enabled: Boolean,
-    disabledReason: String,
+    disabledReason: UiText,
     onClick: () -> Unit,
-    onExplain: (String) -> Unit,
+    onExplain: (UiText) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -318,6 +323,6 @@ private fun BarAction(
 @Composable
 internal fun NoMatch(query: String, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-        Text("No project matches \"${query.trim()}\".", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.hub_no_match, query.trim()), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

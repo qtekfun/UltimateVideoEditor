@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,13 +67,14 @@ internal fun WordmarkGlyph(size: Dp = 22.dp, modifier: Modifier = Modifier) {
 
 @Composable
 private fun Wordmark() {
+    val appName = stringResource(R.string.app_name)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "ultimateVE" },
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = appName },
     ) {
         WordmarkGlyph()
-        Text("ultimateVE", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(appName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -92,7 +96,7 @@ internal fun HubTopBar(
                 IconButton(onClick = onToggleSearch) {
                     Icon(
                         if (searchOpen) HubIcons.Close else HubIcons.Search,
-                        contentDescription = if (searchOpen) "Close search" else "Search projects",
+                        contentDescription = stringResource(if (searchOpen) R.string.hub_close_search else R.string.hub_search_projects),
                     )
                 }
             }
@@ -107,12 +111,12 @@ internal fun HubTopBar(
 internal fun SelectionTopBar(count: Int, allSelected: Boolean, onClose: () -> Unit, onSelectAll: () -> Unit) {
     TopAppBar(
         navigationIcon = {
-            IconButton(onClick = onClose) { Icon(HubIcons.Close, contentDescription = "Leave selection mode") }
+            IconButton(onClick = onClose) { Icon(HubIcons.Close, contentDescription = stringResource(R.string.hub_leave_selection)) }
         },
-        title = { Text("$count selected") },
+        title = { Text(pluralStringResource(R.plurals.hub_selected_count, count, count)) },
         actions = {
             IconButton(onClick = onSelectAll, enabled = !allSelected) {
-                Icon(HubIcons.SelectAll, contentDescription = "Select all projects")
+                Icon(HubIcons.SelectAll, contentDescription = stringResource(R.string.hub_select_all))
             }
         },
     )
@@ -123,11 +127,11 @@ internal fun SelectionTopBar(count: Int, allSelected: Boolean, onClose: () -> Un
 private fun HubOverflowMenu(onImport: () -> Unit, onOpenAbout: () -> Unit, onTemplates: (() -> Unit)?) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }) { Icon(HubIcons.MoreVert, contentDescription = "More options") }
+        IconButton(onClick = { open = true }) { Icon(HubIcons.MoreVert, contentDescription = stringResource(R.string.hub_more_options)) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (onTemplates != null) DropdownMenuItem(text = { Text("New from a template…") }, onClick = { open = false; onTemplates() })
-            DropdownMenuItem(text = { Text("Import project, bundle or LumaFusion package") }, onClick = { open = false; onImport() })
-            DropdownMenuItem(text = { Text("About, privacy and help") }, onClick = { open = false; onOpenAbout() })
+            if (onTemplates != null) DropdownMenuItem(text = { Text(stringResource(R.string.hub_new_from_template)) }, onClick = { open = false; onTemplates() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.hub_import_menu)) }, onClick = { open = false; onImport() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.hub_about_menu)) }, onClick = { open = false; onOpenAbout() })
         }
     }
 }

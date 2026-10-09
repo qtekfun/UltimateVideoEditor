@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.MatchedClip
 import com.qtekfun.ultimatevideoeditor.data.ProjectNames
 import com.qtekfun.ultimatevideoeditor.data.ProjectSummary
@@ -35,7 +37,7 @@ data class NewProjectDraft(
     /** The clip the format was copied from, once picked in [StartMode.MATCH_FIRST_CLIP]. */
     val matchedClip: MatchedClip? = null,
     val isMatching: Boolean = false,
-    val matchError: String? = null,
+    val matchError: UiText? = null,
 ) {
     val width: Int get() = size.first
     val height: Int get() = size.second
@@ -51,9 +53,9 @@ data class NewProjectDraft(
     val resolution: ResolutionPreset get() = ResolutionPreset(sizeLabel(width, height), width, height)
 
     /** Why the typed size cannot be used, or null. */
-    val sizeProblem: String?
+    val sizeProblem: UiText?
         get() = when {
-            !aspect.custom && tier.custom && customShortSide <= 0 -> "Enter the short side in pixels"
+            !aspect.custom && tier.custom && customShortSide <= 0 -> UiText.res(R.string.hub_size_short_side)
             else -> ProjectSizing.problemWith(width, height)
         }
 
@@ -61,8 +63,8 @@ data class NewProjectDraft(
         get() = name.isNotBlank() && sizeProblem == null && (startMode == StartMode.BLANK || matchedClip != null)
 
     /** "1920 × 1080, 30 fps, SDR". */
-    val summary: String
-        get() = "${sizeLabel(width, height)}, ${fps.label} fps, ${colorSpaceShortName(colorSpace.id)}"
+    val summary: UiText
+        get() = UiText.join(", ", UiText.Raw(sizeLabel(width, height)), UiText.res(R.string.fps_value, fps.label), UiText.Raw(colorSpaceShortName(colorSpace.id)))
 }
 
 data class RenameDraft(val projectId: String, val name: String)
@@ -157,10 +159,11 @@ data class SelectionActions(
     val exportFile: Boolean,
     val exportBundle: Boolean,
     /** Why the export actions are disabled, for the tooltip; null when they are enabled. */
-    val exportDisabledReason: String?,
+    val exportDisabledReason: UiText?,
 ) {
     companion object {
-        const val ONE_AT_A_TIME = "Export works on one project at a time. Select just one."
+        /** Why the export actions are off when several projects are ticked. */
+        val ONE_AT_A_TIME: UiText = UiText.res(R.string.hub_one_at_a_time)
 
         fun of(count: Int) = SelectionActions(
             duplicate = count >= 1,
@@ -270,7 +273,7 @@ sealed interface HubIntent : UiIntent {
 }
 
 sealed interface HubEffect : UiEffect {
-    data class ShowMessage(val text: String) : HubEffect
+    data class ShowMessage(val text: UiText) : HubEffect
     data class LaunchExportPicker(val projectId: String, val suggestedFileName: String) : HubEffect
     data class LaunchBundleExportPicker(val projectId: String, val suggestedFileName: String, val choice: BundleChoice) : HubEffect
     data class OpenEditor(val projectId: String) : HubEffect

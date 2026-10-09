@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import android.net.Uri
 import com.qtekfun.ultimatevideoeditor.proxy.MediaPurpose
 import com.qtekfun.ultimatevideoeditor.proxy.ProxyManager
@@ -631,6 +633,11 @@ fun EditorScreen(
                 is EditorEffect.ShowMessage -> {
                     snackbar.currentSnackbarData?.dismiss()
                     scope.launch { snackbar.showSnackbar(effect.text) }
+                }
+                is EditorEffect.ShowText -> {
+                    snackbar.currentSnackbarData?.dismiss()
+                    val text = effect.text.resolve(context)
+                    scope.launch { snackbar.showSnackbar(text) }
                 }
                 EditorEffect.Close -> onClose()
                 is EditorEffect.AssetUnavailable -> preview.release(effect.assetKey)
@@ -1414,7 +1421,7 @@ private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace,
                     )
                 }
                 for (group in ProjectPresets.resolutionGroups) {
-                    Text(group.title, style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(group.titleRes), style = MaterialTheme.typography.labelLarge)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         for (preset in group.presets) {
                             FilterChip(

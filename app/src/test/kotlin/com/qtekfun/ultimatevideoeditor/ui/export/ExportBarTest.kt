@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 class ExportBarTest {
     private fun running(permille: Int, estimate: ExportEstimate = ExportEstimate()) =
@@ -17,13 +18,13 @@ class ExportBarTest {
 
         assertEquals(42, bar.percent)
         assertEquals("p1", bar.projectId)
-        assertTrue(bar.detail, bar.detail.startsWith("42% · about "))
+        assertTrue(bar.detail.english(), bar.detail.english().startsWith("42% · about "))
     }
 
     @Test
     fun `running without an estimate or while stalled shows only the percent`() {
-        assertEquals("0%", (exportBarFor(running(0)) as ExportBar.Running).detail)
-        assertEquals("50%", (exportBarFor(running(500, ExportEstimate(remainingMs = 9_000, stalled = true))) as ExportBar.Running).detail)
+        assertEquals("0%", (exportBarFor(running(0)) as ExportBar.Running).detail.english())
+        assertEquals("50%", (exportBarFor(running(500, ExportEstimate(remainingMs = 9_000, stalled = true))) as ExportBar.Running).detail.english())
     }
 
     @Test
@@ -32,7 +33,7 @@ class ExportBarTest {
         assertEquals(ExportBar.Finished("p1", "Holiday", "content://x", "Holiday.mp4"), done)
 
         val failed = exportBarFor(ExportJobState.Failed("p1", "Holiday", ExportException(ExportErrorCode.CODEC_ERROR, "boom"))) as ExportBar.Failed
-        assertTrue(failed.message, failed.message.contains("boom"))
+        assertTrue(failed.message.english(), failed.message.english().contains("boom"))
     }
 
     @Test
@@ -47,7 +48,7 @@ class ExportBarTest {
         assertEquals(ExportAvailability.Available, exportAvailability(ExportJobState.Done("p1", "Holiday", "u", "f"), "p2"))
         assertEquals(ExportAvailability.RunningHere, exportAvailability(running(10), "p1"))
         val blocked = exportAvailability(running(10), "p2") as ExportAvailability.BlockedBy
-        assertEquals("Another export is running: Holiday", blocked.message)
+        assertEquals("Another export is running: Holiday", blocked.message.english())
     }
 
     @Test

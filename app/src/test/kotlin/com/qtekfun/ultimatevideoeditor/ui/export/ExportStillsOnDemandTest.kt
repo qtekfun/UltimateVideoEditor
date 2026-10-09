@@ -29,6 +29,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /** Stills reach the engine on request, one at a time, instead of all being rasterised and held up front. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -144,8 +145,8 @@ class ExportStillsOnDemandTest {
         assertNull("the engine is never started", runner.request)
         val phase = vm.state.value.phase
         assertTrue("phase was $phase", phase is ExportPhase.Failed)
-        assertTrue((phase as ExportPhase.Failed).message.contains("A picture could not be drawn"))
-        assertTrue(phase.message.contains("the file is missing"))
+        assertTrue((phase as ExportPhase.Failed).message.english().contains("A picture could not be drawn"))
+        assertTrue(phase.message.english().contains("the file is missing"))
     }
 
     @Test

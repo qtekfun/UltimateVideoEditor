@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.data.ColorSpaceNames
 import java.util.Locale
 
@@ -10,7 +13,7 @@ data class ResolutionPreset(val label: String, val width: Int, val height: Int) 
 }
 
 /** A titled run of presets that share an aspect ratio, shown together in the editor's canvas dialog. */
-data class ResolutionGroup(val title: String, val presets: List<ResolutionPreset>)
+data class ResolutionGroup(@StringRes val titleRes: Int, val presets: List<ResolutionPreset>)
 
 private fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
 
@@ -22,10 +25,10 @@ fun aspectLabelOf(width: Int, height: Int): String {
 }
 
 /** A shape of picture. [custom] means the user types the exact pixels instead. */
-data class AspectPreset(val id: String, val label: String, val ratioWidth: Int, val ratioHeight: Int, val custom: Boolean = false)
+data class AspectPreset(val id: String, @StringRes val labelRes: Int, val ratioWidth: Int, val ratioHeight: Int, val custom: Boolean = false)
 
 /** The size of the short side of the picture: 1080p means 1920x1080 landscape and 1080x1920 vertical. */
-data class ResolutionTier(val id: String, val label: String, val shortSide: Int, val custom: Boolean = false)
+data class ResolutionTier(val id: String, @StringRes val labelRes: Int, val shortSide: Int, val custom: Boolean = false)
 
 data class FpsPreset(val label: String, val num: Int, val den: Int)
 
@@ -37,7 +40,7 @@ enum class StartMode { BLANK, MATCH_FIRST_CLIP }
 /** One tap that fills the selectors. [matchFirstClip] switches to the "Match first clip" start mode instead of a fixed format. */
 data class QuickPreset(
     val id: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val aspect: AspectPreset,
     val tier: ResolutionTier,
     val fps: FpsPreset,
@@ -70,10 +73,10 @@ object ProjectSizing {
     private fun evenDivision(numerator: Long, denominator: Long): Long = (numerator + denominator) / (2 * denominator) * 2
 
     /** Why a typed size cannot be used, or null if it is fine. */
-    fun problemWith(width: Int, height: Int): String? = when {
-        width <= 0 || height <= 0 -> "Enter a width and a height"
-        width % 2 != 0 || height % 2 != 0 -> "Width and height must be even numbers"
-        width !in MIN_SIDE..MAX_SIDE || height !in MIN_SIDE..MAX_SIDE -> "Width and height must be between $MIN_SIDE and $MAX_SIDE"
+    fun problemWith(width: Int, height: Int): UiText? = when {
+        width <= 0 || height <= 0 -> UiText.res(R.string.hub_size_enter)
+        width % 2 != 0 || height % 2 != 0 -> UiText.res(R.string.hub_size_even)
+        width !in MIN_SIDE..MAX_SIDE || height !in MIN_SIDE..MAX_SIDE -> UiText.res(R.string.hub_size_range, MIN_SIDE, MAX_SIDE)
         else -> null
     }
 
@@ -83,21 +86,21 @@ object ProjectSizing {
 
 object ProjectPresets {
     val aspects = listOf(
-        AspectPreset("16:9", "16:9 landscape", 16, 9),
-        AspectPreset("9:16", "9:16 vertical", 9, 16),
-        AspectPreset("1:1", "1:1 square", 1, 1),
-        AspectPreset("4:5", "4:5 portrait", 4, 5),
-        AspectPreset("4:3", "4:3", 4, 3),
-        AspectPreset("21:9", "21:9 ultrawide", 21, 9),
-        AspectPreset("custom", "Custom size", 0, 0, custom = true),
+        AspectPreset("16:9", R.string.hub_aspect_16_9, 16, 9),
+        AspectPreset("9:16", R.string.hub_aspect_9_16, 9, 16),
+        AspectPreset("1:1", R.string.hub_aspect_1_1, 1, 1),
+        AspectPreset("4:5", R.string.hub_aspect_4_5, 4, 5),
+        AspectPreset("4:3", R.string.hub_aspect_4_3, 4, 3),
+        AspectPreset("21:9", R.string.hub_aspect_21_9, 21, 9),
+        AspectPreset("custom", R.string.hub_aspect_custom, 0, 0, custom = true),
     )
 
     val tiers = listOf(
-        ResolutionTier("720p", "720p", 720),
-        ResolutionTier("1080p", "1080p", 1080),
-        ResolutionTier("1440p", "1440p", 1440),
-        ResolutionTier("2160p", "4K (2160p)", 2160),
-        ResolutionTier("custom", "Custom short side", 0, custom = true),
+        ResolutionTier("720p", R.string.hub_tier_720, 720),
+        ResolutionTier("1080p", R.string.hub_tier_1080, 1080),
+        ResolutionTier("1440p", R.string.hub_tier_1440, 1440),
+        ResolutionTier("2160p", R.string.hub_tier_2160, 2160),
+        ResolutionTier("custom", R.string.hub_tier_custom, 0, custom = true),
     )
 
     val fps = listOf(
@@ -134,10 +137,10 @@ object ProjectPresets {
     )
 
     val resolutionGroups = listOf(
-        ResolutionGroup("Landscape 16:9 (YouTube)", resolutions.filter { it.aspectLabel == "16:9" }),
-        ResolutionGroup("Vertical 9:16 (TikTok, Shorts, Reels)", resolutions.filter { it.aspectLabel == "9:16" }),
-        ResolutionGroup("Square 1:1", resolutions.filter { it.aspectLabel == "1:1" }),
-        ResolutionGroup("Portrait 4:5 (Instagram feed)", resolutions.filter { it.aspectLabel == "4:5" }),
+        ResolutionGroup(R.string.hub_group_landscape, resolutions.filter { it.aspectLabel == "16:9" }),
+        ResolutionGroup(R.string.hub_group_vertical, resolutions.filter { it.aspectLabel == "9:16" }),
+        ResolutionGroup(R.string.hub_group_square, resolutions.filter { it.aspectLabel == "1:1" }),
+        ResolutionGroup(R.string.hub_group_portrait, resolutions.filter { it.aspectLabel == "4:5" }),
     )
 
     val defaultAspect = aspects[0]
@@ -154,13 +157,13 @@ object ProjectPresets {
 
     /** One-tap starting points, in the order shown. */
     val quick = listOf(
-        QuickPreset("yt-1080", "YouTube 1080p30", aspect("16:9"), tier("1080p"), fps("30"), defaultColorSpace),
-        QuickPreset("yt-4k", "YouTube 4K30", aspect("16:9"), tier("2160p"), fps("30"), defaultColorSpace),
-        QuickPreset("vertical", "TikTok · Reels · Shorts 9:16", aspect("9:16"), tier("1080p"), fps("30"), defaultColorSpace),
-        QuickPreset("insta-45", "Instagram 4:5", aspect("4:5"), tier("1080p"), fps("30"), defaultColorSpace),
-        QuickPreset("square", "Square 1:1", aspect("1:1"), tier("1080p"), fps("30"), defaultColorSpace),
-        QuickPreset("cinema", "Cinema 24p", aspect("16:9"), tier("1080p"), fps("24"), defaultColorSpace),
-        QuickPreset("match", "Match first clip", defaultAspect, defaultTier, defaultFps, defaultColorSpace, matchFirstClip = true),
+        QuickPreset("yt-1080", R.string.hub_quick_yt_1080, aspect("16:9"), tier("1080p"), fps("30"), defaultColorSpace),
+        QuickPreset("yt-4k", R.string.hub_quick_yt_4k, aspect("16:9"), tier("2160p"), fps("30"), defaultColorSpace),
+        QuickPreset("vertical", R.string.hub_quick_vertical, aspect("9:16"), tier("1080p"), fps("30"), defaultColorSpace),
+        QuickPreset("insta-45", R.string.hub_quick_insta_45, aspect("4:5"), tier("1080p"), fps("30"), defaultColorSpace),
+        QuickPreset("square", R.string.hub_quick_square, aspect("1:1"), tier("1080p"), fps("30"), defaultColorSpace),
+        QuickPreset("cinema", R.string.hub_quick_cinema, aspect("16:9"), tier("1080p"), fps("24"), defaultColorSpace),
+        QuickPreset("match", R.string.hub_quick_match, defaultAspect, defaultTier, defaultFps, defaultColorSpace, matchFirstClip = true),
     )
 
     fun aspectById(id: String): AspectPreset? = aspects.firstOrNull { it.id == id }

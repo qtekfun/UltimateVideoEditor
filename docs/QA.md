@@ -39,6 +39,20 @@ Safety, enforced by the script:
   rotated file, photos, a frame-numbered clip). The device lives under `/sdcard/Android/data/<pkg>/files`.
 - Wireless adb drops now and then: `adb mdns services`, then `adb connect <host:port>`.
 
+## Language
+
+The app is translated (Spanish so far), and the uiautomator flows and the helper scripts find buttons by their English text. They pin
+the app to English themselves: `scripts/device-ui.sh` (`ui_launch`, used by `qa-smoke.sh`, `perf-editor.sh`, `perf-timeline.sh` and
+`av-drift-test.sh`) and `scripts/full-export-ui.sh` run `adb shell cmd locale set-app-locales <pkg> --locales en` on Android 13+ (the
+system's per-app language, for that package only), and on Android 12 write the app's own preference (`shared_prefs/language.xml`, tag
+`en`) with `run-as` (a debug build). So a phone set to Spanish does not break them. By hand: Settings, Apps, the QA build, Language.
+No debug property is involved (`DebugPropertyGuardTest`). The JVM tests are not affected: they run with `user.language=en` and
+assert on `UiText.english()`.
+
+Manual checks of the translation (not scripted, they need a person): switch the language in About and see the Projects screen,
+New project, a dialog and the About screen change at once; start an export and read the notification in Spanish; on a narrow phone
+and in landscape look for clipped or overflowing Spanish text (it is about 20 % longer); with AMOLED on, check the same screens.
+
 ## The checks
 
 | Check | Defect | What it asserts |

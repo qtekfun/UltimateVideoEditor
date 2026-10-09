@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -83,15 +86,15 @@ private fun NewProjectForm(
         modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("New project", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.hub_new_project), style = MaterialTheme.typography.titleLarge)
 
         OutlinedTextField(
             value = draft.name,
             onValueChange = { onIntent(HubIntent.DraftNameChanged(it)) },
-            label = { Text("Name") },
+            label = { Text(stringResource(R.string.hub_field_name)) },
             singleLine = true,
             isError = nameTaken,
-            supportingText = if (nameTaken) ({ Text(NAME_TAKEN_MESSAGE) }) else null,
+            supportingText = if (nameTaken) ({ Text(stringResource(R.string.hub_name_taken)) }) else null,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -100,54 +103,54 @@ private fun NewProjectForm(
         if (draft.startMode == StartMode.MATCH_FIRST_CLIP) MatchFromClipRow(draft, onPickClip)
 
         Selector(
-            label = "Aspect ratio",
-            value = draft.aspect.label,
+            label = stringResource(R.string.hub_aspect_ratio),
+            value = stringResource(draft.aspect.labelRes),
             options = ProjectPresets.aspects,
-            optionLabel = { it.label },
+            optionLabel = { stringResource(it.labelRes) },
             onSelect = { onIntent(HubIntent.DraftAspectSelected(it)) },
         )
 
         if (draft.aspect.custom) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                NumberField("Width (px)", draft.customWidth, { onIntent(HubIntent.DraftCustomWidthChanged(it)) }, Modifier.weight(1f))
-                NumberField("Height (px)", draft.customHeight, { onIntent(HubIntent.DraftCustomHeightChanged(it)) }, Modifier.weight(1f))
+                NumberField(stringResource(R.string.hub_width_px), draft.customWidth, { onIntent(HubIntent.DraftCustomWidthChanged(it)) }, Modifier.weight(1f))
+                NumberField(stringResource(R.string.hub_height_px), draft.customHeight, { onIntent(HubIntent.DraftCustomHeightChanged(it)) }, Modifier.weight(1f))
             }
         } else {
             Selector(
-                label = "Resolution",
-                value = draft.tier.label,
+                label = stringResource(R.string.hub_resolution),
+                value = stringResource(draft.tier.labelRes),
                 options = ProjectPresets.tiers,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.labelRes) },
                 onSelect = { onIntent(HubIntent.DraftTierSelected(it)) },
             )
             if (draft.tier.custom) {
-                NumberField("Short side (px)", draft.customShortSide, { onIntent(HubIntent.DraftCustomShortSideChanged(it)) }, Modifier.fillMaxWidth())
+                NumberField(stringResource(R.string.hub_short_side_px), draft.customShortSide, { onIntent(HubIntent.DraftCustomShortSideChanged(it)) }, Modifier.fillMaxWidth())
             }
         }
         val problem = draft.sizeProblem
         Text(
-            text = problem ?: "= ${sizeLabel(draft.width, draft.height)} pixels",
+            text = problem?.asString() ?: stringResource(R.string.hub_size_pixels, sizeLabel(draft.width, draft.height)),
             style = MaterialTheme.typography.bodySmall,
             color = if (problem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Selector(
-            label = "Frame rate",
-            value = "${draft.fps.label} fps",
+            label = stringResource(R.string.hub_frame_rate),
+            value = stringResource(R.string.fps_value, draft.fps.label),
             options = if (draft.fps in ProjectPresets.fps) ProjectPresets.fps else listOf(draft.fps) + ProjectPresets.fps,
-            optionLabel = { "${it.label} fps" },
+            optionLabel = { stringResource(R.string.fps_value, it.label) },
             onSelect = { onIntent(HubIntent.DraftFpsSelected(it)) },
         )
 
         Selector(
-            label = "Colour space",
+            label = stringResource(R.string.hub_colour_space),
             value = draft.colorSpace.label,
             options = ProjectPresets.colorSpaces,
             optionLabel = { it.label },
             onSelect = { onIntent(HubIntent.DraftColorSpaceSelected(it)) },
         )
         Text(
-            "The output and working space. Each clip is converted to it individually, so SDR and HLG clips can be mixed.",
+            stringResource(R.string.hub_colour_space_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -155,12 +158,12 @@ private fun NewProjectForm(
         SummaryRow(draft)
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onIntent(HubIntent.DismissDialogs) }) { Text("Cancel") }
+            TextButton(onClick = { onIntent(HubIntent.DismissDialogs) }) { Text(stringResource(R.string.common_cancel)) }
             Button(
                 onClick = { onIntent(HubIntent.ConfirmCreate) },
                 enabled = draft.canCreate && !nameTaken,
                 modifier = Modifier.padding(start = 8.dp),
-            ) { Text("Create") }
+            ) { Text(stringResource(R.string.common_create)) }
         }
     }
 }
@@ -169,7 +172,7 @@ private fun NewProjectForm(
 @Composable
 private fun QuickPresets(draft: NewProjectDraft, onIntent: (HubIntent) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Quick start", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.hub_quick_start), style = MaterialTheme.typography.labelLarge)
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -184,7 +187,7 @@ private fun QuickPresets(draft: NewProjectDraft, onIntent: (HubIntent) -> Unit) 
                 FilterChip(
                     selected = selected,
                     onClick = { onIntent(HubIntent.DraftQuickPreset(preset)) },
-                    label = { Text(preset.label) },
+                    label = { Text(stringResource(preset.labelRes)) },
                 )
             }
         }
@@ -197,22 +200,22 @@ private fun MatchFromClipRow(draft: NewProjectDraft, onPickClip: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onPickClip, enabled = !draft.isMatching) {
-                Text(if (draft.matchedClip == null) "Choose a clip" else "Choose another clip")
+                Text(stringResource(if (draft.matchedClip == null) R.string.hub_choose_clip else R.string.hub_choose_another_clip))
             }
             if (draft.isMatching) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         }
         val clip = draft.matchedClip
         when {
             draft.matchError != null ->
-                Text(draft.matchError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                Text(draft.matchError.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             clip != null ->
                 Text(
-                    "Copied from ${clip.displayName ?: "the clip"}. You can still change any value below.",
+                    stringResource(R.string.hub_copied_from, clip.displayName ?: stringResource(R.string.hub_the_clip)),
                     style = MaterialTheme.typography.bodySmall,
                 )
             else ->
                 Text(
-                    "Pick a video or photo to copy its size, frame rate and colour space.",
+                    stringResource(R.string.hub_match_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -223,6 +226,7 @@ private fun MatchFromClipRow(draft: NewProjectDraft, onPickClip: () -> Unit) {
 @Composable
 private fun SummaryRow(draft: NewProjectDraft) {
     val ratio = if (draft.sizeProblem == null) draft.width.toFloat() / draft.height.toFloat() else 16f / 9f
+    val shapeDescription = stringResource(R.string.hub_shape_of_picture)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // A small rectangle with the shape of the picture; it is decoration, the summary text says the same.
         Box(
@@ -231,9 +235,9 @@ private fun SummaryRow(draft: NewProjectDraft) {
                 .aspectRatio(ratio.coerceIn(0.3f, 3.5f), matchHeightConstraintsFirst = true)
                 .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
                 .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
-                .semantics { contentDescription = "Shape of the picture" },
+                .semantics { contentDescription = shapeDescription },
         )
-        Text(draft.summary, style = MaterialTheme.typography.titleSmall)
+        Text(draft.summary.asString(), style = MaterialTheme.typography.titleSmall)
     }
 }
 
@@ -244,7 +248,7 @@ private fun <T> Selector(
     label: String,
     value: String,
     options: List<T>,
-    optionLabel: (T) -> String,
+    optionLabel: @Composable (T) -> String,
     onSelect: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -285,4 +289,3 @@ private fun NumberField(label: String, value: Int, onChange: (String) -> Unit, m
     )
 }
 
-internal const val NAME_TAKEN_MESSAGE = "A project with this name already exists"

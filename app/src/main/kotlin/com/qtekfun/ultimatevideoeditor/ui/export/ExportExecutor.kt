@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportErrorCode
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportException
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportHandle
@@ -35,7 +37,7 @@ class ExportExecutor(
     /** Checks the finished file (first and last frames, structure); null skips the check, which only tests do. */
     private val verifier: ExportVerifier? = null,
     /** A description of the other long job when one is running (a project backup: "Backing up Holiday"), else null. */
-    private val otherJobBusy: () -> String? = { null },
+    private val otherJobBusy: () -> UiText? = { null },
 ) : ExportJobHost {
     private val mutableState = MutableStateFlow<ExportJobState>(ExportJobState.Idle)
     override val state: StateFlow<ExportJobState> = mutableState.asStateFlow()
@@ -52,8 +54,8 @@ class ExportExecutor(
     private var signatures: List<FrameSignature> = emptyList() // taken by the engine while exporting
 
     /** Why a new export cannot start right now (a project backup is running), in words for the user; null when it can. */
-    fun refusalReason(): String? =
-        otherJobBusy()?.let { "Another long job is running ($it). Start the export when it has finished, or cancel that one first." }
+    fun refusalReason(): UiText? =
+        otherJobBusy()?.let { UiText.res(R.string.refused_other_job_export, it) }
 
     /** Starts [next]; false when an export or a project backup is already running (nothing is touched then). */
     fun start(next: ExportJob): Boolean {
@@ -130,7 +132,7 @@ class ExportExecutor(
             finish(e)
             return
         } catch (e: IllegalArgumentException) {
-            finish(ExportException(ExportErrorCode.INVALID_ARGUMENT, "Invalid export settings: ${e.message}"))
+            finish(ExportException(ExportErrorCode.INVALID_ARGUMENT, "Invalid export settings: ${e.message}", UiText.res(R.string.export_invalid_settings, e.message.orEmpty()))) // i18n-ok: the log message; the user reads the UiText
             return
         }
         val stopNow: Boolean
@@ -159,14 +161,14 @@ class ExportExecutor(
         val check = verifier ?: return null
         val cancelled = { synchronized(lock) { cancelRequested } }
         if (cancelled()) return VerificationOutcome.Skipped
-        if (promised == null) return VerificationOutcome.CouldNotVerify("the export's settings were not recorded")
+        if (promised == null) return VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_settings_not_recorded))
         mutableState.update { if (it is ExportJobState.Running) it.copy(progressPermille = 0, verifying = true, estimate = ExportEstimate()) else it }
         return try {
             check.verify(VerifyTarget(source.outputUri, promised, probes), cancelled) { permille ->
                 mutableState.update { if (it is ExportJobState.Running && it.verifying) it.copy(progressPermille = permille) else it }
             }
         } catch (e: RuntimeException) {
-            VerificationOutcome.CouldNotVerify("the check failed (${e.javaClass.simpleName}: ${e.message})")
+            VerificationOutcome.CouldNotVerify(UiText.res(R.string.verify_reason_check_failed, e.javaClass.simpleName, e.message.orEmpty()))
         }
     }
 
@@ -203,8 +205,9 @@ class ExportExecutor(
         }
         val removed = io.deleteOutput(source.outputUri)
         // A failed export never leaves a half-written file unmentioned: when the provider refuses to delete it, say so.
-        val leftover = if (removed) "" else
-            " A partly written file could not be removed: ${io.displayName(source.outputUri) ?: "the chosen file"}. It is incomplete; delete it."
+        val leftover = if (removed) UiText.Empty else io.displayName(source.outputUri).let { name ->
+            if (name != null) UiText.res(R.string.leftover_file, name) else UiText.res(R.string.leftover_chosen_file)
+        }
         mutableState.value =
             if (error.code == ExportErrorCode.CANCELLED) ExportJobState.Cancelled(source.projectId, source.projectName)
             else ExportJobState.Failed(source.projectId, source.projectName, error, leftover)

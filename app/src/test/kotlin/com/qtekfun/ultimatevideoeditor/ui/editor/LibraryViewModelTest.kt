@@ -37,6 +37,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModelTest {
@@ -131,7 +132,13 @@ class LibraryViewModelTest {
 
         fun at(frame: Long) = vm.onIntent(EditorIntent.SetPlayhead(frame))
 
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.mapNotNull {
+            when (it) {
+                is EditorEffect.ShowMessage -> it.text
+                is EditorEffect.ShowText -> it.text.english()
+                else -> null
+            }
+        }
     }
 
     private fun TestScope.harness(clips: Boolean = true): Harness {
@@ -367,7 +374,7 @@ class LibraryViewModelTest {
         h.vm.onIntent(LibraryIntent.RequestExport(InterchangeKind.BUNDLE))
         advanceUntilIdle()
         val draft = h.state.library.bundleDraft!!
-        assertEquals("unreadable project", draft.failed)
+        assertEquals("unreadable project", draft.failed?.english())
         assertEquals(false, draft.canExport)
         // Confirming a dialog that cannot export does nothing.
         h.vm.onIntent(LibraryIntent.ConfirmBundleExport)

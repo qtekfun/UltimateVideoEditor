@@ -1,12 +1,15 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+
 /**
  * What the export notification says, without any Android type. Progress is in whole percent so that two states which
  * look the same compare equal and the service does not repost an identical notification a thousand times.
  */
 data class ExportNotificationModel(
-    val title: String,
-    val text: String,
+    val title: UiText,
+    val text: UiText,
     /** 0..100 while running with a known position; null when there is no bar. */
     val progressPercent: Int?,
     /** A bar with no position yet (the files are still being opened). */
@@ -31,11 +34,11 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
         val percent = (state.progressPermille / 10).coerceIn(0, 100)
         val left = state.estimate.remainingMs?.takeIf { !state.estimate.stalled && state.progressPermille in 1..999 }
         ExportNotificationModel(
-            title = if (state.verifying) "Verifying ${state.projectName}" else "Exporting ${state.projectName}",
+            title = UiText.res(if (state.verifying) R.string.notif_verifying_project else R.string.notif_exporting_project, state.projectName),
             text = when {
-                state.verifying -> "Checking the saved file · $percent%"
-                left != null -> "$percent% · about ${formatDuration(left)} left"
-                else -> "$percent%"
+                state.verifying -> UiText.res(R.string.notif_checking_saved, percent)
+                left != null -> UiText.res(R.string.percent_value_left, percent, formatDuration(left))
+                else -> UiText.res(R.string.percent_value, percent)
             },
             progressPercent = percent,
             indeterminate = state.progressPermille <= 0,
@@ -47,8 +50,8 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
     is ExportJobState.Done -> {
         val result = exportResultText(state.note, state.verification, state.exportMs, state.verifyMs)
         ExportNotificationModel(
-            title = if (result.severity == ResultSeverity.WARNING) "Export saved: check the file" else "Export finished",
-            text = listOf("${state.fileName} is saved", result.headline, result.timing).filter { it.isNotEmpty() }.joinToString(" · "),
+            title = UiText.res(if (result.severity == ResultSeverity.WARNING) R.string.notif_export_saved_check else R.string.notif_export_finished),
+            text = UiText.join(" · ", UiText.res(R.string.notif_file_saved, state.fileName), result.headline, result.timing),
             progressPercent = null,
             indeterminate = false,
             ongoing = false,
@@ -57,7 +60,7 @@ fun exportNotificationFor(state: ExportJobState): ExportNotificationModel? = whe
         )
     }
     is ExportJobState.Failed -> ExportNotificationModel(
-        title = "Export failed",
+        title = UiText.res(R.string.notif_export_failed),
         text = describeExportFailure(state.error, hdr = false),
         progressPercent = null,
         indeterminate = false,

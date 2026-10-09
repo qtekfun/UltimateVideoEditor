@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor
 
 import android.app.Application
+import android.content.Context
 import android.os.Build
 import com.qtekfun.ultimatevideoeditor.crash.CrashContext
 import com.qtekfun.ultimatevideoeditor.crash.CrashHandler
@@ -8,11 +9,18 @@ import com.qtekfun.ultimatevideoeditor.crash.AndroidProcessExitSource
 import com.qtekfun.ultimatevideoeditor.crash.CrashReportStore
 import com.qtekfun.ultimatevideoeditor.crash.ProcessExitRecorder
 import com.qtekfun.ultimatevideoeditor.ui.about.AppVersion
+import com.qtekfun.ultimatevideoeditor.ui.language.AppLocale
 import java.io.File
 
 class UVEditorApp : Application() {
+    // From Android 13 the system applies the per-app language; before that the picked language is applied here.
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(AppLocale.wrap(base))
+    }
+
     override fun onCreate() {
         super.onCreate()
+        AppLocale.syncPreference(this)
         // Local only: the report is a text file in private storage that the About screen can show, copy or share
         // when the user asks. Nothing is sent anywhere.
         val store = CrashReportStore(File(filesDir, "crash"))
