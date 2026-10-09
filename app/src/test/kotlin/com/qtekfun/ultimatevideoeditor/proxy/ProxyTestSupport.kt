@@ -82,20 +82,28 @@ internal class FakeRunner(private val media: FakeMedia) : ExportRunner {
     }
 }
 
-/** A transcoder that records the order of jobs and can be held back until released. */
+/**
+ * A transcoder that records the order of jobs and can be held back until released.
+ *
+ * [hold] keeps a started job RUNNING until the test counts it down; [gate] keeps a job from starting at all.
+ * Both wait far longer than any [waitUntil] so a slow machine can never see the job finish by itself: a test
+ * that sets one must release it in a `finally` (a timeout is only a safety net so the worker thread cannot leak).
+ */
 internal class FakeTranscoder(private val index: ProxyIndex) : ProxyTranscoder {
     val order = ArrayList<String>()
     @Volatile var hold: CountDownLatch? = null
     @Volatile var cancelled = false
     @Volatile var failWith: ProxyException? = null
     val started = CountDownLatch(1)
+    @Volatile var gate: CountDownLatch? = null
 
     override fun generate(entry: ProxyEntry, onProgress: (Int) -> Unit): ProxyEntry {
+        gate?.await(HOLD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         order += entry.key
         started.countDown()
         index.put(entry.copy(state = ProxyState.RUNNING))
         onProgress(500)
-        hold?.await(5, TimeUnit.SECONDS)
+        hold?.await(HOLD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         if (cancelled) {
             cancelled = false
             index.remove(entry.key)
@@ -118,7 +126,11 @@ internal class FakeTranscoder(private val index: ProxyIndex) : ProxyTranscoder {
     }
 }
 
-internal fun waitUntil(timeoutMs: Long = 5_000, condition: () -> Boolean) {
+/** Longer than any [waitUntil]: a held job must never end by timing out before the test looks at it. */
+internal const val HOLD_TIMEOUT_SECONDS = 60L
+
+/** Waiting costs nothing once the condition holds, so the limit only matters when something is really stuck. */
+internal fun waitUntil(timeoutMs: Long = 30_000, condition: () -> Boolean) {
     val end = System.nanoTime() + timeoutMs * 1_000_000
     while (!condition()) {
         check(System.nanoTime() < end) { "condition not met in ${timeoutMs}ms" }
