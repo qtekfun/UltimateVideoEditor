@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.ClipPeeker
@@ -48,8 +52,8 @@ data class TemplateWizardState(
     val busy: Boolean = false,
     /** What fitting the media into the template would do right now: warnings, or why it cannot be done yet. */
     val warnings: List<String> = emptyList(),
-    val problem: String? = null,
-    val message: String? = null,
+    val problem: UiText? = null,
+    val message: UiText? = null,
     /** Set when a project was created; the host opens it. */
     val createdProjectId: String? = null,
 ) {
@@ -127,8 +131,10 @@ class TemplateWizardViewModel(
                 val fill = SlotFill(asset, 0L, size?.width ?: 0, size?.height ?: 0)
                 _state.update { it.copy(picked = it.picked + (placeholderId to PickedMedia(fill, label)), busyPlaceholder = null) }
                 recompute()
+            } catch (e: FileTooShortException) {
+                _state.update { it.copy(busyPlaceholder = null, message = UiText.res(R.string.ed_s3_tw_too_short)) }
             } catch (e: MediaImportException) {
-                _state.update { it.copy(busyPlaceholder = null, message = e.message ?: "That file cannot be used") }
+                _state.update { it.copy(busyPlaceholder = null, message = rawOr(e.message, UiText.res(R.string.ed_s3_tw_cannot_use))) }
             }
         }
     }
@@ -156,9 +162,9 @@ class TemplateWizardViewModel(
                 }
                 _state.update { it.copy(busy = false, createdProjectId = id) }
             } catch (e: ProjectError) {
-                _state.update { it.copy(busy = false, message = "The project could not be created: ${e.message}") }
+                _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_tw_create_failed, e.message.orEmpty())) }
             } catch (e: IOException) {
-                _state.update { it.copy(busy = false, message = "The project could not be saved: ${e.message}") }
+                _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_tw_save_failed, e.message.orEmpty())) }
             }
         }
     }
@@ -174,8 +180,8 @@ class TemplateWizardViewModel(
                     val timeline = TimelineMapper.toTimeline(dto)
                     val made = TemplateBuilder.fromProject(
                         id = "user-${idGenerator()}",
-                        name = "${dto.name} template",
-                        description = "Made from the project \"${dto.name}\".",
+                        name = "${dto.name} template", // i18n-ok: a stored name, kept as saved
+                        description = "Made from the project \"${dto.name}\".", // i18n-ok: a stored description, kept as saved
                         width = dto.settings.width,
                         height = dto.settings.height,
                         fpsNum = dto.settings.fpsNum,
@@ -187,15 +193,15 @@ class TemplateWizardViewModel(
                     if (made.placeholders.isEmpty()) null else store.save(made)
                 }
                 if (template == null) {
-                    _state.update { it.copy(message = "That project has no clips to turn into slots") }
+                    _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_no_clips)) }
                 } else {
-                    _state.update { it.copy(message = "Saved \"${template.name}\" with ${slotCountLabel(template.placeholders.size)}") }
+                    _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_saved_template, template.name, slotCountLabel(template.placeholders.size))) }
                     refresh()
                 }
             } catch (e: ProjectError) {
-                _state.update { it.copy(message = "The project could not be read: ${e.message}") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_read_failed, e.message.orEmpty())) }
             } catch (e: IOException) {
-                _state.update { it.copy(message = "The template could not be saved: ${e.message}") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_template_save_failed, e.message.orEmpty())) }
             }
         }
     }
@@ -204,12 +210,12 @@ class TemplateWizardViewModel(
         viewModelScope.launch {
             try {
                 val stored = withContext(io) { store.import(String(transfer.read(uri), Charsets.UTF_8)) }
-                _state.update { it.copy(message = "Added \"${stored.name}\"") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_added, stored.name)) }
                 refresh()
             } catch (e: TemplateFormatException) {
-                _state.update { it.copy(message = e.message ?: "That is not a template file") }
+                _state.update { it.copy(message = rawOr(e.message, UiText.res(R.string.ed_s3_tw_not_template))) }
             } catch (e: IOException) {
-                _state.update { it.copy(message = "The file could not be read: ${e.message}") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_file_unreadable, e.message.orEmpty())) }
             }
         }
     }
@@ -219,9 +225,9 @@ class TemplateWizardViewModel(
         viewModelScope.launch {
             try {
                 withContext(io) { transfer.write(uri, TemplateFile.encode(template).toByteArray(Charsets.UTF_8)) }
-                _state.update { it.copy(message = "Saved the template file") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_file_saved)) }
             } catch (e: IOException) {
-                _state.update { it.copy(message = "The file could not be written: ${e.message}") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_file_write_failed, e.message.orEmpty())) }
             }
         }
     }
@@ -247,9 +253,9 @@ class TemplateWizardViewModel(
         }
     }
 
-    private fun describe(error: EditError): String = when (error) {
-        is EditError.InvalidClip -> error.reason.replaceFirstChar { it.uppercase() }
-        else -> "The template could not be filled with these files"
+    private fun describe(error: EditError): UiText = when (error) {
+        is EditError.InvalidClip -> UiText.Capitalised(UiText.Raw(error.reason))
+        else -> UiText.res(R.string.ed_s3_tw_cannot_fill)
     }
 
     private fun assetOf(uri: String, probed: ProbedMedia, project: FrameRate): MediaAssetDto {
@@ -266,7 +272,7 @@ class TemplateWizardViewModel(
         // Audio-only files have no native frame rate; use the project's.
         val (num, den) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else project.num to project.den
         val frames = FrameRate(num, den).microsToFrames(probed.durationMicros)
-        if (frames <= 0) throw MediaImportException("The file is too short to use")
+        if (frames <= 0) throw FileTooShortException()
         return MediaAssetDto(
             id = id, uri = uri, durationFrames = frames, nativeFpsNum = num, nativeFpsDen = den, colorSpace = probed.colorSpace,
             hasVideo = probed.hasVideo, hasAudio = probed.hasAudio, displayName = probed.displayName,
@@ -279,3 +285,6 @@ class TemplateWizardViewModel(
         const val PHOTO_DEFAULT_MICROS = 5_000_000L
     }
 }
+
+/** A picked file whose length rounds to no frame at the template's rate. */
+private class FileTooShortException : Exception("The file is too short to use") // i18n-ok: log text

@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.title
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
+import com.qtekfun.ultimatevideoeditor.ui.text.UiTextIOException
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -37,10 +41,10 @@ fun interface TextWriter {
 
 class ContentResolverBytesReader(private val context: Context) : BytesReader {
     override fun read(uri: String, maxBytes: Int): ByteArray {
-        val input = context.contentResolver.openInputStream(Uri.parse(uri)) ?: throw IOException("The file cannot be opened")
+        val input = context.contentResolver.openInputStream(Uri.parse(uri)) ?: throw UiTextIOException(UiText.res(R.string.ed_s3_tl_cannot_open), "The file cannot be opened") // i18n-ok: log text
         return input.use { stream ->
             val bytes = stream.readAtMost(maxBytes + 1)
-            if (bytes.size > maxBytes) throw IOException("The file is too large")
+            if (bytes.size > maxBytes) throw UiTextIOException(UiText.res(R.string.ed_s3_tl_too_large), "The file is too large") // i18n-ok: log text
             bytes
         }
     }
@@ -48,7 +52,7 @@ class ContentResolverBytesReader(private val context: Context) : BytesReader {
 
 class ContentResolverTextWriter(private val context: Context) : TextWriter {
     override fun write(uri: String, text: String) {
-        val output = context.contentResolver.openOutputStream(Uri.parse(uri), "wt") ?: throw IOException("The file cannot be opened")
+        val output = context.contentResolver.openOutputStream(Uri.parse(uri), "wt") ?: throw UiTextIOException(UiText.res(R.string.ed_s3_tl_cannot_open), "The file cannot be opened") // i18n-ok: log text
         output.use { it.write(text.toByteArray(Charsets.UTF_8)) }
     }
 }
@@ -58,7 +62,7 @@ data class TitleLibraryState(
     val presets: List<TextTemplate> = emptyList(),
     val busy: Boolean = false,
     /** A short result or error for the user (shown once, then cleared). */
-    val message: String? = null,
+    val message: UiText? = null,
 ) {
     val fontIds: Set<String> get() = fonts.mapTo(LinkedHashSet()) { it.id }
 
@@ -99,12 +103,12 @@ class TitleLibraryViewModel(
             try {
                 val entry = withContext(io) { fontRegistry.import(reader.read(uri, FontMetaParser.MAX_BYTES)) }
                 val fonts = withContext(io) { fontRegistry.list() }
-                _state.update { it.copy(busy = false, fonts = fonts, message = "Font ${entry.family} imported. Check that its licence allows your use.") }
+                _state.update { it.copy(busy = false, fonts = fonts, message = UiText.res(R.string.ed_s3_font_imported, entry.family)) }
                 onImported(entry)
             } catch (e: FontException) {
-                _state.update { it.copy(busy = false, message = e.message) }
+                _state.update { it.copy(busy = false, message = UiText.Raw(e.message.orEmpty())) }
             } catch (e: IOException) {
-                _state.update { it.copy(busy = false, message = "The font could not be read: ${e.message}") }
+                _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_font_unreadable, reasonOf(e, UiText.Empty))) }
             }
         }
     }
@@ -128,11 +132,11 @@ class TitleLibraryViewModel(
                     presetStore.saveFrom(name, content, seconds, intro, outro, com.qtekfun.ultimatevideoeditor.domain.TitleMotion.DEFAULT_EDGE_SECONDS, families::familyOf)
                 }
                 val presets = withContext(io) { presetStore.list() }
-                _state.update { it.copy(presets = presets, message = "Saved the preset “${saved.name}”") }
+                _state.update { it.copy(presets = presets, message = UiText.res(R.string.ed_s3_preset_saved, saved.name)) }
             } catch (e: PresetFormatException) {
-                _state.update { it.copy(message = e.message) }
+                _state.update { it.copy(message = UiText.Raw(e.message.orEmpty())) }
             } catch (e: IOException) {
-                _state.update { it.copy(message = "The preset could not be saved: ${e.message}") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_preset_save_failed, reasonOf(e, UiText.Empty))) }
             }
         }
     }
@@ -145,12 +149,13 @@ class TitleLibraryViewModel(
                 val imported = withContext(io) { presetStore.import(text) }
                 val presets = withContext(io) { presetStore.list() }
                 val missing = imported.fonts.filter { it.id !in _state.value.fontIds }.map { it.family }
-                val note = if (missing.isEmpty()) "" else ". Missing fonts (default used): ${missing.joinToString()}"
-                _state.update { it.copy(busy = false, presets = presets, message = "Imported the preset “${imported.name}”$note") }
+                val message = if (missing.isEmpty()) UiText.res(R.string.ed_s3_preset_imported, imported.name)
+                else UiText.res(R.string.ed_s3_preset_imported_missing_fonts, imported.name, missing.joinToString())
+                _state.update { it.copy(busy = false, presets = presets, message = message) }
             } catch (e: PresetFormatException) {
-                _state.update { it.copy(busy = false, message = e.message) }
+                _state.update { it.copy(busy = false, message = UiText.Raw(e.message.orEmpty())) }
             } catch (e: IOException) {
-                _state.update { it.copy(busy = false, message = "The preset could not be read: ${e.message}") }
+                _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_preset_unreadable, reasonOf(e, UiText.Empty))) }
             }
         }
     }
@@ -161,13 +166,13 @@ class TitleLibraryViewModel(
             try {
                 val text = withContext(io) { presetStore.exportText(id) }
                 if (text == null) {
-                    _state.update { it.copy(message = "That preset is no longer there") }
+                    _state.update { it.copy(message = UiText.res(R.string.ed_s3_preset_gone)) }
                     return@launch
                 }
                 withContext(io) { writer.write(uri, text) }
-                _state.update { it.copy(message = "Preset exported") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_preset_exported)) }
             } catch (e: IOException) {
-                _state.update { it.copy(message = "The preset could not be written: ${e.message}") }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_preset_write_failed, reasonOf(e, UiText.Empty))) }
             }
         }
     }

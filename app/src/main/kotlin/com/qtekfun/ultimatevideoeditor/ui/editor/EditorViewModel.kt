@@ -284,7 +284,7 @@ class EditorViewModel(
             override val editor: EditorState get() = state.value
             override fun update(change: (MulticamUiState) -> MulticamUiState) = reduce { copy(multicam = change(multicam)) }
             override fun execute(command: EditCommand): Boolean = this@EditorViewModel.execute(command)
-            override fun message(text: String) = emit(EditorEffect.ShowMessage(text))
+            override fun message(text: UiText) = emit(EditorEffect.ShowMessage(text))
             override fun newId(): String = idGenerator()
             override fun assetLengthFrames(assetId: String): Long? = this@EditorViewModel.assetLengthFrames(assetId)
         },
@@ -3850,7 +3850,7 @@ class EditorViewModel(
     private fun exportTo(kind: InterchangeKind, uri: String) {
         val project = currentProjectDto() ?: return
         if (state.value.library.busy != null) return
-        reduce { copy(library = library.copy(busy = "Writing ${kind.label.substringBefore(" (")}…")) }
+        reduce { copy(library = library.copy(busy = UiText.res(kind.busyRes))) }
         viewModelScope.launch {
             try {
                 emit(EditorEffect.ShowMessage(writeExport(kind, uri, project)))

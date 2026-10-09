@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.library
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
@@ -9,12 +11,12 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.tray.colourBadge
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.kind
 
 /** What the library lists. [UNUSED] is the files no clip on the timeline refers to. */
-enum class LibraryFilter(val label: String) {
-    ALL("All"),
-    VIDEO("Video"),
-    AUDIO("Audio"),
-    IMAGE("Images"),
-    UNUSED("Unused"),
+enum class LibraryFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.ed_s3_filter_all),
+    VIDEO(R.string.ed_s3_filter_video),
+    AUDIO(R.string.ed_s3_filter_audio),
+    IMAGE(R.string.ed_s3_filter_images),
+    UNUSED(R.string.ed_s3_filter_unused),
 }
 
 /** Search text (matched against name, tags and note), a kind filter and an optional tag. */

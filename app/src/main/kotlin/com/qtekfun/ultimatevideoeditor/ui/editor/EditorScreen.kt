@@ -1116,7 +1116,7 @@ private fun EditorMain(
                             ScopesPanel(
                                 engine = previewEngine,
                                 colorSpace = state.colorSpace,
-                                onError = { viewModel.onIntent(EditorIntent.ReportError(it)) },
+                                onError = { viewModel.onIntent(EditorIntent.ReportText(it)) },
                                 modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(SCOPES_WIDTH).fillMaxHeight(SCOPES_HEIGHT).padding(6.dp),
                             )
                         }

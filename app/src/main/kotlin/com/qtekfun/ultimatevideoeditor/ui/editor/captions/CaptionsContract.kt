@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.captions.CaptionStyle
@@ -26,7 +27,7 @@ data class CaptionsState(
     val importAtPlayhead: Boolean = false,
     val playhead: Long = 0,
     val importing: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
 ) : UiState {
     val canAdd: Boolean get() = draftText.isNotBlank() && draftLength > 0
 

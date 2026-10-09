@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.frame
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
@@ -23,7 +24,7 @@ data class StillFrameInput(
 )
 
 /** A saved picture the snackbar offers to share or open. */
-data class SavedFrame(val uri: String, val fileName: String, val folder: String, val width: Int, val height: Int, val notes: List<String>)
+data class SavedFrame(val uri: String, val fileName: String, val folder: String, val width: Int, val height: Int, val notes: List<UiText>)
 
 sealed interface StillFramePhase {
     data object Idle : StillFramePhase
@@ -33,7 +34,7 @@ sealed interface StillFramePhase {
 
     data class Saved(val frame: SavedFrame) : StillFramePhase
 
-    data class Failed(val message: String) : StillFramePhase
+    data class Failed(val message: UiText) : StillFramePhase
 }
 
 data class StillFrameState(val phase: StillFramePhase = StillFramePhase.Idle) : UiState {
@@ -61,7 +62,7 @@ sealed interface StillFrameEffect : UiEffect {
     data class Saved(val frame: SavedFrame) : StillFrameEffect
 
     /** A refusal or failure, shown as a snackbar: "Another export is running: Holiday". */
-    data class Message(val text: String) : StillFrameEffect
+    data class Message(val text: UiText) : StillFrameEffect
 
     data class ShareFile(val uri: String) : StillFrameEffect
 

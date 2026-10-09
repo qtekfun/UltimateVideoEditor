@@ -17,3 +17,12 @@ fun sentenceOf(raw: String): UiText {
 
 /** A message that came from the system, shown as it is, or [fallback] when there is none. */
 fun rawOr(message: String?, fallback: UiText): UiText = message?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: fallback
+
+/**
+ * An I/O failure of the app's own whose reason is already in resource form. [message] is the English text for logs; the screen
+ * shows [text] in the language in use (see [reasonOf]).
+ */
+class UiTextIOException(val text: UiText, message: String) : java.io.IOException(message)
+
+/** The reason to show for [error]: its resource text when it has one, the system's message, or [fallback]. */
+fun reasonOf(error: Throwable, fallback: UiText): UiText = (error as? UiTextIOException)?.text ?: rawOr(error.message, fallback)

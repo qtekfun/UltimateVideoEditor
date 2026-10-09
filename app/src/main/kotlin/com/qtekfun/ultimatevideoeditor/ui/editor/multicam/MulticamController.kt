@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.multicam
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.ClipDeletion
 import com.qtekfun.ultimatevideoeditor.domain.EditCommand
@@ -37,7 +39,7 @@ internal class MulticamController(
 
         /** Runs [command] through the undo history; false (after telling the user why) when it failed. */
         fun execute(command: EditCommand): Boolean
-        fun message(text: String)
+        fun message(text: UiText)
         fun newId(): String
 
         /** Length of a library file in project frames, or null for a picture or an unknown file. */
@@ -79,14 +81,14 @@ internal class MulticamController(
     private fun toggleAsset(assetId: String) {
         val asset = host.editor.assets.firstOrNull { it.id == assetId }
         if (asset == null || !asset.hasAudio || asset.isImage) {
-            host.message("Only a video or audio file with sound can be an angle")
+            host.message(UiText.res(R.string.ed_s3_mc_only_sound))
             return
         }
         val draft = ui.draft
         if (assetId in draft.assetIds) {
             host.update { it.copy(draft = MulticamDraft(draft.assetIds - assetId)) }
         } else if (draft.assetIds.size >= MulticamOps.MAX_ANGLES) {
-            host.message("A multicam clip has at most ${MulticamOps.MAX_ANGLES} angles")
+            host.message(UiText.res(R.string.ed_s3_mc_max_angles, MulticamOps.MAX_ANGLES))
         } else {
             host.update { it.copy(draft = MulticamDraft(draft.assetIds + assetId)) }
         }
@@ -95,7 +97,7 @@ internal class MulticamController(
     private fun syncDraft() {
         val ids = ui.draft.assetIds
         if (ids.size < MulticamOps.MIN_ANGLES) {
-            host.message("Pick at least ${MulticamOps.MIN_ANGLES} angles first")
+            host.message(UiText.res(R.string.ed_s3_mc_pick_at_least, MulticamOps.MIN_ANGLES))
             return
         }
         host.update { it.copy(syncing = true) }
@@ -108,7 +110,7 @@ internal class MulticamController(
                 state.copy(syncing = false, draft = state.draft.copy(offsets = offsets, outcomes = outcomes))
             }
             val failed = outcomes.values.count { it is SyncOutcome.Failed || (it is SyncOutcome.Found && !it.confident) }
-            if (failed > 0) host.message("$failed angle(s) could not be lined up with confidence: nudge them by ear")
+            if (failed > 0) host.message(UiText.plural(R.plurals.ed_s3_mc_not_synced, failed))
         }
     }
 
@@ -119,13 +121,13 @@ internal class MulticamController(
         ids.mapIndexed { index, id ->
             id to when {
                 index == 0 -> SyncOutcome.Reference
-                reference == null -> SyncOutcome.Failed("the waveform of the first angle is not ready yet")
+                reference == null -> SyncOutcome.Failed("the waveform of the first angle is not ready yet") // i18n-ok: a log reason, not shown
                 else -> {
                     val other = services.envelopes.envelope(id)
                     val result = other?.let { AudioSync.offsetOf(reference, it, fps.num.toLong(), fps.den.toLong()) }
                     when {
-                        other == null -> SyncOutcome.Failed("its waveform is not ready yet")
-                        result == null -> SyncOutcome.Failed("no usable sound to match")
+                        other == null -> SyncOutcome.Failed("its waveform is not ready yet") // i18n-ok: a log reason, not shown
+                        result == null -> SyncOutcome.Failed("no usable sound to match") // i18n-ok: a log reason, not shown
                         else -> SyncOutcome.Found(result.offsetFrames, result.confidence, result.isConfident)
                     }
                 }
@@ -137,28 +139,28 @@ internal class MulticamController(
         val editor = host.editor
         val ids = ui.draft.assetIds
         if (ids.size < MulticamOps.MIN_ANGLES) {
-            host.message("Pick at least ${MulticamOps.MIN_ANGLES} angles first")
+            host.message(UiText.res(R.string.ed_s3_mc_pick_at_least, MulticamOps.MIN_ANGLES))
             return
         }
         val assets = ids.map { id -> editor.assets.first { it.id == id } }
         val angles = assets.mapIndexed { i, asset ->
             val length = host.assetLengthFrames(asset.id)
             if (length == null) {
-                host.message("${displayName(asset)} has no length to cut")
+                host.message(UiText.res(R.string.ed_s3_mc_no_length, displayName(asset)))
                 return
             }
-            MulticamAngle("angle-${host.newId()}", "Cam ${'A' + i}", asset.id, ui.draft.offsetOf(asset.id), length)
+            MulticamAngle("angle-${host.newId()}", "Cam ${'A' + i}" // i18n-ok: a stored angle name, asset.id, ui.draft.offsetOf(asset.id), length)
         }
         val inFrame = angles.maxOf { it.coverageStart }
         val length = angles.minOf { it.coverageEnd } - inFrame
         if (length < MIN_LENGTH_FRAMES) {
-            host.message("The angles hardly overlap in time: sync them or nudge their start first")
+            host.message(UiText.res(R.string.ed_s3_mc_hardly_overlap))
             return
         }
         val timeline = editor.timeline
         val base = ClipDeletion.baseTrack(timeline)
         if (base == null) {
-            host.message("A multicam clip goes on the base track, and there is none")
+            host.message(UiText.res(R.string.ed_s3_mc_no_base))
             return
         }
         val start = editor.playhead.value
@@ -167,7 +169,7 @@ internal class MulticamController(
         }
         val group = MulticamClip(
             id = host.newId(),
-            name = "Multicam",
+            name = "Multicam", // i18n-ok: a stored clip name
             angles = angles,
             audioAngle = 0,
             videoTrackId = base.id,
@@ -179,12 +181,12 @@ internal class MulticamController(
         )
         if (host.execute(EditCommand.CreateMulticam(group))) {
             host.update { it.copy(draft = MulticamDraft()) }
-            if (audioLane == null) host.message("No free audio lane: each angle keeps its own sound when you cut")
+            if (audioLane == null) host.message(UiText.res(R.string.ed_s3_mc_no_audio_lane))
         }
     }
 
     private fun cutTo(angle: Int) {
-        val group = activeGroup() ?: return host.message("Select a multicam clip first")
+        val group = activeGroup() ?: return host.message(UiText.res(R.string.ed_s3_mc_select_first))
         if (angle !in group.angles.indices) return
         val frame = (host.editor.playhead.value - group.startFrame).coerceIn(0, group.lengthFrames - 1)
         if (ui.recording) {
@@ -196,9 +198,9 @@ internal class MulticamController(
 
     private fun toggleRecording() {
         if (!ui.recording) {
-            if (activeGroup() == null) return host.message("Select a multicam clip first")
+            if (activeGroup() == null) return host.message(UiText.res(R.string.ed_s3_mc_select_first))
             host.update { it.copy(recording = true, pendingCuts = emptyList()) }
-            host.message("Recording: play the video and tap an angle to cut to it")
+            host.message(UiText.res(R.string.ed_s3_mc_recording_hint))
             return
         }
         val cuts = ui.pendingCuts
@@ -211,7 +213,7 @@ internal class MulticamController(
         val group = host.editor.timeline.multicam(groupId) ?: return
         val frame = host.editor.playhead.value - group.startFrame
         val cut = group.cuts.lastOrNull { it.frame <= frame && it.frame > 0 }
-            ?: return host.message("There is no cut at or before the playhead to remove")
+            ?: return host.message(UiText.res(R.string.ed_s3_mc_no_cut))
         host.execute(EditCommand.RemoveMulticamCut(groupId, cut.frame))
     }
 
@@ -227,7 +229,7 @@ internal class MulticamController(
                 if (i == 0) angle.offsetFrames else if (found != null && found.confident) reference + found.offsetFrames else angle.offsetFrames
             }
             if (offsets == group.angles.map { it.offsetFrames }) {
-                host.message("Nothing could be lined up with confidence: nudge the angles by ear")
+                host.message(UiText.res(R.string.ed_s3_mc_nothing_lined))
             } else {
                 host.execute(EditCommand.SetMulticamOffsets(groupId, offsets))
             }

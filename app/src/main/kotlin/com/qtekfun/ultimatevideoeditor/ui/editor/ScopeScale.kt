@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import com.qtekfun.ultimatevideoeditor.engine.preview.ScopeMode
 
@@ -11,7 +13,7 @@ internal object ScopeScale {
     /** Labels from the top line to the bottom line of a waveform or parade, as percent of the signal. */
     fun verticalLabels(mode: ScopeMode, space: ProjectColorSpace): List<String> = when (mode) {
         ScopeMode.WAVEFORM, ScopeMode.PARADE ->
-            if (space.isHdr) listOf("100 · 1000 nit", "75 · 203 nit", "50", "25", "0") else listOf("100", "75", "50", "25", "0")
+            if (space.isHdr) listOf("100 · 1000 nit", "75 · 203 nit", "50", "25", "0") // i18n-ok: a unit symbol else listOf("100", "75", "50", "25", "0")
         ScopeMode.VECTORSCOPE, ScopeMode.HISTOGRAM -> emptyList()
     }
 
@@ -20,13 +22,13 @@ internal object ScopeScale {
         if (mode == ScopeMode.HISTOGRAM) listOf("0", "25", "50", "75", "100") else emptyList()
 
     /** The short line under the mode name that says what the scope shows in this project. */
-    fun caption(mode: ScopeMode, space: ProjectColorSpace): String {
-        val signal = if (space.isHdr) "HLG signal" else "Rec.709 signal"
+    fun caption(mode: ScopeMode, space: ProjectColorSpace): UiText {
+        val signal = UiText.res(if (space.isHdr) R.string.ed_s3_signal_hlg else R.string.ed_s3_signal_rec709)
         return when (mode) {
-            ScopeMode.WAVEFORM -> "Luma by column, $signal %"
-            ScopeMode.PARADE -> "Red, green, blue side by side, $signal %"
-            ScopeMode.VECTORSCOPE -> "Chroma: blue right, red up. Ring is full saturation; the line is skin tone"
-            ScopeMode.HISTOGRAM -> "Samples per level: red, green, blue and luma (white line)"
+            ScopeMode.WAVEFORM -> UiText.res(R.string.ed_s3_cap_waveform, signal)
+            ScopeMode.PARADE -> UiText.res(R.string.ed_s3_cap_parade, signal)
+            ScopeMode.VECTORSCOPE -> UiText.res(R.string.ed_s3_cap_vectorscope)
+            ScopeMode.HISTOGRAM -> UiText.res(R.string.ed_s3_cap_histogram)
         }
     }
 }
