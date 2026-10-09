@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.library
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,7 +69,7 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.tray.usageCounts
 /** The toolbar button that opens the library; with a clip selected it opens on that clip's file ("find in library"). */
 @Composable
 internal fun LibraryButton(onIntent: (EditorIntent) -> Unit) {
-    ToolButton(EditorIcons.Library, "Media library: tags, notes, where files are used, remove unused, export") {
+    ToolButton(EditorIcons.Library, stringResource(R.string.ed_2a_library_button)) {
         onIntent(LibraryIntent.RevealSelectedInLibrary)
     }
 }

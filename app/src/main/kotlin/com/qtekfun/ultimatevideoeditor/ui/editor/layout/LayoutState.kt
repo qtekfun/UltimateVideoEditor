@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.layout
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
+
 /** Window size class by width, the same breakpoints Material uses. */
 enum class WidthClass {
     COMPACT,
@@ -74,20 +77,20 @@ fun Panel.fallbackDock(): Dock = when (this) {
 }
 
 /** Lane heights of the timeline; [scale] multiplies the default 64 dp lane. */
-enum class LaneHeight(val scale: Float, val label: String) {
-    SMALL(0.75f, "Small"),
-    MEDIUM(1.0f, "Medium"),
-    LARGE(1.4f, "Large"),
+enum class LaneHeight(val scale: Float, @StringRes val labelRes: Int) {
+    SMALL(0.75f, R.string.ed_2a_lane_small),
+    MEDIUM(1.0f, R.string.ed_2a_lane_medium),
+    LARGE(1.4f, R.string.ed_2a_lane_large),
 }
 
 /**
  * How tall audio lanes are next to the other lanes: [factor] multiplies the lane height of the [LaneHeight] preset, so the
  * waveform and the fade / volume handles have more room to see and grab. [SAME] keeps every lane one height.
  */
-enum class AudioLaneHeight(val factor: Float, val label: String) {
-    SAME(1.0f, "Same"),
-    TALL(1.5f, "1.5x"),
-    TALLER(2.0f, "2x"),
+enum class AudioLaneHeight(val factor: Float, @StringRes val labelRes: Int) {
+    SAME(1.0f, R.string.ed_2a_audio_same),
+    TALL(1.5f, R.string.ed_2a_audio_1_5x),
+    TALLER(2.0f, R.string.ed_2a_audio_2x),
     ;
 
     companion object {
@@ -96,11 +99,11 @@ enum class AudioLaneHeight(val factor: Float, val label: String) {
     }
 }
 
-enum class LayoutPreset(val label: String) {
-    DEFAULT("Default"),
-    TIMELINE_FOCUS("Timeline focus"),
-    PREVIEW_FOCUS("Preview focus"),
-    TWO_PANELS("Two panels"),
+enum class LayoutPreset(@StringRes val labelRes: Int) {
+    DEFAULT(R.string.ed_2a_preset_default),
+    TIMELINE_FOCUS(R.string.ed_2a_preset_timeline_focus),
+    PREVIEW_FOCUS(R.string.ed_2a_preset_preview_focus),
+    TWO_PANELS(R.string.ed_2a_preset_two_panels),
 }
 
 data class PanelState(val dock: Dock, val collapsed: Boolean = false)

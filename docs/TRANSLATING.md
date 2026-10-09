@@ -101,6 +101,27 @@ decimal comma comes from the locale, not from the string. Wording neutral betwee
 | colour space | espacio de color |
 | codec | códec |
 | canvas | lienzo |
+| playhead | cabezal |
+| gap | hueco |
+| lane (a row of the timeline) | pista |
+| beat | pulso |
+| captions | subtítulos |
+| stickers | pegatinas |
+| mixer | mezclador |
+| scopes (waveform, vectorscope...) | monitores de vídeo |
+| safe zones | zonas seguras |
+| crossfade | fundido encadenado |
+| fade in / out | fundido de entrada / de salida |
+| layout (of panels) | diseño |
+| preset | preajuste |
+| tray (media tray) | bandeja (de medios) |
+| inspector | inspector |
+| multicam | multicámara |
+| quick edits | ediciones rápidas |
+| tracking (motion) | seguimiento |
+| detach audio | separar el audio |
+| link / linked | vincular / vinculado |
+| snap | imán |
 | relink | volver a vincular |
 | missing | no encontrado / faltan |
 | share | compartir |
