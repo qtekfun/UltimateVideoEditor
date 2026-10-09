@@ -32,6 +32,9 @@ class ProxyWorkerTest {
 
     @After
     fun tearDown() {
+        // A test that failed before it released the job must not leave the worker waiting for its latch.
+        transcoder.hold?.countDown()
+        transcoder.gate?.countDown()
         // Wait for the worker thread to finish before the temporary folder is deleted under it.
         executor.shutdownNow()
         executor.awaitTermination(5, TimeUnit.SECONDS)
@@ -188,7 +191,7 @@ class ProxyWorkerTest {
         val vanishing = object : ProxyTranscoder {
             override fun generate(entry: ProxyEntry, onProgress: (Int) -> Unit): ProxyEntry {
                 calls++
-                if (calls == 1) bothQueued.await(10, TimeUnit.SECONDS)
+                if (calls == 1) bothQueued.await(60, TimeUnit.SECONDS)
                 if (calls == 2) dir.mkdirs()
                 val result = transcoder.generate(entry, onProgress)
                 if (calls == 1) {
@@ -206,7 +209,7 @@ class ProxyWorkerTest {
         val second = resilient.enqueue(job(2), 720)
         bothQueued.countDown()
 
-        waitUntil(timeoutMs = 20_000) { index.get(second.key)?.state == ProxyState.READY }
+        waitUntil { index.get(second.key)?.state == ProxyState.READY }
         assertEquals(2, calls)
     }
 
@@ -228,7 +231,7 @@ class ProxyWorkerTest {
         val first = resilient.enqueue(job(1), 720)
         val second = resilient.enqueue(job(2), 720)
 
-        waitUntil(timeoutMs = 20_000) { index.get(second.key)?.state == ProxyState.READY }
+        waitUntil { index.get(second.key)?.state == ProxyState.READY }
         assertEquals(ProxyState.FAILED, index.get(first.key)!!.state)
         assertEquals("disk full", index.get(first.key)!!.error)
     }

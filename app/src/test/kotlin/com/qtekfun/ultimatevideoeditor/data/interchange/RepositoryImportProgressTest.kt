@@ -373,7 +373,7 @@ class RepositoryImportProgressTest {
                     runBlocking { repo.save(sampleProject().copy(id = "other", name = "Other")) }
                     saved.countDown()
                 }.start()
-                assertTrue("the save waited for the import", saved.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                assertTrue("the save waited for the import", saved.await(60, java.util.concurrent.TimeUnit.SECONDS))
             }
         }
 

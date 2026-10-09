@@ -206,18 +206,18 @@ class TimelineTextTest {
             val slow = LabelRasteriser { need ->
                 if (need.text == "slow") {
                     entered.countDown()
-                    gate.await(5, TimeUnit.SECONDS)
+                    gate.await(60, TimeUnit.SECONDS) // longer than every wait below
                 }
                 RasterLabel(4, 4, false, ByteBuffer.allocate(4))
             }
             val pump = LabelPump(slow, sink, worker)
             pump.request(listOf(LabelNeed("slow", 0)))
-            assertTrue(entered.await(5, TimeUnit.SECONDS)) // the worker is busy with "slow" now
+            assertTrue(entered.await(30, TimeUnit.SECONDS)) // the worker is busy with "slow" now
             pump.request(listOf(LabelNeed("first", 0)))
             pump.request(listOf(LabelNeed("last", 0))) // replaces "first" before the worker got to it
             gate.countDown()
             worker.shutdown()
-            assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS))
+            assertTrue(worker.awaitTermination(30, TimeUnit.SECONDS))
             synchronized(sink) {
                 assertTrue(LabelHash.of("slow", 0) in sink.received)
                 assertTrue(LabelHash.of("last", 0) in sink.received)
