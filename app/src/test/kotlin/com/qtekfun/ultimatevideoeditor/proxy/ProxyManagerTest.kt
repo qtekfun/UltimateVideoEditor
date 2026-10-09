@@ -31,6 +31,9 @@ class ProxyManagerTest {
 
     @After
     fun tearDown() {
+        // A test that failed before it released the job must not leave the worker waiting for its latch.
+        transcoder.hold?.countDown()
+        transcoder.gate?.countDown()
         executor.shutdownNow()
         // Wait for the worker thread before the temporary folder is deleted under it.
         executor.awaitTermination(5, TimeUnit.SECONDS)
