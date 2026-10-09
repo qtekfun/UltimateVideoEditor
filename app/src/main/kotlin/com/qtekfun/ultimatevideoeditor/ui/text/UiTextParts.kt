@@ -14,3 +14,6 @@ fun sentenceOf(raw: String): UiText {
     val ended = if (trimmed.endsWith(".") || trimmed.endsWith(")") || trimmed.endsWith("!")) trimmed else "$trimmed."
     return UiText.Capitalised(UiText.Raw(ended))
 }
+
+/** A message that came from the system, shown as it is, or [fallback] when there is none. */
+fun rawOr(message: String?, fallback: UiText): UiText = message?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: fallback

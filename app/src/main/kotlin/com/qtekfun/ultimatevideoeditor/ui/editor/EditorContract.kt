@@ -717,6 +717,9 @@ sealed interface EditorIntent : UiIntent {
     data object Back : EditorIntent
 
     data class ReportError(val message: String) : EditorIntent
+
+    /** A message already in resource form, shown like [ReportError] in the language in use. */
+    data class ReportText(val text: UiText) : EditorIntent
 }
 
 sealed interface EditorEffect : UiEffect {

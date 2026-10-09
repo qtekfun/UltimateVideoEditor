@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -98,15 +100,15 @@ sealed interface QuickEditIntent : EditorIntent {
 internal fun QuickEditMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        ToolButton(EditorIcons.Silence, "Quick edits: cut silences, reframe for a vertical canvas") { open = true }
+        ToolButton(EditorIcons.Silence, stringResource(R.string.ed_2a_quick_edits_cut_silences_reframe)) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("Cut silences in the selected clip…") },
+                text = { Text(stringResource(R.string.ed_2a_cut_silences_in_the_selected)) },
                 enabled = state.selectedClipOnBase,
                 onClick = { open = false; onIntent(QuickEditIntent.OpenAutoCut) },
             )
             DropdownMenuItem(
-                text = { Text("Reframe the selected clip…") },
+                text = { Text(stringResource(R.string.ed_2a_reframe_the_selected_clip)) },
                 enabled = state.selectedClipId != null,
                 onClick = { open = false; onIntent(QuickEditIntent.OpenReframe) },
             )
@@ -131,34 +133,34 @@ private fun AutoCutSheet(auto: AutoCutUiState, fps: FrameRate, onIntent: (Editor
             modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Cut silences", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ed_2a_cut_silences), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Finds the quiet stretches of the selected clip's audio and removes the ones you keep ticked. The gap closes and overlays follow, in one undo step.",
+                stringResource(R.string.ed_2a_finds_the_quiet_stretches_of),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val s = auto.settings
-            SettingSlider("Quiet below ${s.thresholdDb.roundToInt()} dB", s.thresholdDb.toFloat(), SilenceSettings.MIN_THRESHOLD_DB.toFloat()..SilenceSettings.MAX_THRESHOLD_DB.toFloat(), "Silence level") {
+            SettingSlider(stringResource(R.string.ed_2a_quiet_below, s.thresholdDb.roundToInt()), s.thresholdDb.toFloat(), SilenceSettings.MIN_THRESHOLD_DB.toFloat()..SilenceSettings.MAX_THRESHOLD_DB.toFloat(), stringResource(R.string.ed_2a_silence_level)) {
                 onIntent(QuickEditIntent.SetSilenceSettings(s.copy(thresholdDb = it.toDouble())))
             }
-            SettingSlider("At least ${"%.1f".format(s.minSilenceSeconds)} s long", s.minSilenceSeconds.toFloat(), 0.1f..3f, "Shortest silence") {
+            SettingSlider(stringResource(R.string.ed_2a_at_least_long, "%.1f".format(s.minSilenceSeconds)), s.minSilenceSeconds.toFloat(), 0.1f..3f, stringResource(R.string.ed_2a_shortest_silence)) {
                 onIntent(QuickEditIntent.SetSilenceSettings(s.copy(minSilenceSeconds = it.toDouble())))
             }
-            SettingSlider("Keep ${"%.2f".format(s.paddingSeconds)} s at each end", s.paddingSeconds.toFloat(), 0f..0.5f, "Padding") {
+            SettingSlider(stringResource(R.string.ed_2a_keep_at_each_end, "%.2f".format(s.paddingSeconds)), s.paddingSeconds.toFloat(), 0f..0.5f, stringResource(R.string.ed_2a_padding)) {
                 onIntent(QuickEditIntent.SetSilenceSettings(s.copy(paddingSeconds = it.toDouble())))
             }
             if (auto.analyzing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { onIntent(QuickEditIntent.FindSilences) }, enabled = !auto.analyzing) {
-                    Text(if (auto.analyzing) "Looking…" else "Find silences")
+                    Text(if (auto.analyzing) stringResource(R.string.ed_2a_looking) else stringResource(R.string.ed_2a_find_silences))
                 }
-                TextButton(onClick = { onIntent(QuickEditIntent.CloseAutoCut) }) { Text("Close") }
+                TextButton(onClick = { onIntent(QuickEditIntent.CloseAutoCut) }) { Text(stringResource(R.string.common_close)) }
             }
             auto.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             if (auto.cuts.isNotEmpty()) {
                 val saved = auto.chosen.sumOf { it.length }
                 Text(
-                    "${auto.chosen.size} of ${auto.cuts.size} cuts, ${"%.1f".format(saved * fps.den.toDouble() / fps.num)} s shorter",
+                    stringResource(R.string.ed_2a_cuts_summary, auto.chosen.size, auto.cuts.size, "%.1f".format(saved * fps.den.toDouble() / fps.num)),
                     style = MaterialTheme.typography.labelLarge,
                 )
                 LazyColumn(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -167,17 +169,17 @@ private fun AutoCutSheet(auto: AutoCutUiState, fps: FrameRate, onIntent: (Editor
                             Checkbox(
                                 checked = index !in auto.excluded,
                                 onCheckedChange = { onIntent(QuickEditIntent.ToggleCut(index)) },
-                                modifier = Modifier.semantics { contentDescription = "Cut ${index + 1}" },
+                                modifier = Modifier.described(stringResource(R.string.ed_2a_cut, index + 1)),
                             )
                             Text(
-                                "${formatTimecode(cut.startFrame, fps)} → ${formatTimecode(cut.endFrame, fps)}  (${"%.1f".format(cut.length * fps.den.toDouble() / fps.num)} s)",
+                                stringResource(R.string.ed_2a_cut_range, formatTimecode(cut.startFrame, fps), formatTimecode(cut.endFrame, fps), "%.1f".format(cut.length * fps.den.toDouble() / fps.num)),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                     }
                 }
                 Button(onClick = { onIntent(QuickEditIntent.ApplyAutoCut) }, enabled = auto.chosen.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                    Text("Remove ${auto.chosen.size} silences")
+                    Text(stringResource(R.string.ed_2a_remove_silences, auto.chosen.size))
                 }
             }
         }
@@ -196,33 +198,33 @@ private fun ReframeSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
             modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Reframe for ${state.canvasWidth} x ${state.canvasHeight}", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ed_2a_reframe_for_x, state.canvasWidth, state.canvasHeight), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Fills the canvas with the picture and keeps the point you choose in the middle. Move to another moment and mark again to follow it; with one mark the whole clip uses it. You choose the point, nothing is detected.",
+                stringResource(R.string.ed_2a_fills_the_canvas_with_the),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            SettingSlider("Horizontal: ${(r.u * 100).roundToInt()}% from the left", r.u.toFloat(), 0f..1f, "Point of interest, horizontal") {
+            SettingSlider(stringResource(R.string.ed_2a_horizontal_from_left, (r.u * 100).roundToInt()), r.u.toFloat(), 0f..1f, stringResource(R.string.ed_2a_poi_horizontal)) {
                 onIntent(QuickEditIntent.SetReframe(it.toDouble(), r.v, r.zoom))
             }
-            SettingSlider("Vertical: ${(r.v * 100).roundToInt()}% from the top", r.v.toFloat(), 0f..1f, "Point of interest, vertical") {
+            SettingSlider(stringResource(R.string.ed_2a_vertical_from_top, (r.v * 100).roundToInt()), r.v.toFloat(), 0f..1f, stringResource(R.string.ed_2a_poi_vertical)) {
                 onIntent(QuickEditIntent.SetReframe(r.u, it.toDouble(), r.zoom))
             }
-            SettingSlider("Zoom ${"%.2f".format(r.zoom)}x", r.zoom.toFloat(), Reframe.MIN_ZOOM.toFloat()..Reframe.MAX_ZOOM.toFloat(), "Zoom") {
+            SettingSlider(stringResource(R.string.ed_2a_zoom_value, "%.2f".format(r.zoom)), r.zoom.toFloat(), Reframe.MIN_ZOOM.toFloat()..Reframe.MAX_ZOOM.toFloat(), stringResource(R.string.ed_2a_zoom)) {
                 onIntent(QuickEditIntent.SetReframe(r.u, r.v, it.toDouble()))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onIntent(QuickEditIntent.MarkReframePoint) }) { Text("Mark at playhead") }
-                TextButton(onClick = { onIntent(QuickEditIntent.ClearReframePoints) }, enabled = r.points.isNotEmpty()) { Text("Clear marks") }
+                TextButton(onClick = { onIntent(QuickEditIntent.MarkReframePoint) }) { Text(stringResource(R.string.ed_2a_mark_at_playhead)) }
+                TextButton(onClick = { onIntent(QuickEditIntent.ClearReframePoints) }, enabled = r.points.isNotEmpty()) { Text(stringResource(R.string.ed_2a_clear_marks)) }
             }
             Text(
-                if (r.points.isEmpty()) "No marks yet: Apply uses the point above for the whole clip." else "${r.points.size} marks at ${r.points.joinToString { formatTimecode(it.frame, state.fps) }}",
+                if (r.points.isEmpty()) stringResource(R.string.ed_2a_no_marks_yet_apply_uses) else stringResource(R.string.ed_2a_marks_at, r.points.size, r.points.joinToString { formatTimecode(it.frame, state.fps) }),
                 style = MaterialTheme.typography.bodyMedium,
             )
             r.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onIntent(QuickEditIntent.ApplyReframe) }) { Text("Apply") }
-                TextButton(onClick = { onIntent(QuickEditIntent.CloseReframe) }) { Text("Close") }
+                Button(onClick = { onIntent(QuickEditIntent.ApplyReframe) }) { Text(stringResource(R.string.ed_2a_apply)) }
+                TextButton(onClick = { onIntent(QuickEditIntent.CloseReframe) }) { Text(stringResource(R.string.common_close)) }
             }
         }
     }

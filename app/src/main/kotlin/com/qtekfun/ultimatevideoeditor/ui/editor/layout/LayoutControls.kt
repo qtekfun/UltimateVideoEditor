@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.layout
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,13 +40,13 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.ToolButton
 import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarEditorDialog
 
 /** What a panel is called in the layout controls. */
-internal fun Panel.label(): String = if (this == Panel.TRAY) "Media tray" else "Inspector"
+internal fun Panel.labelRes(): Int = if (this == Panel.TRAY) R.string.ed_2a_panel_media_tray else R.string.ed_2a_panel_inspector
 
-internal fun Dock.label(): String = when (this) {
-    Dock.BOTTOM -> "Bottom"
-    Dock.OVERLAY -> "Over timeline"
-    Dock.LEFT -> "Left"
-    Dock.RIGHT -> "Right"
+internal fun Dock.labelRes(): Int = when (this) {
+    Dock.BOTTOM -> R.string.ed_2a_dock_bottom
+    Dock.OVERLAY -> R.string.ed_2a_dock_overlay
+    Dock.LEFT -> R.string.ed_2a_dock_left
+    Dock.RIGHT -> R.string.ed_2a_dock_right
 }
 
 /**
@@ -56,7 +59,7 @@ internal fun CollapsedStrip(side: Side, label: String, onExpand: () -> Unit, mod
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 8.dp)) {
             ToolButton(
                 icon = if (side == Side.LEFT) EditorIcons.ChevronRight else EditorIcons.ChevronLeft,
-                description = "Show $label",
+                description = stringResource(R.string.ed_2a_show, label),
                 onClick = onExpand,
             )
         }
@@ -83,16 +86,16 @@ internal fun SidePanelFrame(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(start = 12.dp),
         ) {
-            Text(panel.label(), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(panel.labelRes()), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
             if (customising) {
                 val here = if (side == Side.LEFT) Dock.LEFT else Dock.RIGHT
                 for (dock in panel.allowedDocks().filter { it != here && (!it.isSide || sideDocksAllowed) }) {
-                    OutlinedButton(onClick = { onDock(dock) }, modifier = Modifier.padding(end = 4.dp)) { Text(dock.label()) }
+                    OutlinedButton(onClick = { onDock(dock) }, modifier = Modifier.padding(end = 4.dp)) { Text(stringResource(dock.labelRes())) }
                 }
             }
             ToolButton(
                 icon = if (side == Side.LEFT) EditorIcons.ChevronLeft else EditorIcons.ChevronRight,
-                description = "Collapse the ${panel.label().lowercase()}",
+                description = stringResource(R.string.ed_2a_collapse_the, stringResource(panel.labelRes()).lowercase()),
                 onClick = onCollapse,
             )
         }
@@ -106,7 +109,7 @@ internal fun CollapsedBottomBar(label: String, onExpand: () -> Unit, modifier: M
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            ToolButton(icon = EditorIcons.ChevronUp, description = "Show the $label", onClick = onExpand)
+            ToolButton(icon = EditorIcons.ChevronUp, description = stringResource(R.string.ed_2a_show_the, label), onClick = onExpand)
         }
     }
 }
@@ -127,24 +130,24 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Layout", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ed_2a_layout), style = MaterialTheme.typography.titleMedium)
 
-            Text("Presets", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.ed_2a_presets), style = MaterialTheme.typography.labelLarge)
             ChipRow {
                 for (preset in LayoutPreset.entries) {
                     FilterChip(
                         selected = state.preset == preset,
                         onClick = { onAction(LayoutAction.ApplyPreset(preset)) },
-                        label = { Text(preset.label) },
+                        label = { Text(stringResource(preset.labelRes)) },
                     )
                 }
             }
 
-            Text("Track height", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.ed_2a_track_height), style = MaterialTheme.typography.labelLarge)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ToolButton(
                     icon = EditorIcons.Minus,
-                    description = "Shorter tracks",
+                    description = stringResource(R.string.ed_2a_shorter_tracks),
                     enabled = state.laneHeight != LaneHeight.SMALL,
                 ) { onAction(LayoutAction.StepLaneHeight(-1)) }
                 ChipRow(modifier = Modifier.weight(1f)) {
@@ -152,29 +155,29 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                         FilterChip(
                             selected = state.laneHeight == height,
                             onClick = { onAction(LayoutAction.SetLaneHeight(height)) },
-                            label = { Text(height.label) },
+                            label = { Text(stringResource(height.labelRes)) },
                         )
                     }
                 }
                 ToolButton(
                     icon = EditorIcons.Add,
-                    description = "Taller tracks",
+                    description = stringResource(R.string.ed_2a_taller_tracks),
                     enabled = state.laneHeight != LaneHeight.LARGE,
                 ) { onAction(LayoutAction.StepLaneHeight(1)) }
             }
 
-            Text("Audio track height", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.ed_2a_audio_track_height), style = MaterialTheme.typography.labelLarge)
             ChipRow {
                 for (height in AudioLaneHeight.entries) {
                     FilterChip(
                         selected = state.audioLaneHeight == height,
                         onClick = { onAction(LayoutAction.SetAudioLaneHeight(height)) },
-                        label = { Text(height.label) },
+                        label = { Text(stringResource(height.labelRes)) },
                     )
                 }
             }
 
-            Text("Waveform scale", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.ed_2a_waveform_scale), style = MaterialTheme.typography.labelLarge)
             ChipRow {
                 for (scale in WaveformScale.entries) {
                     FilterChip(
@@ -187,26 +190,26 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Put video audio on an audio track", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.ed_2a_put_video_audio_on_an), style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "New video clips come in with their sound already detached and linked on an audio lane.",
+                        stringResource(R.string.ed_2a_new_video_clips_come_in),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Switch(
                     checked = controller.videoAudioOnTrack,
                     onCheckedChange = { controller.chooseVideoAudioOnTrack(it) },
-                    modifier = Modifier.semantics { contentDescription = "Put video audio on an audio track" },
+                    modifier = Modifier.described(stringResource(R.string.ed_2a_put_video_audio_on_an)),
                 )
             }
 
             var toolbarOpen by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Toolbar", style = MaterialTheme.typography.labelLarge)
-                    Text("Choose the order of the tools and which ones sit in the More menu.", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.ed_2a_toolbar), style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.ed_2a_choose_the_order_of_the), style = MaterialTheme.typography.bodySmall)
                 }
-                OutlinedButton(onClick = { toolbarOpen = true }) { Text("Edit toolbar") }
+                OutlinedButton(onClick = { toolbarOpen = true }) { Text(stringResource(R.string.ed_2a_edit_toolbar)) }
             }
             if (toolbarOpen) {
                 ToolbarEditorDialog(
@@ -218,44 +221,44 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
             }
 
             for (panel in Panel.entries) {
-                Text(panel.label(), style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(panel.labelRes()), style = MaterialTheme.typography.labelLarge)
                 ChipRow {
                     for (dock in panel.allowedDocks().filter { !it.isSide || window.sideDocksAllowed }) {
                         FilterChip(
                             selected = state.panel(panel).dock == dock,
                             onClick = { onAction(LayoutAction.SetDock(panel, dock)) },
-                            label = { Text(dock.label()) },
+                            label = { Text(stringResource(dock.labelRes())) },
                         )
                     }
                     FilterChip(
                         selected = state.panel(panel).collapsed,
                         onClick = { onAction(LayoutAction.SetCollapsed(panel, !state.panel(panel).collapsed)) },
-                        label = { Text("Collapsed") },
+                        label = { Text(stringResource(R.string.ed_2a_collapsed)) },
                     )
                 }
             }
             if (!window.sideDocksAllowed) {
                 Text(
-                    "Side panels need a wider window; turn the device sideways or open the app full screen.",
+                    stringResource(R.string.ed_2a_side_panels_need_a_wider),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Customise layout", style = MaterialTheme.typography.bodyLarge)
-                    Text("Make the dividers bigger and show buttons to move panels.", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.ed_2a_customise_layout), style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.ed_2a_make_the_dividers_bigger_and), style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(
                     checked = state.customising,
                     onCheckedChange = { onAction(LayoutAction.SetCustomising(it)) },
-                    modifier = Modifier.semantics { contentDescription = "Customise layout" },
+                    modifier = Modifier.described(stringResource(R.string.ed_2a_customise_layout)),
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = { onAction(LayoutAction.Reset) }) { Text("Reset layout") }
-                Button(onClick = onDismiss) { Text("Done") }
+                OutlinedButton(onClick = { onAction(LayoutAction.Reset) }) { Text(stringResource(R.string.ed_2a_reset_layout)) }
+                Button(onClick = onDismiss) { Text(stringResource(R.string.ed_2a_done)) }
             }
         }
     }

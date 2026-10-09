@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -42,7 +44,7 @@ import com.qtekfun.ultimatevideoeditor.engine.track.TrackStatus
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val BOX_SIZES = listOf("Small" to 0.07, "Medium" to 0.12, "Large" to 0.2)
+private val BOX_SIZES = listOf(R.string.ed_2a_box_small to 0.07, R.string.ed_2a_box_medium to 0.12, R.string.ed_2a_box_large to 0.2)
 
 /**
  * Motion tracking in the inspector (SPECS.md 9.15). For a video clip: pick a point or box on the preview and follow it
@@ -58,42 +60,43 @@ internal fun TrackControls(clipId: String, track: TrackUiState, onIntent: (Edito
     if (!track.canTrack && track.followable.isEmpty()) return
 
     Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Track motion", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.ed_2a_track_motion), style = MaterialTheme.typography.labelLarge)
         if (track.canTrack) {
             if (track.picking) {
                 Text(
-                    "Tap the point to follow on the preview, or drag a box around it.",
+                    stringResource(R.string.ed_2a_tap_the_point_to_follow),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    for ((label, side) in BOX_SIZES) {
+                    for ((labelRes, side) in BOX_SIZES) {
+                        val label = stringResource(labelRes)
                         FilterChip(
                             selected = abs(track.boxSide - side) < 0.005,
                             onClick = { onIntent(EditorIntent.SetTrackBox(side)) },
                             label = { Text(label) },
-                            modifier = Modifier.semantics { contentDescription = "Tap box size $label" },
+                            modifier = Modifier.described(stringResource(R.string.ed_2a_tap_box_size, label)),
                         )
                     }
-                    TextButton(onClick = { onIntent(EditorIntent.CancelTrackPick) }) { Text("Cancel") }
+                    TextButton(onClick = { onIntent(EditorIntent.CancelTrackPick) }) { Text(stringResource(R.string.common_cancel)) }
                 }
             } else if (track.progress == null) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        "Follow a point or a region of the picture. The playhead frame is where you point.",
+                        stringResource(R.string.ed_2a_follow_a_point_or_a),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(onClick = { onIntent(EditorIntent.BeginTrackPick) }) { Text("Track an object") }
+                    Button(onClick = { onIntent(EditorIntent.BeginTrackPick) }) { Text(stringResource(R.string.ed_2a_track_an_object)) }
                 }
             }
             val progress = track.progress
             if (progress != null) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Tracking ${(progress * 100).roundToInt()} percent" })
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().described(stringResource(R.string.ed_2a_tracking_percent, (progress * 100).roundToInt())))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Following the target… ${(progress * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onIntent(EditorIntent.CancelTrack) }) { Text("Cancel") }
+                    Text(stringResource(R.string.ed_2a_following_the_target, (progress * 100).roundToInt()), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { onIntent(EditorIntent.CancelTrack) }) { Text(stringResource(R.string.common_cancel)) }
                 }
             }
             for (item in track.items) {
@@ -101,39 +104,41 @@ internal fun TrackControls(clipId: String, track: TrackUiState, onIntent: (Edito
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(item.track.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onIntent(EditorIntent.ShowTrack(if (shown) null else item.track.id)) }) { Text(if (shown) "Hide path" else "Show path") }
-                        TextButton(onClick = { onIntent(EditorIntent.RemoveMotionTrack(item.track.id)) }) { Text("Delete") }
+                        TextButton(onClick = { onIntent(EditorIntent.ShowTrack(if (shown) null else item.track.id)) }) { Text(if (shown) stringResource(R.string.ed_2a_hide_path) else stringResource(R.string.ed_2a_show_path)) }
+                        TextButton(onClick = { onIntent(EditorIntent.RemoveMotionTrack(item.track.id)) }) { Text(stringResource(R.string.common_delete)) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(statusText(item.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         if (track.progress == null && item.status !is TrackStatus.Ready) {
-                            TextButton(onClick = { onIntent(EditorIntent.ReanalyseTrack(item.track.id)) }) { Text(if (item.status is TrackStatus.Stale) "Analyse again" else "Analyse") }
+                            TextButton(onClick = { onIntent(EditorIntent.ReanalyseTrack(item.track.id)) }) { Text(if (item.status is TrackStatus.Stale) stringResource(R.string.ed_2a_analyse_again) else stringResource(R.string.ed_2a_analyse)) }
                         }
                     }
                 }
             }
         }
         if (track.followable.isNotEmpty()) {
-            Text("Make this clip follow a track", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.ed_2a_make_this_clip_follow_a), style = MaterialTheme.typography.labelMedium)
             for (item in track.followable) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(item.track.name + if (item.ready) "" else " (not analysed)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(if (item.ready) item.track.name else stringResource(R.string.ed_2a_track_not_analysed, item.track.name), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     Button(
                         onClick = { onIntent(EditorIntent.FollowTrack(item.track.id)) },
                         enabled = item.ready,
-                        modifier = Modifier.semantics { contentDescription = "Follow ${item.track.name}" },
-                    ) { Text("Follow") }
+                        modifier = Modifier.described(stringResource(R.string.ed_2a_follow, item.track.name)),
+                    ) { Text(stringResource(R.string.ed_2a_follow_2)) }
                 }
             }
         }
     }
 }
 
+@Composable
 private fun statusText(status: TrackStatus): String = when (status) {
-    TrackStatus.NotAnalysed -> "Not analysed yet."
-    TrackStatus.Stale -> "The clip reaches outside the analysed part."
+    TrackStatus.NotAnalysed -> stringResource(R.string.ed_2a_status_not_analysed)
+    TrackStatus.Stale -> stringResource(R.string.ed_2a_status_stale)
     is TrackStatus.Ready ->
-        if (status.lost == 0) "Ready: followed in all ${status.frames} frames." else "Ready: lost in ${status.lost} of ${status.frames} frames; it holds the last position there."
+        if (status.lost == 0) stringResource(R.string.ed_2a_status_ready_all, status.frames)
+        else stringResource(R.string.ed_2a_status_ready_lost, status.lost, status.frames)
 }
 
 /**
@@ -196,7 +201,7 @@ internal fun TrackTargetLayer(
             }
         }
         Text(
-            "Tap the target, or drag a box",
+            stringResource(R.string.ed_2a_tap_the_target_or_drag),
             style = MaterialTheme.typography.labelLarge,
             color = Color.White,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
