@@ -31,6 +31,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /** Where the playhead, the output, the preview source and the selection are after a split (SPECS 5.3 / DECISIONS "Split lands on the cut"). */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -100,7 +101,7 @@ class SplitPlayheadViewModelTest {
     private class Harness(val vm: EditorViewModel, val out: FakeOutput, val effects: MutableList<EditorEffect>) {
         val state get() = vm.state.value
         fun clips(trackId: String): List<Clip> = state.timeline.track(trackId)?.clips.orEmpty()
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
 
         // Keys are assigned lazily by snapshotOf, so touch every clip once before looking one up.
         private fun keyOf(clipId: String): Long {

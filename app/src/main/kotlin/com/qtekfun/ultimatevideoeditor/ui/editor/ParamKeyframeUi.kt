@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -75,11 +77,13 @@ internal fun KeyDiamond(ui: ParamKeyUi, onIntent: (EditorIntent) -> Unit) {
     IconButton(onClick = { onIntent(EditorIntent.ToggleParamKey(ui.paramId)) }, modifier = Modifier.size(32.dp)) {
         Icon(
             imageVector = if (ui.keyHere) EditorIcons.KeyframeOn else EditorIcons.KeyframeOff,
-            contentDescription = when {
-                ui.keyHere -> "Remove the keyframe at the playhead"
-                ui.animated -> "Add a keyframe at the playhead"
-                else -> "Animate this value: add a keyframe at the playhead"
-            },
+            contentDescription = stringResource(
+                when {
+                    ui.keyHere -> R.string.ed_2b_remove_the_keyframe_at_the
+                    ui.animated -> R.string.ed_2b_add_a_keyframe_at_the
+                    else -> R.string.ed_2b_animate_this_value
+                },
+            ),
             tint = if (ui.animated) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
@@ -88,8 +92,13 @@ internal fun KeyDiamond(ui: ParamKeyUi, onIntent: (EditorIntent) -> Unit) {
 
 private class LaneRowSpec(val paramId: String, val label: String, val isPose: Boolean)
 
+/** The name of a lane in the language in use: the pose row by its own name, the others from the parameter. */
+@Composable
+private fun rowLabel(clip: Clip, row: LaneRowSpec): String =
+    if (row.isPose) stringResource(R.string.ed_2b_pose) else paramLabel(clip, row.paramId, row.label)
+
 private fun laneRows(clip: Clip): List<LaneRowSpec> = buildList {
-    if (clip.keyframes.isNotEmpty()) add(LaneRowSpec(PoseParams.POSITION_X.id, "Pose", isPose = true))
+    if (clip.keyframes.isNotEmpty()) add(LaneRowSpec(PoseParams.POSITION_X.id, "", isPose = true))
     for (track in clip.params) {
         val spec = clip.paramSpec(track.paramId) ?: continue
         add(LaneRowSpec(track.paramId, spec.label, isPose = false))
@@ -107,14 +116,14 @@ internal fun KeyframeLane(state: EditorState, onIntent: (EditorIntent) -> Unit) 
     val clip = state.selectedClip ?: return
     val rows = laneRows(clip)
     if (rows.isEmpty()) return
-    Text(text = "Keyframes", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+    Text(text = stringResource(R.string.ed_2b_keyframes), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
     for (row in rows) LaneRow(state, clip, row, onIntent)
     val selected = state.selectedParamKey
     if (selected != null && rows.any { it.paramId == selected.first }) {
         val key = clip.paramKeys(selected.first).firstOrNull { it.frame == selected.second }
         if (key != null) {
             CurveControls(
-                title = rows.first { it.paramId == selected.first }.label,
+                title = rowLabel(clip, rows.first { it.paramId == selected.first }),
                 key = key,
                 onShape = { mode, out, inn -> onIntent(EditorIntent.SetParamKeyShape(selected.first, key.frame, mode, out, inn)) },
             )
@@ -127,24 +136,25 @@ private fun LaneRow(state: EditorState, clip: Clip, row: LaneRowSpec, onIntent: 
     val keys = clip.paramKeys(row.paramId)
     val spec = clip.paramSpec(row.paramId) ?: return
     val ui = state.keyUi(row.paramId)
+    val label = rowLabel(clip, row)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
         Text(
-            text = "${row.label} · ${keys.size}",
+            text = "$label · ${keys.size}",
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.width(120.dp),
             maxLines = 1,
         )
         IconButton(onClick = { onIntent(EditorIntent.JumpToParamKey(row.paramId, forward = false)) }, modifier = Modifier.size(32.dp), enabled = keys.isNotEmpty()) {
-            Icon(EditorIcons.SkipPrevious, contentDescription = "Previous keyframe of ${row.label}", modifier = Modifier.size(16.dp))
+            Icon(EditorIcons.SkipPrevious, contentDescription = stringResource(R.string.ed_2b_previous_keyframe_of, label), modifier = Modifier.size(16.dp))
         }
         if (ui != null && !row.isPose) KeyDiamond(ui, onIntent)
         IconButton(onClick = { onIntent(EditorIntent.JumpToParamKey(row.paramId, forward = true)) }, modifier = Modifier.size(32.dp), enabled = keys.isNotEmpty()) {
-            Icon(EditorIcons.SkipNext, contentDescription = "Next keyframe of ${row.label}", modifier = Modifier.size(16.dp))
+            Icon(EditorIcons.SkipNext, contentDescription = stringResource(R.string.ed_2b_next_keyframe_of, label), modifier = Modifier.size(16.dp))
         }
         if (!row.isPose) {
-            TextButton(onClick = { onIntent(EditorIntent.CopyParamKeys(row.paramId)) }, enabled = keys.isNotEmpty()) { Text("Copy") }
-            TextButton(onClick = { onIntent(EditorIntent.PasteParamKeys(row.paramId)) }, enabled = state.paramClipboard != null) { Text("Paste") }
-            TextButton(onClick = { onIntent(EditorIntent.ClearParamTrack(row.paramId)) }, enabled = keys.isNotEmpty()) { Text("Clear") }
+            TextButton(onClick = { onIntent(EditorIntent.CopyParamKeys(row.paramId)) }, enabled = keys.isNotEmpty()) { Text(stringResource(R.string.common_copy)) }
+            TextButton(onClick = { onIntent(EditorIntent.PasteParamKeys(row.paramId)) }, enabled = state.paramClipboard != null) { Text(stringResource(R.string.ed_2b_paste)) }
+            TextButton(onClick = { onIntent(EditorIntent.ClearParamTrack(row.paramId)) }, enabled = keys.isNotEmpty()) { Text(stringResource(R.string.common_clear)) }
         }
     }
     LaneCanvas(state, clip, row, keys, spec, onIntent)
@@ -176,13 +186,14 @@ private fun LaneCanvas(
     val selectedColor = MaterialTheme.colorScheme.tertiary
     val frame = state.selectedFrame
     val selected = state.selectedParamKey?.takeIf { it.first == row.paramId }?.second
+    val label = rowLabel(clip, row)
     var dragging by remember(row.paramId, clip.id) { mutableStateOf<ParamKey?>(null) }
 
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
             .height(LaneHeight)
-            .semantics { contentDescription = "Keyframes of ${row.label}, ${keys.size} keys" }
+            .described(stringResource(R.string.ed_2b_keyframes_of_keys, label, keys.size))
             .pointerInput(clip.id, row.paramId, keys, duration) {
                 fun xOf(f: Long) = pad + (size.width - 2 * pad) * (f.toFloat() / last.toFloat())
                 fun yOf(v: Double) = pad + (size.height - 2 * pad) * (1f - ((v - spec.min) / range).toFloat())
@@ -260,30 +271,25 @@ private fun LaneCanvas(
 @Composable
 internal fun CurveControls(title: String, key: ParamKey, onShape: (Interpolation, BezierHandle?, BezierHandle?) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(0.dp), modifier = Modifier.fillMaxWidth()) {
-        Text(text = "$title · key at frame ${key.frame}", style = MaterialTheme.typography.labelMedium)
+        Text(text = stringResource(R.string.ed_2b_key_at_frame, title, key.frame), style = MaterialTheme.typography.labelMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            for ((mode, label) in listOf(
-                Interpolation.LINEAR to "Linear",
-                Interpolation.EASE to "Ease",
-                Interpolation.HOLD to "Hold",
-                Interpolation.BEZIER to "Bezier",
-            )) {
+            for (mode in Interpolation.entries) {
                 FilterChip(
                     selected = key.interpolation == mode,
                     onClick = { onShape(mode, key.out, key.inn) },
-                    label = { Text(label) },
+                    label = { Text(stringResource(mode.labelRes())) },
                 )
             }
         }
         if (key.interpolation == Interpolation.BEZIER) {
             val out = key.out ?: BezierHandle.DEFAULT
             val inn = key.inn ?: BezierHandle.DEFAULT
-            HandleSlider("Out time", out.x, 0f..1f) { onShape(Interpolation.BEZIER, BezierHandle(it.toDouble(), out.y), key.inn) }
-            HandleSlider("Out value", out.y, BezierHandle.MIN_Y.toFloat()..BezierHandle.MAX_Y.toFloat()) {
+            HandleSlider(stringResource(R.string.ed_2b_handle_out_time), out.x, 0f..1f) { onShape(Interpolation.BEZIER, BezierHandle(it.toDouble(), out.y), key.inn) }
+            HandleSlider(stringResource(R.string.ed_2b_handle_out_value), out.y, BezierHandle.MIN_Y.toFloat()..BezierHandle.MAX_Y.toFloat()) {
                 onShape(Interpolation.BEZIER, BezierHandle(out.x, it.toDouble()), key.inn)
             }
-            HandleSlider("In time", inn.x, 0f..1f) { onShape(Interpolation.BEZIER, key.out, BezierHandle(it.toDouble(), inn.y)) }
-            HandleSlider("In value", inn.y, BezierHandle.MIN_Y.toFloat()..BezierHandle.MAX_Y.toFloat()) {
+            HandleSlider(stringResource(R.string.ed_2b_handle_in_time), inn.x, 0f..1f) { onShape(Interpolation.BEZIER, key.out, BezierHandle(it.toDouble(), inn.y)) }
+            HandleSlider(stringResource(R.string.ed_2b_handle_in_value), inn.y, BezierHandle.MIN_Y.toFloat()..BezierHandle.MAX_Y.toFloat()) {
                 onShape(Interpolation.BEZIER, key.out, BezierHandle(inn.x, it.toDouble()))
             }
         }

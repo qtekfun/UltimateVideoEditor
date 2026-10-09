@@ -33,6 +33,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 /** The LumaFusion-style marker flow: one tap to add, a popup to edit, drag along the ruler, previous / next. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -87,7 +88,7 @@ class MarkerViewModelTest {
             vm.onIntent(MarkerIntent.AddAtPlayhead)
         }
 
-        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        fun messages(): List<String> = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
 
         fun hit(index: Int, fingerFrame: Long) = TimelineHit(HitKind.MARKER, -1, index.toLong(), fingerFrame)
     }

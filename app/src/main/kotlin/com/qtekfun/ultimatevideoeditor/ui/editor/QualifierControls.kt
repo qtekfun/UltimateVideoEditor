@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -75,47 +77,47 @@ internal fun QualifierEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
             pick.effectId == effect.id -> {
                 Button(
                     onClick = { onIntent(QualifierIntent.Cancel) },
-                    modifier = Modifier.semantics { contentDescription = "Tap the picture to choose a colour; tap to cancel" },
-                ) { Text(if (pick.busy) "Reading…" else "Tap the picture…") }
+                    modifier = Modifier.described(stringResource(R.string.ed_2b_tap_the_picture_to_choose)),
+                ) { Text(if (pick.busy) stringResource(R.string.ed_2b_reading) else stringResource(R.string.ed_2b_tap_the_picture)) }
             }
             else -> OutlinedButton(
                 onClick = { onIntent(QualifierIntent.Arm(effect.id)) },
                 enabled = !pick.armed,
-                modifier = Modifier.semantics { contentDescription = "Pick the key colour from the picture" },
-            ) { Text("Pick colour") }
+                modifier = Modifier.described(stringResource(R.string.ed_2b_pick_the_key_colour_from)),
+            ) { Text(stringResource(R.string.ed_2b_pick_colour)) }
         }
         FilterChip(
             selected = values[Qualifier.SHOW_MATTE] > 0.5,
             onClick = { toggle(Qualifier.SHOW_MATTE) },
-            label = { Text("Show matte") },
+            label = { Text(stringResource(R.string.ed_2b_show_matte)) },
         )
         FilterChip(
             selected = values[Qualifier.INVERT] > 0.5,
             onClick = { toggle(Qualifier.INVERT) },
-            label = { Text("Invert") },
+            label = { Text(stringResource(R.string.ed_2b_invert)) },
         )
     }
 
-    QualifierSection("Hue")
+    QualifierSection(stringResource(R.string.ed_2b_q_hue))
     HueBand(centre = values[Qualifier.HUE], halfWidth = values[Qualifier.HUE_WIDTH], softness = values[Qualifier.HUE_SOFT])
-    slider(Qualifier.HUE, "Centre")
-    slider(Qualifier.HUE_WIDTH, "Width")
-    slider(Qualifier.HUE_SOFT, "Softness")
+    slider(Qualifier.HUE, stringResource(R.string.ed_2b_q_centre))
+    slider(Qualifier.HUE_WIDTH, stringResource(R.string.ed_2b_q_width))
+    slider(Qualifier.HUE_SOFT, stringResource(R.string.ed_2b_q_softness))
 
-    QualifierSection("Saturation")
-    slider(Qualifier.SAT_MIN, "From", Qualifier.SAT_MIN to Qualifier.SAT_MAX)
-    slider(Qualifier.SAT_MAX, "To", Qualifier.SAT_MIN to Qualifier.SAT_MAX)
-    slider(Qualifier.SAT_SOFT, "Softness")
+    QualifierSection(stringResource(R.string.ed_2b_q_saturation))
+    slider(Qualifier.SAT_MIN, stringResource(R.string.ed_2b_q_from), Qualifier.SAT_MIN to Qualifier.SAT_MAX)
+    slider(Qualifier.SAT_MAX, stringResource(R.string.ed_2b_q_to), Qualifier.SAT_MIN to Qualifier.SAT_MAX)
+    slider(Qualifier.SAT_SOFT, stringResource(R.string.ed_2b_q_softness))
 
-    QualifierSection("Luma")
-    slider(Qualifier.LUMA_MIN, "From", Qualifier.LUMA_MIN to Qualifier.LUMA_MAX)
-    slider(Qualifier.LUMA_MAX, "To", Qualifier.LUMA_MIN to Qualifier.LUMA_MAX)
-    slider(Qualifier.LUMA_SOFT, "Softness")
+    QualifierSection(stringResource(R.string.ed_2b_q_luma))
+    slider(Qualifier.LUMA_MIN, stringResource(R.string.ed_2b_q_from), Qualifier.LUMA_MIN to Qualifier.LUMA_MAX)
+    slider(Qualifier.LUMA_MAX, stringResource(R.string.ed_2b_q_to), Qualifier.LUMA_MIN to Qualifier.LUMA_MAX)
+    slider(Qualifier.LUMA_SOFT, stringResource(R.string.ed_2b_q_softness))
 
-    QualifierSection("Correct inside the selection")
-    slider(Qualifier.HUE_SHIFT, "Hue shift")
-    slider(Qualifier.SAT_GAIN, "Saturation")
-    slider(Qualifier.LIGHTNESS, "Lightness")
+    QualifierSection(stringResource(R.string.ed_2b_q_correct))
+    slider(Qualifier.HUE_SHIFT, stringResource(R.string.ed_2b_q_hue_shift))
+    slider(Qualifier.SAT_GAIN, stringResource(R.string.ed_2b_q_saturation))
+    slider(Qualifier.LIGHTNESS, stringResource(R.string.ed_2b_q_lightness))
     TextButton(
         onClick = {
             onIntent(
@@ -130,7 +132,7 @@ internal fun QualifierEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
             )
             onIntent(finish)
         },
-    ) { Text("Reset correction") }
+    ) { Text(stringResource(R.string.ed_2b_reset_correction)) }
 }
 
 @Composable
@@ -142,7 +144,7 @@ private fun QualifierSection(title: String) {
 @Composable
 private fun HueBand(centre: Double, halfWidth: Double, softness: Double) {
     val outline = MaterialTheme.colorScheme.onSurface
-    val description = "Selected hues: centre ${percent(centre, 1.0)}, width ${percent(halfWidth, 0.5)}"
+    val description = stringResource(R.string.ed_2b_q_selected_hues, percent(centre, 1.0), percent(halfWidth, 0.5))
     Canvas(
         Modifier
             .fillMaxWidth()

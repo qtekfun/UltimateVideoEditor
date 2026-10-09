@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -27,12 +31,12 @@ internal fun ClipColorControls(
     onIntent: (EditorIntent) -> Unit,
 ) {
     Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Source colour", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.ed_2b_source_colour), style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = override == null,
                 onClick = { onIntent(EditorIntent.SetClipColor(null)) },
-                label = { Text("Auto (${detected.label})") },
+                label = { Text(stringResource(R.string.ed_2b_auto, detected.label)) },
             )
             for (space in SourceColorSpace.entries) {
                 FilterChip(
@@ -43,7 +47,7 @@ internal fun ClipColorControls(
             }
         }
         Text(
-            conversionNote(override ?: detected, projectSpace),
+            conversionNote(override ?: detected, projectSpace).asString(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -51,11 +55,11 @@ internal fun ClipColorControls(
 }
 
 /** One line saying what the engine does with a clip of [source] in a project of [project]. */
-internal fun conversionNote(source: SourceColorSpace, project: ProjectColorSpace): String = when {
-    !project.isHdr && source == SourceColorSpace.SDR -> "Used as is in this SDR project."
-    !project.isHdr && source == SourceColorSpace.HLG -> "HLG is tone-mapped to SDR Rec.709 in this project."
-    !project.isHdr -> "PQ is tone-mapped to SDR Rec.709 in this project."
-    source == SourceColorSpace.SDR -> "SDR is lifted into this HLG project (reference white at 203 nit)."
-    source == SourceColorSpace.HLG -> "HLG is used as is in this HLG project."
-    else -> "PQ is converted to HLG in this project (clipped at 1000 nit)."
-}
+internal fun conversionNote(source: SourceColorSpace, project: ProjectColorSpace): UiText = UiText.res(when {
+    !project.isHdr && source == SourceColorSpace.SDR -> R.string.ed_2b_conv_sdr_sdr
+    !project.isHdr && source == SourceColorSpace.HLG -> R.string.ed_2b_conv_hlg_sdr
+    !project.isHdr -> R.string.ed_2b_conv_pq_sdr
+    source == SourceColorSpace.SDR -> R.string.ed_2b_conv_sdr_hlg
+    source == SourceColorSpace.HLG -> R.string.ed_2b_conv_hlg_hlg
+    else -> R.string.ed_2b_conv_pq_hlg
+})

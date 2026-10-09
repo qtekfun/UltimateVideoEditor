@@ -34,6 +34,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RelinkViewModelTest {
@@ -110,7 +111,7 @@ class RelinkViewModelTest {
         val effects: MutableList<EditorEffect>,
     ) {
         val state get() = vm.state.value
-        val messages get() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text }
+        val messages get() = effects.filterIsInstance<EditorEffect.ShowMessage>().map { it.text.english() }
     }
 
     private fun TestScope.harness(

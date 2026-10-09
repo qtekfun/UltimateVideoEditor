@@ -6,28 +6,13 @@
 
 # Stage 2: editor toolbar, inspector and sheets
 # The editor, file by file (each one leaves this list when its stage migrates it)
-ui/editor/AudioControls.kt
-ui/editor/AudioLinkControls.kt
-ui/editor/ClipColorControls.kt
-ui/editor/ColorControls.kt
 ui/editor/EditorAudio.kt
 ui/editor/EditorLibrary.kt
 ui/editor/EditorPreview.kt
 ui/editor/EditorViewModel.kt
-ui/editor/FxControls.kt
-ui/editor/InspectorPanel.kt
-ui/editor/LookLibrary.kt
-ui/editor/LutPicker.kt
-ui/editor/ParamKeyframeUi.kt
-ui/editor/QualifierControls.kt
-ui/editor/RelinkUi.kt
 ui/editor/ScopeScale.kt
 ui/editor/ScopesPanel.kt
-ui/editor/SpeedCurveEditor.kt
-ui/editor/StabiliseControls.kt
 ui/editor/StickerSheet.kt
-ui/editor/ThumbnailFailures.kt
-ui/editor/TransitionStylePicker.kt
 ui/editor/captions/CaptionsSheet.kt
 ui/editor/captions/CaptionsViewModel.kt
 ui/editor/guide/ToolbarGuide.kt

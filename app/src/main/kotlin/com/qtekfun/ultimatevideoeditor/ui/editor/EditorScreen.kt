@@ -417,7 +417,7 @@ fun EditorScreen(
             projectId,
             log = { android.util.Log.w("uv_thumb", it) },
             // Called on a native worker thread. The clip stays usable without its filmstrip.
-            show = { message -> main.post { viewModel.onIntent(EditorIntent.ReportError(message)) } },
+            show = { message -> main.post { viewModel.onIntent(EditorIntent.ReportText(message)) } },
         )
     }
     val engine = remember {
@@ -635,10 +635,6 @@ fun EditorScreen(
         viewModel.effects.collect { effect ->
             when (effect) {
                 is EditorEffect.ShowMessage -> {
-                    snackbar.currentSnackbarData?.dismiss()
-                    scope.launch { snackbar.showSnackbar(effect.text) }
-                }
-                is EditorEffect.ShowText -> {
                     snackbar.currentSnackbarData?.dismiss()
                     val text = effect.text.resolve(context)
                     scope.launch { snackbar.showSnackbar(text) }
