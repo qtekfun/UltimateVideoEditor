@@ -106,6 +106,16 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
                     )
                 }
             }
+            if (!popup.isBeat) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.flags_shot), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = popup.done,
+                        onCheckedChange = { onIntent(MarkerIntent.DoneChanged(it)) },
+                        modifier = Modifier.described(stringResource(R.string.flags_mark_shot)),
+                    )
+                }
+            }
             Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (color in MarkerColor.entries) MarkerSwatch(color, popup.color == color, onIntent)
@@ -120,7 +130,7 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
 }
 
 /** The name of a marker colour for the spoken descriptions. */
-private fun markerColourName(color: MarkerColor): Int = when (color) {
+internal fun markerColourName(color: MarkerColor): Int = when (color) {
     MarkerColor.RED -> R.string.ed_2a_colour_red
     MarkerColor.ORANGE -> R.string.ed_2a_colour_orange
     MarkerColor.YELLOW -> R.string.ed_2a_colour_yellow

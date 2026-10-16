@@ -1318,4 +1318,26 @@
     <string name="ed_clipvol_db">%1$.1f dB</string>
     <string name="ed_clipvol_mute">Mute</string>
     <string name="ed_clipvol_reset">Reset to 0 dB</string>
+    <string name="flags_menu_list">Flag list</string>
+    <string name="flags_shot">Shot</string>
+    <string name="flags_mark_shot">Mark this flag as shot</string>
+    <string name="flags_list_title">Flag list</string>
+    <string name="flags_only_pending">Only pending</string>
+    <string name="flags_share">Share list</string>
+    <string name="flags_save_csv">Save as CSV</string>
+    <string name="flags_save_failed">Could not save the file</string>
+    <string name="flags_empty">No flags to show. Tap the flag button to drop one at the playhead, or change the filters.</string>
+    <string name="flags_text_title">Shot list · %1$s</string>
+    <string name="flags_no_colour">No colour</string>
+    <string name="flags_unnamed">Flag at %1$s</string>
+    <string name="flags_csv_done">Done</string>
+    <string name="flags_csv_colour">Colour</string>
+    <string name="flags_csv_time">Time</string>
+    <string name="flags_csv_name">Name</string>
+    <string name="flags_csv_note">Note</string>
+    <string name="flags_go_to">Go to this flag</string>
+    <plurals name="flags_pending_count">
+        <item quantity="one">%d to shoot</item>
+        <item quantity="other">%d to shoot</item>
+    </plurals>
 </resources>
