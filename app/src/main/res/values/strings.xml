@@ -1299,4 +1299,6 @@
     <string name="ed_2b_preset_timeline_desc">Layout focused on the timeline</string>
     <string name="ed_2b_preset_preview_desc">Layout focused on the preview</string>
     <string name="ed_2b_preset_two_desc">Layout with two panels</string>
+    <string name="ed_proxy_label">proxy</string>
+    <string name="ed_proxy_sdr_of_hdr_label">SDR proxy: colours differ from the original</string>
 </resources>

@@ -107,4 +107,28 @@ class ProxyPlannerTest {
         assertTrue(base != ProxyKeys.of(job.copy(durationFrames = 301), 720))
         assertTrue(base != ProxyKeys.of(job.copy(fpsNum = 60), 720))
     }
+
+    @Test
+    fun `the resolved proxy carries the colour space of the proxy file, SDR for entries made before the field existed`() {
+        val asset = testAsset(colorSpace = "Rec2020-HLG")
+        entries[asset.id] = ProxyEntry("k", jobOf(asset), ProxyState.READY, 720, fileName = "k.mp4")
+        assertEquals("Rec709-SDR", planner.resolve(asset, MediaPurpose.PREVIEW, useProxies = true).proxyColorSpace)
+
+        entries[asset.id] = entries.getValue(asset.id).copy(colorSpace = "Rec2020-HLG")
+        assertEquals("Rec2020-HLG", planner.resolve(asset, MediaPurpose.PREVIEW, useProxies = true).proxyColorSpace)
+    }
+
+    @Test
+    fun `an HDR source has its own proxy key, an SDR source keeps the one it had`() {
+        val sdr = jobOf(testAsset())
+        val hlg = jobOf(testAsset(colorSpace = "Rec2020-HLG"))
+        val pq = jobOf(testAsset(colorSpace = "Rec2020-PQ"))
+        assertTrue(ProxyKeys.of(sdr, 720) != ProxyKeys.of(hlg, 720))
+        assertTrue(ProxyKeys.of(hlg, 720) != ProxyKeys.of(pq, 720))
+        assertEquals(ProxyKeys.of(hlg, 720), ProxyKeys.of(hlg.copy(), 720))
+        // The SDR key is the one older versions computed: file, length, frame rate, size.
+        val text = "${sdr.uri}|${sdr.durationFrames}|${sdr.fpsNum}/${sdr.fpsDen}|720"
+        val expected = java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+        assertEquals(expected, ProxyKeys.of(sdr, 720))
+    }
 }
