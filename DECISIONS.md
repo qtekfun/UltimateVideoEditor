@@ -1888,3 +1888,19 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 **Not verified:** nothing was run on a phone or emulator (none allowed). JVM tests, the guard tests, a debug build and `lintRelease` only.
 
 **Stage 2b (owner decisions, 2026-10-09):** names of actions use the Spanish infinitive ("Deshacer", "Rehacer", "Copiar", "Eliminar"), sentences to the person the informal imperative; short chips get the shortest natural term with the long form in the content description (`docs/TRANSLATING.md`). `EditorEffect.ShowMessage` takes a `UiText` (a `String` constructor stays for text of the lower layers), replacing the interim `ShowText`; the domain enums keep their English names and are translated for display in `EditorLabels.kt`.
+
+## HDR proxies keep their colours, and the preview says when it shows a proxy (2026-10-16)
+
+- **Why.** On the owner's OPPO the HDR HLG project looked dim and flat one day after it looked right. Nothing about the colour path had
+  changed between versions; the preview was showing a 720p SDR proxy (the log of the opened file said `video/avc 1280x720 transfer=3`)
+  of the Dolby Vision original, because proxies were on. By design an HDR source got an SDR stand-in, which the HLG project lifts to
+  reference white: a different picture with the label still saying "HDR HLG". Two faults: the stand-in lost the colours, and nothing
+  on screen said a proxy was in use.
+- **Decision.** An HDR source (HLG or PQ) gets an HLG 10-bit HEVC proxy; a device whose encoder rejects it (`ENCODER_UNSUPPORTED`)
+  gets the SDR stand-in after one retry. The entry records the colour space of the file and the preview reads the proxy as that.
+  The key of an HDR source's proxy now includes its colour space, so the old SDR stand-ins are not reused (they can be removed with
+  "Remove unused"); SDR sources keep their keys. A PQ source becomes an HLG proxy (the output is always HLG).
+- **On screen.** A label over the preview says "proxy" whenever one is shown, in the tertiary colour with "SDR proxy: colours differ
+  from the original" when the stand-in is SDR and the original is HDR. Export never uses proxies.
+- **Not done.** A clip's own colour override is not applied to its proxy (the proxy is made from the file's own colour); the
+  thumbnails of a proxy are read as before.

@@ -1326,4 +1326,6 @@
     <string name="ed_2b_preset_timeline_desc">Diseño con enfoque en la línea de tiempo</string>
     <string name="ed_2b_preset_preview_desc">Diseño con enfoque en la vista previa</string>
     <string name="ed_2b_preset_two_desc">Diseño con dos paneles</string>
+    <string name="ed_proxy_label">proxy</string>
+    <string name="ed_proxy_sdr_of_hdr_label">proxy SDR: los colores difieren del original</string>
 </resources>

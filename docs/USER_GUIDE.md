@@ -912,8 +912,12 @@ sound always comes from the original.
   **Proxy old** (the source changed, or the file is gone: it is not used until made again).
 - When a project contains heavy video, or the preview keeps dropping frames, a banner offers proxies. Nothing is made
   unless you accept; **Not now** hides the offer for that project.
-- HDR videos get an SDR proxy, so the picture looks flatter while editing with proxies on; the exported movie is
-  unaffected.
+- HDR videos get an HLG 10-bit proxy, so the picture keeps its colours while editing with proxies on. A device whose
+  encoder cannot make one gets an SDR stand-in, which looks flatter. The preview tells you: a label over the picture says
+  **proxy** whenever one is shown, and **SDR proxy: colours differ from the original** when the colours are not those of
+  the file. Turn the switch off in the proxy sheet to see the originals. The exported movie always uses the originals.
+- Proxies of HDR videos made by older versions were SDR stand-ins; they are not used any more and are made again (the old
+  files can be removed with **Remove unused** in the proxy sheet).
 
 ## Multicam
 
