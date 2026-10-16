@@ -1204,6 +1204,7 @@ private fun EditorMain(
                                 ClipLinks.infoFor(state.timeline, id, hasAudio)?.canDetach == true
                             } == true,
                         ) { viewModel.onIntent(EditorIntent.DetachAudio); after() }
+                        ToolbarItem.CLIP_VOLUME -> ClipVolumeMenu(state, viewModel::onIntent)
                         ToolbarItem.DELETE -> ToolButton(EditorIcons.Delete, stringResource(R.string.ed_2a_delete_the_base_track_closes), enabled = hasSelection) {
                             viewModel.onIntent(EditorIntent.RippleDeleteSelected); after()
                         }

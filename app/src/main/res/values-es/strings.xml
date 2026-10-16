@@ -1337,4 +1337,14 @@
         <item quantity="many">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) a los %d de clips seleccionados.</item>
         <item quantity="other">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) a los %d clips seleccionados.</item>
     </plurals>
+    <string name="ed_clipvol_tool">Volumen del clip</string>
+    <string name="ed_clipvol_button">Volumen de los clips seleccionados (solo estos, no toda la pista)</string>
+    <plurals name="ed_clipvol_title">
+        <item quantity="one">Volumen del clip seleccionado</item>
+        <item quantity="many">Volumen de los %d de clips seleccionados</item>
+        <item quantity="other">Volumen de los %d clips seleccionados</item>
+    </plurals>
+    <string name="ed_clipvol_db">%1$.1f dB</string>
+    <string name="ed_clipvol_mute">Silenciar</string>
+    <string name="ed_clipvol_reset">Restablecer a 0 dB</string>
 </resources>

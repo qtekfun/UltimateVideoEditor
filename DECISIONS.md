@@ -1929,3 +1929,14 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   and 48 dp is a lane's worth of travel, so leaving the lock is a deliberate pull.
 - **Not done.** There is no drawn guide line for the locked axis (the native canvas would need a new overlay); the tick and the drop hint
   are the feedback. A setting to turn the lock off is not offered: a diagonal pull is already free.
+## A volume button for the selected clips (2026-10-16)
+
+- **Owner report.** There is a volume for a single clip (the Volume slider of the clip panel) but it is not where anyone looks, and the
+  panels near it (the mixer, the track controls) act on the whole lane.
+- **Decision.** A tool-row button "Clip volume" (loudspeaker icon, right after Detach audio) opens a small slider for the selected
+  clips only, with Mute and Reset to 0 dB; it is enabled when a selected clip makes a sound (an audio clip, or a video clip whose sound
+  is not detached). The value is applied when the finger lifts (`SelectionIntent.SetGroupGain`, one undo step, every selected clip with
+  sound); the clip panel's Volume stays. As a toolbar item it can be moved or hidden like the others (saved orders get it right after
+  Detach audio).
+- **Not done.** No live audio while the slider moves (the mixer hears it once the value is set); a per-clip volume curve and fades stay
+  in the sound tools of an audio clip.

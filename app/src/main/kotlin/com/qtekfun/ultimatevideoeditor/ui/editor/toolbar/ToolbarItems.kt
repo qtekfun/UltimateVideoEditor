@@ -12,6 +12,7 @@ enum class ToolbarItem(val id: String, @StringRes val labelRes: Int, val mandato
     IMPORT("import", R.string.ed_2a_tool_import),
     SPLIT("split", R.string.ed_2a_tool_split, mandatory = true),
     DETACH_AUDIO("detach-audio", R.string.ed_2a_tool_detach_audio),
+    CLIP_VOLUME("clip-volume", R.string.ed_clipvol_tool),
     DELETE("delete", R.string.common_delete, mandatory = true),
     MARKER("marker", R.string.ed_2a_tool_marker),
     SELECT_MODE("select-mode", R.string.ed_2a_tool_select_mode),
