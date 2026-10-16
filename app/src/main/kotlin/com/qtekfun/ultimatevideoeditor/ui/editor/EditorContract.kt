@@ -132,6 +132,8 @@ data class EditorState(
     val selectedClipIds: Set<String> = emptySet(),
     /** How many clips the clipboard holds. */
     val clipboardCount: Int = 0,
+    /** The question asked by Paste when another clip is selected: content or style; null when none is open. */
+    val pasteChoice: PasteChoice? = null,
     /** A slider drag on an audio tool is in progress: [dragPreview] holds it and the mixer plays it live. */
     val audioSessionActive: Boolean = false,
     /** What the audio analysis in progress is doing ("Measuring loudness…"), or null when idle. */
@@ -801,3 +803,6 @@ internal fun FolderRelinkUi.without(assetId: String): FolderRelinkUi = when (thi
     )
     else -> this
 }
+
+/** What Paste asks: [destinations] are the selected clips that a 'Style' answer would change, [copiedClips] how many a 'Content' answer adds. */
+data class PasteChoice(val destinations: List<String>, val copiedClips: Int)

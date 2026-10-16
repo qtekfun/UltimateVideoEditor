@@ -86,7 +86,7 @@ internal object ToolbarGuide {
 
         GuideEntry("copy", GuideSection.SELECTION, SelectionIcons.Copy, "Copy", "Copies the selected clips with their effects, keyframes, speed and transitions.", "Clips are selected."),
         GuideEntry("cut", GuideSection.SELECTION, SelectionIcons.Cut, "Cut", "Copies the selected clips, then deletes them.", "Clips are selected."),
-        GuideEntry("paste", GuideSection.SELECTION, SelectionIcons.Paste, "Paste", "Pastes the copied clips with the earliest one at the playhead.", "Something has been copied."),
+        GuideEntry("paste", GuideSection.SELECTION, SelectionIcons.Paste, "Paste", "Pastes the copied clips with the earliest one at the playhead. With another clip selected it asks first: Content adds a copy at the playhead, Style applies the copied clip's look and sound to the selected clips.", "Something has been copied."),
         GuideEntry("duplicate", GuideSection.SELECTION, SelectionIcons.Duplicate, "Duplicate", "Pastes a copy right after the last selected clip.", "Clips are selected."),
         GuideEntry("paste-attributes", GuideSection.SELECTION, SelectionIcons.PasteAttributes, "Paste attributes", "Copies position, effects, volume and speed of the copied clip onto the selection.", "Clips are selected and something has been copied."),
         GuideEntry("align-left", GuideSection.SELECTION, SelectionIcons.AlignLeft, "Align starts", "Moves the selected clips so they all start together.", "Two or more clips are selected. Not on the base track."),

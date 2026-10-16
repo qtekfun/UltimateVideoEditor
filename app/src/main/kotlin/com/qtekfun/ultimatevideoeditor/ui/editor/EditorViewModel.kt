@@ -1978,6 +1978,12 @@ class EditorViewModel(
             SelectionIntent.Copy -> copySelection(announce = true)
             SelectionIntent.Cut -> if (copySelection(announce = false)) deleteSelection()
             SelectionIntent.Paste -> pasteClipboard()
+            SelectionIntent.PasteContent -> {
+                reduce { copy(pasteChoice = null) }
+                pasteContent()
+            }
+            SelectionIntent.PasteStyle -> pasteStyle()
+            SelectionIntent.DismissPasteChoice -> reduce { copy(pasteChoice = null) }
             SelectionIntent.Duplicate -> withGroup { runGroupCommand(GroupDuplicate(it), selectNew = true) }
             SelectionIntent.DeleteSelection -> deleteSelection()
             SelectionIntent.PasteAttributes -> {
@@ -2019,13 +2025,46 @@ class EditorViewModel(
         return true
     }
 
+    /**
+     * Paste. With another clip selected (one that is not among the copied ones) it asks what to paste: the content (a copy of the
+     * copied clips at the playhead) or the style (their look and sound onto the selected clips). With nothing else selected it pastes
+     * the content at once, as it always did.
+     */
     private fun pasteClipboard() {
         val board = clipboard
         if (board == null) {
             emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_nothing_to_paste_copy_some)))
             return
         }
+        val copied = board.entries.mapTo(HashSet()) { it.clip.id }
+        val destinations = state.value.selection.filter { it !in copied && history.timeline.trackOfClip(it) != null }
+        if (destinations.isEmpty()) {
+            pasteContent()
+        } else {
+            reduce { copy(pasteChoice = PasteChoice(destinations, board.entries.size)) }
+        }
+    }
+
+    private fun pasteContent() {
+        val board = clipboard
+        if (board == null) {
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_nothing_to_paste_copy_some)))
+            return
+        }
         runGroupCommand(GroupPaste(board, state.value.playhead), selectNew = true)
+    }
+
+    private fun pasteStyle() {
+        val choice = state.value.pasteChoice
+        reduce { copy(pasteChoice = null) }
+        val source = clipboard?.primary
+        if (choice == null || source == null) return
+        val destinations = choice.destinations.filter { history.timeline.trackOfClip(it) != null }
+        if (destinations.isEmpty()) {
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_select_a_clip_first)))
+            return
+        }
+        execute(GroupPasteAttributes(ClipAttributes.of(source), destinations))
     }
 
     private fun deleteSelection() = withGroup { execute(GroupDelete(it)) }
