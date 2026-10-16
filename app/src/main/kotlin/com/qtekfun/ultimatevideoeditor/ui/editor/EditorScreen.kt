@@ -1308,6 +1308,7 @@ private fun EditorMain(
                     }
                     // Under the ruler, so the marker being edited stays in view above the popup.
                     state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 40.dp)) }
+                    if (state.flagListOpen) FlagListSheet(state, viewModel::onIntent)
                     state.markerPopup?.let { MarkerPopupCard(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 36.dp, start = 8.dp, end = 8.dp)) }
                     if (state.inspectorOpen && inspectorOverlay) {
                         Surface(

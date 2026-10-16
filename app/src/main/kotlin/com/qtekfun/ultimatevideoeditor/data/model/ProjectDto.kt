@@ -159,6 +159,8 @@ data class MarkerDto(
      */
     val anchorClipId: String? = null,
     val offset: Long = 0,
+    /** The flag's shot has been recorded; absent (false) in projects written before the flag list. */
+    val done: Boolean = false,
 )
 
 @Serializable

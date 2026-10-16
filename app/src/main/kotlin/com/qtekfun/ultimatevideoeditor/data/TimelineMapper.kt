@@ -137,7 +137,7 @@ object TimelineMapper {
             )
         }
         val transitions = timeline.transitions.map { toTransitionDto(it) }
-        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind), it.note, it.color?.name?.lowercase(), it.name, it.anchorClipId, it.offsetFrames) }
+        val markers = timeline.markers.map { MarkerDto(it.id, it.frame.value, markerKindName(it.kind), it.note, it.color?.name?.lowercase(), it.name, it.anchorClipId, it.offsetFrames, it.done) }
         return base.copy(
             mediaLibrary = assets,
             tracks = tracks,
@@ -242,6 +242,7 @@ object TimelineMapper {
         name = dto.name?.trim()?.takeIf { it.isNotEmpty() }?.take(MarkerOps.MAX_NAME_LENGTH),
         anchorClipId = dto.anchorClipId?.takeIf { it.isNotBlank() },
         offsetFrames = dto.offset.coerceAtLeast(0),
+        done = dto.done,
     )
 
     private fun markerKindName(kind: MarkerKind) = when (kind) {

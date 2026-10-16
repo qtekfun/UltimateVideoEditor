@@ -1735,6 +1735,11 @@ Kotlin `TimelineSnapshotTest`.
 independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
 round trip, broken link), `ToolbarGuideTest`, `DetachedTransitionAudioTest`, `PlaceWithDetachedAudioTest`, `VideoAudioPlacementViewModelTest`.
 
+### 5.41a Flag list (shot list)
+
+Manual flags carry `done`. The flag list sheet (`ui/editor/FlagListSheet.kt`, opened from the flag button's long-press menu) shows them grouped by
+colour with filters, ticks, share as checkbox text and save as CSV; formatting is `domain/ShotList.kt`. Decision: DECISIONS.md "The flag list is the shot list".
+
 ### 5.41 Markers stick to clips
 
 **Before.** A marker was a bare project frame (`Marker(id, frame, kind, note, color, name)`); no edit ever moved it (insert, ripple delete,
