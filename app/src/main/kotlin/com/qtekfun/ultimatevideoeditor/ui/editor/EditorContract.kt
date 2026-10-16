@@ -146,6 +146,8 @@ data class EditorState(
     val library: LibraryUiState = LibraryUiState(),
     /** The marker popup, or null when closed. */
     val markerPopup: MarkerPopup? = null,
+    /** The flag list (shot list) sheet is open. */
+    val flagListOpen: Boolean = false,
     /** "Marker added" confirmation shown for a moment after a one-tap marker. */
     val markerHint: MarkerHint? = null,
     /** Keys copied from a parameter's track (frames relative to the first key), ready to paste at the playhead. */

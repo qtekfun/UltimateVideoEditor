@@ -37,9 +37,11 @@ data class EditMarker(
     val note: String?,
     val color: MarkerColor?,
     val stick: Boolean? = null,
+    /** Ticks (true) or unticks (false) the flag as shot; null leaves it as it is. */
+    val done: Boolean? = null,
 ) : EditCommand {
     override fun apply(timeline: Timeline): EditResult<Timeline> {
-        val updated = when (val result = MarkerOps.update(timeline, markerId, name, note, color)) {
+        val updated = when (val result = MarkerOps.update(timeline, markerId, name, note, color, done)) {
             is EditResult.Failure -> return result
             is EditResult.Success -> result.value
         }
@@ -50,4 +52,12 @@ data class EditMarker(
 /** Moves a marker along the ruler in one undo step. */
 data class MoveMarker(val markerId: String, val frame: FrameIndex) : EditCommand {
     override fun apply(timeline: Timeline) = MarkerOps.move(timeline, markerId, frame)
+}
+
+/** Ticks or unticks a flag as shot from the flag list, in one undo step; name, note and colour stay as they are. */
+data class SetMarkerDone(val markerId: String, val done: Boolean) : EditCommand {
+    override fun apply(timeline: Timeline): EditResult<Timeline> {
+        val marker = timeline.markers.firstOrNull { it.id == markerId } ?: return EditResult.Failure(EditError.MarkerNotFound(markerId))
+        return MarkerOps.update(timeline, markerId, marker.name, marker.note, marker.color, done)
+    }
 }

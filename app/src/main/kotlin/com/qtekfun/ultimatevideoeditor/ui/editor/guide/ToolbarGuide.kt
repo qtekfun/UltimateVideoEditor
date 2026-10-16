@@ -67,7 +67,7 @@ internal object ToolbarGuide {
         GuideEntry("captions", GuideSection.ADD, EditorIcons.Captions, "Captions", "Opens the captions sheet: type captions, import a .srt or .vtt file, pick a style.", ""),
         GuideEntry("stickers", GuideSection.ADD, EditorIcons.Sticker, "Stickers", "Opens the media tray on its Stickers tab (shapes and emoji).", ""),
         GuideEntry("templates", GuideSection.ADD, EditorIcons.TextTemplate, "Titles and text templates", "Opens the media tray on its Titles tab: lower third, pop title, slide-in headline, subtitle bar.", ""),
-        GuideEntry("marker", GuideSection.ADD, EditorIcons.Flag, "Marker", "Tap: drops a marker at the playhead; over a clip it sticks to that clip and moves with it (switch it off in the marker panel). Long press: previous or next marker, beat tools and marker snapping.", ""),
+        GuideEntry("marker", GuideSection.ADD, EditorIcons.Flag, "Marker", "Tap: drops a marker at the playhead; over a clip it sticks to that clip and moves with it (switch it off in the marker panel). Long press: previous or next marker, the flag list (a shot list you can tick off, filter by colour, share as checkbox text or save as CSV), beat tools and marker snapping.", ""),
 
         GuideEntry("quick-edits", GuideSection.MEDIA, EditorIcons.Silence, "Quick edits", "Cuts the silences out of the selected clip, or reframes a clip for another canvas shape.", ""),
         GuideEntry("library", GuideSection.MEDIA, EditorIcons.Library, "Media library", "Opens the project's library: tags, notes, where each file is used, remove unused files, export a bundle. With a clip selected it opens on that clip's file.", ""),
@@ -114,7 +114,7 @@ internal object ToolbarGuide {
         GuideGesture("scroll", "Drag on empty timeline space", "Scrolls the timeline; a fling keeps it coasting."),
         GuideGesture("long-press-clip", "Long press a clip", "Adds it to the selection (or removes it) without select mode."),
         GuideGesture("lane-reorder", "Long press and drag a lane header", "Reorders the lane among lanes of its kind. The base track never moves."),
-        GuideGesture("flag-long", "Long press the flag", "Previous or next marker, beat tools and marker snapping."),
+        GuideGesture("flag-long", "Long press the flag", "Previous or next marker, the flag list, beat tools and marker snapping."),
         GuideGesture("double-tap-preview", "Double tap the preview", "Fullscreen. Tap once to show the play and exit strip; double tap again or press Back to leave."),
         GuideGesture("preview-transform", "Drag, pinch and twist on the preview", "Moves, scales and rotates the selected clip (or the selected title layer) while the playhead is on it."),
         GuideGesture("divider", "Drag a divider, double tap it to reset", "The pill under the preview (and the bar beside a side panel) resizes the areas. A short vibration marks the default."),

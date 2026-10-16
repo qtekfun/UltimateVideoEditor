@@ -74,8 +74,10 @@ class ProxyManagerTest {
         assertEquals(a.uri, manager.resolve(a, MediaPurpose.PREVIEW, "p1").uri)
         assertEquals(a.uri, manager.resolve(a, MediaPurpose.THUMBNAIL, "p1").uri)
 
+        val before = manager.changes.value
         transcoder.hold!!.countDown()
-        waitUntil { manager.statusOf(a) is ProxyStatus.Ready }
+        // The worker marks the proxy ready and then counts the change; the editor re-resolves on that count, so wait for it too.
+        waitUntil { manager.statusOf(a) is ProxyStatus.Ready && manager.changes.value != before }
 
         // Nothing but the worker finishing changed: the answer must follow it, for the preview as for the thumbnails.
         assertTrue(manager.resolve(a, MediaPurpose.PREVIEW, "p1").isProxy)
