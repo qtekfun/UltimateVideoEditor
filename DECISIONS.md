@@ -1915,3 +1915,17 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   step; the separate Paste attributes button stays. Cancel changes nothing.
 - **Not done.** 'Style' does not yet carry fades, the volume curve, colour grade or effects keyframes: they belong to the length of the
   clip they were made on (see ClipAttributes). A saved, named preset of a style is a possible next step.
+
+## Clip drags keep to one axis (2026-10-16)
+
+- **Owner report.** Dragging a clip (for instance the audio taken out of a video) down to another lane drifted along the time axis
+  before it arrived, so it did not land at the same frames; moving it along a lane could also tip it into the next lane.
+- **Decision.** `DragAxisLock`, applied in `TimelineSurfaceView` to every clip-drag position before it is hit-tested. From the point where
+  the finger went down: until it has moved 14 dp the clip stays where it was; then mainly vertical (vertical at least 1.25 times
+  horizontal) locks the time position, mainly horizontal locks the lane, and anything between is free. A lock lets go for the rest
+  of the drag when the finger is 48 dp away along the other axis, so a clip can still be carried anywhere. A tick (haptic) marks the lock
+  and the release. Group drags, trim, marker, lane-header and tray drags are not changed.
+- **Why 14 / 48 dp.** The touch slop (about 8 dp) has already passed when the drag starts; 14 dp gives a direction without a dead feeling,
+  and 48 dp is a lane's worth of travel, so leaving the lock is a deliberate pull.
+- **Not done.** There is no drawn guide line for the locked axis (the native canvas would need a new overlay); the tick and the drop hint
+  are the feedback. A setting to turn the lock off is not offered: a diagonal pull is already free.
