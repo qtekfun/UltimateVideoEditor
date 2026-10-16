@@ -1940,3 +1940,15 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   Detach audio).
 - **Not done.** No live audio while the slider moves (the mixer hears it once the value is set); a per-clip volume curve and fades stay
   in the sound tools of an audio clip.
+
+## The preview follows a proxy that finishes (2026-10-16)
+
+- **Owner report.** The proxy of the main clip was ready (the filmstrip used it) but the preview kept opening the 4K original and the
+  new "proxy" label never appeared.
+- **Cause.** `ProxyManager.resolve` remembers which file to open per asset and purpose, and the memory was only cleared by the manager's
+  own `invalidate()` (switch, remove, settings). A proxy that the worker finished only bumped the worker's change counter, so an answer
+  remembered while the proxy was still being made (the original) stayed for the preview. The thumbnails asked with another key, so they
+  got the proxy.
+- **Fix.** The memory is tied to `ProxyWorker.changes`: when the counter has moved since the answers were made (a proxy queued, started,
+  finished, failed or removed), `resolve` starts again. A test makes the situation: ask while the proxy is being made, let it finish, ask
+  again, for the preview and for the thumbnails.
