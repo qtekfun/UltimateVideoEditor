@@ -283,6 +283,10 @@ panel on the left.
 - **Pinch** on the timeline to zoom the time axis (only the time axis, whichever way the fingers spread). The lane height does not change by gesture: the Layout sheet's Small / Medium / Large chips set it.
 - **Drag** on an empty area to scroll, **fling** to coast.
 - On a selected **audio clip**: **drag the white circles** in its corners for fades, **double tap** it to add a volume point, **drag a dot** to shape the volume (see [Fades and volume on an audio clip](#fades-and-volume-on-an-audio-clip)).
+- A clip drag keeps to one direction so it goes where you mean it to: pull **mainly down or up** and the clip changes lane without
+  moving in time (an audio clip taken out of a video drops on the lane below at the same frames); pull **mainly sideways** and it
+  moves in time and stays on its lane. A short tick tells you the direction has locked. Pull **diagonally**, or far across the other
+  way (about a finger's width past the lock), and the clip follows your finger freely.
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
 
 ### Detach the audio of a video clip
