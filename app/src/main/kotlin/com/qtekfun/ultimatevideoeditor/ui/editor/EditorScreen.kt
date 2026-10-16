@@ -4,6 +4,7 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.layout.labelRes
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import android.net.Uri
@@ -1276,6 +1277,7 @@ private fun EditorMain(
                     }
                 }
                 if (state.selectMode || state.isMultiSelection) SelectionBar(state, viewModel::onIntent)
+                state.pasteChoice?.let { choice -> PasteChoiceDialog(choice, viewModel::onIntent) }
                 if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
 
                 }
@@ -1541,3 +1543,25 @@ private suspend fun requestThumbnails(
 private const val SCOPES_WIDTH = 0.6f
 private const val SCOPES_HEIGHT = 0.6f
 
+
+/** The question Paste asks when another clip is selected: paste the content (a copy at the playhead) or the style (look and sound). */
+@Composable
+private fun PasteChoiceDialog(choice: PasteChoice, onIntent: (EditorIntent) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onIntent(SelectionIntent.DismissPasteChoice) },
+        title = { Text(stringResource(R.string.ed_paste_choice_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.ed_paste_choice_content_desc))
+                Text(pluralStringResource(R.plurals.ed_paste_choice_style_desc, choice.destinations.size, choice.destinations.size))
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { onIntent(SelectionIntent.PasteContent) }) { Text(stringResource(R.string.ed_paste_choice_content)) }
+                TextButton(onClick = { onIntent(SelectionIntent.PasteStyle) }) { Text(stringResource(R.string.ed_paste_choice_style)) }
+            }
+        },
+        dismissButton = { TextButton(onClick = { onIntent(SelectionIntent.DismissPasteChoice) }) { Text(stringResource(R.string.common_cancel)) } },
+    )
+}

@@ -353,6 +353,9 @@ the exported movie use the same fades and curve.
   puts the earliest clip at the playhead: overlay clips keep their offsets (and fail rather than land on another
   clip), base clips are inserted at the nearest cut. **Duplicate** pastes right after the last selected clip.
   **Paste attributes** copies transform, effects, volume and speed of the copied clip onto the selection.
+  When another clip is selected, **Paste** asks first: **Content** adds a copy of the copied clips at the playhead, **Style**
+  applies the look and sound of the copied clip (the same attributes as **Paste attributes**) to the selected clips, so
+  several clips come out uniform. With nothing else selected, **Paste** adds the content straight away.
 - **Transitions** add a crossfade at the cut after each selected clip that touches the next one, or fade each
   picture clip in and out (head and tail).
 
