@@ -33,6 +33,7 @@ internal fun ToolbarItem.icon(): ImageVector = when (this) {
     ToolbarItem.IMPORT -> EditorIcons.Add
     ToolbarItem.SPLIT -> EditorIcons.Split
     ToolbarItem.DETACH_AUDIO -> EditorIcons.DetachAudio
+    ToolbarItem.CLIP_VOLUME -> EditorIcons.Volume
     ToolbarItem.DELETE -> EditorIcons.Delete
     ToolbarItem.MARKER -> EditorIcons.Flag
     ToolbarItem.SELECT_MODE -> SelectionIcons.SelectMode
