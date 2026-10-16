@@ -25,6 +25,8 @@ data class Marker(
     val name: String? = null,
     val anchorClipId: String? = null,
     val offsetFrames: Long = 0,
+    /** The shot this flag asks for has been recorded (the flag list ticks it); the flag stays on the ruler either way. */
+    val done: Boolean = false,
 ) {
     val isAnchored: Boolean get() = anchorClipId != null
 }
@@ -70,7 +72,7 @@ object MarkerOps {
     }
 
     /** Sets the name, note and colour of a marker in one step; a blank name or note clears it. */
-    fun update(timeline: Timeline, markerId: String, name: String?, note: String?, color: MarkerColor?): EditResult<Timeline> {
+    fun update(timeline: Timeline, markerId: String, name: String?, note: String?, color: MarkerColor?, done: Boolean? = null): EditResult<Timeline> {
         val marker = timeline.markers.firstOrNull { it.id == markerId } ?: return EditResult.Failure(EditError.MarkerNotFound(markerId))
         val cleanedNote = note?.trim()?.takeIf { it.isNotEmpty() }
         if (cleanedNote != null && cleanedNote.length > MAX_NOTE_LENGTH) {
@@ -80,9 +82,12 @@ object MarkerOps {
         if (cleanedName != null && cleanedName.length > MAX_NAME_LENGTH) {
             return EditResult.Failure(EditError.InvalidMarker("a marker name is at most $MAX_NAME_LENGTH characters"))
         }
-        if (marker.name == cleanedName && marker.note == cleanedNote && marker.color == color) return EditResult.Success(timeline)
+        val newDone = done ?: marker.done
+        if (marker.name == cleanedName && marker.note == cleanedNote && marker.color == color && marker.done == newDone) return EditResult.Success(timeline)
         return EditResult.Success(
-            timeline.copy(markers = timeline.markers.map { if (it.id == markerId) it.copy(name = cleanedName, note = cleanedNote, color = color) else it }),
+            timeline.copy(
+                markers = timeline.markers.map { if (it.id == markerId) it.copy(name = cleanedName, note = cleanedNote, color = color, done = newDone) else it },
+            ),
         )
     }
 

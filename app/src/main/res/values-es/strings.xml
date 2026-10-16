@@ -1347,4 +1347,27 @@
     <string name="ed_clipvol_db">%1$.1f dB</string>
     <string name="ed_clipvol_mute">Silenciar</string>
     <string name="ed_clipvol_reset">Restablecer a 0 dB</string>
+    <string name="flags_menu_list">Lista de banderas</string>
+    <string name="flags_shot">Grabado</string>
+    <string name="flags_mark_shot">Marcar esta bandera como grabada</string>
+    <string name="flags_list_title">Lista de banderas</string>
+    <string name="flags_only_pending">Solo pendientes</string>
+    <string name="flags_share">Compartir lista</string>
+    <string name="flags_save_csv">Guardar como CSV</string>
+    <string name="flags_save_failed">No se pudo guardar el archivo</string>
+    <string name="flags_empty">No hay banderas que mostrar. Toca el botón de bandera para poner una en el cursor, o cambia los filtros.</string>
+    <string name="flags_text_title">Lista de planos · %1$s</string>
+    <string name="flags_no_colour">Sin color</string>
+    <string name="flags_unnamed">Bandera en %1$s</string>
+    <string name="flags_csv_done">Hecho</string>
+    <string name="flags_csv_colour">Color</string>
+    <string name="flags_csv_time">Tiempo</string>
+    <string name="flags_csv_name">Nombre</string>
+    <string name="flags_csv_note">Nota</string>
+    <string name="flags_go_to">Ir a esta bandera</string>
+    <plurals name="flags_pending_count">
+        <item quantity="one">%d por grabar</item>
+        <item quantity="many">%d por grabar</item>
+        <item quantity="other">%d por grabar</item>
+    </plurals>
 </resources>

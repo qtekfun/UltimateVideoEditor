@@ -1952,3 +1952,15 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 - **Fix.** The memory is tied to `ProxyWorker.changes`: when the counter has moved since the answers were made (a proxy queued, started,
   finished, failed or removed), `resolve` starts again. A test makes the situation: ask while the proxy is being made, let it finish, ask
   again, for the preview and for the thumbnails.
+
+## The flag list is the shot list (2026-10-16)
+
+- **Owner use.** Flags note shots still to record (B-roll). They wanted that list at hand while filming, in a form a tasks app takes.
+- **Decision.** A flag gets `done` ("Shot"), ticked in its popup or in the new **Flag list** sheet (flag button, long press). The sheet lists the
+  manual flags in time order, grouped by colour (red … purple, no colour last), with "Only pending" and per-colour filters. **Share list**
+  sends checkbox text (`[ ] 00:00:12:05 · Name: note`) through the system share sheet; **Save as CSV** writes `done,colour,time,name,note`
+  through the system file picker. Beat markers never appear. Pure logic in `domain/ShotList.kt`, tests in `ShotListTest`.
+- **Not done, on purpose.** No automatic "shot" when a clip lands on a flag (it can be wrong), no target duration field (the owner writes it in
+  the flag's note), no meaning attached to colours (they only group). Flags marked shot are not drawn differently on the ruler yet: the native
+  snapshot would need a new field, and the list already separates them.
+- **Format.** `done` is optional in the project file (absent = false), so older projects load unchanged and older apps ignore it.

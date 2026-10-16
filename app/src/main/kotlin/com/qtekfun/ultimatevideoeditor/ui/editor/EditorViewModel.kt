@@ -74,6 +74,7 @@ import com.qtekfun.ultimatevideoeditor.domain.MarkerOps
 import com.qtekfun.ultimatevideoeditor.domain.markersFrom
 import com.qtekfun.ultimatevideoeditor.domain.RemoveMarker
 import com.qtekfun.ultimatevideoeditor.domain.SetBeatMarkers
+import com.qtekfun.ultimatevideoeditor.domain.SetMarkerDone
 import com.qtekfun.ultimatevideoeditor.domain.LayerPlacement
 import com.qtekfun.ultimatevideoeditor.domain.MotionPreset
 import com.qtekfun.ultimatevideoeditor.domain.SetTitleMotion
@@ -2369,6 +2370,11 @@ class EditorViewModel(
             is MarkerIntent.NoteChanged -> editMarkerPopup { copy(note = intent.text.take(MarkerOps.MAX_NOTE_LENGTH)) }
             is MarkerIntent.ColorChosen -> editMarkerPopup { copy(color = intent.color) }
             is MarkerIntent.StickChanged -> editMarkerPopup { if (canStick) copy(stick = intent.stick) else this }
+            is MarkerIntent.DoneChanged -> editMarkerPopup { copy(done = intent.done) }
+            MarkerIntent.OpenList -> { closeMarkerPopup(); reduce { copy(flagListOpen = true) } }
+            MarkerIntent.CloseList -> reduce { copy(flagListOpen = false) }
+            is MarkerIntent.SetDone -> execute(SetMarkerDone(intent.markerId, intent.done))
+            is MarkerIntent.GoTo -> history.timeline.markers.firstOrNull { it.id == intent.markerId }?.let { pausePlayback(); setPlayhead(it.frame.value) }
             MarkerIntent.Close -> closeMarkerPopup()
             MarkerIntent.DeleteOpen -> deleteOpenMarker()
             MarkerIntent.PopupPrevious -> stepMarkerPopup(forward = false)
@@ -2424,6 +2430,7 @@ class EditorViewModel(
         canStick = marker.kind == MarkerKind.MANUAL && (marker.isAnchored || MarkerAnchors.targetAt(timeline, marker.frame) != null),
         hasPrevious = MarkerOps.previous(markers, marker.frame) != null,
         hasNext = MarkerOps.next(markers, marker.frame) != null,
+        done = marker.done,
     )
 
     private fun openMarker(markerId: String) {
@@ -2438,7 +2445,7 @@ class EditorViewModel(
     private fun editMarkerPopup(change: MarkerPopup.() -> MarkerPopup) {
         val popup = state.value.markerPopup ?: return
         val edited = popup.change()
-        val preview = (EditMarker(edited.markerId, edited.name.ifBlank { null }, edited.note.ifBlank { null }, edited.color, edited.stick).apply(history.timeline) as? EditResult.Success)?.value
+        val preview = (EditMarker(edited.markerId, edited.name.ifBlank { null }, edited.note.ifBlank { null }, edited.color, edited.stick, edited.done).apply(history.timeline) as? EditResult.Success)?.value
         reduce { copy(markerPopup = edited, dragPreview = preview ?: dragPreview) }
     }
 
@@ -2448,8 +2455,8 @@ class EditorViewModel(
         val current = history.timeline.markers.firstOrNull { it.id == popup.markerId } ?: return
         val name = popup.name.trim().ifBlank { null }
         val note = popup.note.trim().ifBlank { null }
-        if (current.name == name && current.note == note && current.color == popup.color && current.isAnchored == popup.stick) return
-        execute(EditMarker(popup.markerId, name, note, popup.color, popup.stick))
+        if (current.name == name && current.note == note && current.color == popup.color && current.isAnchored == popup.stick && current.done == popup.done) return
+        execute(EditMarker(popup.markerId, name, note, popup.color, popup.stick, popup.done))
     }
 
     private fun deleteOpenMarker() {
