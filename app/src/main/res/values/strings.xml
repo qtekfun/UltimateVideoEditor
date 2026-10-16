@@ -554,7 +554,7 @@
     <string name="ed_2a_clips_keep_their_relative_position">Clips keep their relative position. Changing the canvas clears the undo history.</string>
     <string name="ed_2a_copy_the_selected_clips">Copy the selected clips</string>
     <string name="ed_2a_cut_the_selected_clips_copy">Cut the selected clips (copy, then delete)</string>
-    <string name="ed_2a_paste_the_copied_clips_at">Paste the copied clips at the playhead</string>
+    <string name="ed_2a_paste_the_copied_clips_at">Paste the copied clips at the playhead, or ask whether to paste their style onto the selected clips</string>
     <string name="ed_2a_duplicate_the_selected_clips_right">Duplicate the selected clips right after the last one</string>
     <string name="ed_2a_delete_the_selected_clips_the">Delete the selected clips (the base closes its gaps)</string>
     <string name="ed_2a_align_the_starts_of_the">Align the starts of the selected clips</string>
@@ -1301,4 +1301,12 @@
     <string name="ed_2b_preset_two_desc">Layout with two panels</string>
     <string name="ed_proxy_label">proxy</string>
     <string name="ed_proxy_sdr_of_hdr_label">SDR proxy: colours differ from the original</string>
+    <string name="ed_paste_choice_title">Paste</string>
+    <string name="ed_paste_choice_content">Content</string>
+    <string name="ed_paste_choice_style">Style</string>
+    <string name="ed_paste_choice_content_desc">Content adds a copy of the copied clips at the playhead.</string>
+    <plurals name="ed_paste_choice_style_desc">
+        <item quantity="one">Style applies the look and sound of the copied clip (effects, position, scale, rotation, speed and volume) to the selected clip.</item>
+        <item quantity="other">Style applies the look and sound of the copied clip (effects, position, scale, rotation, speed and volume) to the %d selected clips.</item>
+    </plurals>
 </resources>

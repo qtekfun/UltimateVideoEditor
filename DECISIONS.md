@@ -1904,3 +1904,14 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   from the original" when the stand-in is SDR and the original is HDR. Export never uses proxies.
 - **Not done.** A clip's own colour override is not applied to its proxy (the proxy is made from the file's own colour); the
   thumbnails of a proxy are read as before.
+
+## Paste asks content or style (2026-10-16)
+
+- **Owner request.** Select a clip, copy, go to another clip and, before pasting, be asked whether to paste the content (which
+  duplicates the clip) or the style (which applies it to the selected destination clip).
+- **Rule.** Paste asks only when a selected clip is not one of the copied clips; the question lists those clips as the destinations of
+  'Style'. With nothing else selected (nothing, or only the copied clips) it pastes the content at once, as before, so the usual
+  copy-and-paste flow gets no extra tap. 'Style' is the existing Paste attributes (transform, effects, volume, speed, reverse), one undo
+  step; the separate Paste attributes button stays. Cancel changes nothing.
+- **Not done.** 'Style' does not yet carry fades, the volume curve, colour grade or effects keyframes: they belong to the length of the
+  clip they were made on (see ClipAttributes). A saved, named preset of a style is a possible next step.
