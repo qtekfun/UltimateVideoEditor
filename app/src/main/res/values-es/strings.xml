@@ -576,7 +576,7 @@
     <string name="ed_2a_clips_keep_their_relative_position">Los clips conservan su posición relativa. Cambiar el lienzo borra el historial de deshacer.</string>
     <string name="ed_2a_copy_the_selected_clips">Copiar los clips seleccionados</string>
     <string name="ed_2a_cut_the_selected_clips_copy">Cortar los clips seleccionados (copiar y luego eliminar)</string>
-    <string name="ed_2a_paste_the_copied_clips_at">Pegar los clips copiados en el cabezal</string>
+    <string name="ed_2a_paste_the_copied_clips_at">Pegar los clips copiados en el cabezal, o preguntar si pegar su estilo en los clips seleccionados</string>
     <string name="ed_2a_duplicate_the_selected_clips_right">Duplicar los clips seleccionados justo después del último</string>
     <string name="ed_2a_delete_the_selected_clips_the">Eliminar los clips seleccionados (la pista base cierra sus huecos)</string>
     <string name="ed_2a_align_the_starts_of_the">Alinear los inicios de los clips seleccionados</string>
@@ -1328,4 +1328,13 @@
     <string name="ed_2b_preset_two_desc">Diseño con dos paneles</string>
     <string name="ed_proxy_label">proxy</string>
     <string name="ed_proxy_sdr_of_hdr_label">proxy SDR: los colores difieren del original</string>
+    <string name="ed_paste_choice_title">Pegar</string>
+    <string name="ed_paste_choice_content">Contenido</string>
+    <string name="ed_paste_choice_style">Estilo</string>
+    <string name="ed_paste_choice_content_desc">Contenido añade una copia de los clips copiados en el cabezal.</string>
+    <plurals name="ed_paste_choice_style_desc">
+        <item quantity="one">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) al clip seleccionado.</item>
+        <item quantity="many">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) a los %d de clips seleccionados.</item>
+        <item quantity="other">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) a los %d clips seleccionados.</item>
+    </plurals>
 </resources>

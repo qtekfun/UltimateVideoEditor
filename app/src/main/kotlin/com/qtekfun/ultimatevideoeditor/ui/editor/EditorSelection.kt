@@ -27,7 +27,16 @@ sealed interface SelectionIntent : EditorIntent {
 
     data object Copy : SelectionIntent
     data object Cut : SelectionIntent
+    /** Pastes: straight away, or, with another clip selected, asks first whether to paste its content or its style. */
     data object Paste : SelectionIntent
+
+    /** The answer 'Content' of the paste question: a copy of the copied clips at the playhead. */
+    data object PasteContent : SelectionIntent
+
+    /** The answer 'Style': the look and sound of the copied clip onto the clips that were selected when Paste was pressed. */
+    data object PasteStyle : SelectionIntent
+
+    data object DismissPasteChoice : SelectionIntent
     data object Duplicate : SelectionIntent
     data object DeleteSelection : SelectionIntent
 
