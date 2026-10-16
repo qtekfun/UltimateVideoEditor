@@ -81,7 +81,8 @@ class ToolbarOrderTest {
         assertEquals(all.size, o.order.size)
         assertEquals(ToolbarItem.IMPORT, o.order[0])
         assertEquals(o.order.indexOf(ToolbarItem.SPLIT) + 1, o.order.indexOf(ToolbarItem.DETACH_AUDIO))
-        val placed = setOf(ToolbarItem.IMPORT, ToolbarItem.DELETE, ToolbarItem.SPLIT, ToolbarItem.DETACH_AUDIO)
+        assertEquals(o.order.indexOf(ToolbarItem.DETACH_AUDIO) + 1, o.order.indexOf(ToolbarItem.CLIP_VOLUME))
+        val placed = setOf(ToolbarItem.IMPORT, ToolbarItem.DELETE, ToolbarItem.SPLIT, ToolbarItem.DETACH_AUDIO, ToolbarItem.CLIP_VOLUME)
         val rest = o.order.filter { it !in placed }
         assertEquals(all.filter { it !in placed }, rest)
     }
@@ -117,7 +118,7 @@ class ToolbarOrderTest {
     fun `move shifts within the whole order and stops at the ends`() {
         val up = ToolbarOrder.DEFAULT.move(ToolbarItem.DELETE, -1)
         assertEquals(ToolbarItem.DELETE, up.order[ToolbarItem.DELETE.ordinal - 1])
-        assertEquals(ToolbarItem.DETACH_AUDIO, up.order[ToolbarItem.DELETE.ordinal])
+        assertEquals(ToolbarItem.CLIP_VOLUME, up.order[ToolbarItem.DELETE.ordinal]) // the item that was just before Delete
         assertSame(ToolbarOrder.DEFAULT, ToolbarOrder.DEFAULT.move(ToolbarItem.IMPORT, -1))
         assertSame(ToolbarOrder.DEFAULT, ToolbarOrder.DEFAULT.move(all.last(), 1))
         assertEquals(ToolbarItem.IMPORT, ToolbarOrder.DEFAULT.move(ToolbarItem.IMPORT, 100).order.last())
