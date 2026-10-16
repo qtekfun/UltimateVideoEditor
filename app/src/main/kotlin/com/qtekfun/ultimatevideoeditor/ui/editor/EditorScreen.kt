@@ -9,6 +9,7 @@ import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import android.net.Uri
 import com.qtekfun.ultimatevideoeditor.proxy.MediaPurpose
 import com.qtekfun.ultimatevideoeditor.proxy.ProxyManager
+import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalPreviewProxyNote
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalProxyIntent
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalProxyUi
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.ProxyBannerHost
@@ -92,6 +93,7 @@ import com.qtekfun.ultimatevideoeditor.engine.preview.OutputSpace
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.DisposableEffect
@@ -508,6 +510,9 @@ fun EditorScreen(
         )
     }
 
+    // Whether the preview shows a proxy and whether its colours differ from the original: the label over the preview says so.
+    val previewProxyNote = remember { mutableStateOf(PreviewProxyNote.NONE) }
+
     // Show the composite under the playhead (every video track, bottom first). Paused, every change
     // shows a still frame. Playing, the playhead is the audio clock: the native preview runs by
     // itself and is only re-anchored when the composition changes or drifts from it, never seeked
@@ -530,6 +535,7 @@ fun EditorScreen(
             unreadable = s.unreadableAssets,
         ) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)
+        previewProxyNote.value = previewProxyNote(layers, s.assets)
         when {
             s.isPlaying -> preview.follow(scene, s.playhead.value, s.fps)
             layers.isNotEmpty() -> preview.show(scene)
@@ -759,6 +765,7 @@ fun EditorScreen(
         LocalQualifierPick provides state.qualifierPick,
         LocalLookActions provides lookActions,
         LocalProxyUi provides proxyHolder,
+        LocalPreviewProxyNote provides previewProxyNote,
         LocalProxyIntent provides proxyVm::onIntent,
     ) {
     TrayDragRoot(trayDrag, Modifier.fillMaxSize()) {
@@ -1052,10 +1059,22 @@ private fun EditorMain(
                             onDispose { DisplayHdr.setWindowHdr(hdrContext, false) }
                         }
                         PreviewSurface(previewEngine, Modifier.fillMaxSize(), wanted = wanted, onOutputSpace = { granted = it })
-                        if (state.colorSpace.isHdr) {
+                        val proxyNote = LocalPreviewProxyNote.current?.value ?: PreviewProxyNote.NONE
+                        if (state.colorSpace.isHdr || proxyNote != PreviewProxyNote.NONE) {
+                            val modeText = when {
+                                !state.colorSpace.isHdr -> null
+                                granted == OutputSpace.HLG_2020 -> stringResource(R.string.ed_2a_hdr_hlg)
+                                else -> stringResource(R.string.ed_2a_hdr_project_sdr_preview)
+                            }
+                            val proxyText = when (proxyNote) {
+                                PreviewProxyNote.NONE -> null
+                                PreviewProxyNote.PROXY -> stringResource(R.string.ed_proxy_label)
+                                PreviewProxyNote.PROXY_SDR_OF_HDR -> stringResource(R.string.ed_proxy_sdr_of_hdr_label)
+                            }
                             Text(
-                                if (granted == OutputSpace.HLG_2020) stringResource(R.string.ed_2a_hdr_hlg) else stringResource(R.string.ed_2a_hdr_project_sdr_preview),
+                                listOfNotNull(modeText, proxyText).joinToString(" · "),
                                 style = MaterialTheme.typography.labelSmall,
+                                color = if (proxyNote == PreviewProxyNote.PROXY_SDR_OF_HDR) MaterialTheme.colorScheme.tertiary else Color.Unspecified,
                                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                             )
                         }

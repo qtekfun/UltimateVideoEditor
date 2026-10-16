@@ -109,4 +109,29 @@ class ProxyPreviewMappingTest {
         assertEquals(40L, clip.sourceInFrame)
         assertEquals(1, clip.colorMode) // the original's own HLG reading, not the proxy's SDR
     }
+
+    @Test
+    fun `an HDR proxy is read as HLG and an SDR stand-in as SDR`() {
+        val hdrProxy: (com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto) -> ResolvedSource =
+            { ResolvedSource(proxyUri, proxyAssetId = it.id, originalUri = it.uri, proxyColorSpace = "Rec2020-HLG") }
+        assertEquals(1, at(100, hdrProxy).sourceOverride)
+        assertEquals(0, at(100, toProxy).sourceOverride)
+    }
+
+    @Test
+    fun `the preview note says when a proxy is on screen and when its colours differ from the original`() {
+        val hdrProxy: (com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto) -> ResolvedSource =
+            { ResolvedSource(proxyUri, proxyAssetId = it.id, originalUri = it.uri, proxyColorSpace = "Rec2020-HLG") }
+        val sdrAsset = testAsset(id = "a1", uri = "content://original", frames = 600)
+        fun note(sourceOf: (com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto) -> ResolvedSource, assetOf: com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto) =
+            com.qtekfun.ultimatevideoeditor.ui.editor.previewProxyNote(
+                previewRequestsWithSources(timeline(track("v1", clip("c", 10, 300, srcIn = 40, asset = "a1"))), listOf(assetOf), fps, FrameIndex(100), sourceOf) { 1 },
+                listOf(assetOf),
+            )
+
+        assertEquals(com.qtekfun.ultimatevideoeditor.ui.editor.PreviewProxyNote.NONE, note({ ResolvedSource(it.uri) }, asset))
+        assertEquals(com.qtekfun.ultimatevideoeditor.ui.editor.PreviewProxyNote.PROXY, note(hdrProxy, asset)) // an HDR proxy keeps the colours
+        assertEquals(com.qtekfun.ultimatevideoeditor.ui.editor.PreviewProxyNote.PROXY_SDR_OF_HDR, note(toProxy, asset)) // SDR stand-in of an HLG file
+        assertEquals(com.qtekfun.ultimatevideoeditor.ui.editor.PreviewProxyNote.PROXY, note(toProxy, sdrAsset)) // SDR of SDR: nothing differs
+    }
 }

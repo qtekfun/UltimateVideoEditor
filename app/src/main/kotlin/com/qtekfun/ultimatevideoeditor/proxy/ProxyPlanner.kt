@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.proxy
 
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
+import com.qtekfun.ultimatevideoeditor.domain.SourceColorSpace
 
 /** What a source file is opened for. Only the first two may use a proxy. */
 enum class MediaPurpose {
@@ -18,7 +19,13 @@ enum class MediaPurpose {
 }
 
 /** The file to open for an asset. [proxyAssetId] is set when it is a proxy, so a failure can be traced back. */
-data class ResolvedSource(val uri: String, val proxyAssetId: String? = null, val originalUri: String = uri) {
+data class ResolvedSource(
+    val uri: String,
+    val proxyAssetId: String? = null,
+    val originalUri: String = uri,
+    /** The colour space of [uri] when it is a proxy (`SourceColorSpace` id): an HDR proxy is read as HDR, an SDR stand-in as SDR. */
+    val proxyColorSpace: String = SourceColorSpace.SDR.id,
+) {
     val isProxy: Boolean get() = proxyAssetId != null
 }
 
@@ -38,6 +45,6 @@ class ProxyPlanner(
         val entry = entryOf(asset) ?: return original
         if (entry.state != ProxyState.READY) return original
         val proxyUri = fileUriOf(entry) ?: return original
-        return ResolvedSource(proxyUri, proxyAssetId = asset.id, originalUri = asset.uri)
+        return ResolvedSource(proxyUri, proxyAssetId = asset.id, originalUri = asset.uri, proxyColorSpace = entry.colorSpace)
     }
 }

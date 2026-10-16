@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.proxy
 
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
+import com.qtekfun.ultimatevideoeditor.domain.SourceColorSpace
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 
@@ -38,12 +39,22 @@ data class ProxyEntry(
     val createdAtMs: Long = 0,
     val lastUsedMs: Long = 0,
     val error: String? = null,
+    /**
+     * The colour space of the proxy FILE (`SourceColorSpace` id): an HDR source gets an HLG proxy where the device can encode one,
+     * else an SDR stand-in. Old entries without the field are SDR proxies, which they were.
+     */
+    val colorSpace: String = SourceColorSpace.SDR.id,
 )
 
 object ProxyKeys {
-    /** Same file, same length and frame rate, same proxy size: same key. A relinked asset gets a new key. */
+    /**
+     * Same file, same length and frame rate, same proxy size: same key. A relinked asset gets a new key. An HDR source's colour space is
+     * part of the key, so the SDR stand-ins that older versions made for HDR files are not mistaken for the HDR proxies made now;
+     * SDR sources keep their keys (and their proxies).
+     */
     fun of(job: ProxyJob, targetShortSide: Int): String {
-        val text = "${job.uri}|${job.durationFrames}|${job.fpsNum}/${job.fpsDen}|$targetShortSide"
+        val colour = if (SourceColorSpace.fromId(job.colorSpace) == SourceColorSpace.SDR) "" else "|${job.colorSpace}"
+        val text = "${job.uri}|${job.durationFrames}|${job.fpsNum}/${job.fpsDen}|$targetShortSide$colour"
         val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
         return digest.take(KEY_BYTES).joinToString("") { "%02x".format(it) }
     }
