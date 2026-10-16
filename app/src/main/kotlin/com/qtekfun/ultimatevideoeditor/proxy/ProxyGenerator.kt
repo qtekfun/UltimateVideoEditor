@@ -31,7 +31,8 @@ interface ProxyTranscoder {
  * frame rate and the length are the source's, every timeline frame maps to the same frame of the proxy.
  * The encoder inserts a keyframe every second, which is what scrubbing needs.
  *
- * HDR sources are tone-mapped to SDR: the proxy is an 8-bit Rec.709 stand-in and the preview treats it as such.
+ * HDR sources get an HLG 10-bit HEVC proxy (so the preview keeps their colours) where the device can encode one, and otherwise an
+ * SDR Rec.709 H.264 stand-in, tone-mapped; [ProxyEntry.colorSpace] says which, and the preview reads the proxy as that.
  */
 class ProxyGenerator(
     private val runner: ExportRunner,
@@ -64,8 +65,60 @@ class ProxyGenerator(
         if (cancelRequested) return cancelled(entry)
         index.put(entry.copy(state = ProxyState.RUNNING, width = target.width, height = target.height, error = null))
         val part = index.partFileFor(entry.key)
-        part.delete()
 
+        // An HDR source gets an HLG 10-bit proxy so the preview keeps its colours; a device whose encoder cannot do that gets the
+        // SDR stand-in (tone-mapped), and the entry says so, so the preview and the screen can tell.
+        val source = SourceColorSpace.fromId(job.colorSpace)
+        var hdr = source != SourceColorSpace.SDR
+        var error = encode(entry, job, target, part, hdr, onProgress)
+        if (error != null && hdr && !cancelRequested && codeOf(error) == ProxyErrorCode.ENCODER_UNSUPPORTED) {
+            hdr = false
+            error = encode(entry, job, target, part, hdr, onProgress)
+        }
+        if (error != null) {
+            part.delete()
+            if (error.code == ExportErrorCode.CANCELLED) return cancelled(entry)
+            val failure = ProxyException(codeOf(error), error.message ?: "The proxy failed", error)
+            fail(entry, failure)
+            throw failure
+        }
+        val final = index.finalFileFor(entry.key)
+        if (!part.isFile || part.length() == 0L || !(final.delete() || !final.exists()) || !part.renameTo(final)) {
+            part.delete()
+            val failure = ProxyException(ProxyErrorCode.IO, "The proxy file could not be finished")
+            fail(entry, failure)
+            throw failure
+        }
+        val now = clock()
+        val ready = entry.copy(
+            state = ProxyState.READY,
+            width = target.width,
+            height = target.height,
+            fileName = final.name,
+            bytes = final.length(),
+            sourceBytes = media.sizeOf(job.uri).coerceAtLeast(0L),
+            createdAtMs = now,
+            lastUsedMs = now,
+            error = null,
+            colorSpace = if (hdr) SourceColorSpace.HLG.id else SourceColorSpace.SDR.id,
+        )
+        index.put(ready)
+        return ready
+    }
+
+    /**
+     * Runs the one-clip movie into [part] (HLG 10-bit HEVC when [hdr], else SDR H.264) and returns how it failed, or null when it
+     * finished. Opening the files can fail with a [ProxyException]; the engine owns the descriptors from the moment it is started.
+     */
+    private fun encode(
+        entry: ProxyEntry,
+        job: ProxyJob,
+        target: ProxyTarget,
+        part: java.io.File,
+        hdr: Boolean,
+        onProgress: (Int) -> Unit,
+    ): ExportException? {
+        part.delete()
         var sourceFd = -1
         var outputFd = -1
         try {
@@ -86,8 +139,9 @@ class ProxyGenerator(
                 height = target.height,
                 fpsNum = job.fpsNum,
                 fpsDen = job.fpsDen,
-                codec = ExportCodec.H264,
+                codec = if (hdr) ExportCodec.HEVC else ExportCodec.H264,
                 videoBitrate = target.bitrate,
+                hdr = hdr,
             ),
             projectFpsNum = job.fpsNum,
             projectFpsDen = job.fpsDen,
@@ -125,10 +179,7 @@ class ProxyGenerator(
             )
         } catch (e: ExportException) {
             // The engine owns the descriptors from the call, even when it throws.
-            part.delete()
-            val error = ProxyException(codeOf(e), e.message ?: "The proxy could not be started", e)
-            fail(entry, error)
-            throw error
+            return e
         }
         running.set(handle)
         if (cancelRequested) handle.cancel()
@@ -138,36 +189,7 @@ class ProxyGenerator(
             running.set(null)
             handle.close()
         }
-
-        val error = outcome.get()
-        if (error != null) {
-            part.delete()
-            if (error.code == ExportErrorCode.CANCELLED) return cancelled(entry)
-            val failure = ProxyException(codeOf(error), error.message ?: "The proxy failed", error)
-            fail(entry, failure)
-            throw failure
-        }
-        val final = index.finalFileFor(entry.key)
-        if (!part.isFile || part.length() == 0L || !(final.delete() || !final.exists()) || !part.renameTo(final)) {
-            part.delete()
-            val failure = ProxyException(ProxyErrorCode.IO, "The proxy file could not be finished")
-            fail(entry, failure)
-            throw failure
-        }
-        val now = clock()
-        val ready = entry.copy(
-            state = ProxyState.READY,
-            width = target.width,
-            height = target.height,
-            fileName = final.name,
-            bytes = final.length(),
-            sourceBytes = media.sizeOf(job.uri).coerceAtLeast(0L),
-            createdAtMs = now,
-            lastUsedMs = now,
-            error = null,
-        )
-        index.put(ready)
-        return ready
+        return outcome.get()
     }
 
     /** A cancelled job leaves no trace: the user asked for it to stop. */
