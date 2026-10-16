@@ -1309,4 +1309,13 @@
         <item quantity="one">Style applies the look and sound of the copied clip (effects, position, scale, rotation, speed and volume) to the selected clip.</item>
         <item quantity="other">Style applies the look and sound of the copied clip (effects, position, scale, rotation, speed and volume) to the %d selected clips.</item>
     </plurals>
+    <string name="ed_clipvol_tool">Clip volume</string>
+    <string name="ed_clipvol_button">Volume of the selected clips (only these, not the whole track)</string>
+    <plurals name="ed_clipvol_title">
+        <item quantity="one">Volume of the selected clip</item>
+        <item quantity="other">Volume of the %d selected clips</item>
+    </plurals>
+    <string name="ed_clipvol_db">%1$.1f dB</string>
+    <string name="ed_clipvol_mute">Mute</string>
+    <string name="ed_clipvol_reset">Reset to 0 dB</string>
 </resources>

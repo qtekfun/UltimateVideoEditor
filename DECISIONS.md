@@ -1915,3 +1915,15 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   step; the separate Paste attributes button stays. Cancel changes nothing.
 - **Not done.** 'Style' does not yet carry fades, the volume curve, colour grade or effects keyframes: they belong to the length of the
   clip they were made on (see ClipAttributes). A saved, named preset of a style is a possible next step.
+
+## A volume button for the selected clips (2026-10-16)
+
+- **Owner report.** There is a volume for a single clip (the Volume slider of the clip panel) but it is not where anyone looks, and the
+  panels near it (the mixer, the track controls) act on the whole lane.
+- **Decision.** A tool-row button "Clip volume" (loudspeaker icon, right after Detach audio) opens a small slider for the selected
+  clips only, with Mute and Reset to 0 dB; it is enabled when a selected clip makes a sound (an audio clip, or a video clip whose sound
+  is not detached). The value is applied when the finger lifts (`SelectionIntent.SetGroupGain`, one undo step, every selected clip with
+  sound); the clip panel's Volume stays. As a toolbar item it can be moved or hidden like the others (saved orders get it right after
+  Detach audio).
+- **Not done.** No live audio while the slider moves (the mixer hears it once the value is set); a per-clip volume curve and fades stay
+  in the sound tools of an audio clip.
