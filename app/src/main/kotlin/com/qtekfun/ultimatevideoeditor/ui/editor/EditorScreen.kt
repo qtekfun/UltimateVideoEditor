@@ -605,6 +605,7 @@ fun EditorScreen(
             bottomPanel = bottom,
             onImport = launchTrayImport,
             onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
+            onAddMany = { viewModel.onIntent(EditorIntent.AddAssets(it)) },
             drag = trayDrag,
             onExternalFiles = { viewModel.onIntent(EditorIntent.ImportToTray(it)) },
             onPickSticker = { viewModel.onIntent(EditorIntent.AddSticker(it)) },
@@ -1209,6 +1210,9 @@ private fun EditorMain(
                             viewModel.onIntent(EditorIntent.RippleDeleteSelected); after()
                         }
                         ToolbarItem.MARKER -> MarkerMenu(state, viewModel::onIntent)
+                        ToolbarItem.FLAG_LIST -> ToolButton(EditorIcons.FlagList, stringResource(R.string.flags_menu_list)) {
+                            viewModel.onIntent(MarkerIntent.OpenList); after()
+                        }
                         ToolbarItem.SELECT_MODE -> SelectModeButton(state, viewModel::onIntent)
                         ToolbarItem.CLOSE_GAP -> ToolButton(EditorIcons.CloseGap, stringResource(R.string.ed_2a_close_gap_before_clip_the), enabled = hasSelection && !state.selectedClipOnBase) {
                             viewModel.onIntent(EditorIntent.RippleAppendSelected); after()
