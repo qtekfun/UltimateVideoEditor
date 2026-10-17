@@ -3,6 +3,7 @@ package com.qtekfun.ultimatevideoeditor.ui.editor
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,30 @@ import com.qtekfun.ultimatevideoeditor.domain.DropKind
  * Shown over the timeline while a clip is dragged to a place where it would insert or overwrite: the action that releasing does
  * is lit, the other one is a tap away (also with a second finger anywhere on the timeline). "Auto" means the position decides.
  */
+/** The toolbar button of the standing drop mode: a tap goes Auto, Insert, Overwrite; its letter says which is on. */
+@Composable
+internal fun DropModeButton(mode: DropChoice, onCycle: () -> Unit) {
+    val name = when (mode) {
+        DropChoice.AUTO -> stringResource(R.string.drop_mode_auto)
+        DropChoice.INSERT -> stringResource(R.string.drop_mode_insert)
+        DropChoice.OVERWRITE -> stringResource(R.string.drop_mode_overwrite)
+    }
+    val letter = when (mode) {
+        DropChoice.AUTO -> stringResource(R.string.drop_mode_letter_auto)
+        DropChoice.INSERT -> stringResource(R.string.drop_mode_letter_insert)
+        DropChoice.OVERWRITE -> stringResource(R.string.drop_mode_letter_overwrite)
+    }
+    Box {
+        ToolButton(EditorIcons.DropMode, name, onClick = onCycle)
+        Text(
+            letter,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (mode == DropChoice.AUTO) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 4.dp, bottom = 2.dp),
+        )
+    }
+}
+
 @Composable
 internal fun DropModeChip(effective: DropKind?, choice: DropChoice, onFlip: () -> Unit, modifier: Modifier = Modifier) {
     val inserting = effective == DropKind.INSERT

@@ -13,6 +13,11 @@ data class GroupInsertBase(val clipIds: List<String>, val at: FrameIndex) : Edit
     override fun apply(timeline: Timeline) = GroupOps.insertOnBase(timeline, clipIds, at).linkedFrom(timeline)
 }
 
+/** Drops overlay clips onto the base replacing the footage under them, the earliest at [start] (see [GroupOps.overwriteOnBase]). */
+data class GroupOverwriteBase(val clipIds: List<String>, val start: FrameIndex) : EditCommand {
+    override fun apply(timeline: Timeline) = GroupOps.overwriteOnBase(timeline, clipIds, start).linkedFrom(timeline)
+}
+
 data class GroupDelete(val clipIds: List<String>) : EditCommand {
     override fun apply(timeline: Timeline) = GroupOps.delete(timeline, clipIds)
 }

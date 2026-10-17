@@ -39,6 +39,7 @@ internal fun ToolbarItem.icon(): ImageVector = when (this) {
     ToolbarItem.FLAG_LIST -> EditorIcons.FlagList
     ToolbarItem.SELECT_MODE -> SelectionIcons.SelectMode
     ToolbarItem.CLOSE_GAP -> EditorIcons.CloseGap
+    ToolbarItem.DROP_MODE -> EditorIcons.DropMode
     ToolbarItem.TITLE -> EditorIcons.Title
     ToolbarItem.CAPTIONS -> EditorIcons.Captions
     ToolbarItem.STICKERS -> EditorIcons.Sticker

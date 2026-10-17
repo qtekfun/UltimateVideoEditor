@@ -1323,7 +1323,8 @@
     <string name="flags_mark_shot">Mark this flag as shot</string>
     <string name="flags_list_title">Flag list</string>
     <string name="flags_only_pending">Only pending</string>
-    <string name="flags_share">Share list</string>
+    <string name="flags_share">Share as Markdown</string>
+    <string name="flags_save_md">Save .md file</string>
     <string name="flags_save_csv">Save as CSV</string>
     <string name="flags_save_failed">Could not save the file</string>
     <string name="flags_empty">No flags to show. Tap the flag button to drop one at the playhead, or change the filters.</string>
@@ -1350,4 +1351,11 @@
         <item quantity="one">%d selected</item>
         <item quantity="other">%d selected</item>
     </plurals>
+    <string name="drop_mode_tool">Drop mode</string>
+    <string name="drop_mode_auto">Drop mode: auto (near a cut inserts, over a clip overwrites)</string>
+    <string name="drop_mode_insert">Drop mode: always insert</string>
+    <string name="drop_mode_overwrite">Drop mode: always overwrite</string>
+    <string name="drop_mode_letter_auto">A</string>
+    <string name="drop_mode_letter_insert">I</string>
+    <string name="drop_mode_letter_overwrite">O</string>
 </resources>

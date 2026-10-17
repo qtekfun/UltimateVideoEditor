@@ -48,24 +48,50 @@ class GroupInsertBaseTest {
     }
 
     @Test
-    fun `dropping near a cut inserts and in the middle of a clip does not`() {
+    fun `dropping near a cut inserts and in the middle of a clip overwrites`() {
         val t = scene()
         val ids = listOf("p1", "p2", "p3")
-        val near = checkNotNull(DropPlan.decideGroupInsert(t, ids, f(104), DropAim()))
+        val near = checkNotNull(DropPlan.decideGroupDrop(t, ids, f(104), DropAim()))
         assertEquals(DropKind.INSERT, near.kind)
         assertEquals(DropHint(DropKind.INSERT, "v1", 100, 100), near.hint)
         assertEquals(GroupInsertBase(ids, f(100)), near.command)
-        assertNull(DropPlan.decideGroupInsert(t, ids, f(50), DropAim()))
+        val middle = checkNotNull(DropPlan.decideGroupDrop(t, ids, f(50), DropAim()))
+        assertEquals(DropKind.OVERWRITE, middle.kind)
+        assertEquals(GroupOverwriteBase(ids, f(50)), middle.command)
     }
 
     @Test
-    fun `forcing insert takes the nearest cut and past the end appends`() {
+    fun `forcing insert takes the nearest cut, forcing overwrite never inserts, past the end appends`() {
         val t = scene()
         val ids = listOf("p1", "p2")
-        val forced = checkNotNull(DropPlan.decideGroupInsert(t, ids, f(60), DropAim(choice = DropChoice.INSERT, finger = f(60))))
+        val forced = checkNotNull(DropPlan.decideGroupDrop(t, ids, f(60), DropAim(choice = DropChoice.INSERT, finger = f(60))))
         assertEquals(GroupInsertBase(ids, f(100)), forced.command)
-        val appended = checkNotNull(DropPlan.decideGroupInsert(t, ids, f(250), DropAim()))
+        val overwrite = checkNotNull(DropPlan.decideGroupDrop(t, ids, f(104), DropAim(choice = DropChoice.OVERWRITE)))
+        assertEquals(GroupOverwriteBase(ids, f(104)), overwrite.command)
+        val appended = checkNotNull(DropPlan.decideGroupDrop(t, ids, f(250), DropAim()))
         assertEquals(GroupInsertBase(ids, f(200)), appended.command)
-        assertNull(DropPlan.decideGroupInsert(t, ids, f(104), DropAim(choice = DropChoice.OVERWRITE)))
+    }
+
+    @Test
+    fun `an ineligible group has no group decision`() {
+        assertNull(DropPlan.decideGroupDrop(scene(), listOf("p1", "a"), f(104), DropAim()))
+    }
+
+    @Test
+    fun `overwrite puts the group over the footage, keeps the distances between its clips and the base length`() {
+        // p1 300-330 and q 500-520: 200 apart. The earliest lands at 40, so q lands at 240, past the end (200), and is placed at the end.
+        val result = GroupOverwriteBase(listOf("p1", "q"), f(40)).apply(scene()).getOrFail()
+        assertEquals(listOf("p2", "p3"), result.track("v2")!!.clips.map { it.id })
+        assertLayout(result, "v1", at("a", 0, 40), at("p1", 40, 70), at("a-1", 70, 100).let { at(result.track("v1")!!.clips[2].id, 70, 100) }, at("b", 100, 200), at("q", 200, 220))
+    }
+
+    @Test
+    fun `overwrite never clears a clip of the group itself and is one undo step`() {
+        // p1 and p2 are both above the range being replaced on the base: lifting them first keeps both.
+        val before = scene()
+        val after = GroupOverwriteBase(listOf("p1", "p2"), f(10)).apply(before).getOrFail()
+        assertEquals(setOf("p1", "p2"), after.track("v1")!!.clips.map { it.id }.toSet() intersect setOf("p1", "p2"))
+        val history = EditHistory(before).execute(GroupOverwriteBase(listOf("p1", "p2"), f(10))).getOrFail()
+        assertEquals(before, history.undo().timeline)
     }
 }
