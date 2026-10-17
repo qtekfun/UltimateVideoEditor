@@ -80,7 +80,6 @@ internal fun MarkerMenu(state: EditorState, onIntent: (EditorIntent) -> Unit) {
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.flags_menu_list)) },
-                enabled = markers.any { it.kind == MarkerKind.MANUAL },
                 onClick = { open = false; onIntent(MarkerIntent.OpenList) },
             )
             DropdownMenuItem(

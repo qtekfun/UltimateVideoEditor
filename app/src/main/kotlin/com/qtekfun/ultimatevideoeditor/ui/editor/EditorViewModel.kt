@@ -244,6 +244,9 @@ class EditorViewModel(
 
         /** The last finger position, to decide again when the user flips the mode without moving. */
         var last: LastMove? = null
+
+        /** The clips an INSERT at the current position would drop into a cut; the playhead parks after them once it is applied. */
+        var insertIds: List<String>? = null
     }
 
     private class LastMove(val frame: Long, val trackIndex: Int, val zone: DragZone, val reachFrames: Long)
@@ -464,6 +467,7 @@ class EditorViewModel(
             is EditorIntent.ChangeColorSpace -> changeColorSpace(intent.space)
             is EditorIntent.ImportMedia -> importMedia(intent.uris)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
+            is EditorIntent.AddAssets -> addAssetsById(intent.assetIds)
             is EditorIntent.TrayDragStart -> trayDragStart(intent.assetId)
             is EditorIntent.ExternalDragStart -> externalDragStart(intent.kinds)
             is EditorIntent.TrayDragMove -> trayDragMove(intent.frame, intent.trackIndex, intent.zone)
@@ -1836,7 +1840,7 @@ class EditorViewModel(
         val command = when (session.mode) {
             DragMode.MOVE -> {
                 if (session.group != null) {
-                    groupDrag(session, base, frame, trackIndex, zone, playhead)
+                    groupDrag(session, base, frame, trackIndex, zone, playhead, reachFrames)
                     return
                 }
                 val target = dropTarget(session, base, trackIndex, zone)
@@ -1875,6 +1879,7 @@ class EditorViewModel(
      */
     private fun moveDrag(session: DragSession, base: Timeline, start: FrameIndex, target: DropTarget, playhead: FrameIndex, aim: DropAim) {
         val decision = DropPlan.decide(base, session.clipId, start, target, snapWith(base, playhead), aim) ?: return
+        session.insertIds = listOf(session.clipId).takeIf { decision.kind == DropKind.INSERT }
         val command = decision.command
         if (command == null) {
             // Cancel: the clip shows where it started and a release changes nothing.
@@ -1901,11 +1906,22 @@ class EditorViewModel(
 
     private fun dragEnd(commit: Boolean) {
         val command = pendingDragCommand
+        val inserted = drag?.insertIds
         drag = null
         pendingDragCommand = null
         reduce { copy(dropChoice = DropChoice.AUTO, dropChoiceOffered = false) }
-        if (commit && command != null && execute(command)) return
+        if (commit && command != null && execute(command)) {
+            // More can follow: the playhead waits where the inserted clips end.
+            inserted?.let(::parkPlayheadAfter)
+            return
+        }
         reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
+    }
+
+    /** Moves the playhead to the end of the latest of [clipIds], so the next insert continues from there. */
+    private fun parkPlayheadAfter(clipIds: Collection<String>) {
+        val end = clipIds.mapNotNull { id -> history.timeline.trackOfClip(id)?.clip(id)?.timelineEnd?.value }.maxOrNull() ?: return
+        setPlayhead(end)
     }
 
     private fun snapFrame(timeline: Timeline, movingClipId: String, frame: Long, playhead: FrameIndex): FrameIndex {
@@ -2086,8 +2102,17 @@ class EditorViewModel(
      * frames (snapped as a block) and, when the finger is over another lane of the same kind, by the same
      * number of lanes. A position that would put a clip on another one keeps the last valid preview.
      */
-    private fun groupDrag(session: DragSession, base: Timeline, frame: Long, trackIndex: Int, zone: DragZone, playhead: FrameIndex) {
+    private fun groupDrag(
+        session: DragSession,
+        base: Timeline,
+        frame: Long,
+        trackIndex: Int,
+        zone: DragZone,
+        playhead: FrameIndex,
+        reachFrames: Long,
+    ) {
         val ids = session.group ?: return
+        session.insertIds = null
         if (zone == DragZone.OUTSIDE) {
             pendingDragCommand = null
             reduce { copy(dragPreview = null, dropHint = DropHint(DropKind.CANCEL, null, 0, 0)) }
@@ -2097,11 +2122,25 @@ class EditorViewModel(
         val anchor = anchorTrack.clip(session.clipId) ?: return
         val earliest = ids.mapNotNull { id -> base.trackOfClip(id)?.clip(id)?.timelineStart?.value }.minOrNull() ?: return
         val requested = ((frame - session.grabOffset) - anchor.timelineStart.value).coerceAtLeast(-earliest)
+        // Over the base the group is dropped into a cut, in order, like a single clip is.
+        val baseTrack = ClipDeletion.baseTrack(base)
+        if (zone == DragZone.LANES && baseTrack != null && base.tracks.getOrNull(trackIndex)?.id == baseTrack.id) {
+            val aim = DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), state.value.dropChoice)
+            val decision = DropPlan.decideGroupInsert(base, ids, FrameIndex((earliest + requested).coerceAtLeast(0)), aim)
+            val insert = decision?.command
+            val result = insert?.apply(base)?.markersFrom(base) as? EditResult.Success
+            if (decision != null && result != null) {
+                session.insertIds = ids
+                pendingDragCommand = if (result.value == base) null else insert
+                reduce { copy(dragPreview = result.value, dropHint = decision.hint, dropChoiceOffered = true) }
+                return
+            }
+        }
         val delta = GroupOps.snappedDelta(base, ids, requested, snapWith(base, playhead)).coerceAtLeast(-earliest)
         val command = GroupMove(ids, delta, laneDeltaFor(base, anchorTrack, trackIndex, zone))
         val result = command.apply(base).markersFrom(base) as? EditResult.Success ?: return
         pendingDragCommand = if (result.value == base) null else command
-        reduce { copy(dragPreview = result.value, dropHint = null) }
+        reduce { copy(dragPreview = result.value, dropHint = null, dropChoiceOffered = false) }
     }
 
     /** Lanes of the same kind between the lane of the grabbed clip and the one under the finger (0 on the base or another kind). */
@@ -3443,11 +3482,11 @@ class EditorViewModel(
      * [command] (which places [clip] on the timeline) as it should run: with the preference on, a video clip that has sound comes in
      * detached and linked on an audio lane, in the same undo step. Anything else (audio, photos, silent video) is placed as it is.
      */
-    private fun placing(command: EditCommand, clip: Clip, type: TrackType): EditCommand {
+    private fun placing(command: EditCommand, clip: Clip, type: TrackType, timeline: Timeline = history.timeline): EditCommand {
         if (type != TrackType.VIDEO || clip.still != null || !videoAudioPlacement.isOn()) return command
         val asset = state.value.assets.firstOrNull { it.id == clip.assetId } ?: return command
         if (!asset.hasVideo || !asset.hasAudio) return command
-        return PlaceWithDetachedAudio(command, clip.id, "audio-${idGenerator()}", uniqueTrackId(history.timeline.tracks, "track-a"))
+        return PlaceWithDetachedAudio(command, clip.id, "audio-${idGenerator()}", uniqueTrackId(timeline.tracks, "track-a"))
     }
 
     private fun trayDragStart(assetId: String) {
@@ -3521,11 +3560,15 @@ class EditorViewModel(
 
     private fun trayDragEnd(commit: Boolean) {
         val session = trayDrag
+        val inserting = state.value.dropHint?.kind == DropKind.INSERT
         trayDrag = null
         reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
         if (!commit || session == null || session.assetId == null) return
         val command = session.command ?: return
-        if (execute(placing(command, session.clip, session.type))) selectPlaced(session.clip.id)
+        if (execute(placing(command, session.clip, session.type))) {
+            selectPlaced(session.clip.id)
+            if (inserting) parkPlayheadAfter(listOf(session.clip.id))
+        }
     }
 
     private fun selectPlaced(clipId: String) {
@@ -3604,7 +3647,40 @@ class EditorViewModel(
             emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_is_missing_relink_it_first, MissingMedia.nameOf(asset))))
             return
         }
-        place(asset, state.value.playhead)
+        // The playhead waits where the clip ends, so the next one added continues from there.
+        place(asset, state.value.playhead)?.let { setPlayhead(it.value) }
+    }
+
+    /**
+     * Adds several assets in the order given, each starting where the previous one ended, as one undo step; the playhead ends
+     * after the last one. Missing or unknown assets are skipped with a message.
+     */
+    private fun addAssetsById(assetIds: List<String>) {
+        val assets = assetIds.mapNotNull { id -> state.value.assets.firstOrNull { it.id == id } }
+        val usable = assets.filter { asset ->
+            val missing = asset.id in state.value.missingMedia
+            if (missing) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_is_missing_relink_it_first, MissingMedia.nameOf(asset))))
+            !missing
+        }
+        if (usable.isEmpty()) return
+        var working = history.timeline
+        var cursor = state.value.playhead
+        val commands = mutableListOf<EditCommand>()
+        var last: Pair<Clip, Track>? = null
+        for (asset in usable) {
+            val plan = planPlacement(asset, cursor, working) ?: continue
+            val command = placing(plan.command, plan.clip, plan.type, working)
+            val result = command.apply(working) as? EditResult.Success ?: continue
+            working = result.value
+            commands += command
+            val landed = working.trackOfClip(plan.clip.id) ?: continue
+            last = checkNotNull(landed.clip(plan.clip.id)) to landed
+            cursor = last.first.timelineEnd
+        }
+        val (lastClip, lastTrack) = last ?: return
+        if (!execute(if (commands.size == 1) commands.single() else EditCommand.Batch(commands))) return
+        reduce { copy(selectedClipId = lastClip.id, selectedTrackId = lastTrack.id) }
+        setPlayhead(cursor.value)
     }
 
     /** Returns the library entry for [uri], importing and registering it first if it is new. */
@@ -3660,12 +3736,15 @@ class EditorViewModel(
         return asset
     }
 
-    /** Overwrites [asset] onto its track at [start]; returns the new clip's end, or null on failure. */
-    private fun place(asset: MediaAssetDto, start: FrameIndex): FrameIndex? {
+    /** What placing an asset would do: the command, the clip it creates and the kind of lane it needs. */
+    private class Placement(val command: EditCommand, val clip: Clip, val type: TrackType, val track: Track)
+
+    /** Plans [asset] at [start] on [timeline] (the selected lane if it fits, else the first of the right kind); says why when it cannot. */
+    private fun planPlacement(asset: MediaAssetDto, start: FrameIndex, timeline: Timeline): Placement? {
         val type = if (asset.hasVideo || asset.isImage) TrackType.VIDEO else TrackType.AUDIO
         // The selected track if it fits the media, else the first track of the right type.
-        val selected = history.timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
-        val track = selected?.takeIf { it.type == type } ?: history.timeline.tracks.firstOrNull { it.type == type }
+        val selected = timeline.tracks.firstOrNull { it.id == state.value.selectedTrackId }
+        val track = selected?.takeIf { it.type == type } ?: timeline.tracks.firstOrNull { it.type == type }
         if (track == null) {
             emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_there_is_no_track_to, UiText.res(type.nameRes()))))
             return null
@@ -3676,10 +3755,17 @@ class EditorViewModel(
             still = StillKind.PHOTO.takeIf { asset.isImage },
         )
         // On the base track new media is inserted (everything after ripples); elsewhere it overwrites.
-        val onBase = track.id == ClipDeletion.baseTrack(history.timeline)?.id
+        val onBase = track.id == ClipDeletion.baseTrack(timeline)?.id
         val command = if (onBase) EditCommand.InsertBase(clip, start) else EditCommand.Overwrite(track.id, clip)
-        if (!execute(placing(command, clip, type))) return null
-        reduce { copy(selectedClipId = clip.id, selectedTrackId = track.id) }
+        return Placement(command, clip, type, track)
+    }
+
+    /** Overwrites [asset] onto its track at [start]; returns the new clip's end, or null on failure. */
+    private fun place(asset: MediaAssetDto, start: FrameIndex): FrameIndex? {
+        val plan = planPlacement(asset, start, history.timeline) ?: return null
+        val clip = plan.clip
+        if (!execute(placing(plan.command, clip, plan.type))) return null
+        reduce { copy(selectedClipId = clip.id, selectedTrackId = plan.track.id) }
         // The base inserts at a clip boundary, which may differ from [start]: continue from where the clip landed.
         return history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.timelineEnd ?: clip.timelineEnd
     }

@@ -3,6 +3,7 @@ package com.qtekfun.ultimatevideoeditor.ui.editor.tray
 import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -40,6 +41,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -71,6 +73,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -112,6 +117,7 @@ internal fun MediaTray(
     bottomPanel: Boolean,
     onImport: () -> Unit,
     onAdd: (String) -> Unit,
+    onAddMany: (List<String>) -> Unit,
     drag: TrayDragController,
     onExternalFiles: (List<String>) -> Unit,
     onPickSticker: (String) -> Unit,
@@ -146,7 +152,7 @@ internal fun MediaTray(
                 Box(bodyModifier.fillMaxWidth()) {
                     when (state.tab) {
                         TrayTab.MEDIA, TrayTab.AUDIO -> AssetBody(
-                            state, onState, items, isImporting, onImport, onAdd, drag,
+                            state, onState, items, isImporting, onImport, onAdd, onAddMany, drag,
                         )
                         TrayTab.STICKERS -> Column(Modifier.verticalScroll(rememberScrollState())) { StickerChooser(onPickSticker) }
                         TrayTab.TEMPLATES -> Column(Modifier.verticalScroll(rememberScrollState())) { TextTemplateChooser(onApplyTemplate, userPresets = userPresets, onApplyPreset = onApplyPreset) }
@@ -232,6 +238,7 @@ private fun AssetBody(
     isImporting: Boolean,
     onImport: () -> Unit,
     onAdd: (String) -> Unit,
+    onAddMany: (List<String>) -> Unit,
     drag: TrayDragController,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
@@ -243,6 +250,11 @@ private fun AssetBody(
                 singleLine = true,
                 modifier = Modifier.weight(1f).height(52.dp),
             )
+            if (state.tab == TrayTab.MEDIA) {
+                TextButton(onClick = { onState(state.withPicking(!state.picking)) }) {
+                    Text(if (state.picking) stringResource(R.string.tray_pick_done) else stringResource(R.string.tray_pick))
+                }
+            }
             TextButton(onClick = { onState(state.copy(layout = if (state.layout == TrayLayout.GRID) TrayLayout.LIST else TrayLayout.GRID)) }) {
                 Text(if (state.layout == TrayLayout.GRID) "List" else "Grid")
             }
@@ -261,7 +273,21 @@ private fun AssetBody(
                 }
             }
         }
-        if (state.tab == TrayTab.MEDIA && items.isNotEmpty()) DragHint(drag)
+        if (state.picking) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    pluralStringResource(R.plurals.tray_picked_count, state.picked.size, state.picked.size),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(enabled = state.picked.isNotEmpty(), onClick = { onState(state.copy(picked = emptyList())) }) {
+                    Text(stringResource(R.string.tray_pick_clear))
+                }
+                Button(enabled = state.picked.isNotEmpty(), onClick = { onAddMany(state.picked); onState(state.afterAdding()) }) {
+                    Text(stringResource(R.string.tray_pick_add, state.picked.size))
+                }
+            }
+        } else if (state.tab == TrayTab.MEDIA && items.isNotEmpty()) DragHint(drag)
         val importLabel = if (isImporting) "Importing…" else "Import"
         if (state.layout == TrayLayout.GRID) {
             LazyVerticalGrid(
@@ -272,14 +298,14 @@ private fun AssetBody(
             ) {
                 item(key = "import") { ImportTile(importLabel, !isImporting, onImport) }
                 items(items, key = { it.asset.id }) { item ->
-                    AssetTile(item, onAdd, drag, grid = true)
+                    AssetTile(item, onAdd, drag, grid = true, pickNumber = if (state.picking) state.pickNumber(item.asset.id) else null) { onState(state.togglePicked(item.asset.id)) }
                 }
             }
         } else {
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item(key = "import") { ImportTile(importLabel, !isImporting, onImport, row = true) }
                 items(items, key = { it.asset.id }) { item ->
-                    AssetTile(item, onAdd, drag, grid = false)
+                    AssetTile(item, onAdd, drag, grid = false, pickNumber = if (state.picking) state.pickNumber(item.asset.id) else null) { onState(state.togglePicked(item.asset.id)) }
                 }
             }
         }
@@ -306,6 +332,9 @@ internal fun AssetTile(
     onAdd: (String) -> Unit,
     drag: TrayDragController,
     grid: Boolean,
+    /** Null when the tray is not choosing; otherwise this tile's number (0 when it is not chosen yet). */
+    pickNumber: Int? = null,
+    onTogglePick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val asset = item.asset
@@ -329,13 +358,15 @@ internal fun AssetTile(
             coordinates = it
             drag.registerTile(asset.id, it)
         }
-        .clickable(role = Role.Button, onClickLabel = "Add at the playhead") { onAdd(asset.id) }
+        .clickable(role = Role.Button, onClickLabel = if (pickNumber != null) stringResource(R.string.tray_pick_toggle) else "Add at the playhead") {
+            if (pickNumber != null) { if (!item.missing) onTogglePick() } else onAdd(asset.id)
+        }
         // After clickable, so it is the inner one and sees the finger first: once a tile is picked up it consumes the lift,
         // which keeps the click from also adding the clip. Before the hold ends it consumes nothing.
         .pointerInput(asset.id, item.missing) {
             detectTrayDrag(
                 controller = drag,
-                enabled = !item.missing,
+                enabled = !item.missing && pickNumber == null,
                 carryAt = { root ->
                     val tile = coordinates?.takeIf { it.isAttached }
                     val home = tile?.boundsInRoot()?.center ?: root
@@ -348,7 +379,7 @@ internal fun AssetTile(
     if (grid) {
         Box(body.aspectRatio(1f)) {
             TileContent(item, thumbnail, showName = true)
-            AddButton(item, onAdd, Modifier.align(Alignment.TopEnd))
+            if (pickNumber == null) AddButton(item, onAdd, Modifier.align(Alignment.TopEnd)) else PickBadge(pickNumber, Modifier.align(Alignment.TopEnd))
         }
     } else {
         Row(body.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -362,8 +393,27 @@ internal fun AssetTile(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            AddButton(item, onAdd, Modifier)
+            if (pickNumber == null) AddButton(item, onAdd, Modifier) else PickBadge(pickNumber, Modifier)
         }
+    }
+}
+
+/** The circle in a tile's corner while choosing: empty until chosen, then its place in the order. */
+@Composable
+private fun PickBadge(number: Int, modifier: Modifier) {
+    val chosen = number > 0
+    val description = if (chosen) stringResource(R.string.tray_pick_number, number) else stringResource(R.string.tray_pick_toggle)
+    Box(
+        modifier = modifier
+            .padding(4.dp)
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(if (chosen) MaterialTheme.colorScheme.primary else Color(0x66000000))
+            .border(2.dp, Color.White, CircleShape)
+            .clearAndSetSemantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (chosen) Text(number.toString(), color = MaterialTheme.colorScheme.onPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
