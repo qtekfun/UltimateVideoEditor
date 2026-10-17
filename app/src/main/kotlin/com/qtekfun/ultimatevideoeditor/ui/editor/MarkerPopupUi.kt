@@ -120,6 +120,9 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (color in MarkerColor.entries) MarkerSwatch(color, popup.color == color, onIntent)
                 }
+                IconButton(onClick = { onIntent(MarkerIntent.OpenList) }) {
+                    Icon(EditorIcons.FlagList, contentDescription = stringResource(R.string.flags_menu_list))
+                }
                 IconButton(onClick = { onIntent(MarkerIntent.DeleteOpen) }) {
                     Icon(EditorIcons.Delete, contentDescription = stringResource(R.string.ed_2a_delete_marker))
                 }

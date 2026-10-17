@@ -115,6 +115,27 @@ object DropPlan {
     }
 
     /**
+     * What dropping a group of overlay clips on the base track would do: near a cut (or the base's start or end) the whole group is
+     * inserted there, in order. Null when the group cannot be inserted (see [GroupOps.canInsertOnBase]) or the aim is not at a cut;
+     * the caller then moves the group as before. [start] is where the group's earliest clip would start.
+     */
+    fun decideGroupInsert(timeline: Timeline, clipIds: List<String>, start: FrameIndex, aim: DropAim): DropDecision? {
+        if (!GroupOps.canInsertOnBase(timeline, clipIds)) return null
+        val base = ClipDeletion.baseTrack(timeline) ?: return null
+        val length = GroupOps.totalLength(timeline, clipIds)
+        val at = when {
+            base.clips.isEmpty() -> 0L
+            start.value >= base.end.value -> base.end.value
+            else -> junctionFor(base.clips, maxOf(start.value, 0L), length, aim, includeEnds = true)
+        } ?: return null
+        return DropDecision(
+            DropKind.INSERT,
+            GroupInsertBase(clipIds, FrameIndex(at)),
+            DropHint(DropKind.INSERT, base.id, at, at),
+        )
+    }
+
+    /**
      * What dropping a clip that is not on the timeline yet (dragged from the media tray or from another
      * app) would do. Same rules as [decide], from the user's side: on the base, near a cut (or the lane's
      * start / end) it INSERTs, over the body of a clip it OVERWRITEs, past the end it appends; on any other

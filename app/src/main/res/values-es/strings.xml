@@ -1370,4 +1370,15 @@
         <item quantity="many">%d por grabar</item>
         <item quantity="other">%d por grabar</item>
     </plurals>
+    <string name="tray_pick">Seleccionar</string>
+    <string name="tray_pick_done">Hecho</string>
+    <string name="tray_pick_clear">Quitar</string>
+    <string name="tray_pick_add">Añadir %1$d</string>
+    <string name="tray_pick_toggle">Seleccionar para añadir</string>
+    <string name="tray_pick_number">Seleccionado, número %1$d</string>
+    <plurals name="tray_picked_count">
+        <item quantity="one">%d seleccionado</item>
+        <item quantity="many">%d seleccionados</item>
+        <item quantity="other">%d seleccionados</item>
+    </plurals>
 </resources>

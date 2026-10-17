@@ -15,6 +15,7 @@ enum class ToolbarItem(val id: String, @StringRes val labelRes: Int, val mandato
     CLIP_VOLUME("clip-volume", R.string.ed_clipvol_tool),
     DELETE("delete", R.string.common_delete, mandatory = true),
     MARKER("marker", R.string.ed_2a_tool_marker),
+    FLAG_LIST("flag-list", R.string.flags_menu_list),
     SELECT_MODE("select-mode", R.string.ed_2a_tool_select_mode),
     CLOSE_GAP("close-gap", R.string.ed_2a_tool_close_gap),
     TITLE("title", R.string.ed_2a_tool_title),
