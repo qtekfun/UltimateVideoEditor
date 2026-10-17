@@ -16,7 +16,7 @@ import com.qtekfun.ultimatevideoeditor.ui.text.sentenceOf
 data class ImportView(
     val phase: Phase,
     val title: UiText,
-    /** What is happening: "Importing project: file 3 of 12: IMG_0014.mov". Empty when finished. */
+    /** What is happening: "Importing project: file 3 of 12: clip_a.mov". Empty when finished. */
     val step: UiText = UiText.Empty,
     val stepShort: UiText = UiText.Empty,
     /** "1.8 of 7.4 GB, about 2 min left". Empty when finished. */
@@ -104,7 +104,7 @@ object ImportJobText {
     fun sourceLabel(sourceName: String): UiText =
         if (sourceName == BundleImportExecutor.UNKNOWN_NAME) UiText.res(R.string.import_unknown_source) else UiText.Raw(sourceName)
 
-    /** What is being read right now: "Importing project: file 3 of 12: IMG_0014.mov". */
+    /** What is being read right now: "Importing project: file 3 of 12: clip_a.mov". */
     fun step(progress: BundleProgress): UiText = when (progress.kind) {
         BundleItemKind.MEDIA ->
             if (progress.mediaCount > 0) UiText.res(R.string.import_step_file_of, progress.mediaIndex, progress.mediaCount, progress.itemName)

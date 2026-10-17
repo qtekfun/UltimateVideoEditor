@@ -6,14 +6,14 @@
 # Needs ffmpeg on the host and a debug build with `-Puveditor.appIdSuffix=<x>` installed (PKG, default com.qtekfun.ultimatevideoeditor.oc);
 # run-as is used because the harness cannot read a directory the shell made under Android/data. Each export holds
 # /tmp/pixel-device.lock (or $LOCK) for its whole run, notes which window had focus afterwards, and sets no system property.
-# Work files go to $WORK (default /home/qtekfun/uvdata/gp, not /tmp).
+# Work files go to $WORK (default ~/uvdata/gp, not /tmp).
 set -euo pipefail
 serial="$1"
 mode="$2"
 shift 2
 pkg="${PKG:-com.qtekfun.ultimatevideoeditor.oc}"
 lock="${LOCK:-/tmp/pixel-device.lock}"
-work="${WORK:-/home/qtekfun/uvdata/gp}"
+work="${WORK:-$HOME/uvdata/gp}"
 adb="adb -s $serial"
 ra="$adb shell run-as $pkg"
 

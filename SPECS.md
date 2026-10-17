@@ -1104,7 +1104,7 @@ model and sheet). Everything is local: files go through the system picker, nothi
     (`revealed` flips after `REVEAL_AFTER_MS`; the dialog opens and `ExportService` starts only then); a job that ends earlier is
     `Done.quick`, and the project list answers with its message (and the report dialog when LUTs or fonts failed), never a flash.
     `importViewFor` / `importNotificationFor` build the dialog (`ImportJobDialog`, over every screen like the backup's), the bar
-    (`ImportBarView`) and the notification from the one state. Texts: step "Importing project: file 3 of 12: IMG_0014.mov", line
+    (`ImportBarView`) and the notification from the one state. Texts: step "Importing project: file 3 of 12: clip_a.mov", line
     "1.8 of 7.4 GB, about 2 min left", result "Imported: Holiday (7.4 GB, 14 media files, took 4:12)"; a result with missing media, a
     renamed project (`ImportReport.renamedFrom`), uninstalled LUTs or fonts or left-out LumaFusion settings is "Imported, with
     notes" and lists each. `ImportJobText.failure` names the cause: storage full, permission lost, damaged or not a project,
