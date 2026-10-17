@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.engine.stabilise
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameIndex
@@ -295,7 +296,7 @@ class FileStabiliserTest {
     fun `a job that does not start reports why and is cleaned up`() = runTest {
         val native = FakeNative().apply { startStatus = 3 }
         val outcome = stabiliser(native).analyse(asset, clip(0, 90), fps) { }
-        assertEquals("The media file could not be read", (outcome as StabOutcome.Failed).message)
+        assertEquals("The media file could not be read", (outcome as StabOutcome.Failed).message.english())
         assertEquals(native.created, native.destroyed)
     }
 
@@ -305,12 +306,12 @@ class FileStabiliserTest {
             script = listOf(FakeNative.pack(StabJob.State.RUNNING, 300, 0), FakeNative.pack(StabJob.State.FAILED, 300, 4))
         }
         val outcome = stabiliser(native).analyse(asset, clip(0, 90), fps) { }
-        assertEquals("This clip has too little picture or movement to analyse", (outcome as StabOutcome.Failed).message)
+        assertEquals("This clip has too little picture or movement to analyse", (outcome as StabOutcome.Failed).message.english())
         assertEquals(native.created, native.destroyed)
         val codec = FakeNative().apply { script = listOf(FakeNative.pack(StabJob.State.FAILED, 0, 5)) }
-        assertEquals("The video could not be decoded", (stabiliser(codec).analyse(asset, clip(0, 90), fps) { } as StabOutcome.Failed).message)
+        assertEquals("The video could not be decoded", (stabiliser(codec).analyse(asset, clip(0, 90), fps) { } as StabOutcome.Failed).message.english())
         val odd = FakeNative().apply { script = listOf(FakeNative.pack(StabJob.State.FAILED, 0, 9)) }
-        assertTrue((stabiliser(odd).analyse(asset, clip(0, 90), fps) { } as StabOutcome.Failed).message.contains("code 9"))
+        assertTrue((stabiliser(odd).analyse(asset, clip(0, 90), fps) { } as StabOutcome.Failed).message.english().contains("code 9"))
     }
 
     @Test

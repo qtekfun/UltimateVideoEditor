@@ -54,7 +54,7 @@ class ExportVerificationFlowTest {
     private val io = Io()
     private val runner = Runner()
     private val verified = VerificationOutcome.Verified(VerifiedFacts(300, 10_000_000, 12, 150, 800))
-    private val warning = VerificationOutcome.Warning(listOf(Finding(VerifyCheck.DECODE, "the decoder stopped", tailFrames = 20)), 300, 10_000_000)
+    private val warning = VerificationOutcome.Warning(listOf(Finding(VerifyCheck.DECODE, UiText.Raw("the decoder stopped"), tailFrames = 20)), 300, 10_000_000)
 
     private fun request(audio: Boolean = true) = ExportRequest(
         settings = ExportSettings(1280, 720, 30, 1, ExportCodec.H264, 8_000_000),

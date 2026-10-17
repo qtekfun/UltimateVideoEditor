@@ -1,5 +1,11 @@
 package com.qtekfun.ultimatevideoeditor.domain.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.templates.needRes
+import com.qtekfun.ultimatevideoeditor.domain.GroupEditUnavailable
+import com.qtekfun.ultimatevideoeditor.ui.templates.nameText
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.ClipDeletion
 import com.qtekfun.ultimatevideoeditor.domain.EditError
@@ -25,7 +31,7 @@ data class SlotFill(
 )
 
 /** A timeline made from a template and the media it uses; [warnings] are things the user should know (a short file, a dropped transition). */
-data class TemplateResult(val timeline: Timeline, val assets: List<MediaAssetDto>, val warnings: List<String>)
+data class TemplateResult(val timeline: Timeline, val assets: List<MediaAssetDto>, val warnings: List<UiText>)
 
 /**
  * Turns a [ProjectTemplate] and the user's media into a timeline (SPECS.md 9.19). Each filled placeholder keeps its
@@ -41,11 +47,11 @@ data class TemplateResult(val timeline: Timeline, val assets: List<MediaAssetDto
 object TemplateInstantiator {
 
     fun instantiate(template: ProjectTemplate, fills: Map<String, SlotFill>): EditResult<TemplateResult> {
-        template.problem()?.let { return fail(it) }
+        template.problem()?.let { return fail(UiText.Raw(it)) }
         val fps = FrameRate(template.fpsNum, template.fpsDen)
         val transitions = template.timeline.transitions
         var current = template.timeline.copy(transitions = emptyList())
-        val warnings = ArrayList<String>()
+        val warnings = ArrayList<UiText>()
         val used = LinkedHashMap<String, MediaAssetDto>()
 
         val slots = current.tracks.flatMap { track -> track.clips.mapNotNull { clip -> Placeholder.idOfSlotAsset(clip.assetId)?.let { Triple(it, clip.id, clip.timelineStart) } } }
@@ -54,14 +60,14 @@ object TemplateInstantiator {
             val placeholder = checkNotNull(template.placeholder(placeholderId))
             val fill = fills[placeholderId]
             if (fill == null) {
-                if (!placeholder.optional) return fail("choose media for \"${placeholder.name}\"")
+                if (!placeholder.optional) return fail(UiText.res(R.string.ti_choose, slotName(template, placeholder)))
                 current = when (val removed = ClipDeletion.delete(current, clipId)) {
                     is EditResult.Success -> removed.value
                     is EditResult.Failure -> return removed
                 }
                 continue
             }
-            kindProblem(placeholder, fill.asset)?.let { return fail(it) }
+            kindProblem(template, placeholder, fill.asset)?.let { return fail(it) }
             val track = checkNotNull(current.trackOfClip(clipId))
             val clip = checkNotNull(track.clip(clipId))
             val slotFrames = clip.durationFrames
@@ -80,9 +86,9 @@ object TemplateInstantiator {
                 val lead = transitions.firstOrNull { it.toClipId == clipId }?.preFrames ?: 0L
                 val start = if (fill.sourceInFrame < lead && total - lead >= slotFrames) lead else fill.sourceInFrame
                 val available = total - start
-                if (available < 1) return fail("the file for \"${placeholder.name}\" has no footage after the chosen start")
+                if (available < 1) return fail(UiText.res(R.string.ti_no_footage, slotName(template, placeholder)))
                 length = minOf(slotFrames, available)
-                if (length < placeholder.minFrames) warnings += "\"${placeholder.name}\" is shorter than its slot (${seconds(length, fps)} of ${seconds(slotFrames, fps)})"
+                if (length < placeholder.minFrames) warnings += UiText.res(R.string.ti_short, slotName(template, placeholder), seconds(length, fps), seconds(slotFrames, fps))
                 // The clip first keeps the slot's length (the footage it names is only trimmed below), so that
                 // shortening it is an ordinary base-track trim that moves what follows.
                 clip.copy(
@@ -115,13 +121,13 @@ object TemplateInstantiator {
             val room = TimelineOps.maxTransitionFrames(current, from.id, to.id, sourceLength)
             val length = minOf(transition.durationFrames, room)
             if (length < com.qtekfun.ultimatevideoeditor.domain.Transition.MIN_DURATION_FRAMES) {
-                warnings += "a ${transition.type.label.lowercase()} transition was dropped: not enough footage around the cut"
+                warnings += UiText.res(R.string.ti_dropped, UiText.res(transition.type.labelRes()))
                 continue
             }
             current = when (val added = TimelineOps.addTransition(current, transition.copy(durationFrames = length), sourceLength)) {
                 is EditResult.Success -> added.value
                 is EditResult.Failure -> {
-                    warnings += "a ${transition.type.label.lowercase()} transition was dropped: not enough footage around the cut"
+                    warnings += UiText.res(R.string.ti_dropped, UiText.res(transition.type.labelRes()))
                     current
                 }
             }
@@ -129,14 +135,16 @@ object TemplateInstantiator {
         return EditResult.Success(TemplateResult(current, used.values.toList(), warnings))
     }
 
-    private fun kindProblem(placeholder: Placeholder, asset: MediaAssetDto): String? {
+    private fun slotName(template: ProjectTemplate, placeholder: Placeholder): UiText = placeholder.nameText(template)
+
+    private fun kindProblem(template: ProjectTemplate, placeholder: Placeholder, asset: MediaAssetDto): UiText? {
         val ok = when (placeholder.kind) {
             PlaceholderKind.VIDEO -> asset.hasVideo && !asset.isImage
             PlaceholderKind.VIDEO_OR_PHOTO -> asset.hasVideo || asset.isImage
             PlaceholderKind.PHOTO -> asset.isImage
             PlaceholderKind.AUDIO -> asset.hasAudio && !asset.isImage
         }
-        return if (ok) null else "\"${placeholder.name}\" needs ${placeholder.kind.label.lowercase()}"
+        return if (ok) null else UiText.res(R.string.ti_needs, slotName(template, placeholder), UiText.res(placeholder.kind.needRes()))
     }
 
     /** The asset's length in project frames. */
@@ -149,5 +157,5 @@ object TemplateInstantiator {
 
     private fun seconds(frames: Long, fps: FrameRate): String = "%.1f s".format(frames * fps.den.toDouble() / fps.num)
 
-    private fun fail(reason: String): EditResult<TemplateResult> = EditResult.Failure(EditError.InvalidClip(reason))
+    private fun fail(reason: UiText): EditResult<TemplateResult> = EditResult.Failure(GroupEditUnavailable(reason))
 }

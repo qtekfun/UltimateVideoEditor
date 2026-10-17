@@ -1,5 +1,10 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.templates.sampleText
+import com.qtekfun.ultimatevideoeditor.ui.templates.nameText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import androidx.compose.ui.platform.LocalContext
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -119,6 +124,7 @@ internal fun TextTemplateChooser(
     onApplyPreset: (TextTemplate, text: String) -> Unit = { _, _ -> },
 ) {
     var text by remember { mutableStateOf("") }
+    val context = LocalContext.current
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -131,12 +137,12 @@ internal fun TextTemplateChooser(
             modifier = Modifier.fillMaxWidth(),
         )
         for (template in TextTemplates.all) {
-            TemplateRow(template) { onApply(template.id, text) }
+            TemplateRow(template) { onApply(template.id, text.ifBlank { template.sampleText().resolve(context) }) }
         }
         if (userPresets.isNotEmpty()) {
             Text(stringResource(R.string.ed_2a_my_presets), style = MaterialTheme.typography.titleSmall)
             for (preset in userPresets) {
-                TemplateRow(preset) { onApplyPreset(preset, text) }
+                TemplateRow(preset) { onApplyPreset(preset, text.ifBlank { preset.sampleText().resolve(context) }) }
             }
         }
     }
@@ -147,12 +153,12 @@ private fun TemplateRow(template: TextTemplate, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_2a_add, template.name), onClick = onClick)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_2a_add, template.nameText().asString()), onClick = onClick)
             .padding(vertical = 8.dp),
     ) {
-        Text(template.name, style = MaterialTheme.typography.bodyLarge)
+        Text(template.nameText().asString(), style = MaterialTheme.typography.bodyLarge)
         Text(
-            "${template.defaultSeconds.toInt()} s · \"${template.defaultText}\"",
+            stringResource(R.string.tt_row_meta, template.defaultSeconds.toInt(), template.sampleText().asString()),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

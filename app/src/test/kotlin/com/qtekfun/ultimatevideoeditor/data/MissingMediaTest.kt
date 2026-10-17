@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameIndex
@@ -129,14 +130,14 @@ class MissingMediaTest {
     fun `a replacement without audio is accepted with a warning`() {
         val result = verdict(probed(audio = false)) as RelinkVerdict.Accepted
         assertEquals(1, result.warnings.size)
-        assertTrue(result.warnings[0].contains("no audio"))
+        assertTrue(result.warnings[0].english().contains("no audio"))
     }
 
     @Test
     fun `a shorter replacement warns only when it cuts into the used part`() {
         assertEquals(RelinkVerdict.Accepted(emptyList()), verdict(probed(seconds = 20), needed = 10_000_000))
         val result = verdict(probed(seconds = 5), needed = 10_000_000) as RelinkVerdict.Accepted
-        assertTrue(result.warnings.single().contains("shorter"))
+        assertTrue(result.warnings.single().english().contains("shorter"))
     }
 
     @Test

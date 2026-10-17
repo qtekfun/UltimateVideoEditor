@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import androidx.compose.ui.platform.LocalContext
 import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
@@ -94,10 +96,12 @@ fun TemplateWizardSheet(
                 )
                 LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(state.templates, key = { it.id }) { template ->
+                        val context = LocalContext.current
+                        val templateName = template.nameText()
                         TemplateRow(
                             template = template,
                             user = BuiltInTemplates.find(template.id) == null,
-                            onOpen = { viewModel.select(template.id) },
+                            onOpen = { viewModel.select(template.id, templateName.resolve(context)) },
                             onExport = { exportId = template.id; exportLauncher.launch("${template.name}.uvtemplate") },
                             onDelete = { viewModel.deleteTemplate(template.id) },
                         )
@@ -119,7 +123,7 @@ fun TemplateWizardSheet(
                     TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
                 }
             } else {
-                Text(selected.name, style = MaterialTheme.typography.titleMedium)
+                Text(selected.nameText().asString(), style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = state.name,
                     onValueChange = viewModel::setName,
@@ -146,9 +150,9 @@ fun TemplateWizardSheet(
                     }
                 }
                 state.problem?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                for (warning in state.warnings) Text(warning, style = MaterialTheme.typography.bodySmall)
+                for (warning in state.warnings) Text(warning.asString(), style = MaterialTheme.typography.bodySmall)
                 if (state.missingRequired.isNotEmpty()) {
-                    Text(stringResource(R.string.ed_s3_still_to_choose, state.missingRequired.joinToString { it.name }), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.ed_s3_still_to_choose, state.missingRequired.map { it.nameText(selected).asString() }.joinToString()), style = MaterialTheme.typography.bodySmall)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = viewModel::create, enabled = state.canCreate) { Text(stringResource(R.string.ed_s3_create_project)) }
@@ -177,11 +181,11 @@ private fun TemplateRow(template: ProjectTemplate, user: Boolean, onOpen: () -> 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_s3_use, template.name), onClick = onOpen)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_s3_use, template.nameText().asString()), onClick = onOpen)
             .padding(vertical = 8.dp),
     ) {
-        Text(template.name, style = MaterialTheme.typography.bodyLarge)
-        Text(template.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(template.nameText().asString(), style = MaterialTheme.typography.bodyLarge)
+        Text(template.descriptionText().asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val fps = template.fpsNum.toDouble() / template.fpsDen
         Text(
             stringResource(R.string.ed_s3_tw_row_meta, slotCountLabel(template.placeholders.size).asString(), template.width, template.height, "%.4g".format(fps)),
@@ -206,10 +210,10 @@ private fun PlaceholderRow(
     onClear: () -> Unit,
 ) {
     val seconds = placeholder.frames * fps.fpsDen.toDouble() / fps.fpsNum
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().described(stringResource(R.string.ed_s3_slot, placeholder.name))) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().described(stringResource(R.string.ed_s3_slot, placeholder.nameText(fps).asString()))) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (placeholder.optional) stringResource(R.string.ed_s3_tw_slot_optional, placeholder.name) else placeholder.name,
+                if (placeholder.optional) stringResource(R.string.ed_s3_tw_slot_optional, placeholder.nameText(fps).asString()) else placeholder.nameText(fps).asString(),
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(

@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.ProjectJson
 import com.qtekfun.ultimatevideoeditor.data.ProjectRepository
@@ -232,7 +233,7 @@ class RepositoryImportProgressTest {
 
         val error = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo.importWithReport("doc://cut", Recorder()) } }
 
-        assertTrue(error.message, error.message!!.contains("cut short") || error.message!!.contains("damaged"))
+        assertTrue(error.userText.english(), error.userText.english().contains("cut short") || error.userText.english().contains("damaged"))
         nothingLeft(repo)
     }
 
@@ -258,7 +259,7 @@ class RepositoryImportProgressTest {
 
         val error = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo.importWithReport("doc://wrong", Recorder()) } }
 
-        assertTrue(error.message, error.message!!.contains("cut short or damaged"))
+        assertTrue(error.userText.english(), error.userText.english().contains("cut short or damaged"))
         nothingLeft(repo)
     }
 
@@ -295,7 +296,7 @@ class RepositoryImportProgressTest {
 
         val error = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo.importWithReport("doc://b", seen) } }
 
-        assertTrue(error.message, error.message!!.contains("Not enough free space"))
+        assertTrue(error.userText.english(), error.userText.english().contains("Not enough free space"))
         assertEquals(0L, seen.done)
         nothingLeft(repo)
     }
@@ -354,7 +355,7 @@ class RepositoryImportProgressTest {
 
         val error = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo.importWithReport("doc://huge") } }
 
-        assertTrue(error.message, error.message!!.contains("not a project"))
+        assertTrue(error.userText.english(), error.userText.english().contains("not a project"))
         nothingLeft(repo)
     }
 

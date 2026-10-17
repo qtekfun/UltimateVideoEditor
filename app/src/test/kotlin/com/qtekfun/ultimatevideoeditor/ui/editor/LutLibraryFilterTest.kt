@@ -43,7 +43,7 @@ class LutLibraryFilterTest {
         val vm = viewModel(store)
         var installed: LutInfo? = null
 
-        vm.installFilter("cinematic") { installed = it }
+        vm.installFilter("cinematic", "Cinematic") { installed = it }
 
         val info = checkNotNull(installed)
         assertEquals("Cinematic", info.name)
@@ -59,8 +59,8 @@ class LutLibraryFilterTest {
         val vm = viewModel(store)
         val keys = mutableListOf<Int>()
 
-        vm.installFilter("noir") { keys += it.key }
-        vm.installFilter("noir") { keys += it.key }
+        vm.installFilter("noir", "Noir") { keys += it.key }
+        vm.installFilter("noir", "Noir") { keys += it.key }
 
         assertEquals(2, keys.size)
         assertEquals(keys[0], keys[1])
@@ -73,7 +73,7 @@ class LutLibraryFilterTest {
         val vm = viewModel(LutStore(tmp.newFolder("luts")))
         var called = false
 
-        vm.installFilter("does-not-exist") { called = true }
+        vm.installFilter("does-not-exist", "x") { called = true }
 
         assertFalse(called)
         assertTrue(vm.state.value.luts.isEmpty())

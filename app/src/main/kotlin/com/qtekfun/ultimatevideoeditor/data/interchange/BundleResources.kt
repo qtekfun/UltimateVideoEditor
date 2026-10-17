@@ -1,5 +1,10 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
+import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
+import com.qtekfun.ultimatevideoeditor.ui.text.UserFacing
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.FontException
 import com.qtekfun.ultimatevideoeditor.data.FontRegistry
 import com.qtekfun.ultimatevideoeditor.data.LutStore
@@ -46,7 +51,7 @@ data class BundleResource(
 class ResourceBytes(val name: String, val bytes: ByteArray)
 
 /** Why a resource was refused; the message is meant for the user. */
-class ResourceRejected(message: String) : Exception(message)
+class ResourceRejected(override val userText: UiText) : Exception("resource rejected"), UserFacing
 
 enum class PlacementStatus { ADDED, ALREADY_PRESENT, REKEYED }
 
@@ -87,12 +92,12 @@ class StoreResourceLibrary(private val luts: LutStore, private val fonts: FontRe
         val text = try {
             Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString()
         } catch (e: java.nio.charset.CharacterCodingException) {
-            throw ResourceRejected("it is not a text .cube file")
+            throw ResourceRejected(UiText.res(R.string.rr_not_text))
         }
         val result = try {
             luts.install(name, text, desiredKey)
         } catch (e: LutParseException) {
-            throw ResourceRejected("it is not a valid .cube file (${e.message})")
+            throw ResourceRejected(UiText.res(R.string.rr_not_cube, e.message.orEmpty()))
         }
         val status = when (result.status) {
             LutStore.InstallStatus.ADDED -> PlacementStatus.ADDED
@@ -120,12 +125,12 @@ class StoreResourceLibrary(private val luts: LutStore, private val fonts: FontRe
         val result = try {
             fonts.install(bytes)
         } catch (e: FontException) {
-            throw ResourceRejected(e.message ?: "it is not a usable font")
+            throw ResourceRejected(rawOr(e.message, UiText.res(R.string.rr_font)))
         }
         return when (result.status) {
             FontRegistry.InstallStatus.ADDED -> FontPlacement(result.entry.id, PlacementStatus.ADDED)
             FontRegistry.InstallStatus.ALREADY_PRESENT -> FontPlacement(result.entry.id, PlacementStatus.ALREADY_PRESENT)
-            FontRegistry.InstallStatus.CONFLICT -> throw ResourceRejected("another font with the same id is already stored")
+            FontRegistry.InstallStatus.CONFLICT -> throw ResourceRejected(UiText.res(R.string.rr_font_id))
         }
     }
 }
@@ -180,7 +185,7 @@ class ResourcePayload(val kind: ResourceKind, val key: String, val file: Resourc
  */
 class ResourcePlan(
     val payloads: List<ResourcePayload>,
-    val skipped: List<String>,
+    val skipped: List<UiText>,
     val references: List<BundleResource> = emptyList(),
 )
 
@@ -283,7 +288,7 @@ object BundleResources {
         }
         for (id in refs.fontIds.sorted()) {
             val data = library?.readFont(id)
-            out += ResourceInfo(ResourceKind.FONT, id, library?.fontFamily(id) ?: "Font $id", data?.bytes?.size?.toLong() ?: 0L, data != null)
+            out += ResourceInfo(ResourceKind.FONT, id, library?.fontFamily(id) ?: "Font $id", /* i18n-ok: a name stored as written */ data?.bytes?.size?.toLong() ?: 0L, data != null)
         }
         return out
     }
@@ -291,17 +296,17 @@ object BundleResources {
     /** The payloads for [choice], in a fixed order (so the same input gives the same bundle) and the references that cannot be provided. */
     fun plan(refs: ResourceRefs, library: ResourceLibrary?, choice: BundleChoice): ResourcePlan {
         val payloads = ArrayList<ResourcePayload>()
-        val skipped = ArrayList<String>()
+        val skipped = ArrayList<UiText>()
         if (choice.includeLuts) {
             for (key in refs.lutKeys.sorted()) {
                 val data = library?.readLut(key)
-                if (data == null) skipped += "LUT #$key (not in this device's library)" else payloads += ResourcePayload(ResourceKind.LUT, key.toString(), data)
+                if (data == null) skipped += UiText.res(R.string.rp_lut_absent, key) else payloads += ResourcePayload(ResourceKind.LUT, key.toString(), data)
             }
         }
         if (choice.includeFonts) {
             for (id in refs.fontIds.sorted()) {
                 val data = library?.readFont(id)
-                if (data == null) skipped += "font $id (not in this device's library)" else payloads += ResourcePayload(ResourceKind.FONT, id, data)
+                if (data == null) skipped += UiText.res(R.string.rp_font_absent, id) else payloads += ResourcePayload(ResourceKind.FONT, id, data)
             }
         }
         val included = payloads.mapTo(HashSet()) { it.kind to it.key }
@@ -319,7 +324,7 @@ object BundleResources {
 }
 
 /** A resource that could not be installed, with the reason. */
-data class ResourceProblem(val name: String, val reason: String)
+data class ResourceProblem(val name: String, val reason: UiText)
 
 /**
  * What an import did with the resources: [installed] are new in this app, [alreadyHere] were there,
@@ -362,7 +367,7 @@ object BundleResourceInstaller {
             val kind = ResourceKind.of(res.kind)
             val label = labelOf(res)
             if (kind == null) {
-                failed += ResourceProblem(label, "this version of the app does not know this kind of resource")
+                failed += ResourceProblem(label, UiText.res(R.string.rp_unknown_kind))
                 continue
             }
             val file = res.entry?.let(files::get)
@@ -371,15 +376,15 @@ object BundleResourceInstaller {
                 continue
             }
             if (library == null) {
-                failed += ResourceProblem(label, "this build cannot install resources")
+                failed += ResourceProblem(label, UiText.res(R.string.rp_cannot_install))
                 continue
             }
             try {
                 val bytes = file.readBytes()
-                if (res.sha256.isNotEmpty() && Hashes.sha256Hex(bytes) != res.sha256) throw ResourceRejected("the file is damaged (its checksum does not match)")
+                if (res.sha256.isNotEmpty() && Hashes.sha256Hex(bytes) != res.sha256) throw ResourceRejected(UiText.res(R.string.rr_checksum))
                 when (kind) {
                     ResourceKind.LUT -> {
-                        val desired = res.key.toIntOrNull() ?: throw ResourceRejected("it has no valid key")
+                        val desired = res.key.toIntOrNull() ?: throw ResourceRejected(UiText.res(R.string.rr_key))
                         val placement = library.installLut(res.name, bytes, desired)
                         when (placement.status) {
                             PlacementStatus.ADDED -> installed += label
@@ -393,16 +398,16 @@ object BundleResourceInstaller {
                         provided += "lut:$desired"
                     }
                     ResourceKind.FONT -> {
-                        if (library.fontIdOf(bytes) != res.key) throw ResourceRejected("its id does not match its content")
+                        if (library.fontIdOf(bytes) != res.key) throw ResourceRejected(UiText.res(R.string.rr_id))
                         val placement = library.installFont(bytes)
                         if (placement.status == PlacementStatus.ADDED) installed += label else here += label
                         provided += "font:${res.key}"
                     }
                 }
             } catch (e: ResourceRejected) {
-                failed += ResourceProblem(label, e.message ?: "it could not be installed")
+                failed += ResourceProblem(label, reasonOf(e, UiText.res(R.string.rp_not_installed)))
             } catch (e: IOException) {
-                failed += ResourceProblem(label, "it could not be saved (${e.message ?: "disk error"})")
+                failed += ResourceProblem(label, UiText.res(R.string.rp_not_saved, rawOr(e.message, UiText.res(R.string.rp_disk))))
             }
         }
 

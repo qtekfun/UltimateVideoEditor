@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
@@ -348,7 +349,7 @@ private fun LoudnessControls(state: EditorState, audio: ClipAudio, onIntent: (Ed
     if (message != null) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CircularProgressIndicator(modifier = Modifier.height(18.dp).width(18.dp), strokeWidth = 2.dp)
-            Text(message, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            Text(message.asString(), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = { onIntent(EditorIntent.CancelAudioAnalysis) }) { Text(stringResource(R.string.common_cancel)) }
         }
     }

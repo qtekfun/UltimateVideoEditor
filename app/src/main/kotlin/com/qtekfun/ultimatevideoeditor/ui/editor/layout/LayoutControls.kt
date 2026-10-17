@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.layout
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
@@ -184,7 +185,7 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                     FilterChip(
                         selected = controller.waveformScale == scale,
                         onClick = { controller.chooseWaveformScale(scale) },
-                        label = { Text(scale.label) },
+                        label = { Text(stringResource(scale.labelRes())) },
                     )
                 }
             }

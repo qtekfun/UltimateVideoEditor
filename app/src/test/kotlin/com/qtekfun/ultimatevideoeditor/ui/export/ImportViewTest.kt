@@ -147,7 +147,7 @@ class ImportViewTest {
     fun `a full disk is named`() {
         val text = failure(ProjectError.Io("import", IOException("write failed: ENOSPC (No space left on device)")))
         assertEquals("The storage is full. Free some space and import again. Nothing was added to the project list.", text)
-        assertTrue(failure(ProjectError.Bundle("Not enough free space: this bundle needs 7.5 GB and 1.0 GB are free.")).startsWith("The storage is full").not())
+        assertTrue(failure(ProjectError.Bundle(UiText.Raw("Not enough free space: this bundle needs 7.5 GB and 1.0 GB are free."))).startsWith("The storage is full").not())
     }
 
     @Test
@@ -165,7 +165,7 @@ class ImportViewTest {
 
     @Test
     fun `a bad file keeps its own words`() {
-        val bundle = failure(ProjectError.Bundle("The bundle is damaged: the file ends before byte 4096"))
+        val bundle = failure(ProjectError.Bundle(UiText.Raw("The bundle is damaged: the file ends before byte 4096")))
         assertEquals("The bundle is damaged: the file ends before byte 4096. Nothing was added to the project list.", bundle)
         val corrupt = failure(ProjectError.Corrupt("not JSON"))
         assertTrue(corrupt, corrupt.startsWith("This is not a readable project (not JSON)."))

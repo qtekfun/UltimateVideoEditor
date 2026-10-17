@@ -8,6 +8,12 @@ fun namedList(names: List<String>, shown: Int = 3, andMore: Boolean = true): UiT
     return if (andMore && names.size > shown) UiText.res(R.string.list_and_more, first, names.size - shown) else UiText.Raw(first)
 }
 
+/** [namedList] for names that are already [UiText]: the first [shown], then how many were left out. */
+fun namedUiList(names: List<UiText>, shown: Int = 3): UiText {
+    val first = UiText.join(", ", names.take(shown))
+    return if (names.size > shown) UiText.res(R.string.list_and_more, first, names.size - shown) else first
+}
+
 /** A sentence made from text that is not ours (an error message from the system): its first letter in capitals and a full stop at the end. */
 fun sentenceOf(raw: String): UiText {
     val trimmed = raw.trim()
@@ -22,7 +28,15 @@ fun rawOr(message: String?, fallback: UiText): UiText = message?.takeIf { it.isN
  * An I/O failure of the app's own whose reason is already in resource form. [message] is the English text for logs; the screen
  * shows [text] in the language in use (see [reasonOf]).
  */
-class UiTextIOException(val text: UiText, message: String) : java.io.IOException(message)
+class UiTextIOException(val text: UiText, message: String) : java.io.IOException(message), UserFacing {
+    override val userText: UiText get() = text
+}
+
+/** An exception that knows what to tell the person, as resource text; its message stays English, for logs. */
+interface UserFacing {
+    val userText: UiText
+}
 
 /** The reason to show for [error]: its resource text when it has one, the system's message, or [fallback]. */
-fun reasonOf(error: Throwable, fallback: UiText): UiText = (error as? UiTextIOException)?.text ?: rawOr(error.message, fallback)
+fun reasonOf(error: Throwable, fallback: UiText): UiText =
+    (error as? UserFacing)?.userText ?: (error as? UiTextIOException)?.text ?: rawOr(error.message, fallback)

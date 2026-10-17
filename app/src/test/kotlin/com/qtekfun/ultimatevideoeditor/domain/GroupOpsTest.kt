@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.domain
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -14,7 +15,7 @@ class GroupOpsTest {
         track("a1", clip("m", 0, 200), type = TrackType.AUDIO),
     )
 
-    private fun reason(result: EditResult<*>): String = (result.errorOrFail() as GroupEditUnavailable).reason
+    private fun reason(result: EditResult<*>): String = (result.errorOrFail() as GroupEditUnavailable).reason.english()
 
     // region move
 

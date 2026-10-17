@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.TimelineMapper
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
@@ -18,7 +20,7 @@ import com.qtekfun.ultimatevideoeditor.domain.sourceSpan
 import java.util.Locale
 
 /** The document and what the format subset could not carry. */
-data class FcpxmlExport(val xml: String, val notes: List<String>)
+data class FcpxmlExport(val xml: String, val notes: List<UiText>)
 
 /**
  * FCPXML 1.9 export of the parts of a project the format subset carries: the base track as the primary
@@ -38,7 +40,12 @@ object Fcpxml {
         private val num = project.settings.fpsNum.toLong()
         private val den = project.settings.fpsDen.toLong()
         private val height = project.settings.height
-        private val notes = linkedSetOf<String>()
+        /** A note for the app's message (translated) and the same note in English for the `<note>` written inside the file. */
+        private data class Note(val english: String, val text: UiText)
+
+        private fun note(english: String, @androidx.annotation.StringRes id: Int) = Note(english, UiText.res(id))
+
+        private val notes = linkedSetOf<Note>()
         private val sb = StringBuilder()
         private val assetIds = LinkedHashMap<String, String>()
         private var textStyles = 0
@@ -81,10 +88,10 @@ object Fcpxml {
             val dropFrame = SmpteTimecode.isNtsc(project.settings.fpsNum, project.settings.fpsDen)
             sb.append("        <sequence format=\"r1\" duration=\"${time(total)}\" tcStart=\"0s\" tcFormat=\"${if (dropFrame) "DF" else "NDF"}\" audioLayout=\"stereo\" audioRate=\"48k\">\n")
             if (notes.isNotEmpty()) {
-                sb.append("          <note>").append(esc("Not exported: " + notes.joinToString(" "))).append("</note>\n")
+                sb.append("          <note>").append(esc("Not exported: " + notes.joinToString(" ") { it.english })).append("</note>\n")
             }
             sb.append("          <spine>\n").append(body).append("          </spine>\n        </sequence>\n      </project>\n    </event>\n  </library>\n</fcpxml>\n")
-            return FcpxmlExport(sb.toString(), notes.toList())
+            return FcpxmlExport(sb.toString(), notes.map { it.text })
         }
 
         private fun hasTitles() = timeline.tracks.any { t -> t.clips.any { it.title != null } }
@@ -244,24 +251,24 @@ object Fcpxml {
         private fun collectNotes() {
             val clips = timeline.tracks.flatMap { it.clips }
             if (assetIds.keys.any { id -> project.mediaLibrary.firstOrNull { it.id == id }?.uri?.startsWith("content://") == true }) {
-                notes += "Media is referenced by Android content:// addresses; relink the files in your editor."
+                notes += note("Media is referenced by Android content:// addresses; relink the files in your editor.", R.string.fx_note_content) // i18n-ok: English text of the note written inside the file
             }
             if (clips.any { it.fx.effects.isNotEmpty() || it.fx.mask != null || it.fx.blendMode.name != "NORMAL" }) {
-                notes += "Effects, LUTs, colour grades, masks and blend modes."
+                notes += note("Effects, LUTs, colour grades, masks and blend modes.", R.string.fx_note_effects) // i18n-ok: English text of the note written inside the file
             }
-            if (clips.any { it.keyframes.isNotEmpty() }) notes += "Keyframes."
-            if (clips.any { it.speedRamp.isNotEmpty() }) notes += "Speed ramps (their average speed is used)."
-            if (clips.any { it.still == StillKind.STICKER }) notes += "Stickers."
-            if (timeline.transitions.isNotEmpty()) notes += "Transitions (cuts are written)."
+            if (clips.any { it.keyframes.isNotEmpty() }) notes += note("Keyframes.", R.string.fx_note_keyframes) // i18n-ok: English text of the note written inside the file
+            if (clips.any { it.speedRamp.isNotEmpty() }) notes += note("Speed ramps (their average speed is used).", R.string.fx_note_ramps) // i18n-ok: English text of the note written inside the file
+            if (clips.any { it.still == StillKind.STICKER }) notes += note("Stickers.", R.string.fx_note_stickers) // i18n-ok: English text of the note written inside the file
+            if (timeline.transitions.isNotEmpty()) notes += note("Transitions (cuts are written).", R.string.fx_note_transitions) // i18n-ok: English text of the note written inside the file
             if (clips.any { it.audio != com.qtekfun.ultimatevideoeditor.domain.ClipAudio.NONE } || timeline.tracks.any { !it.audio.isNeutral }) {
-                notes += "Audio tools (pan, fades, EQ, noise suppression, mixer settings, ducking)."
+                notes += note("Audio tools (pan, fades, EQ, noise suppression, mixer settings, ducking).", R.string.fx_note_audio) // i18n-ok: English text of the note written inside the file
             }
-            if (clips.any { !it.transform.isIdentity }) notes += "Transform positions are written as a percentage of the frame height (unchecked in an editor)."
-            if (clips.any { it.retimedFrames != null || it.reverse || it.isFreeze }) notes += "Retimed clips use a timeMap (unchecked in an editor)."
-            if (timeline.markers.any { it.color != null }) notes += "Marker colours are written as a text prefix."
+            if (clips.any { !it.transform.isIdentity }) notes += note("Transform positions are written as a percentage of the frame height (unchecked in an editor).", R.string.fx_note_transform) // i18n-ok: English text of the note written inside the file
+            if (clips.any { it.retimedFrames != null || it.reverse || it.isFreeze }) notes += note("Retimed clips use a timeMap (unchecked in an editor).", R.string.fx_note_timemap) // i18n-ok: English text of the note written inside the file
+            if (timeline.markers.any { it.color != null }) notes += note("Marker colours are written as a text prefix.", R.string.fx_note_markers) // i18n-ok: English text of the note written inside the file
             val base = ClipDeletion.baseTrack(timeline)
             if (timeline.tracks.any { it.id != base?.id && it.clips.isNotEmpty() }) {
-                notes += "Connected clips are placed as if the clip they hang on played at normal speed."
+                notes += note("Connected clips are placed as if the clip they hang on played at normal speed.", R.string.fx_note_connected) // i18n-ok: English text of the note written inside the file
             }
         }
 

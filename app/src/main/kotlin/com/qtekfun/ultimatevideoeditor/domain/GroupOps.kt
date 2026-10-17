@@ -1,9 +1,12 @@
 package com.qtekfun.ultimatevideoeditor.domain
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.nameRes
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import kotlin.math.abs
 
 /** A group edit that cannot apply; [reason] is written for the user (the editor shows it as is). */
-data class GroupEditUnavailable(val reason: String) : EditError
+data class GroupEditUnavailable(val reason: UiText) : EditError
 
 /** Which edge of the selected clips [GroupOps.align] lines up. */
 enum class AlignEdge { START, END }
@@ -66,7 +69,7 @@ object GroupOps {
 
     private class Member(val track: Track, val clip: Clip)
 
-    private fun unavailable(reason: String): EditResult.Failure = failure(GroupEditUnavailable(reason))
+    private fun unavailable(reason: UiText): EditResult.Failure = failure(GroupEditUnavailable(reason))
 
     private fun members(timeline: Timeline, ids: Collection<String>): EditResult<List<Member>> {
         val result = ArrayList<Member>(ids.size)
@@ -107,7 +110,7 @@ object GroupOps {
      * everything after the cut moves right by the group's length, and the lanes they came from keep their gaps.
      */
     fun insertOnBase(timeline: Timeline, ids: Collection<String>, at: FrameIndex): EditResult<Timeline> {
-        if (!canInsertOnBase(timeline, ids)) return unavailable("Only clips on overlay lanes can be inserted into the base together")
+        if (!canInsertOnBase(timeline, ids)) return unavailable(UiText.res(R.string.ge_insert_overlay_only))
         val base = checkNotNull(ClipDeletion.baseTrack(timeline))
         return members(timeline, ids).andThen { sel ->
             var current = timeline
@@ -131,7 +134,7 @@ object GroupOps {
      * one clip ([LaneOps.overwriteNewClip]). One result, all or nothing.
      */
     fun overwriteOnBase(timeline: Timeline, ids: Collection<String>, start: FrameIndex): EditResult<Timeline> {
-        if (!canInsertOnBase(timeline, ids)) return unavailable("Only clips on overlay lanes can be dropped on the base together")
+        if (!canInsertOnBase(timeline, ids)) return unavailable(UiText.res(R.string.ge_drop_overlay_only))
         val base = checkNotNull(ClipDeletion.baseTrack(timeline))
         return members(timeline, ids).andThen { sel ->
             val earliest = sel.minOf { it.clip.timelineStart.value }
@@ -168,7 +171,7 @@ object GroupOps {
             val base = ClipDeletion.baseTrack(timeline)
             val onBase = sel.filter { base != null && it.track.id == base.id }
             if (onBase.isNotEmpty()) return@andThen moveBase(timeline, sel, onBase, base!!, deltaFrames, laneDelta)
-            val lanes = laneMapping(timeline, sel, laneDelta) ?: return@andThen unavailable("There is no lane there for all the selected clips")
+            val lanes = laneMapping(timeline, sel, laneDelta) ?: return@andThen unavailable(UiText.res(R.string.ge_no_lane_for_all))
             relocate(timeline, sel) { member ->
                 lanes.getValue(member.track.id) to (member.clip.timelineStart + deltaFrames)
             }
@@ -183,13 +186,13 @@ object GroupOps {
         laneDelta: Int,
     ): EditResult<Timeline> {
         if (onBase.size != sel.size) {
-            return unavailable("To move clips together, select only base-track clips or only clips on the other lanes")
+            return unavailable(UiText.res(R.string.ge_base_or_others))
         }
-        if (laneDelta != 0) return unavailable("Base-track clips can only be reordered along the base")
+        if (laneDelta != 0) return unavailable(UiText.res(R.string.ge_base_reorder_only))
         val order = base.clips.map { it.id }
         val indices = sel.map { order.indexOf(it.clip.id) }.sorted()
         if (indices.zipWithNext().any { (a, b) -> b != a + 1 }) {
-            return unavailable("Select base clips that touch each other to move them together")
+            return unavailable(UiText.res(R.string.ge_base_touching))
         }
         val first = sel.minOf { it.clip.timelineStart.value }
         return MagneticBase.reorderBlock(timeline, indices.map { order[it] }, FrameIndex(maxOf(0L, first + deltaFrames)))
@@ -247,10 +250,10 @@ object GroupOps {
      */
     fun align(timeline: Timeline, ids: Collection<String>, edge: AlignEdge): EditResult<Timeline> =
         members(timeline, ids).andThen { sel ->
-            if (sel.size < 2) return@andThen unavailable("Select at least two clips to align")
+            if (sel.size < 2) return@andThen unavailable(UiText.res(R.string.ge_align_two))
             val base = ClipDeletion.baseTrack(timeline)
             if (sel.any { base != null && it.track.id == base.id }) {
-                return@andThen unavailable("The base track has no gaps, so its clips cannot be aligned")
+                return@andThen unavailable(UiText.res(R.string.ge_base_no_gaps))
             }
             val target = when (edge) {
                 AlignEdge.START -> sel.minOf { it.clip.timelineStart.value }
@@ -323,8 +326,8 @@ object GroupOps {
 
     /** Pastes a copy of the clips right after the last one ends, on the same lanes (a base run is inserted at that cut). */
     fun duplicate(timeline: Timeline, ids: Collection<String>): EditResult<Timeline> {
-        val clipboard = Clipboard.capture(timeline, ids) ?: return unavailable("Select clips to duplicate")
-        val end = ids.mapNotNull { timeline.trackOfClip(it)?.clip(it)?.timelineEnd }.maxOrNull() ?: return unavailable("Select clips to duplicate")
+        val clipboard = Clipboard.capture(timeline, ids) ?: return unavailable(UiText.res(R.string.ge_duplicate_select))
+        val end = ids.mapNotNull { timeline.trackOfClip(it)?.clip(it)?.timelineEnd }.maxOrNull() ?: return unavailable(UiText.res(R.string.ge_duplicate_select))
         return paste(timeline, clipboard, end)
     }
 
@@ -335,7 +338,7 @@ object GroupOps {
      * Every pasted clip gets a fresh id; transitions between pasted clips come along.
      */
     fun paste(timeline: Timeline, clipboard: Clipboard, at: FrameIndex): EditResult<Timeline> {
-        if (clipboard.entries.isEmpty()) return unavailable("The clipboard is empty")
+        if (clipboard.entries.isEmpty()) return unavailable(UiText.res(R.string.ge_clipboard_empty))
         val base = ClipDeletion.baseTrack(timeline)
         var current = timeline
         val newIds = HashMap<String, String>()
@@ -362,7 +365,7 @@ object GroupOps {
             cursor = placed.timelineEnd
         }
         for (entry in clipboard.entries.filter { !it.onBase }) {
-            val lane = destinationLane(current, entry) ?: return unavailable("There is no ${entry.trackType.name.lowercase()} lane to paste onto")
+            val lane = destinationLane(current, entry) ?: return unavailable(UiText.res(R.string.ge_no_lane_to_paste, UiText.res(entry.trackType.nameRes())))
             val id = freshId(entry.clip.id)
             newIds[entry.clip.id] = id
             val clip = entry.clip.copy(id = id, timelineStart = at + entry.relativeStart)
@@ -447,7 +450,7 @@ object GroupOps {
                     applied++
                 }
             }
-            if (applied == 0) unavailable("None of the selected clips can take those attributes") else EditResult.Success(current)
+            if (applied == 0) unavailable(UiText.res(R.string.ge_no_attributes)) else EditResult.Success(current)
         }
 
     private fun hasSound(clip: Clip, track: Track): Boolean = clip.hasMedia && track.type != TrackType.TITLE
@@ -456,7 +459,7 @@ object GroupOps {
     fun setSpeed(timeline: Timeline, ids: Collection<String>, num: Long, den: Long): EditResult<Timeline> =
         members(timeline, ids).andThen { sel ->
             val targets = sel.filter { it.clip.hasMedia && it.clip.sourceSpan > 1 }.sortedByDescending { it.clip.timelineStart.value }
-            if (targets.isEmpty()) return@andThen unavailable("Titles, photos and stickers have no speed to change")
+            if (targets.isEmpty()) return@andThen unavailable(UiText.res(R.string.ge_no_speed))
             var current = timeline
             for (member in targets) {
                 current = when (val r = MagneticBase.setSpeed(current, member.clip.id, num, den)) {
@@ -471,7 +474,7 @@ object GroupOps {
     fun setGain(timeline: Timeline, ids: Collection<String>, gainDb: Double): EditResult<Timeline> =
         members(timeline, ids).andThen { sel ->
             val targets = sel.filter { hasSound(it.clip, it.track) }
-            if (targets.isEmpty()) return@andThen unavailable("None of the selected clips has sound")
+            if (targets.isEmpty()) return@andThen unavailable(UiText.res(R.string.ge_no_sound))
             var current = timeline
             for (member in targets) {
                 current = when (val r = TimelineOps.setGain(current, member.clip.id, gainDb)) {
@@ -486,7 +489,7 @@ object GroupOps {
     fun setOpacity(timeline: Timeline, ids: Collection<String>, opacity: Double): EditResult<Timeline> =
         members(timeline, ids).andThen { sel ->
             val targets = sel.filter { it.track.type != TrackType.AUDIO }
-            if (targets.isEmpty()) return@andThen unavailable("None of the selected clips has a picture")
+            if (targets.isEmpty()) return@andThen unavailable(UiText.res(R.string.ge_no_picture))
             ClipTransform(opacity = opacity).problem()?.let { return@andThen failure(EditError.InvalidAppearance(it)) }
             var current = timeline
             for (member in targets) {
@@ -528,8 +531,8 @@ object GroupOps {
                 GroupTransition.HEAD_AND_TAIL -> fades(timeline, sel, durationFrames)
             }
             result ?: unavailable(
-                if (mode == GroupTransition.BETWEEN) "None of the selected clips touches a next clip with room for a transition"
-                else "None of the selected clips can fade (audio clips, or too short)",
+                if (mode == GroupTransition.BETWEEN) UiText.res(R.string.ge_no_transition_room)
+                else UiText.res(R.string.ge_cannot_fade),
             )
         }
     }

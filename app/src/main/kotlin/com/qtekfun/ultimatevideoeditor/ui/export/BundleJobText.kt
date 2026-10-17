@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.namedUiList
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleItemKind
@@ -96,7 +97,7 @@ object BundleJobText {
     fun skippedLine(result: BundleWriteResult): UiText = UiText.join(
         ". ",
         if (result.mediaSkipped.isNotEmpty()) UiText.res(R.string.bundle_skipped_unreadable, namedList(result.mediaSkipped)) else UiText.Empty,
-        if (result.resourcesSkipped.isNotEmpty()) UiText.res(R.string.bundle_skipped_resources, namedList(result.resourcesSkipped)) else UiText.Empty,
+        if (result.resourcesSkipped.isNotEmpty()) UiText.res(R.string.bundle_skipped_resources, namedUiList(result.resourcesSkipped)) else UiText.Empty,
     )
 
     /** The one-line verdict on the saved file, shared by the dialog, the bar and the notification. */
@@ -112,7 +113,7 @@ object BundleJobText {
     fun verificationDetail(verification: BundleVerification?): UiText = when (verification) {
         is BundleVerification.Warning -> UiText.join(
             ". ",
-            verification.problems.take(4).map { UiText.Raw(it) } +
+            verification.problems.take(4) +
                 if (verification.problems.size > 4) listOf(UiText.res(R.string.bundle_problems_more, verification.problems.size - 4)) else emptyList(),
         )
         is BundleVerification.CouldNotVerify -> UiText.Capitalised(verification.reason)

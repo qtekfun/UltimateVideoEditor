@@ -87,7 +87,8 @@ data class VoiceSlider(val name: String, val min: Double, val max: Double, val d
  */
 enum class VoicePreset(val label: String, val sliders: List<VoiceSlider>) {
     /** Pitch moves with the voice's timbre kept (formant 0); the formant slider moves the timbre on its own. */
-    PITCH_FORMANT("Pitch and formant", listOf(VoiceSlider("Pitch", -12.0, 12.0, 3.0, "st"), VoiceSlider("Formant", -12.0, 12.0, 0.0, "st"))),
+    PITCH_FORMANT("Pitch and formant", listOf( // i18n-ok: developer label, the screen words presets from resources
+        VoiceSlider("Pitch", -12.0, 12.0, 3.0, "st"), VoiceSlider("Formant", -12.0, 12.0, 0.0, "st"))),
     CHIPMUNK("Chipmunk", listOf(VoiceSlider("Pitch", 2.0, 12.0, 6.0, "st"))),
     DEEP("Deep", listOf(VoiceSlider("Pitch", -12.0, -2.0, -5.0, "st"))),
     ROBOT("Robot", listOf(VoiceSlider("Metal", 0.0, 1.0, 0.6), VoiceSlider("Buzz", 30.0, 200.0, 60.0, "Hz"))),

@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
+import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import java.io.IOException
@@ -43,7 +44,7 @@ class VerifyRunner(
             Mp4Reader.read(source)
         } catch (e: Mp4FormatException) {
             return VerificationOutcome.Warning(
-                listOf(Finding(VerifyCheck.CONTAINER, e.message ?: "the file is not a readable MP4", tailFrames = 0)),
+                listOf(Finding(VerifyCheck.CONTAINER, rawOr(e.message, UiText.res(R.string.fv_not_mp4)), tailFrames = 0)),
                 exp.totalFrames,
                 exp.durationUs,
             )
@@ -122,7 +123,7 @@ class VerifyRunner(
     /** One finding per kind of check: the first message, how many places, and the longest damaged tail. */
     private fun merge(findings: List<Finding>): List<Finding> =
         findings.groupBy { it.check }.map { (check, group) ->
-            val message = group.first().message + if (group.size > 1) " (and ${group.size - 1} more ${if (group.size == 2) "place" else "places"})" else ""
+            val message = if (group.size > 1) UiText.plural(R.plurals.fv_more_places, group.size - 1, group.first().message, group.size - 1) else group.first().message
             Finding(check, message, group.maxOf { it.tailFrames })
         }
 

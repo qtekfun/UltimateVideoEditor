@@ -78,14 +78,14 @@ class ProxyGenerator(
         if (error != null) {
             part.delete()
             if (error.code == ExportErrorCode.CANCELLED) return cancelled(entry)
-            val failure = ProxyException(codeOf(error), error.message ?: "The proxy failed", error)
+            val failure = ProxyException(codeOf(error), error.message ?: ProxyMessages.FAILED, error)
             fail(entry, failure)
             throw failure
         }
         val final = index.finalFileFor(entry.key)
         if (!part.isFile || part.length() == 0L || !(final.delete() || !final.exists()) || !part.renameTo(final)) {
             part.delete()
-            val failure = ProxyException(ProxyErrorCode.IO, "The proxy file could not be finished")
+            val failure = ProxyException(ProxyErrorCode.IO, ProxyMessages.NOT_FINISHED)
             fail(entry, failure)
             throw failure
         }
@@ -128,7 +128,7 @@ class ProxyGenerator(
             if (sourceFd >= 0) media.close(sourceFd)
             if (outputFd >= 0) media.close(outputFd)
             part.delete()
-            val error = ProxyException(ProxyErrorCode.IO, "Cannot open a file for the proxy: ${e.message}", e)
+            val error = ProxyException(ProxyErrorCode.IO, "${ProxyMessages.OPEN_PREFIX}${e.message}", e)
             fail(entry, error)
             throw error
         }

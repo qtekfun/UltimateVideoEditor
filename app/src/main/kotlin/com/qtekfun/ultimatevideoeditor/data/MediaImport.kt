@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UserFacing
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.Context
 import android.content.Intent
 import android.media.MediaCodecInfo
@@ -64,7 +67,17 @@ class MediaImportException(
     message: String,
     cause: Throwable? = null,
     val problem: MediaProblem = MediaProblem.UNREADABLE,
-) : Exception(message, cause)
+    /** The words for the person; by default the generic sentence of [problem]. [message] is English, for logs. */
+    override val userText: UiText = generic(problem),
+) : Exception(message, cause), UserFacing {
+    private companion object {
+        fun generic(problem: MediaProblem): UiText = when (problem) {
+            MediaProblem.UNREADABLE -> UiText.res(R.string.mi_unreadable)
+            MediaProblem.PERMISSION_LOST -> UiText.res(R.string.mi_permission)
+            MediaProblem.UNSUPPORTED -> UiText.res(R.string.mi_unsupported)
+        }
+    }
+}
 
 interface MediaImporter {
     /** Keeps read access to [uri] across restarts, then probes it. @throws MediaImportException */
@@ -131,13 +144,13 @@ class AndroidMediaImporter(
         try {
             context.contentResolver.takePersistableUriPermission(parsed, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (e: IllegalArgumentException) {
-            throw MediaImportException(MediaFailure.describe(MediaProblem.UNREADABLE, uri.substringAfterLast('/')), e, MediaProblem.UNREADABLE)
+            throw MediaImportException("cannot keep access", e, MediaProblem.UNREADABLE, MediaFailure.describe(MediaProblem.UNREADABLE, uri.substringAfterLast('/')))
         } catch (e: SecurityException) {
             throw MediaImportException(
-                "Cannot keep access to the selected file. Android limits how many files an app can keep; " +
-                    "remove unused projects or pick the file again",
+                "cannot keep access to the selected file",
                 e,
                 MediaProblem.PERMISSION_LOST,
+                UiText.res(R.string.mi_keep_access),
             )
         }
         warnIfNearPermissionLimit()
@@ -183,12 +196,12 @@ class AndroidMediaImporter(
             try {
                 extractor.setDataSource(context, uri, null)
             } catch (e: IOException) {
-                throw MediaImportException("Cannot open the selected file", e, MediaProblem.UNREADABLE)
+                throw MediaImportException("cannot open the selected file", e, MediaProblem.UNREADABLE)
             } catch (e: SecurityException) {
-                throw MediaImportException("No permission to read the selected file", e, MediaProblem.PERMISSION_LOST)
+                throw MediaImportException("no permission to read the selected file", e, MediaProblem.PERMISSION_LOST)
             } catch (e: IllegalArgumentException) {
                 // A provider that is gone ("Unknown URI") reaches here as well as a file of no known kind; a gone file is the likelier.
-                throw MediaImportException("Cannot open the selected file", e, MediaProblem.UNREADABLE)
+                throw MediaImportException("cannot open the selected file", e, MediaProblem.UNREADABLE)
             }
             return probeTracks(extractor, uri).copy(displayName = displayNameOf(uri))
         } finally {
@@ -209,16 +222,16 @@ class AndroidMediaImporter(
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         try {
             context.contentResolver.openInputStream(uri).use { stream ->
-                if (stream == null) throw MediaImportException("Cannot open the selected picture")
+                if (stream == null) throw MediaImportException("cannot open the selected picture", userText = UiText.res(R.string.mi_picture_open))
                 BitmapFactory.decodeStream(stream, null, options)
             }
         } catch (e: IOException) {
-            throw MediaImportException("Cannot open the selected picture", e, MediaProblem.UNREADABLE)
+            throw MediaImportException("cannot open the selected picture", e, MediaProblem.UNREADABLE, UiText.res(R.string.mi_picture_open))
         } catch (e: SecurityException) {
-            throw MediaImportException("No permission to read the selected picture", e, MediaProblem.PERMISSION_LOST)
+            throw MediaImportException("no permission to read the selected picture", e, MediaProblem.PERMISSION_LOST, UiText.res(R.string.mi_picture_permission))
         }
         if (options.outWidth <= 0 || options.outHeight <= 0) {
-            throw MediaImportException("This picture format is not supported", problem = MediaProblem.UNSUPPORTED)
+            throw MediaImportException("unsupported picture format", problem = MediaProblem.UNSUPPORTED, userText = UiText.res(R.string.mi_picture_format))
         }
         val animation = animationTiming(uri)
         return ProbedMedia(
@@ -305,8 +318,8 @@ class AndroidMediaImporter(
             // The platform's extractor does not list uncompressed audio in a QuickTime file (iPhone 'lpcm'); the engine decodes it itself.
             pcmSoundTrack(uri)?.let { hasAudio = true; durationMicros = maxOf(durationMicros, it.durationMicros) }
         }
-        if (!hasVideo && !hasAudio) throw MediaImportException("The file has no audio or video track", problem = MediaProblem.UNSUPPORTED)
-        if (durationMicros <= 0) throw MediaImportException("The file has no readable duration", problem = MediaProblem.UNSUPPORTED)
+        if (!hasVideo && !hasAudio) throw MediaImportException("no audio or video track", problem = MediaProblem.UNSUPPORTED, userText = UiText.res(R.string.mi_no_tracks))
+        if (durationMicros <= 0) throw MediaImportException("no readable duration", problem = MediaProblem.UNSUPPORTED, userText = UiText.res(R.string.mi_no_duration))
         val (num, den) = FpsRational.fromFloat(fps ?: captureFrameRate(uri) ?: FpsRational.DEFAULT_FPS.toDouble())
         val bitrate = video?.let { VideoFacts.bitrate(it.streamBitrate, audioBitrate, fileSize(uri), durationMicros) }
         return ProbedMedia(

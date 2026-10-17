@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.interchange.LfFixture.ClipSpec
 import com.qtekfun.ultimatevideoeditor.data.model.ClipDto
 import com.qtekfun.ultimatevideoeditor.data.model.TrackDto
@@ -15,7 +17,7 @@ class LumaFusionImportTest {
 
     private fun base(c: LumaFusionConversion): TrackDto = c.project.tracks.last { it.type == "video" }
 
-    private fun List<String>.has(part: String) = any { it.contains(part, ignoreCase = true) }
+    private fun List<UiText>.has(part: String) = any { it.english().contains(part, ignoreCase = true) }
 
     private val fourCuts = LfFixture.archive(
         resolution = "[3840,2160]",
@@ -259,7 +261,7 @@ class LumaFusionImportTest {
         )
         val c = convert(json)
         assertEquals(listOf(0.0, -96.0, 0.0), base(c).clips.map { it.gainDb })
-        val line = c.report.imported.single { it.startsWith("Clips silent because their LumaFusion volume was 0") }
+        val line = c.report.imported.single { it.english().startsWith("Clips silent because their LumaFusion volume was 0") }.english()
         assertTrue(line, line.contains(": 2 ("))
         assertTrue(line, line.contains("V1 at 0:01"))
         assertTrue(line, line.contains("V2 at 0:00"))
@@ -422,7 +424,7 @@ class LumaFusionImportTest {
         assertTrue(lines.has("Reversed"))
         assertTrue(lines.has("Speed changes"))
         assertTrue(lines.has("Transitions"))
-        assertTrue(lines.has("Effects") && lines.any { it.contains("Noir") })
+        assertTrue(lines.has("Effects") && lines.any { it.english().contains("Noir") })
         assertTrue(lines.has("keyframed"))
         assertTrue(lines.has("horizontal flip"))
         assertTrue(lines.has("Hidden tracks"))
@@ -464,7 +466,7 @@ class LumaFusionImportTest {
     @Test
     fun `the report counts footage that came with the package`() {
         val c = convert(fourCuts, setOf("clip1.mov"))
-        assertTrue(c.report.imported.has("1 of 1 media files came with the package"))
+        assertTrue(c.report.imported.has("1 of 1 media file came with the package"))
     }
 
     // endregion

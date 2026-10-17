@@ -109,7 +109,7 @@ class ProxyManager(
             ProxyState.RUNNING -> ProxyStatus.Making(worker.progress.value[entry.key] ?: 0)
             ProxyState.READY -> ProxyStatus.Ready(entry.bytes, entry.width, entry.height)
             ProxyState.STALE -> ProxyStatus.OutOfDate
-            ProxyState.FAILED -> ProxyStatus.Failed(entry.error ?: "The proxy could not be made")
+            ProxyState.FAILED -> ProxyStatus.Failed(entry.error ?: ProxyMessages.NOT_MADE)
         }
     }
 
@@ -135,7 +135,7 @@ class ProxyManager(
     fun markUnusable(asset: MediaAssetDto) {
         val key = ProxyKeys.of(jobOf(asset), prefs.targetShortSide)
         val entry = index.get(key) ?: return
-        index.put(entry.copy(state = ProxyState.STALE, error = "The proxy could not be opened"))
+        index.put(entry.copy(state = ProxyState.STALE, error = ProxyMessages.NOT_OPENED))
         invalidate()
     }
 
@@ -154,7 +154,7 @@ class ProxyManager(
             val size = media.sizeOf(asset.uri)
             val sourceChanged = entry.sourceBytes > 0 && size > 0 && size != entry.sourceBytes
             if (sourceChanged || index.fileOf(entry) == null) {
-                index.put(entry.copy(state = ProxyState.STALE, error = "The source file changed"))
+                index.put(entry.copy(state = ProxyState.STALE, error = ProxyMessages.SOURCE_CHANGED))
                 changed = true
             }
         }

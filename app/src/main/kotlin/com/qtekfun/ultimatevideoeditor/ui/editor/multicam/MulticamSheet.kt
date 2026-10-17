@@ -139,7 +139,7 @@ private fun LiveCutting(
             for ((i, angle) in rowOfAngles) {
                 val active = i == onScreen
                 val button: @Composable () -> Unit = {
-                    Text("${angle.name}\n${feedLabel(feeds.getOrNull(i))}", style = MaterialTheme.typography.labelMedium)
+                    Text("${angle.name}\n${feedLabel(feeds.getOrNull(i))}", style = MaterialTheme.typography.labelMedium) // i18n-ok: the angle name, then the feed label (already words from resources)
                 }
                 val modifier = Modifier.weight(1f).described(
                     stringResource(if (active) R.string.ed_s3_cut_to_active else R.string.ed_s3_cut_to, angle.name),

@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformScale
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.AssetKind
 import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.R
@@ -21,6 +22,12 @@ import com.qtekfun.ultimatevideoeditor.ui.text.UiText
  * English `label`s (logs, validation messages); the screens show these. Every `when` over an enum is exhaustive, so a new value
  * fails to compile until it has a text.
  */
+
+@StringRes
+fun WaveformScale.labelRes(): Int = when (this) {
+    WaveformScale.LINEAR -> R.string.ed_ws_linear
+    WaveformScale.DECIBEL -> R.string.ed_ws_decibel
+}
 
 @StringRes
 fun ScopeMode.labelRes(): Int = when (this) {

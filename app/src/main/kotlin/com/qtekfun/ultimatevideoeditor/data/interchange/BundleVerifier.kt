@@ -11,7 +11,7 @@ sealed interface BundleVerification {
     data class Verified(val entryCount: Int, val fileBytes: Long) : BundleVerification
 
     /** The file is kept, but something is wrong with it: [problems] says what, in words for the user. */
-    data class Warning(val problems: List<String>) : BundleVerification
+    data class Warning(val problems: List<UiText>) : BundleVerification
 
     /** The check itself could not run (the file could not be opened again); nothing is known either way. */
     data class CouldNotVerify(val reason: UiText) : BundleVerification
@@ -29,31 +29,31 @@ object BundleChecker {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun check(source: RandomAccess, written: BundleWriteResult): BundleVerification {
-        val problems = ArrayList<String>()
+        val problems = ArrayList<UiText>()
         if (written.bytesWritten > 0 && source.size != written.bytesWritten) {
-            problems += "The saved file is ${source.size} bytes but ${written.bytesWritten} were written"
+            problems += UiText.res(R.string.bv_size, source.size, written.bytesWritten)
         }
         val reader = try {
             ZipReader(source)
         } catch (e: BundleError) {
-            problems += "Its table of contents cannot be read (${e.message?.removePrefix("The bundle is damaged: ") ?: "unreadable"}), so the file is incomplete or damaged"
+            problems += UiText.res(R.string.bv_toc, e.detail)
             return BundleVerification.Warning(problems)
         } catch (e: IOException) {
             return BundleVerification.CouldNotVerify(UiText.res(R.string.verify_reason_bundle_unreadable, e.javaClass.simpleName, e.message.orEmpty()))
         }
         val byName = reader.entries.filter { !it.isDirectory }.associateBy { it.name }
         if (reader.entries.size != written.entries.size) {
-            problems += "It lists ${reader.entries.size} files but ${written.entries.size} were written"
+            problems += UiText.res(R.string.bv_count, reader.entries.size, written.entries.size)
         }
         for (name in listOf(ProjectBundle.MANIFEST, ProjectBundle.PROJECT)) {
-            if (name !in byName) problems += "$name is missing"
+            if (name !in byName) problems += UiText.res(R.string.bv_missing, name)
         }
         for (entry in written.entries) {
             val found = byName[entry.name]
             if (found == null) {
-                if (entry.name != ProjectBundle.MANIFEST && entry.name != ProjectBundle.PROJECT) problems += "${entry.name.substringAfterLast('/').take(60)} is missing"
+                if (entry.name != ProjectBundle.MANIFEST && entry.name != ProjectBundle.PROJECT) problems += UiText.res(R.string.bv_missing, entry.name.substringAfterLast('/').take(60))
             } else if (found.size != entry.size) {
-                problems += "${entry.name.substringAfterLast('/').take(60)} is ${found.size} bytes, ${entry.size} were written"
+                problems += UiText.res(R.string.bv_entry_size, entry.name.substringAfterLast('/').take(60), found.size, entry.size)
             }
         }
         try {
@@ -61,16 +61,16 @@ object BundleChecker {
                 val manifest = json.decodeFromString<BundleManifest>(text)
                 for (media in manifest.media) {
                     val entry = media.entry ?: continue
-                    if (entry !in byName) problems += "${media.name.take(60)} is listed but not in the file"
+                    if (entry !in byName) problems += UiText.res(R.string.bv_listed, media.name.take(60))
                 }
             }
             readJson(reader, byName[ProjectBundle.PROJECT])
         } catch (e: BundleError) {
-            problems += "A project data file cannot be read back (${e.message})"
+            problems += UiText.res(R.string.bv_readback, e.message.orEmpty())
         } catch (e: IllegalArgumentException) {
-            problems += "bundle.json is not valid"
+            problems += UiText.res(R.string.bv_json)
         } catch (e: IOException) {
-            problems += "A project data file cannot be read back (${e.message})"
+            problems += UiText.res(R.string.bv_readback, e.message.orEmpty())
         }
         return if (problems.isEmpty()) BundleVerification.Verified(reader.entries.size, source.size) else BundleVerification.Warning(problems)
     }

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
@@ -52,7 +54,7 @@ data class AutoCutUiState(
     /** Indices of [cuts] the user switched off. */
     val excluded: Set<Int> = emptySet(),
     /** Set after an analysis: what it found or why it could not. */
-    val message: String? = null,
+    val message: UiText? = null,
 ) {
     val chosen: List<CutSpan> get() = cuts.filterIndexed { i, _ -> i !in excluded }
 }
@@ -67,7 +69,7 @@ data class ReframeUiState(
     val zoom: Double = 1.0,
     /** Moments marked so far (frames relative to the clip's start); one makes a fixed pose, several follow along. */
     val points: List<ReframePoint> = emptyList(),
-    val message: String? = null,
+    val message: UiText? = null,
 )
 
 data class QuickEditsUiState(
@@ -156,7 +158,7 @@ private fun AutoCutSheet(auto: AutoCutUiState, fps: FrameRate, onIntent: (Editor
                 }
                 TextButton(onClick = { onIntent(QuickEditIntent.CloseAutoCut) }) { Text(stringResource(R.string.common_close)) }
             }
-            auto.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            auto.message?.let { Text(it.asString(), style = MaterialTheme.typography.bodyMedium) }
             if (auto.cuts.isNotEmpty()) {
                 val saved = auto.chosen.sumOf { it.length }
                 Text(
@@ -221,7 +223,7 @@ private fun ReframeSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
                 if (r.points.isEmpty()) stringResource(R.string.ed_2a_no_marks_yet_apply_uses) else stringResource(R.string.ed_2a_marks_at, r.points.size, r.points.joinToString { formatTimecode(it.frame, state.fps) }),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            r.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+            r.message?.let { Text(it.asString(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onIntent(QuickEditIntent.ApplyReframe) }) { Text(stringResource(R.string.ed_2a_apply)) }
                 TextButton(onClick = { onIntent(QuickEditIntent.CloseReframe) }) { Text(stringResource(R.string.common_close)) }
