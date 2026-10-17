@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.ContentResolver
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -34,10 +36,10 @@ object MediaFailure {
     }
 
     /** The user-facing sentence for [problem] about the file called [name]. */
-    fun describe(problem: MediaProblem, name: String): String = when (problem) {
-        MediaProblem.UNREADABLE -> "Cannot open $name. If it is on a USB drive or SD card, connect it again"
-        MediaProblem.PERMISSION_LOST -> "No permission to read $name"
-        MediaProblem.UNSUPPORTED -> "$name is not a file the editor can use"
+    fun describe(problem: MediaProblem, name: String): UiText = when (problem) {
+        MediaProblem.UNREADABLE -> UiText.res(R.string.ma_unreadable, name)
+        MediaProblem.PERMISSION_LOST -> UiText.res(R.string.ma_permission, name)
+        MediaProblem.UNSUPPORTED -> UiText.res(R.string.ma_unsupported, name)
     }
 }
 
@@ -53,7 +55,7 @@ inline fun <T> guardMedia(what: String, block: () -> T): T {
         throw e
     } catch (e: Exception) {
         val problem = MediaFailure.classify(e) ?: throw e
-        throw MediaImportException(MediaFailure.describe(problem, what), e, problem)
+        throw MediaImportException("media access failed", e, problem, MediaFailure.describe(problem, what))
     }
 }
 

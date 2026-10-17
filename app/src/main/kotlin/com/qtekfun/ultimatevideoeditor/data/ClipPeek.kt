@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -38,7 +40,7 @@ class AndroidClipPeeker(
         // The importer's probe reads frame rate, colour space and the name; it does not take a permission.
         val probed = AndroidMediaImporter(context, ioDispatcher).probe(parsed)
         val (width, height) = if (probed.isImage) imageSize(parsed) else videoSize(parsed)
-        if (width <= 0 || height <= 0) throw MediaImportException("Cannot read the size of the selected file", problem = MediaProblem.UNSUPPORTED)
+        if (width <= 0 || height <= 0) throw MediaImportException("cannot read the size", problem = MediaProblem.UNSUPPORTED, userText = UiText.res(R.string.mi_size))
         MatchedClip(
             displayName = probed.displayName,
             width = width,
@@ -54,15 +56,15 @@ class AndroidClipPeeker(
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         try {
             context.contentResolver.openInputStream(uri).use { stream ->
-                if (stream == null) throw MediaImportException("Cannot open the selected picture")
+                if (stream == null) throw MediaImportException("cannot open the selected picture", userText = UiText.res(R.string.mi_picture_open))
                 BitmapFactory.decodeStream(stream, null, options)
             }
         } catch (e: IOException) {
-            throw MediaImportException("Cannot open the selected picture", e, MediaProblem.UNREADABLE)
+            throw MediaImportException("cannot open the selected picture", e, MediaProblem.UNREADABLE, UiText.res(R.string.mi_picture_open))
         } catch (e: IllegalArgumentException) {
-            throw MediaImportException("Cannot open the selected picture", e, MediaProblem.UNREADABLE)
+            throw MediaImportException("cannot open the selected picture", e, MediaProblem.UNREADABLE, UiText.res(R.string.mi_picture_open))
         } catch (e: SecurityException) {
-            throw MediaImportException("No permission to read the selected picture", e, MediaProblem.PERMISSION_LOST)
+            throw MediaImportException("no permission to read the selected picture", e, MediaProblem.PERMISSION_LOST, UiText.res(R.string.mi_picture_permission))
         }
         return options.outWidth to options.outHeight
     }
@@ -74,7 +76,7 @@ class AndroidClipPeeker(
             try {
                 retriever.setDataSource(context, uri)
             } catch (e: RuntimeException) {
-                throw MediaImportException("Cannot open the selected file", e, MediaProblem.UNREADABLE)
+                throw MediaImportException("cannot open the selected file", e, MediaProblem.UNREADABLE)
             }
             val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0

@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import java.io.FileNotFoundException
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -36,7 +37,7 @@ class MediaAccessTest {
             } catch (e: MediaImportException) {
                 assertEquals(thrown.toString(), problem, e.problem)
                 assertSame(thrown, e.cause)
-                assertTrue(e.message!!.contains("VID.mp4"))
+                assertTrue(e.userText.english().contains("VID.mp4"))
             }
         }
     }
@@ -95,6 +96,6 @@ class MediaAccessTest {
 
     @Test
     fun `the message tells the owner to reconnect the drive`() {
-        assertTrue(MediaFailure.describe(MediaProblem.UNREADABLE, "VID.mp4").contains("USB"))
+        assertTrue(MediaFailure.describe(MediaProblem.UNREADABLE, "VID.mp4").english().contains("USB"))
     }
 }

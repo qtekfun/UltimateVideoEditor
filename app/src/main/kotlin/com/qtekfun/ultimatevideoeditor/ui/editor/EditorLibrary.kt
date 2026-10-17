@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.annotation.StringRes
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleChoice
 import com.qtekfun.ultimatevideoeditor.ui.library.BundleExportDraft
 import com.qtekfun.ultimatevideoeditor.ui.library.LibraryFilter
@@ -16,7 +19,7 @@ data class LibraryUiState(
     /** The "remove the files nothing uses" confirmation, with how many it would remove. */
     val confirmDeleteUnused: Int? = null,
     /** An export in progress ("Writing the bundle…"), or null when idle. */
-    val busy: String? = null,
+    val busy: UiText? = null,
     /** The dialog that asks what a project bundle should hold (media files, LUTs, fonts), or null when closed. */
     val bundleDraft: BundleExportDraft? = null,
 )
@@ -25,13 +28,13 @@ data class LibraryUiState(
 data class AssetEditDraft(val assetId: String, val name: String, val tags: String, val note: String)
 
 /** The ways a project can leave the app besides the movie export. */
-enum class InterchangeKind(val label: String, val mime: String, val extension: String) {
+enum class InterchangeKind(@StringRes val labelRes: Int, @StringRes val busyRes: Int, val mime: String, val extension: String) {
     // A generic type keeps the name as suggested: with a specific one Android appends its own extension
     // (".uvbundle.zip", ".fcpxml.xml"), which other tools would not recognise.
-    BUNDLE("Project bundle (names and sizes)", INTERCHANGE_MIME, "uvbundle"),
-    BUNDLE_WITH_MEDIA("Project bundle with media files", INTERCHANGE_MIME, "uvbundle"),
-    EDL("EDL (CMX3600, one file per track)", INTERCHANGE_MIME, "edl"),
-    FCPXML("Final Cut Pro XML (FCPXML 1.9)", INTERCHANGE_MIME, "fcpxml"),
+    BUNDLE(R.string.ed_s3_ic_bundle, R.string.ed_s3_writing_bundle, INTERCHANGE_MIME, "uvbundle"),
+    BUNDLE_WITH_MEDIA(R.string.ed_s3_ic_bundle_media, R.string.ed_s3_writing_bundle, INTERCHANGE_MIME, "uvbundle"),
+    EDL(R.string.ed_s3_ic_edl, R.string.ed_s3_writing_edl, INTERCHANGE_MIME, "edl"),
+    FCPXML(R.string.ed_s3_ic_fcpxml, R.string.ed_s3_writing_fcpxml, INTERCHANGE_MIME, "fcpxml"),
 }
 
 /** The type used when asking for a file to write, so the picker keeps the suggested name. */

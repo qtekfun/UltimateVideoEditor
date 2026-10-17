@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.multicam
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.EditCommand
 import com.qtekfun.ultimatevideoeditor.domain.EditHistory
@@ -83,8 +85,8 @@ class MulticamControllerTest {
                     }
                     is EditResult.Failure -> false.also { messages += "failed: ${r.error}" }
                 }
-                override fun message(text: String) {
-                    messages += text
+                override fun message(text: UiText) {
+                    messages += text.english()
                 }
                 override fun newId(): String = "id${ids++}"
                 override fun assetLengthFrames(assetId: String): Long? = this@Fixture.editor.assets.firstOrNull { it.id == assetId }?.durationFrames

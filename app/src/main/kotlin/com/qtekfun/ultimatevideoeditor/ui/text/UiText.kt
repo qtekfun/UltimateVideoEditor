@@ -27,6 +27,9 @@ sealed interface UiText {
     /** [inner] with its first letter in capitals (a sentence made from the middle of another one, or from a system message). */
     data class Capitalised(val inner: UiText) : UiText
 
+    /** [inner] as a sentence: its first letter in capitals and a full stop at the end unless it already ends like one. */
+    data class Sentence(val inner: UiText) : UiText
+
     /** Several texts in a row with [separator] (punctuation that is the same in every language, such as " · " or ". "); empty parts are skipped. */
     data class Joined(val parts: List<UiText>, val separator: String) : UiText
 
@@ -51,6 +54,7 @@ fun UiText.isEmpty(): Boolean = when (this) {
     is UiText.Raw -> value.isEmpty()
     is UiText.Joined -> parts.all { it.isEmpty() }
     is UiText.Capitalised -> inner.isEmpty()
+    is UiText.Sentence -> inner.isEmpty()
     is UiText.Res, is UiText.Plural -> false
 }
 
@@ -69,6 +73,7 @@ fun UiText.resolve(source: TextSource): String = when (this) {
     is UiText.Res -> source.string(id, resolvedArgs(args, source))
     is UiText.Plural -> source.plural(id, quantity, resolvedArgs(args, source))
     is UiText.Capitalised -> inner.resolve(source).replaceFirstChar { it.uppercase() }
+    is UiText.Sentence -> inner.resolve(source).trim().let { if (it.isEmpty() || it.last() in ".)!?") it else "$it." }.replaceFirstChar { it.uppercase() }
     is UiText.Joined -> parts.filter { it.isNotEmpty() }.joinToString(separator) { it.resolve(source) }
 }
 

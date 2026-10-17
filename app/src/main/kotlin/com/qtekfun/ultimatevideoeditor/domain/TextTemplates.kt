@@ -68,8 +68,8 @@ object TextTemplates {
     val all: List<TextTemplate> = listOf(
         TextTemplate(
             id = "lower-third",
-            name = "Lower third",
-            defaultText = "Your name",
+            name = "Lower third", // i18n-ok: stored name; the tray words it from resources
+            defaultText = "Your name", // i18n-ok: stored sample text; the tray words it from resources
             defaultSeconds = 4.0,
             layers = listOf(
                 ShapeLayer(
@@ -81,7 +81,7 @@ object TextTemplates {
                     placement = LayerPlacement(offsetX = -0.22, offsetY = 0.30),
                 ),
                 TextLayer(
-                    text = "Your name",
+                    text = "Your name", // i18n-ok: sample text replaced by what the person types
                     sizeFraction = 0.05,
                     colorArgb = ACCENT_TEXT,
                     bold = true,
@@ -94,12 +94,12 @@ object TextTemplates {
         ),
         TextTemplate(
             id = "pop-title",
-            name = "Pop title",
-            defaultText = "Big idea",
+            name = "Pop title", // i18n-ok: stored name; the tray words it from resources
+            defaultText = "Big idea", // i18n-ok: stored sample text; the tray words it from resources
             defaultSeconds = 3.0,
             layers = listOf(
                 TextLayer(
-                    text = "Big idea",
+                    text = "Big idea", // i18n-ok: sample text replaced by what the person types
                     sizeFraction = 0.14,
                     bold = true,
                     border = LayerStroke(BLACK, 0.008),
@@ -111,12 +111,12 @@ object TextTemplates {
         ),
         TextTemplate(
             id = "slide-headline",
-            name = "Slide-in headline",
-            defaultText = "Breaking news",
+            name = "Slide-in headline", // i18n-ok: stored name; the tray words it from resources
+            defaultText = "Breaking news", // i18n-ok: stored sample text; the tray words it from resources
             defaultSeconds = 4.0,
             layers = listOf(
                 TextLayer(
-                    text = "Breaking news",
+                    text = "Breaking news", // i18n-ok: sample text replaced by what the person types
                     sizeFraction = 0.09,
                     bold = true,
                     border = LayerStroke(BLACK, 0.006),
@@ -129,8 +129,8 @@ object TextTemplates {
         ),
         TextTemplate(
             id = "subtitle-bar",
-            name = "Subtitle bar",
-            defaultText = "Say something here",
+            name = "Subtitle bar", // i18n-ok: stored name; the tray words it from resources
+            defaultText = "Say something here", // i18n-ok: stored sample text; the tray words it from resources
             defaultSeconds = 4.0,
             layers = listOf(
                 ShapeLayer(
@@ -142,7 +142,7 @@ object TextTemplates {
                     placement = LayerPlacement(offsetY = 0.36, opacity = 0.65),
                 ),
                 TextLayer(
-                    text = "Say something here",
+                    text = "Say something here", // i18n-ok: sample text replaced by what the person types
                     sizeFraction = 0.045,
                     colorArgb = WHITE,
                     placement = LayerPlacement(offsetY = 0.36),

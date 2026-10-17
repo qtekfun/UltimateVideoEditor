@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import com.qtekfun.ultimatevideoeditor.ui.text.TextSource
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.StillKind
 import com.qtekfun.ultimatevideoeditor.engine.still.StickerIds
@@ -15,18 +19,27 @@ import java.util.Locale
  */
 internal object ClipLabels {
 
+    /** What [of] uses when it is not given the words of a language: only text that is data comes out, resource text is empty. */
+    val RAW_ONLY: (UiText) -> String = { text ->
+        text.resolve(object : TextSource {
+            override fun string(id: Int, args: Array<Any>) = ""
+
+            override fun plural(id: Int, quantity: Int, args: Array<Any>) = ""
+        })
+    }
+
     /**
      * The label for [clip], or null when its block needs none. [assetName] is the display name of the clip's media
      * (a file name); without one a media clip shows only its picture or waveform.
      */
-    fun of(clip: Clip, assetName: String? = null): String? {
+    fun of(clip: Clip, assetName: String? = null, words: (UiText) -> String = RAW_ONLY): String? {
         clip.title?.let { title ->
             val text = clean(title.text.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty())
-            return text.ifEmpty { "Text" }
+            return text.ifEmpty { words(UiText.res(R.string.cl_text)) }.takeIf { it.isNotEmpty() }
         }
         if (clip.still == StillKind.STICKER) {
-            val name = clip.assetId?.let { id -> (StickerIds.shapes + StickerIds.emoji).firstOrNull { it.id == id }?.label }
-            return clean(name.orEmpty()).ifEmpty { "Sticker" }
+            val name = clip.assetId?.let { id -> (StickerIds.shapes + StickerIds.emoji).firstOrNull { it.id == id }?.let { words(it.labelText()) } }
+            return clean(name.orEmpty()).ifEmpty { words(UiText.res(R.string.cl_sticker)) }.takeIf { it.isNotEmpty() }
         }
         return assetName?.let { clean(withoutExtension(it)) }?.takeIf { it.isNotEmpty() }
     }

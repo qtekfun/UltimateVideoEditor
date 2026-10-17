@@ -152,7 +152,7 @@ class HubBundleJobTest {
     fun `a damaged result cannot be shared from the bar`() {
         val vm = viewModel()
         bundles.flow.value = BundleJobState.Done(
-            "p1", "Holiday", "content://out/h.uvbundle", "Holiday.uvbundle", BundleWriteResult(3, emptyList()), BundleVerification.Warning(listOf("cut short")), 5_000,
+            "p1", "Holiday", "content://out/h.uvbundle", "Holiday.uvbundle", BundleWriteResult(3, emptyList()), BundleVerification.Warning(listOf(UiText.Raw("cut short"))), 5_000,
         )
 
         val effects = effectsOf(vm) { vm.onIntent(HubIntent.ShareBundle) }

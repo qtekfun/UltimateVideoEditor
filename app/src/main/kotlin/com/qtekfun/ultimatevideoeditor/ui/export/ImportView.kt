@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.export
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.ImportReport
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
@@ -161,15 +162,15 @@ object ImportJobText {
             chain.any { it is SecurityException } -> UiText.res(R.string.import_fail_permission)
             text.contains("ENOSPC", ignoreCase = true) || text.contains("No space left", ignoreCase = true) || text.contains("not enough space", ignoreCase = true) -> // i18n-ok: matches the system's own English error text
                 UiText.res(R.string.import_fail_storage_full)
-            error is ProjectError.Bundle -> sentenceOf(error.message.orEmpty())
-            error is ProjectError.Corrupt -> UiText.res(R.string.import_fail_not_readable, error.message.orEmpty().removePrefix("Project file is corrupt: ")) // i18n-ok: the prefix ProjectError.Corrupt puts on its message
-            error is ProjectError.UnsupportedVersion -> UiText.res(R.string.import_fail_unsupported_version, error.message.orEmpty())
+            error is ProjectError.Bundle -> UiText.Sentence(error.userText)
+            error is ProjectError.Corrupt -> UiText.res(R.string.import_fail_not_readable, error.detail)
+            error is ProjectError.UnsupportedVersion -> UiText.res(R.string.import_fail_unsupported_version, error.userText)
             chain.any { it is java.io.FileNotFoundException } || text.contains("Cannot read ") -> UiText.res(R.string.import_fail_cannot_open)
             error is ProjectError.Io -> {
                 val cause = error.cause
                 UiText.res(R.string.import_fail_io, cause?.message?.takeIf { it.isNotBlank() } ?: cause?.javaClass?.simpleName ?: error.message.orEmpty())
             }
-            else -> sentenceOf(error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName)
+            else -> UiText.Sentence(reasonOf(error, UiText.Raw(error.javaClass.simpleName)))
         }
         return UiText.res(R.string.import_fail_nothing_added, reason)
     }
@@ -206,11 +207,11 @@ object ImportReportText {
     /** The list of LUTs and fonts an import could not install (and the like), or null when it went fully through. */
     fun notes(report: ImportReport): ImportReportNotes? {
         report.lumaFusion?.let { lf ->
-            val notImported = lf.report.notImported.map { UiText.Raw("$it") }
+            val notImported = lf.report.notImported
             return ImportReportNotes(
                 report.project.name,
                 notImported,
-                lf.report.imported.map { UiText.Raw(it) },
+                lf.report.imported,
                 problemsHeading = if (notImported.isEmpty()) null else UiText.res(R.string.import_lf_heading),
             ).let { if (notImported.isEmpty()) it.copy(notes = it.notes + UiText.res(R.string.import_lf_nothing_left_out)) else it }
         }
@@ -228,7 +229,7 @@ object ImportReportText {
         report.bundle?.let { addAll(BundleExportText.importProblems(it.resources)) }
         report.lumaFusion?.let { lf ->
             if (lf.report.notImported.isNotEmpty()) {
-                add(UiText.Plural(R.plurals.import_prob_lf_kinds, lf.report.notImported.size, listOf(lf.report.notImported.size, namedList(lf.report.notImported.map { "$it" }, andMore = false))))
+                add(UiText.Plural(R.plurals.import_prob_lf_kinds, lf.report.notImported.size, listOf(lf.report.notImported.size, UiText.join(", ", lf.report.notImported))))
             }
         }
     }

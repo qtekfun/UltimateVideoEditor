@@ -217,7 +217,7 @@ class FolderRelinkViewModelTest {
 
         assertTrue(h.state.missingMedia.containsKey("a1"))
         assertEquals("Relinked 0 of 3", h.messages.last())
-        assertTrue(h.report.notFound.first { it.assetId == "a1" }.reason.contains("picture"))
+        assertTrue(h.report.notFound.first { it.assetId == "a1" }.reason.english().contains("picture"))
     }
 
     @Test
@@ -228,7 +228,7 @@ class FolderRelinkViewModelTest {
         advanceUntilIdle()
 
         assertTrue(h.state.missingMedia.containsKey("a1"))
-        assertTrue(h.report.notFound.first { it.assetId == "a1" }.reason.contains("cannot be read"))
+        assertTrue(h.report.notFound.first { it.assetId == "a1" }.reason.english().contains("cannot be read"))
         advanceTimeBy(600)
         assertTrue(h.store.saved.isEmpty())
     }
@@ -360,7 +360,7 @@ class FolderRelinkViewModelTest {
 
         val done = (vm.state.value.folderRelink as FolderRelinkUi.Done).outcome
         assertEquals(1, done.relinked.size)
-        assertTrue(done.notFound.any { it.reason.contains("already in the project") })
+        assertTrue(done.notFound.any { it.reason.english().contains("already in the project") })
     }
 
     @Test

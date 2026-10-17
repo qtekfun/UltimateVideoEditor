@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.frame
 
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -19,13 +23,15 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 
 /** The snackbar of a saved picture: its text and the two actions it offers. */
-class SavedFrameVisuals(val saved: SavedFrame) : SnackbarVisuals {
-    override val message: String =
-        "Saved to ${saved.folder}/${saved.fileName}" + saved.notes.joinToString(separator = "") { " $it" }
+class SavedFrameVisuals(val saved: SavedFrame, override val message: String) : SnackbarVisuals {
     override val actionLabel: String? = null
     override val withDismissAction: Boolean = true
     override val duration: SnackbarDuration = SnackbarDuration.Long
 }
+
+/** "Saved to Pictures/ultimateVE/name.jpg" followed by the notes, in the language in use. */
+internal fun savedMessage(saved: SavedFrame): UiText =
+    UiText.join(" ", listOf(UiText.res(R.string.ed_s3_frame_saved, "${saved.folder}/${saved.fileName}")) + saved.notes)
 
 /** A [SnackbarHost] that draws a saved picture's snackbar with Share and Open, and every other one as usual. */
 @Composable
@@ -36,11 +42,11 @@ fun FrameSnackbarHost(state: SnackbarHostState, onShare: () -> Unit, onOpen: () 
             Snackbar(
                 action = {
                     Row {
-                        TextButton(onClick = { data.dismiss(); onShare() }) { Text("Share") }
-                        TextButton(onClick = { data.dismiss(); onOpen() }) { Text("Open") }
+                        TextButton(onClick = { data.dismiss(); onShare() }) { Text(stringResource(R.string.common_share)) }
+                        TextButton(onClick = { data.dismiss(); onOpen() }) { Text(stringResource(R.string.common_open)) }
                     }
                 },
-                dismissAction = { TextButton(onClick = { data.dismiss() }) { Text("Close") } },
+                dismissAction = { TextButton(onClick = { data.dismiss() }) { Text(stringResource(R.string.common_close)) } },
             ) { Text(visuals.message) }
         } else {
             Snackbar(snackbarData = data)
@@ -58,15 +64,15 @@ fun StillFrameEffects(viewModel: StillFrameViewModel, snackbar: SnackbarHostStat
             when (effect) {
                 StillFrameEffect.Started -> scope.launch {
                     snackbar.currentSnackbarData?.dismiss()
-                    snackbar.showSnackbar("Saving frame…", duration = SnackbarDuration.Indefinite)
+                    snackbar.showSnackbar(UiText.res(R.string.ed_s3_frame_saving).resolve(context), duration = SnackbarDuration.Indefinite)
                 }
                 is StillFrameEffect.Saved -> scope.launch {
                     snackbar.currentSnackbarData?.dismiss()
-                    snackbar.showSnackbar(SavedFrameVisuals(effect.frame))
+                    snackbar.showSnackbar(SavedFrameVisuals(effect.frame, savedMessage(effect.frame).resolve(context)))
                 }
                 is StillFrameEffect.Message -> scope.launch {
                     snackbar.currentSnackbarData?.dismiss()
-                    snackbar.showSnackbar(effect.text, duration = SnackbarDuration.Long)
+                    snackbar.showSnackbar(effect.text.resolve(context), duration = SnackbarDuration.Long)
                 }
                 is StillFrameEffect.ShareFile -> shareSavedFrame(context, effect.uri)
                 is StillFrameEffect.OpenFile -> openSavedFrame(context, effect.uri)

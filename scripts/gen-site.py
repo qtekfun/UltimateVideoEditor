@@ -125,21 +125,44 @@ def parse_icons():
     return icons
 
 
+def android_unescape(text):
+    """The text of a `<string>` the way Android shows it: XML entities and the backslash escapes of resources."""
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    return re.sub(r"\\(.)", lambda m: "\n" if m.group(1) == "n" else m.group(1), text)
+
+
+def english_strings():
+    """key -> English text, from the source language file of the app (the guide's words live there now)."""
+    xml = open(os.path.join(ROOT, "app/src/main/res/values/strings.xml"), encoding="utf-8").read()
+    return {m.group(1): android_unescape(m.group(2)) for m in re.finditer(r'<string name="([^"]+)">(.*?)</string>', xml, flags=re.S)}
+
+
 def parse_guide():
     text = open(os.path.join(KT, "guide/ToolbarGuide.kt"), encoding="utf-8").read()
+    words = english_strings()
+
+    def res(ref):
+        if ref == "0":
+            return ""
+        key = ref.removeprefix("R.string.")
+        if key not in words:
+            sys.exit(f"gen-site.py: {key} is not in values/strings.xml")
+        return words[key]
+
     sections = {
-        m.group(1): (unescape(m.group(2)), unescape(m.group(3)))
-        for m in re.finditer(r"^\s*([A-Z_]+)\(" + STRING + r",\s*" + STRING + r"\),$", text, flags=re.M)
+        m.group(1): (res(m.group(2)), res(m.group(3)))
+        for m in re.finditer(r"^\s*([A-Z_]+)\((R\.string\.\w+),\s*(R\.string\.\w+)\),$", text, flags=re.M)
     }
+    ref = r"(R\.string\.\w+|0)"
     entry = re.compile(
-        r'GuideEntry\("([^"]+)",\s*GuideSection\.(\w+),\s*(?:EditorIcons|SelectionIcons)\.(\w+),\s*' + STRING + r",\s*" + STRING + r",\s*" + STRING + r"\)"
+        r'GuideEntry\("([^"]+)",\s*GuideSection\.(\w+),\s*(?:EditorIcons|SelectionIcons)\.(\w+),\s*' + ref + r",\s*" + ref + r",\s*" + ref + r"\)"
     )
-    entries = [(m.group(1), m.group(2), m.group(3), unescape(m.group(4)), unescape(m.group(5)), unescape(m.group(6))) for m in entry.finditer(text)]
-    gesture = re.compile(r'GuideGesture\("([^"]+)",\s*' + STRING + r",\s*" + STRING + r"\)")
-    gestures = [(m.group(1), unescape(m.group(2)), unescape(m.group(3))) for m in gesture.finditer(text)]
+    entries = [(m.group(1), m.group(2), m.group(3), res(m.group(4)), res(m.group(5)), res(m.group(6))) for m in entry.finditer(text)]
+    gesture = re.compile(r'GuideGesture\("([^"]+)",\s*' + ref + r",\s*" + ref + r"\)")
+    gestures = [(m.group(1), res(m.group(2)), res(m.group(3))) for m in gesture.finditer(text)]
     # A new entry the regexes cannot read must fail the build rather than silently vanish from the site.
-    if len(entries) != len(re.findall(r'GuideEntry\("', text)) or len(gestures) != len(re.findall(r'GuideGesture\("', text)):
-        sys.exit("gen-site.py: ToolbarGuide.kt has entries it cannot parse (keep each on one line with plain string literals)")
+    if len(entries) != len(re.findall(r'GuideEntry\("', text)) or len(gestures) != len(re.findall(r'GuideGesture\("', text)) or len(sections) != len(re.findall(r"^\s*[A-Z_]+\(R\.string", text, flags=re.M)):
+        sys.exit("gen-site.py: ToolbarGuide.kt has entries it cannot parse (keep each on one line with plain R.string names)")
     return sections, entries, gestures
 
 

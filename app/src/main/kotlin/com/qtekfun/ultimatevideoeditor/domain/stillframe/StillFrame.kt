@@ -113,11 +113,3 @@ fun isUniformPicture(rgba: ByteBuffer, width: Int, height: Int): Boolean {
 }
 
 private const val PIXEL_BYTES = 4L
-
-/** What the user is told about the frame before or after it is saved, or null when there is nothing to add. */
-fun frameNotice(content: FrameContent): String? = when (content) {
-    FrameContent.PICTURE -> null
-    FrameContent.GAP -> "No picture at this frame (a gap): the image is black."
-    FrameContent.PAST_END -> "The playhead is after the end of the project: the image is black."
-    FrameContent.EMPTY -> "The project has no picture yet: the image is black."
-}

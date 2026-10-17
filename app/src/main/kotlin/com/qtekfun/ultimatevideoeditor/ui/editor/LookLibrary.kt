@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.R
@@ -70,7 +71,7 @@ class LookLibraryViewModel(
                 withContext(io) { store.save(look) }
                 _state.update { it.copy(looks = (it.looks + look).sortedBy { l -> l.name.lowercase() }, error = null) }
             } catch (e: IOException) {
-                _state.update { it.copy(error = rawOr(e.message, UiText.res(R.string.ed_2b_look_not_saved))) }
+                _state.update { it.copy(error = reasonOf(e, UiText.res(R.string.ed_2b_look_not_saved))) }
             }
         }
     }

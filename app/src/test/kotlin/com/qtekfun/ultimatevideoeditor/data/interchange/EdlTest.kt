@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.model.ProjectDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -38,14 +39,14 @@ class EdlTest {
     fun `23_976 is non drop and noted`() {
         val export = Edl.export(sampleProject(24000, 1001))
         assertTrue(export.files.all { it.text.contains("FCM: NON-DROP FRAME") })
-        assertTrue(export.notes.any { it.contains("non-drop") })
+        assertTrue(export.notes.any { it.english().contains("non-drop") })
     }
 
     @Test
     fun `what the format cannot carry is listed`() {
         val notes = Edl.export(sampleProject()).notes
-        assertTrue(notes.any { it.contains("title") })
-        assertTrue(notes.any { it.contains("transforms") })
+        assertTrue(notes.any { it.english().contains("title") })
+        assertTrue(notes.any { it.english().contains("transforms") })
     }
 
     @Test

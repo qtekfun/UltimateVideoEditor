@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.domain
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -21,7 +22,7 @@ class GroupClipboardTest {
         track("a1", clip("m", 0, 200), type = TrackType.AUDIO),
     ).let { TimelineOps.addTransition(it, Transition("tr1", "p", "q", 4), 500).getOrFail() }
 
-    private fun reason(result: EditResult<*>): String = (result.errorOrFail() as GroupEditUnavailable).reason
+    private fun reason(result: EditResult<*>): String = (result.errorOrFail() as GroupEditUnavailable).reason.english()
 
     @Test
     fun `capture keeps the clips, their lanes, relative layout and the transitions between copied clips`() {

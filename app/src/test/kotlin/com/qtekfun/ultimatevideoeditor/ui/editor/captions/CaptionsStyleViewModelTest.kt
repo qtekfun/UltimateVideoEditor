@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.captions.CAPTION_ID_PREFIX
 import com.qtekfun.ultimatevideoeditor.domain.captions.CaptionStyle
@@ -134,7 +135,7 @@ class CaptionsStyleViewModelTest {
         assertFalse(ready.intoExistingTrack)
         assertEquals(listOf(30L to 75L, 90L to 120L), ready.clips.map { it.timelineStart.value to it.timelineEnd.value })
         assertEquals("Hello there", ready.clips.first().title?.text)
-        assertTrue(effects.filterIsInstance<CaptionsEffect.ShowMessage>().single().text.startsWith("Added 2 captions"))
+        assertTrue(effects.filterIsInstance<CaptionsEffect.ShowMessage>().single().text.english().startsWith("Added 2 captions"))
         assertFalse(vm.state.value.isOpen)
         assertFalse(vm.state.value.importing)
         job.cancel()
@@ -166,7 +167,7 @@ class CaptionsStyleViewModelTest {
         assertFalse(vm.state.value.importing)
 
         vm.onIntent(CaptionsIntent.ImportFile("content://gone"))
-        assertEquals("missing content://gone", vm.state.value.error)
+        assertEquals("missing content://gone", vm.state.value.error?.english())
         assertTrue(effects.none { it is CaptionsEffect.ClipsReady })
         assertTrue(vm.state.value.isOpen)
         job.cancel()

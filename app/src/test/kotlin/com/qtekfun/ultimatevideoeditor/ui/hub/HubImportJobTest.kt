@@ -200,7 +200,7 @@ class HubImportJobTest {
             BundleImportSummary(
                 0, 0, emptyList(),
                 com.qtekfun.ultimatevideoeditor.data.interchange.ResourceImportReport(
-                    failed = listOf(com.qtekfun.ultimatevideoeditor.data.interchange.ResourceProblem("teal.cube", "damaged")),
+                    failed = listOf(com.qtekfun.ultimatevideoeditor.data.interchange.ResourceProblem("teal.cube", UiText.Raw("damaged"))),
                 ),
             ),
         )

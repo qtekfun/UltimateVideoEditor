@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.onboarding
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,9 +10,9 @@ class OnboardingTest {
     @Test
     fun `there are exactly three tips and each one says something`() {
         assertEquals(3, Tips.all.size)
-        assertTrue(Tips.all.all { it.title.isNotBlank() && it.body.length > 40 })
+        assertTrue(Tips.all.all { it.title.english().isNotBlank() && it.body.english().length > 40 })
         // The tips point at the key actions the guide names.
-        val text = Tips.all.joinToString(" ") { it.title + " " + it.body }.lowercase()
+        val text = Tips.all.joinToString(" ") { it.title.english() + " " + it.body.english() }.lowercase()
         listOf("import", "split", "export", "layout", "long-press").forEach { assertTrue("missing $it", text.contains(it)) }
     }
 

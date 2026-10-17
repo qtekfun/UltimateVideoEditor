@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.ProjectJson
 import com.qtekfun.ultimatevideoeditor.data.ProjectRepository
@@ -167,7 +168,7 @@ class RepositoryBundleTest {
         }.toByteArray()
         files["doc://zip"] = bytes
         val error = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo("t").importWithReport("doc://zip") } }
-        assertTrue(error.message, error.message!!.contains("not a ultimateVE project bundle"))
+        assertTrue(error.userText.english(), error.userText.english().contains("not a ultimateVE project bundle"))
     }
 
     @Test

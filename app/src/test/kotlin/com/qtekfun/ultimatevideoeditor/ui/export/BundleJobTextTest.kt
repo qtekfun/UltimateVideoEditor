@@ -77,7 +77,7 @@ class BundleJobTextTest {
 
     @Test
     fun `what could not go in is listed`() {
-        val result = BundleWriteResult(1, listOf("a.mov", "b.mov", "c.mov", "d.mov"), resourcesSkipped = listOf("Arial"))
+        val result = BundleWriteResult(1, listOf("a.mov", "b.mov", "c.mov", "d.mov"), resourcesSkipped = listOf(UiText.Raw("Arial")))
 
         assertEquals("Not copied (cannot be read): a.mov, b.mov, c.mov and 1 more. Not included: Arial", BundleJobText.skippedLine(result).english())
         assertEquals("", BundleJobText.skippedLine(BundleWriteResult(1, emptyList())).english())
@@ -153,7 +153,7 @@ class BundleJobTextTest {
 
     @Test
     fun `a warning leads with the problem and is not shareable`() {
-        val done = BundleJobState.Done("p1", "Holiday", "content://out/h.uvbundle", "Holiday.uvbundle", result, BundleVerification.Warning(listOf("Its table of contents cannot be read")), 1_000)
+        val done = BundleJobState.Done("p1", "Holiday", "content://out/h.uvbundle", "Holiday.uvbundle", result, BundleVerification.Warning(listOf(UiText.Raw("Its table of contents cannot be read"))), 1_000)
 
         val view = bundleViewFor(done)!!
         assertEquals("Backup saved, but check the file", view.title.english())

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.track
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -80,15 +82,15 @@ class FileMotionTracker internal constructor(
 
     override suspend fun analyse(asset: MediaAssetDto, clip: Clip, track: MotionTrack, fps: FrameRate, onProgress: (Float) -> Unit): TrackOutcome =
         withContext(Dispatchers.IO) {
-            synchronized(lock) { if (runningHandle != 0L) return@withContext TrackOutcome.Failed("Another tracking analysis is running") }
-            if (!cacheDir.isDirectory && !cacheDir.mkdirs()) return@withContext TrackOutcome.Failed("Could not create the tracking folder")
+            synchronized(lock) { if (runningHandle != 0L) return@withContext TrackOutcome.Failed(UiText.res(R.string.mt_busy)) }
+            if (!cacheDir.isDirectory && !cacheDir.mkdirs()) return@withContext TrackOutcome.Failed(UiText.res(R.string.mt_folder))
             val file = fileOf(asset, track)
             val (clipStart, clipEnd) = clipRange(clip, track, fps)
             val start = (clipStart - MARGIN_MICROS).coerceAtLeast(0L)
             val end = clipEnd + MARGIN_MICROS
             val seedUs = fps.framesToMicros(track.seed.sourceFrame)
             val halfFrameUs = fps.framesToMicros(1) / 2
-            val fd = opener.open(asset.uri) ?: return@withContext TrackOutcome.Failed("The media file could not be opened")
+            val fd = opener.open(asset.uri) ?: return@withContext TrackOutcome.Failed(UiText.res(R.string.st_open))
             val handle = native.create()
             synchronized(lock) { runningHandle = handle }
             try {
@@ -153,12 +155,12 @@ class FileMotionTracker internal constructor(
         fileOf(asset, track).delete()
     }
 
-    private fun describe(code: Int): String = when (code) {
-        NATIVE_INVALID -> "The target is outside the part of the video that was analysed"
-        NATIVE_IO_ERROR -> "The media file could not be read"
-        NATIVE_UNSUPPORTED -> "The target could not be followed in this clip"
-        NATIVE_CODEC_ERROR -> "The video could not be decoded"
-        else -> "The tracking failed (code $code)"
+    private fun describe(code: Int): UiText = when (code) {
+        NATIVE_INVALID -> UiText.res(R.string.mt_outside)
+        NATIVE_IO_ERROR -> UiText.res(R.string.st_read)
+        NATIVE_UNSUPPORTED -> UiText.res(R.string.mt_unsupported)
+        NATIVE_CODEC_ERROR -> UiText.res(R.string.st_codec)
+        else -> UiText.res(R.string.mt_failed_code, code)
     }
 
     private companion object {

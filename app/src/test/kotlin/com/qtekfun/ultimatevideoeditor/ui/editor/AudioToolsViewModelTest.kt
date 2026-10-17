@@ -277,7 +277,7 @@ class AudioToolsViewModelTest {
         h.select("c1")
 
         h.vm.onIntent(EditorIntent.NormalizeLoudness(-16.0))
-        assertEquals("Measuring loudness…", h.state.audioBusy)
+        assertEquals("Measuring loudness…", h.state.audioBusy?.english())
         advanceUntilIdle()
 
         assertNull(h.state.audioBusy)
@@ -382,7 +382,7 @@ class AudioToolsViewModelTest {
         assertTrue(h.state.noiseRegion!!.isComplete)
 
         h.vm.onIntent(EditorIntent.AnalyzeNoise(0.7))
-        assertEquals("Listening to the noise…", h.state.audioBusy)
+        assertEquals("Listening to the noise…", h.state.audioBusy?.english())
         advanceUntilIdle()
 
         val denoise = h.clip("c1").audio.denoise

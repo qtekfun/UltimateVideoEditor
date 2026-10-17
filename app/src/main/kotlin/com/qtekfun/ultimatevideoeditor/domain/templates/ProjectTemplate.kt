@@ -3,18 +3,18 @@ package com.qtekfun.ultimatevideoeditor.domain.templates
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 
 /** What a placeholder accepts. */
-enum class PlaceholderKind(val label: String) {
+enum class PlaceholderKind {
     /** A video clip with picture. */
-    VIDEO("Video"),
+    VIDEO,
 
     /** A video clip or a photo. */
-    VIDEO_OR_PHOTO("Video or photo"),
+    VIDEO_OR_PHOTO,
 
     /** A photo. */
-    PHOTO("Photo"),
+    PHOTO,
 
     /** Music or any audio. */
-    AUDIO("Audio"),
+    AUDIO,
 }
 
 /**

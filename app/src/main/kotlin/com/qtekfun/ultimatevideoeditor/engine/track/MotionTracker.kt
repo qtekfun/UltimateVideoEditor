@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.track
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
@@ -24,7 +26,7 @@ sealed interface TrackOutcome {
 
     data object Cancelled : TrackOutcome
 
-    data class Failed(val message: String) : TrackOutcome
+    data class Failed(val message: UiText) : TrackOutcome
 }
 
 /**
@@ -58,7 +60,7 @@ object NoMotionTracker : MotionTracker {
     override fun statusOf(asset: MediaAssetDto, clip: Clip, track: MotionTrack, fps: FrameRate): TrackStatus = TrackStatus.NotAnalysed
 
     override suspend fun analyse(asset: MediaAssetDto, clip: Clip, track: MotionTrack, fps: FrameRate, onProgress: (Float) -> Unit): TrackOutcome =
-        TrackOutcome.Failed("Motion tracking is not available here")
+        TrackOutcome.Failed(UiText.res(R.string.mt_unavailable))
 
     override fun cancel() = Unit
 

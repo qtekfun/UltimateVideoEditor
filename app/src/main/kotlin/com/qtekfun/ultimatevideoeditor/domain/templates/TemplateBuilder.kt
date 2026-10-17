@@ -64,7 +64,7 @@ object TemplateBuilder {
             val number = placeholders.count { it.kind == kind } + 1
             val placeholder = Placeholder(
                 id = "ph${placeholders.size + 1}",
-                name = "${kind.label} $number",
+                name = "${storedKindName(kind)} $number",
                 kind = kind,
                 frames = frames,
                 minFrames = (frames / 2).coerceAtLeast(1),
@@ -88,5 +88,13 @@ object TemplateBuilder {
         val kept = timeline.transitions.filter { t -> bare.copy(transitions = listOf(t)).transitionProblem(t) == null }
         val structure = bare.copy(transitions = kept)
         return ProjectTemplate(id, name, description, width, height, fpsNum, fpsDen, colorSpace, structure, placeholders)
+    }
+
+    /** The word a slot made from a project is called by in the template file; the file keeps it as written. */
+    private fun storedKindName(kind: PlaceholderKind): String = when (kind) {
+        PlaceholderKind.VIDEO -> "Video" // i18n-ok: a stored slot name
+        PlaceholderKind.VIDEO_OR_PHOTO -> "Video or photo" // i18n-ok: a stored slot name
+        PlaceholderKind.PHOTO -> "Photo" // i18n-ok: a stored slot name
+        PlaceholderKind.AUDIO -> "Audio" // i18n-ok: a stored slot name
     }
 }

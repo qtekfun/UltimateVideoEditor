@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.domain.templates
 
+import com.qtekfun.ultimatevideoeditor.domain.GroupEditUnavailable
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.TemplateFile
 import com.qtekfun.ultimatevideoeditor.data.TemplateFormatException
 import com.qtekfun.ultimatevideoeditor.data.TemplateStore
@@ -52,7 +54,7 @@ class TemplatesTest {
 
     private fun EditResult<TemplateResult>.failure(): String = when (this) {
         is EditResult.Success -> fail("expected a failure").let { throw IllegalStateException() }
-        is EditResult.Failure -> error.toString()
+        is EditResult.Failure -> (error as GroupEditUnavailable).reason.english()
     }
 
     // region the built-in templates
@@ -123,7 +125,7 @@ class TemplatesTest {
         val fills = fillsFor(montage).toMutableMap()
         fills["clip2"] = SlotFill(video("tiny", 20))
         val warnings = TemplateInstantiator.instantiate(montage, fills).ok().warnings
-        assertTrue(warnings.any { it.contains("Clip 2") && it.contains("shorter") })
+        assertTrue(warnings.any { it.english().contains("Clip 2") && it.english().contains("shorter") })
     }
 
     @Test
@@ -182,11 +184,11 @@ class TemplatesTest {
     fun `transitions are kept where the footage allows and dropped with a warning where it does not`() {
         val generous = TemplateInstantiator.instantiate(montage, fillsFor(montage, 600)).ok()
         assertEquals(4, generous.timeline.transitions.size)
-        assertTrue(generous.warnings.none { it.contains("dropped") })
+        assertTrue(generous.warnings.none { it.english().contains("dropped") })
         // Files exactly as long as their slots leave no spare footage after any cut.
         val exact = TemplateInstantiator.instantiate(montage, fillsFor(montage, 90)).ok()
         assertTrue(exact.timeline.transitions.size < 4)
-        assertTrue(exact.warnings.any { it.contains("dropped") })
+        assertTrue(exact.warnings.any { it.english().contains("dropped") })
         assertEquals(emptyList<String>(), exact.timeline.invariantViolations())
         assertEquals(TransitionType.SLIDE, generous.timeline.transitions.first().type)
     }

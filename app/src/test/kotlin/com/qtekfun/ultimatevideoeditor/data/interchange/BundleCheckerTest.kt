@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.ProjectJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -40,7 +41,7 @@ class BundleCheckerTest {
         return out.toByteArray() to result
     }
 
-    private fun problems(v: BundleVerification) = (v as BundleVerification.Warning).problems
+    private fun problems(v: BundleVerification) = (v as BundleVerification.Warning).problems.map { it.english() }
 
     @Test
     fun `a complete bundle is verified with its entry count`() {

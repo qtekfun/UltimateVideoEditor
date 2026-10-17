@@ -46,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.qtekfun.ultimatevideoeditor.ui.editor.guide.ToolbarGuideScreen
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
@@ -69,7 +70,9 @@ fun AboutScreen(
     var guideOpen by rememberSaveable { mutableStateOf(false) }
     var browserMissing by remember { mutableStateOf(false) }
     val unavailable = stringResource(R.string.about_unavailable)
-    val privacy = remember { readAsset(context, "legal/PRIVACY.md", unavailable) }
+    val language = LocalConfiguration.current.locales[0].language
+    // The statement is shipped in each language it has been translated to (docs/PRIVACY.<language>.md); the others read the English one.
+    val privacy = remember(language) { readLocalisedAsset(context, "legal/PRIVACY", language, unavailable) }
     val notices = remember { readAsset(context, "legal/THIRD_PARTY_NOTICES.md", unavailable) }
     val licence = remember { readAsset(context, "legal/LICENSE.txt", unavailable) }
 
@@ -264,6 +267,11 @@ private fun Expandable(label: String, text: String, markdown: Boolean = false) {
     SelectionContainer {
         if (markdown) MarkdownView(text) else Text(text, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+private fun readLocalisedAsset(context: Context, base: String, language: String, unavailable: String): String {
+    val translated = runCatching { context.assets.open("$base.$language.md").bufferedReader().use { it.readText() } }.getOrNull()
+    return translated ?: readAsset(context, "$base.md", unavailable)
 }
 
 private fun readAsset(context: Context, path: String, unavailable: String): String =

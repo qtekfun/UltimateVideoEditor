@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.MediaCaches
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
 import com.qtekfun.ultimatevideoeditor.data.MediaImporter
@@ -69,7 +70,7 @@ class RelinkViewModelTest {
         val problems = mutableMapOf<String, MediaProblem>()
 
         override suspend fun import(uri: String): ProbedMedia =
-            media[uri] ?: throw MediaImportException("cannot open $uri", problem = problems[uri] ?: MediaProblem.UNREADABLE)
+            media[uri] ?: throw MediaImportException("cannot open $uri", problem = problems[uri] ?: MediaProblem.UNREADABLE, userText = UiText.Raw("cannot open $uri"))
     }
 
     private class RecordingCaches : MediaCaches {
@@ -365,7 +366,7 @@ class RelinkViewModelTest {
         h.vm.onIntent(EditorIntent.SplitAtPlayhead)
 
         advanceTimeBy(600)
-        assertTrue(h.state.saveError!!.contains("disk full"))
+        assertTrue(h.state.saveError!!.english().contains("disk full"))
         assertEquals(1, h.messages.count { it.startsWith("Could not save") })
 
         // The disk comes back: the retry saves without any further edit.

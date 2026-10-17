@@ -61,7 +61,7 @@ class AndroidProxyMediaAccess(private val context: Context) : ProxyMediaAccess {
             val width = number(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toInt()
             val height = number(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toInt()
             if (width == null || height == null || width <= 0 || height <= 0) {
-                throw ProxyException(ProxyErrorCode.SOURCE_UNREADABLE, "The file has no video picture to make a proxy of")
+                throw ProxyException(ProxyErrorCode.SOURCE_UNREADABLE, ProxyMessages.NO_VIDEO)
             }
             return SourceInfo(
                 width = width,
@@ -71,7 +71,7 @@ class AndroidProxyMediaAccess(private val context: Context) : ProxyMediaAccess {
                 sizeBytes = sizeOf(uri),
             )
         } catch (e: RuntimeException) {
-            throw ProxyException(ProxyErrorCode.SOURCE_UNREADABLE, "The source cannot be read: ${e.message}", e)
+            throw ProxyException(ProxyErrorCode.SOURCE_UNREADABLE, "${ProxyMessages.UNREADABLE_PREFIX}${e.message}", e)
         } finally {
             retriever.release()
         }

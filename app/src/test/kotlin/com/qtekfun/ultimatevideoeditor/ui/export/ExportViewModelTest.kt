@@ -797,7 +797,7 @@ class ExportViewModelTest {
     @Test
     fun `export again after a warning keeps the file and returns to the settings`() {
         val warning = com.qtekfun.ultimatevideoeditor.engine.verify.VerificationOutcome.Warning(
-            listOf(com.qtekfun.ultimatevideoeditor.engine.verify.Finding(com.qtekfun.ultimatevideoeditor.engine.verify.VerifyCheck.PICTURE, "x", 5)), 45, 1_500_000,
+            listOf(com.qtekfun.ultimatevideoeditor.engine.verify.Finding(com.qtekfun.ultimatevideoeditor.engine.verify.VerifyCheck.PICTURE, UiText.Raw("x"), 5)), 45, 1_500_000,
         )
         val vm = verifyingViewModel(warning)
         vm.openAndStart()

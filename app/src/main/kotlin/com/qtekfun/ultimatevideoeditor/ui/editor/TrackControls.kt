@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
@@ -103,7 +104,7 @@ internal fun TrackControls(clipId: String, track: TrackUiState, onIntent: (Edito
                 val shown = track.activeId == item.track.id
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text(item.track.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text(trackNameText(item.track.name).asString(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                         TextButton(onClick = { onIntent(EditorIntent.ShowTrack(if (shown) null else item.track.id)) }) { Text(if (shown) stringResource(R.string.ed_2a_hide_path) else stringResource(R.string.ed_2a_show_path)) }
                         TextButton(onClick = { onIntent(EditorIntent.RemoveMotionTrack(item.track.id)) }) { Text(stringResource(R.string.common_delete)) }
                     }
@@ -120,11 +121,11 @@ internal fun TrackControls(clipId: String, track: TrackUiState, onIntent: (Edito
             Text(stringResource(R.string.ed_2a_make_this_clip_follow_a), style = MaterialTheme.typography.labelMedium)
             for (item in track.followable) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (item.ready) item.track.name else stringResource(R.string.ed_2a_track_not_analysed, item.track.name), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(if (item.ready) trackNameText(item.track.name).asString() else stringResource(R.string.ed_2a_track_not_analysed, trackNameText(item.track.name).asString()), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     Button(
                         onClick = { onIntent(EditorIntent.FollowTrack(item.track.id)) },
                         enabled = item.ready,
-                        modifier = Modifier.described(stringResource(R.string.ed_2a_follow, item.track.name)),
+                        modifier = Modifier.described(stringResource(R.string.ed_2a_follow, trackNameText(item.track.name).asString())),
                     ) { Text(stringResource(R.string.ed_2a_follow_2)) }
                 }
             }

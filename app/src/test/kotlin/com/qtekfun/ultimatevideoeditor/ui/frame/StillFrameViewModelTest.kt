@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.frame
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.clip
@@ -131,7 +132,7 @@ class StillFrameViewModelTest {
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input(w = 7680, h = 4320))) }
 
         assertEquals(4096 to 2304, renderer.job!!.width to renderer.job!!.height)
-        assertTrue((effects.last() as StillFrameEffect.Saved).frame.notes.single().contains("4096"))
+        assertTrue((effects.last() as StillFrameEffect.Saved).frame.notes.single().english().contains("4096"))
     }
 
     @Test
@@ -140,7 +141,7 @@ class StillFrameViewModelTest {
 
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input(frame = 45))) }
 
-        assertTrue((effects.last() as StillFrameEffect.Saved).frame.notes.single().contains("gap"))
+        assertTrue((effects.last() as StillFrameEffect.Saved).frame.notes.single().english().contains("gap"))
     }
 
     @Test
@@ -150,7 +151,7 @@ class StillFrameViewModelTest {
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input(timeline = timeline()))) }
 
         assertNull(renderer.job)
-        assertTrue((effects.single() as StillFrameEffect.Message).text.contains("nothing to save"))
+        assertTrue((effects.single() as StillFrameEffect.Message).text.english().contains("nothing to save"))
         assertEquals(StillFramePhase.Idle, vm.state.value.phase)
     }
 
@@ -161,7 +162,7 @@ class StillFrameViewModelTest {
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input())) }
 
         assertNull(renderer.job)
-        assertTrue((effects.single() as StillFrameEffect.Message).text.contains("Holiday"))
+        assertTrue((effects.single() as StillFrameEffect.Message).text.english().contains("Holiday"))
     }
 
     @Test
@@ -171,7 +172,7 @@ class StillFrameViewModelTest {
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input())) }
 
         assertNull(renderer.job)
-        assertTrue((effects.single() as StillFrameEffect.Message).text.contains("exporting"))
+        assertTrue((effects.single() as StillFrameEffect.Message).text.english().contains("exporting"))
     }
 
     @Test
@@ -182,12 +183,12 @@ class StillFrameViewModelTest {
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input())) }
 
         assertTrue(sink.saved.isEmpty())
-        assertTrue((effects.last() as StillFrameEffect.Message).text.contains("flat colour"))
+        assertTrue((effects.last() as StillFrameEffect.Message).text.english().contains("flat colour"))
         assertTrue(vm.state.value.phase is StillFramePhase.Failed)
 
         renderer.failWith = ExportException(ExportErrorCode.CODEC_ERROR, "the decoder stalled")
         val more = vm.collecting { vm.onIntent(StillFrameIntent.Save(input())) }
-        assertTrue((more.last() as StillFrameEffect.Message).text.contains("the decoder stalled"))
+        assertTrue((more.last() as StillFrameEffect.Message).text.english().contains("the decoder stalled"))
     }
 
     @Test
@@ -197,7 +198,7 @@ class StillFrameViewModelTest {
 
         val effects = vm.collecting { vm.onIntent(StillFrameIntent.Save(input())) }
 
-        assertTrue((effects.last() as StillFrameEffect.Message).text.contains("could not be saved"))
+        assertTrue((effects.last() as StillFrameEffect.Message).text.english().contains("could not be saved"))
         assertTrue(vm.state.value.phase is StillFramePhase.Failed)
     }
 
@@ -216,7 +217,7 @@ class StillFrameViewModelTest {
 
         assertEquals(StillFramePhase.Idle, vm.state.value.phase)
         assertTrue(sink.saved.isEmpty())
-        assertTrue((effects.last() as StillFrameEffect.Message).text.contains("cancelled"))
+        assertTrue((effects.last() as StillFrameEffect.Message).text.english().contains("cancelled"))
     }
 
     @Test

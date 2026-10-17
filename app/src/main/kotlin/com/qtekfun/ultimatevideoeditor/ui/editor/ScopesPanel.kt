@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.background
@@ -48,7 +52,7 @@ import com.qtekfun.ultimatevideoeditor.engine.preview.ScopeMode
 internal fun ScopesPanel(
     engine: PreviewEngine,
     colorSpace: ProjectColorSpace,
-    onError: (String) -> Unit,
+    onError: (UiText) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var modeCode by rememberSaveable { mutableIntStateOf(ScopeMode.WAVEFORM.code) }
@@ -58,7 +62,7 @@ internal fun ScopesPanel(
         try {
             engine.setScopeMode(mode)
         } catch (e: IllegalStateException) {
-            report.value("The scopes could not change mode: ${e.message}")
+            report.value(UiText.res(R.string.ed_s3_scopes_mode_failed, e.message.orEmpty()))
         }
     }
     Column(modifier = modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xCC000000)).padding(4.dp)) {
@@ -70,8 +74,8 @@ internal fun ScopesPanel(
                 FilterChip(
                     selected = candidate == mode,
                     onClick = { modeCode = candidate.code },
-                    label = { Text(candidate.label, fontSize = 11.sp) },
-                    modifier = Modifier.semantics { contentDescription = "Show the ${candidate.label} scope" },
+                    label = { Text(stringResource(candidate.labelRes()), fontSize = 11.sp) },
+                    modifier = Modifier.described(stringResource(R.string.ed_s3_show_the_scope, stringResource(candidate.labelRes()))),
                 )
             }
         }
@@ -88,7 +92,7 @@ internal fun ScopesPanel(
                                     try {
                                         engine.attachScopeSurface(holder.surface)
                                     } catch (e: PreviewException) {
-                                        report.value("The scopes could not start: ${e.message}")
+                                        report.value(UiText.res(R.string.ed_s3_scopes_start_failed, e.message.orEmpty()))
                                     }
                                 }
 
@@ -96,7 +100,7 @@ internal fun ScopesPanel(
                                     try {
                                         engine.scopeSurfaceChanged()
                                     } catch (e: IllegalStateException) {
-                                        report.value("The scopes stopped: ${e.message}")
+                                        report.value(UiText.res(R.string.ed_s3_scopes_stopped, e.message.orEmpty()))
                                     }
                                 }
 
@@ -126,7 +130,7 @@ internal fun ScopesPanel(
             }
         }
         Text(
-            text = ScopeScale.caption(mode, colorSpace),
+            text = ScopeScale.caption(mode, colorSpace).asString(),
             style = MaterialTheme.typography.labelSmall,
             color = Color(0xFFBBBBBB),
             maxLines = 1,

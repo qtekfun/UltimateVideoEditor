@@ -1,5 +1,12 @@
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
+import androidx.compose.ui.platform.LocalContext
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -81,49 +88,51 @@ fun TemplateWizardSheet(
         ) {
             val selected = state.selected
             if (selected == null) {
-                Text("New from a template", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.ed_s3_new_from_a_template), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "A template is a project without media: titles, effects, transitions and slots for your own clips. Nothing is downloaded and your files stay where they are.",
+                    stringResource(R.string.ed_s3_a_template_is_a_project),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(state.templates, key = { it.id }) { template ->
+                        val context = LocalContext.current
+                        val templateName = template.nameText()
                         TemplateRow(
                             template = template,
                             user = BuiltInTemplates.find(template.id) == null,
-                            onOpen = { viewModel.select(template.id) },
+                            onOpen = { viewModel.select(template.id, templateName.resolve(context)) },
                             onExport = { exportId = template.id; exportLauncher.launch("${template.name}.uvtemplate") },
                             onDelete = { viewModel.deleteTemplate(template.id) },
                         )
                     }
                     if (projects.isNotEmpty()) {
                         item(key = "from-project") {
-                            Text("Make a template from one of your projects", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+                            Text(stringResource(R.string.ed_s3_make_a_template_from_one), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
                         }
                         items(projects, key = { "project-${it.id}" }) { project ->
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                                 Text(project.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { viewModel.saveProjectAsTemplate(project.id) }) { Text("Save as template") }
+                                TextButton(onClick = { viewModel.saveProjectAsTemplate(project.id) }) { Text(stringResource(R.string.ed_s3_save_as_template)) }
                             }
                         }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text("Import template file…") }
-                    TextButton(onClick = onDismiss) { Text("Close") }
+                    TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.ed_s3_import_template_file)) }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
                 }
             } else {
-                Text(selected.name, style = MaterialTheme.typography.titleMedium)
+                Text(selected.nameText().asString(), style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = state.name,
                     onValueChange = viewModel::setName,
-                    label = { Text("Project name") },
+                    label = { Text(stringResource(R.string.ed_s3_project_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Choose a file for each slot. Clips longer than a slot are trimmed from their start, shorter ones shorten it, and pictures of another shape are centre-cropped.",
+                    stringResource(R.string.ed_s3_choose_a_file_for_each),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -140,20 +149,20 @@ fun TemplateWizardSheet(
                         )
                     }
                 }
-                state.problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                for (warning in state.warnings) Text(warning, style = MaterialTheme.typography.bodySmall)
+                state.problem?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                for (warning in state.warnings) Text(warning.asString(), style = MaterialTheme.typography.bodySmall)
                 if (state.missingRequired.isNotEmpty()) {
-                    Text("Still to choose: ${state.missingRequired.joinToString { it.name }}", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.ed_s3_still_to_choose, state.missingRequired.map { it.nameText(selected).asString() }.joinToString()), style = MaterialTheme.typography.bodySmall)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = viewModel::create, enabled = state.canCreate) { Text("Create project") }
-                    TextButton(onClick = viewModel::back) { Text("Back") }
+                    Button(onClick = viewModel::create, enabled = state.canCreate) { Text(stringResource(R.string.ed_s3_create_project)) }
+                    TextButton(onClick = viewModel::back) { Text(stringResource(R.string.common_back)) }
                 }
             }
             state.message?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = viewModel::dismissMessage) { Text("OK") }
+                    Text(it.asString(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = viewModel::dismissMessage) { Text(stringResource(R.string.common_ok)) }
                 }
             }
         }
@@ -172,20 +181,20 @@ private fun TemplateRow(template: ProjectTemplate, user: Boolean, onOpen: () -> 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = "Use ${template.name}", onClick = onOpen)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_s3_use, template.nameText().asString()), onClick = onOpen)
             .padding(vertical = 8.dp),
     ) {
-        Text(template.name, style = MaterialTheme.typography.bodyLarge)
-        Text(template.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(template.nameText().asString(), style = MaterialTheme.typography.bodyLarge)
+        Text(template.descriptionText().asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val fps = template.fpsNum.toDouble() / template.fpsDen
         Text(
-            "${slotCountLabel(template.placeholders.size)} ·${template.width} x ${template.height} · ${"%.4g".format(fps)} fps",
+            stringResource(R.string.ed_s3_tw_row_meta, slotCountLabel(template.placeholders.size).asString(), template.width, template.height, "%.4g".format(fps)),
             style = MaterialTheme.typography.labelSmall,
         )
         if (user) {
             Row {
-                TextButton(onClick = onExport) { Text("Share file…") }
-                TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onExport) { Text(stringResource(R.string.ed_s3_share_file)) }
+                TextButton(onClick = onDelete) { Text(stringResource(R.string.common_delete)) }
             }
         }
     }
@@ -201,19 +210,19 @@ private fun PlaceholderRow(
     onClear: () -> Unit,
 ) {
     val seconds = placeholder.frames * fps.fpsDen.toDouble() / fps.fpsNum
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Slot ${placeholder.name}" }) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().described(stringResource(R.string.ed_s3_slot, placeholder.nameText(fps).asString()))) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                "${placeholder.name}${if (placeholder.optional) " (optional)" else ""}",
+                if (placeholder.optional) stringResource(R.string.ed_s3_tw_slot_optional, placeholder.nameText(fps).asString()) else placeholder.nameText(fps).asString(),
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                label?.let { "Chosen: $it" } ?: "${placeholder.kind.label}, about ${"%.1f".format(seconds)} s",
+                label?.let { stringResource(R.string.ed_s3_tw_chosen, it) } ?: stringResource(R.string.ed_s3_tw_slot_hint, stringResource(placeholder.kind.labelRes()), "%.1f".format(seconds)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (label != null) TextButton(onClick = onClear) { Text("Clear") }
-        TextButton(onClick = onPick, enabled = !busy) { Text(if (label == null) "Choose…" else "Change…") }
+        if (label != null) TextButton(onClick = onClear) { Text(stringResource(R.string.common_clear)) }
+        TextButton(onClick = onPick, enabled = !busy) { Text(if (label == null) stringResource(R.string.ed_s3_choose) else stringResource(R.string.ed_s3_change)) }
     }
 }

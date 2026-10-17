@@ -98,14 +98,6 @@ class StillFrameTest {
         assertEquals(FrameContent.EMPTY, frameContent(timeline(track("a1", clip("au", 0, 100), type = TrackType.AUDIO)), 5))
     }
 
-    @Test
-    fun `only a black frame carries a notice`() {
-        assertNull(frameNotice(FrameContent.PICTURE))
-        assertNotNull(frameNotice(FrameContent.GAP))
-        assertNotNull(frameNotice(FrameContent.PAST_END))
-        assertNotNull(frameNotice(FrameContent.EMPTY))
-    }
-
     // ---- the guard against a flat picture ----
 
     private fun picture(w: Int, h: Int, fill: (Int) -> Int): ByteBuffer {

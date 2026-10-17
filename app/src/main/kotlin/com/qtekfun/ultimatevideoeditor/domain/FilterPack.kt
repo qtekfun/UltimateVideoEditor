@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.domain
 
+import com.qtekfun.ultimatevideoeditor.R
 import kotlin.math.pow
 
 /**
@@ -82,42 +83,39 @@ data class LookParams(
 }
 
 /** A named look of the pack. [id] is stable across versions and is what the LUT picker passes around. */
-data class FilterLook(val id: String, val name: String, val description: String, val params: LookParams)
+data class FilterLook(val id: String, @androidx.annotation.StringRes val nameRes: Int, @androidx.annotation.StringRes val descriptionRes: Int, val params: LookParams)
 
 object FilterPack {
     /** Points per side of the generated cubes: the usual 17, small enough to generate and store quickly. */
     const val CUBE_SIZE = 17
 
     val looks: List<FilterLook> = listOf(
-        FilterLook("original", "Original", "No change; a neutral reference.", LookParams.NEUTRAL),
-        FilterLook(
-            "cinematic", "Cinematic", "Cool shadows, warm highlights, a little more contrast.",
+        FilterLook("original", R.string.look_original, R.string.look_original_desc, LookParams.NEUTRAL),
+        FilterLook("cinematic", R.string.look_cinematic, R.string.look_cinematic_desc,
             LookParams(contrast = 1.12, saturation = 0.95, shadows = Triple(-0.02, 0.01, 0.05), highlights = Triple(0.05, 0.02, -0.03)),
         ),
-        FilterLook(
-            "teal-orange", "Teal and orange", "The blockbuster split: teal shadows, orange skin tones.",
+        FilterLook("teal-orange", R.string.look_teal_orange, R.string.look_teal_orange_desc,
             LookParams(contrast = 1.1, saturation = 1.08, shadows = Triple(-0.05, 0.02, 0.06), highlights = Triple(0.08, 0.03, -0.06)),
         ),
-        FilterLook("warm-glow", "Warm glow", "Soft golden warmth.", LookParams(exposure = 0.1, warmth = 0.8, saturation = 1.05, highlights = Triple(0.03, 0.01, -0.02))),
-        FilterLook("cool-breeze", "Cool breeze", "Fresh, slightly blue.", LookParams(warmth = -0.7, saturation = 0.98, tint = -0.1)),
-        FilterLook("faded-film", "Faded film", "Lifted blacks and gentle colour, like an old print.", LookParams(contrast = 0.9, saturation = 0.85, warmth = 0.2, fade = 0.07)),
-        FilterLook("vintage", "Vintage", "Warm, washed and slightly sepia.", LookParams(contrast = 0.95, saturation = 0.8, warmth = 0.4, sepia = 0.25, fade = 0.05)),
-        FilterLook("golden-hour", "Golden hour", "Low-sun orange with soft contrast.", LookParams(exposure = 0.08, gamma = 1.05, warmth = 1.0, saturation = 1.1, highlights = Triple(0.06, 0.02, -0.04))),
-        FilterLook("noir", "Noir", "High-contrast black and white.", LookParams(contrast = 1.35, mono = 1.0, gamma = 0.95)),
-        FilterLook("silver", "Silver", "Soft black and white with open shadows.", LookParams(contrast = 1.05, mono = 1.0, fade = 0.03, gamma = 1.05)),
-        FilterLook("bleach-bypass", "Bleach bypass", "Desaturated and punchy.", LookParams(contrast = 1.25, saturation = 0.55, gamma = 0.95)),
-        FilterLook("vivid", "Vivid", "Rich, saturated colour.", LookParams(contrast = 1.1, saturation = 1.35)),
-        FilterLook("muted", "Muted", "Calm, low-saturation colour.", LookParams(contrast = 0.97, saturation = 0.65)),
-        FilterLook("moody-blue", "Moody blue", "Dark, cold and heavy.", LookParams(exposure = -0.15, contrast = 1.1, warmth = -0.9, saturation = 0.9, shadows = Triple(-0.02, 0.0, 0.05))),
-        FilterLook("sunset-pink", "Sunset pink", "Pink-magenta dusk.", LookParams(exposure = 0.05, warmth = 0.5, tint = 0.6, saturation = 1.1, highlights = Triple(0.04, -0.01, 0.03))),
-        FilterLook("matte", "Matte", "Flat, modern grade with raised blacks.", LookParams(contrast = 0.92, saturation = 0.95, fade = 0.09)),
-        FilterLook(
-            "cross-process", "Cross process", "Green shadows and magenta highlights.",
+        FilterLook("warm-glow", R.string.look_warm_glow, R.string.look_warm_glow_desc, LookParams(exposure = 0.1, warmth = 0.8, saturation = 1.05, highlights = Triple(0.03, 0.01, -0.02))),
+        FilterLook("cool-breeze", R.string.look_cool_breeze, R.string.look_cool_breeze_desc, LookParams(warmth = -0.7, saturation = 0.98, tint = -0.1)),
+        FilterLook("faded-film", R.string.look_faded_film, R.string.look_faded_film_desc, LookParams(contrast = 0.9, saturation = 0.85, warmth = 0.2, fade = 0.07)),
+        FilterLook("vintage", R.string.look_vintage, R.string.look_vintage_desc, LookParams(contrast = 0.95, saturation = 0.8, warmth = 0.4, sepia = 0.25, fade = 0.05)),
+        FilterLook("golden-hour", R.string.look_golden_hour, R.string.look_golden_hour_desc, LookParams(exposure = 0.08, gamma = 1.05, warmth = 1.0, saturation = 1.1, highlights = Triple(0.06, 0.02, -0.04))),
+        FilterLook("noir", R.string.look_noir, R.string.look_noir_desc, LookParams(contrast = 1.35, mono = 1.0, gamma = 0.95)),
+        FilterLook("silver", R.string.look_silver, R.string.look_silver_desc, LookParams(contrast = 1.05, mono = 1.0, fade = 0.03, gamma = 1.05)),
+        FilterLook("bleach-bypass", R.string.look_bleach_bypass, R.string.look_bleach_bypass_desc, LookParams(contrast = 1.25, saturation = 0.55, gamma = 0.95)),
+        FilterLook("vivid", R.string.look_vivid, R.string.look_vivid_desc, LookParams(contrast = 1.1, saturation = 1.35)),
+        FilterLook("muted", R.string.look_muted, R.string.look_muted_desc, LookParams(contrast = 0.97, saturation = 0.65)),
+        FilterLook("moody-blue", R.string.look_moody_blue, R.string.look_moody_blue_desc, LookParams(exposure = -0.15, contrast = 1.1, warmth = -0.9, saturation = 0.9, shadows = Triple(-0.02, 0.0, 0.05))),
+        FilterLook("sunset-pink", R.string.look_sunset_pink, R.string.look_sunset_pink_desc, LookParams(exposure = 0.05, warmth = 0.5, tint = 0.6, saturation = 1.1, highlights = Triple(0.04, -0.01, 0.03))),
+        FilterLook("matte", R.string.look_matte, R.string.look_matte_desc, LookParams(contrast = 0.92, saturation = 0.95, fade = 0.09)),
+        FilterLook("cross-process", R.string.look_cross_process, R.string.look_cross_process_desc,
             LookParams(contrast = 1.18, saturation = 1.1, shadows = Triple(-0.03, 0.05, 0.0), highlights = Triple(0.06, -0.03, 0.05)),
         ),
-        FilterLook("forest", "Forest", "Deep greens and earthy mid-tones.", LookParams(contrast = 1.05, warmth = -0.1, tint = -0.5, saturation = 1.1, shadows = Triple(-0.02, 0.03, -0.01))),
-        FilterLook("day-for-night", "Day for night", "Dark and blue, as if shot at night.", LookParams(exposure = -0.5, contrast = 1.15, warmth = -1.0, saturation = 0.7, shadows = Triple(-0.02, 0.0, 0.06))),
-        FilterLook("pastel", "Pastel", "Light, airy and soft.", LookParams(exposure = 0.15, gamma = 1.1, contrast = 0.88, saturation = 0.8, fade = 0.05)),
+        FilterLook("forest", R.string.look_forest, R.string.look_forest_desc, LookParams(contrast = 1.05, warmth = -0.1, tint = -0.5, saturation = 1.1, shadows = Triple(-0.02, 0.03, -0.01))),
+        FilterLook("day-for-night", R.string.look_day_for_night, R.string.look_day_for_night_desc, LookParams(exposure = -0.5, contrast = 1.15, warmth = -1.0, saturation = 0.7, shadows = Triple(-0.02, 0.0, 0.06))),
+        FilterLook("pastel", R.string.look_pastel, R.string.look_pastel_desc, LookParams(exposure = 0.15, gamma = 1.1, contrast = 0.88, saturation = 0.8, fade = 0.05)),
     )
 
     fun find(id: String): FilterLook? = looks.firstOrNull { it.id == id }
@@ -126,7 +124,7 @@ object FilterPack {
     fun cube(look: FilterLook, size: Int = CUBE_SIZE): String {
         require(size in CubeLut.MIN_SIZE..CubeLut.MAX_SIZE) { "LUT size must be ${CubeLut.MIN_SIZE}..${CubeLut.MAX_SIZE}" }
         val out = StringBuilder(size * size * size * 26 + 128)
-        out.append("TITLE \"").append(look.name).append("\"\n")
+        out.append("TITLE \"").append(look.id).append("\"\n")
         out.append("# Generated by ultimateVE, filter pack: ").append(look.id).append('\n')
         out.append("LUT_3D_SIZE ").append(size).append('\n')
         val max = (size - 1).toDouble()

@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,8 +41,8 @@ internal fun StickerChooser(onPick: (String) -> Unit, modifier: Modifier = Modif
         modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        StickerGroup("Shapes", StickerIds.shapes, onPick)
-        StickerGroup("Emoji", StickerIds.emoji, onPick)
+        StickerGroup(stringResource(R.string.ed_s3_stickers_shapes), StickerIds.shapes, onPick)
+        StickerGroup(stringResource(R.string.ed_s3_stickers_emoji), StickerIds.emoji, onPick)
     }
 }
 
@@ -56,7 +59,7 @@ private fun StickerGroup(title: String, stickers: List<StickerInfo>, onPick: (St
             Box(
                 modifier = Modifier
                     .size(TILE_SIZE)
-                    .semantics { contentDescription = "Add sticker ${sticker.label}" }
+                    .described(stringResource(R.string.ed_s3_add_sticker, sticker.labelText().asString()))
                     .clickable(role = Role.Button) { onPick(sticker.id) },
                 contentAlignment = Alignment.Center,
             ) {
