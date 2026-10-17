@@ -17,6 +17,8 @@ data class MarkerPopup(
     val stick: Boolean,
     /** False for a beat marker or one over a gap: there is no clip to stick to. */
     val canStick: Boolean,
+    /** The shot this flag asks for has been recorded (see `ShotList`). */
+    val done: Boolean,
     val hasPrevious: Boolean,
     val hasNext: Boolean,
 )
@@ -39,6 +41,19 @@ sealed interface MarkerIntent : EditorIntent {
 
     /** The "Stick to clip" switch of the popup; committed with the other edits as one undo step. */
     data class StickChanged(val stick: Boolean) : MarkerIntent
+
+    /** The "Shot" switch of the popup; committed with the other edits as one undo step. */
+    data class DoneChanged(val done: Boolean) : MarkerIntent
+
+    /** Opens / closes the flag list (the shot list sheet). */
+    data object OpenList : MarkerIntent
+    data object CloseList : MarkerIntent
+
+    /** A tick in the flag list: one undo step, the flag stays where it is. */
+    data class SetDone(val markerId: String, val done: Boolean) : MarkerIntent
+
+    /** A tap on a row of the flag list: the playhead goes to that flag and the list stays open. */
+    data class GoTo(val markerId: String) : MarkerIntent
 
     /** Closes the popup, keeping the edits (one undo step when anything changed). */
     data object Close : MarkerIntent

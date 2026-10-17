@@ -76,14 +76,14 @@ class ProxyGeneratorTest {
     }
 
     @Test
-    fun `an HDR source is read with its own colour mode and the proxy is SDR`() {
+    fun `an HDR source is read with its own colour mode and the proxy keeps HDR (it was an SDR stand-in before 0_5_8)`() {
         val asset = testAsset(colorSpace = "Rec2020-HLG")
         media.infos[asset.uri] = UHD
 
         generator.generate(queued(asset)) { }
 
-        assertEquals(1, runner.requests.single().videoClips.single().colorMode) // HLG source, tone-mapped by the engine
-        assertFalse(runner.requests.single().settings.hdr)
+        assertEquals(1, runner.requests.single().videoClips.single().colorMode) // an HLG source
+        assertTrue(runner.requests.single().settings.hdr) // written as HLG, so the preview shows the colours of the original
     }
 
     @Test
@@ -222,4 +222,70 @@ class ProxyGeneratorTest {
         assertNull(index.get(entry.key))
         assertFalse(index.partFileFor(entry.key).exists())
     }
+
+    @Test
+    fun `an HDR source gets an HLG 10-bit HEVC proxy that keeps its colours`() {
+        for ((space, nativeMode) in listOf("Rec2020-HLG" to 1, "Rec2020-PQ" to 4)) {
+            val asset = testAsset(id = "h-$space", colorSpace = space)
+            media.infos[asset.uri] = UHD
+            runner.requests.clear()
+
+            val ready = generator.generate(queued(asset)) { }
+
+            val request = runner.requests.single()
+            assertEquals(ExportCodec.HEVC, request.settings.codec)
+            assertTrue(request.settings.hdr)
+            assertEquals(nativeMode, request.videoClips.single().colorMode) // the source is read as what it is, the output is HLG
+            assertEquals("Rec2020-HLG", ready.colorSpace) // a PQ source is converted to HLG: the proxy file is HLG either way
+        }
+    }
+
+    @Test
+    fun `a device that cannot encode HDR gets the SDR stand-in and the entry says so`() {
+        val asset = testAsset(colorSpace = "Rec2020-HLG")
+        media.infos[asset.uri] = UHD
+        val seen = ArrayList<Boolean>()
+        runner.behavior = { request, listener ->
+            seen += request.settings.hdr
+            if (request.settings.hdr) {
+                listener.onFinished(ExportException(ExportErrorCode.CODEC_ERROR, "no 10-bit encoder"))
+            } else {
+                media.outputs.getValue(request.outputFd).writeBytes(ByteArray(1000))
+                listener.onFinished(null)
+            }
+        }
+
+        val ready = generator.generate(queued(asset)) { }
+
+        assertEquals(listOf(true, false), seen) // HDR first, then one SDR retry
+        assertEquals(ExportCodec.H264, runner.requests.last().settings.codec)
+        assertFalse(runner.requests.last().settings.hdr)
+        assertEquals(ProxyState.READY, ready.state)
+        assertEquals("Rec709-SDR", ready.colorSpace)
+        assertEquals(SourceColorSpaceIds.SDR, index.get(ready.key)?.colorSpace)
+    }
+
+    @Test
+    fun `an SDR source is never encoded as HDR and a failure that is not about the encoder is not retried`() {
+        val sdr = testAsset(id = "s1")
+        media.infos[sdr.uri] = UHD
+        assertEquals("Rec709-SDR", generator.generate(queued(sdr)) { }.colorSpace)
+        assertFalse(runner.requests.single().settings.hdr)
+
+        val hdr = testAsset(id = "h1", colorSpace = "Rec2020-HLG")
+        media.infos[hdr.uri] = UHD
+        runner.requests.clear()
+        runner.behavior = { _, listener -> listener.onFinished(ExportException(ExportErrorCode.IO_ERROR, "disk full")) }
+        try {
+            generator.generate(queued(hdr)) { }
+            fail("the failure must reach the caller")
+        } catch (e: ProxyException) {
+            assertEquals(ProxyErrorCode.IO, e.code)
+        }
+        assertEquals(1, runner.requests.size) // an I/O failure is not a reason to try SDR
+    }
+}
+
+private object SourceColorSpaceIds {
+    const val SDR = "Rec709-SDR"
 }

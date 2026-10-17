@@ -64,6 +64,27 @@ class ProxyManagerTest {
     }
 
     @Test
+    fun `a source resolved while its proxy was still being made switches to the proxy when it finishes`() {
+        val a = asset()
+        manager.setEnabled("p1", true)
+        transcoder.hold = java.util.concurrent.CountDownLatch(1)
+        manager.generate(listOf(a))
+        waitUntil { manager.statusOf(a) is ProxyStatus.Making }
+        // The editor asks while the proxy is not there yet (the queue changed): the original, remembered.
+        assertEquals(a.uri, manager.resolve(a, MediaPurpose.PREVIEW, "p1").uri)
+        assertEquals(a.uri, manager.resolve(a, MediaPurpose.THUMBNAIL, "p1").uri)
+
+        val before = manager.changes.value
+        transcoder.hold!!.countDown()
+        // The worker marks the proxy ready and then counts the change; the editor re-resolves on that count, so wait for it too.
+        waitUntil { manager.statusOf(a) is ProxyStatus.Ready && manager.changes.value != before }
+
+        // Nothing but the worker finishing changed: the answer must follow it, for the preview as for the thumbnails.
+        assertTrue(manager.resolve(a, MediaPurpose.PREVIEW, "p1").isProxy)
+        assertTrue(manager.resolve(a, MediaPurpose.THUMBNAIL, "p1").isProxy)
+    }
+
+    @Test
     fun `export and analysis get the original with the switch on and the proxy ready`() {
         val a = asset()
         makeReady(a)

@@ -193,6 +193,7 @@ Every icon also has a text description: long press it to see its name, or use a 
 | ▦ | Layout | Opens the layout sheet: presets, track height, where the panels sit, customise and reset. |
 | ✂ | Split at playhead | With nothing selected, cuts every clip on every lane (video, audio, titles) that the playhead is over, as one undo step; a video clip and its linked audio are cut together, and the selection stays empty. Otherwise cuts the selected clip in two (with several selected, every one the playhead is over, as one undo step). Playback pauses and the playhead stays exactly on the cut, the first frame of the right-hand part, which becomes the selection so you can move the playhead and cut again. Undo and redo leave the playhead where it is. |
 | ⛶ (dotted square) | Select several clips | Turns select mode on or off; see [Selecting several clips](#selecting-several-clips). |
+| 🔊 | Clip volume | Opens a small slider for the volume of the **selected clips only** (not the whole track: the mixer does that), with **Mute** and **Reset to 0 dB**. The value is set when you lift your finger, as one undo step. It works on audio clips and on video clips that still carry their own sound; select several to set them all at once. The same volume is in the clip panel (**Adjust clip**). |
 | 🗑 | Delete | Deletes the selected clip. On the base track the gap closes and overlays over the removed part are trimmed or removed; on other tracks a gap is left. The playhead then goes to where the deleted clip started, so after cutting and deleting the left part it sits on the join. |
 | →← | Close gap before clip | Slides an overlay or audio clip back to the end of the previous one. Disabled on the base track, which does it automatically. |
 | T | Add a title | Adds a text title at the playhead. |
@@ -283,6 +284,10 @@ panel on the left.
 - **Pinch** on the timeline to zoom the time axis (only the time axis, whichever way the fingers spread). The lane height does not change by gesture: the Layout sheet's Small / Medium / Large chips set it.
 - **Drag** on an empty area to scroll, **fling** to coast.
 - On a selected **audio clip**: **drag the white circles** in its corners for fades, **double tap** it to add a volume point, **drag a dot** to shape the volume (see [Fades and volume on an audio clip](#fades-and-volume-on-an-audio-clip)).
+- A clip drag keeps to one direction so it goes where you mean it to: pull **mainly down or up** and the clip changes lane without
+  moving in time (an audio clip taken out of a video drops on the lane below at the same frames); pull **mainly sideways** and it
+  moves in time and stays on its lane. A short tick tells you the direction has locked. Pull **diagonally**, or far across the other
+  way (about a finger's width past the lock), and the clip follows your finger freely.
 - Snapping pulls clip edges to neighbours, the playhead and markers (about 8 frames).
 
 ### Detach the audio of a video clip
@@ -353,6 +358,9 @@ the exported movie use the same fades and curve.
   puts the earliest clip at the playhead: overlay clips keep their offsets (and fail rather than land on another
   clip), base clips are inserted at the nearest cut. **Duplicate** pastes right after the last selected clip.
   **Paste attributes** copies transform, effects, volume and speed of the copied clip onto the selection.
+  When another clip is selected, **Paste** asks first: **Content** adds a copy of the copied clips at the playhead, **Style**
+  applies the look and sound of the copied clip (the same attributes as **Paste attributes**) to the selected clips, so
+  several clips come out uniform. With nothing else selected, **Paste** adds the content straight away.
 - **Transitions** add a crossfade at the cut after each selected clip that touches the next one, or fade each
   picture clip in and out (head and tail).
 
@@ -912,8 +920,12 @@ sound always comes from the original.
   **Proxy old** (the source changed, or the file is gone: it is not used until made again).
 - When a project contains heavy video, or the preview keeps dropping frames, a banner offers proxies. Nothing is made
   unless you accept; **Not now** hides the offer for that project.
-- HDR videos get an SDR proxy, so the picture looks flatter while editing with proxies on; the exported movie is
-  unaffected.
+- HDR videos get an HLG 10-bit proxy, so the picture keeps its colours while editing with proxies on. A device whose
+  encoder cannot make one gets an SDR stand-in, which looks flatter. The preview tells you: a label over the picture says
+  **proxy** whenever one is shown, and **SDR proxy: colours differ from the original** when the colours are not those of
+  the file. Turn the switch off in the proxy sheet to see the originals. The exported movie always uses the originals.
+- Proxies of HDR videos made by older versions were SDR stand-ins; they are not used any more and are made again (the old
+  files can be removed with **Remove unused** in the proxy sheet).
 
 ## Multicam
 

@@ -13,10 +13,11 @@ Licensed under [GPL-3.0](LICENSE). Third-party components are listed in [THIRD_P
 </p>
 <p align="center"><sub>Screenshots use synthetic test clips.</sub></p>
 
-> **Status: feature complete for the first release, little time on real phones.** Every work package of the plan is implemented and
-> covered by automated tests (about 2,000 JVM tests and 13 native host test programs, run in CI). Most of the newer features have
-> never been seen on a phone, and nothing has been exercised with real footage beyond a few clips. The checklist to walk through on
-> the reference phone is the [Verification debt](PLAN.md#verification-debt) table in `PLAN.md`.
+> **Status: 1.0, maintained.** Every work package of the plan is implemented and covered by automated tests (about 2,000 JVM tests and
+> 13 native host test programs, run in CI). The last releases were smoke-tested on a real phone (OPPO Find X9 Ultra, Android 16); the
+> checklist of what has still not been seen on a phone is the [Verification debt](PLAN.md#verification-debt) table in `PLAN.md`.
+> From 1.0 on, `1.0.x` releases only fix bugs and `1.x.0` releases add features without breaking saved projects
+> ([CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md)). Report problems as GitHub issues.
 
 ## What it does
 

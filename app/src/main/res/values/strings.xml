@@ -554,7 +554,7 @@
     <string name="ed_2a_clips_keep_their_relative_position">Clips keep their relative position. Changing the canvas clears the undo history.</string>
     <string name="ed_2a_copy_the_selected_clips">Copy the selected clips</string>
     <string name="ed_2a_cut_the_selected_clips_copy">Cut the selected clips (copy, then delete)</string>
-    <string name="ed_2a_paste_the_copied_clips_at">Paste the copied clips at the playhead</string>
+    <string name="ed_2a_paste_the_copied_clips_at">Paste the copied clips at the playhead, or ask whether to paste their style onto the selected clips</string>
     <string name="ed_2a_duplicate_the_selected_clips_right">Duplicate the selected clips right after the last one</string>
     <string name="ed_2a_delete_the_selected_clips_the">Delete the selected clips (the base closes its gaps)</string>
     <string name="ed_2a_align_the_starts_of_the">Align the starts of the selected clips</string>
@@ -1299,4 +1299,63 @@
     <string name="ed_2b_preset_timeline_desc">Layout focused on the timeline</string>
     <string name="ed_2b_preset_preview_desc">Layout focused on the preview</string>
     <string name="ed_2b_preset_two_desc">Layout with two panels</string>
+    <string name="ed_proxy_label">proxy</string>
+    <string name="ed_proxy_sdr_of_hdr_label">SDR proxy: colours differ from the original</string>
+    <string name="ed_paste_choice_title">Paste</string>
+    <string name="ed_paste_choice_content">Content</string>
+    <string name="ed_paste_choice_style">Style</string>
+    <string name="ed_paste_choice_content_desc">Content adds a copy of the copied clips at the playhead.</string>
+    <plurals name="ed_paste_choice_style_desc">
+        <item quantity="one">Style applies the look and sound of the copied clip (effects, position, scale, rotation, speed and volume) to the selected clip.</item>
+        <item quantity="other">Style applies the look and sound of the copied clip (effects, position, scale, rotation, speed and volume) to the %d selected clips.</item>
+    </plurals>
+    <string name="ed_clipvol_tool">Clip volume</string>
+    <string name="ed_clipvol_button">Volume of the selected clips (only these, not the whole track)</string>
+    <plurals name="ed_clipvol_title">
+        <item quantity="one">Volume of the selected clip</item>
+        <item quantity="other">Volume of the %d selected clips</item>
+    </plurals>
+    <string name="ed_clipvol_db">%1$.1f dB</string>
+    <string name="ed_clipvol_mute">Mute</string>
+    <string name="ed_clipvol_reset">Reset to 0 dB</string>
+    <string name="flags_menu_list">Flag list</string>
+    <string name="flags_shot">Shot</string>
+    <string name="flags_mark_shot">Mark this flag as shot</string>
+    <string name="flags_list_title">Flag list</string>
+    <string name="flags_only_pending">Only pending</string>
+    <string name="flags_share">Share as Markdown</string>
+    <string name="flags_save_md">Save .md file</string>
+    <string name="flags_save_csv">Save as CSV</string>
+    <string name="flags_save_failed">Could not save the file</string>
+    <string name="flags_empty">No flags to show. Tap the flag button to drop one at the playhead, or change the filters.</string>
+    <string name="flags_text_title">Shot list · %1$s</string>
+    <string name="flags_no_colour">No colour</string>
+    <string name="flags_unnamed">Flag at %1$s</string>
+    <string name="flags_csv_done">Done</string>
+    <string name="flags_csv_colour">Colour</string>
+    <string name="flags_csv_time">Time</string>
+    <string name="flags_csv_name">Name</string>
+    <string name="flags_csv_note">Note</string>
+    <string name="flags_go_to">Go to this flag</string>
+    <plurals name="flags_pending_count">
+        <item quantity="one">%d to shoot</item>
+        <item quantity="other">%d to shoot</item>
+    </plurals>
+    <string name="tray_pick">Select</string>
+    <string name="tray_pick_done">Done</string>
+    <string name="tray_pick_clear">Clear</string>
+    <string name="tray_pick_add">Add %1$d</string>
+    <string name="tray_pick_toggle">Select for adding</string>
+    <string name="tray_pick_number">Selected, number %1$d</string>
+    <plurals name="tray_picked_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
+    <string name="drop_mode_tool">Drop mode</string>
+    <string name="drop_mode_auto">Drop mode: auto (near a cut inserts, over a clip overwrites)</string>
+    <string name="drop_mode_insert">Drop mode: always insert</string>
+    <string name="drop_mode_overwrite">Drop mode: always overwrite</string>
+    <string name="drop_mode_letter_auto">A</string>
+    <string name="drop_mode_letter_insert">I</string>
+    <string name="drop_mode_letter_overwrite">O</string>
 </resources>

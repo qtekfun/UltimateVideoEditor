@@ -132,6 +132,8 @@ Device regression log (`scripts/qa-smoke.sh`, one line per release):
 |---|---|---|---|
 | 0.3.2 (master 63ecc5c plus the QA runner and PR #134) | 2026-10-07 | Pixel 8, Android 17 | 29 passed, 0 failed, 0 skipped (3 min) |
 
+| 0.5.13 (signed release, installed over 0.5.11) | 2026-10-17 | OPPO Find X9 Ultra (CPH2841), Android 16 | Manual smoke test, **`qa-smoke.sh` not run** (it needs a suffixed debug build, which is never installed on this phone): new project, import four photos, numbered tray selection and *Add*, lift to V2, drop a two-photo group into a cut of V1 (indicator, result, one-step undo), flags with name / note / colour, flag list tick / filter / share dialog, flag popup layout. No crash or ANR in the log. |
+
 Size log (R8-minified, arm64-v8a only):
 
 | Build | APK | AAB |
@@ -208,3 +210,18 @@ inside the 66dp safe-zone circle (farthest point about 30 units from the centre 
 `IconGeometryTest` checks. Export the 512x512 Play icon by rendering the foreground over the background at 512 px (for
 example with Android Studio's Image Asset tool or `rsvg-convert` after merging the two vectors); it has not been
 rendered here, so look at it once at 48dp, 72dp and with a circular mask before publishing.
+
+
+## Maintenance (from 1.0)
+
+- **Versions.** `1.0.x` fixes bugs only; `1.x.0` adds features and keeps every saved project loadable (new project JSON fields are optional with a
+  default, nothing is renamed or removed; `ProjectJson` tests keep an old file for each format). A breaking change waits for 2.0.
+- **Stable releases.** A tag `v1.…` is published as a normal release (the workflow marks only `0.*` as pre-release). There are no release
+  candidates: a change is tested on the reference phone as the signed build of the previous tag, then tagged.
+- **Fixes after a newer minor exists.** Branch `release/1.0` from the last `1.0.x` tag, cherry-pick the fix, bump `gradle/version.properties`
+  on that branch, tag from it. Otherwise fix on `master`.
+- **Every fix** gets a regression test in the same pull request (CLAUDE.md, Testing rules) and an entry in `CHANGELOG.md`.
+- **Dependencies.** Dependabot opens the PRs (Mondays). Merge a PR when CI is green, it adds no permission or network library, and
+  `THIRD_PARTY_NOTICES.md` is still true; a release workflow dry run (`gh workflow run release.yml --ref <branch without a slash>`) is
+  needed for Actions and Gradle plugin bumps.
+- **Security reports** follow `SECURITY.md`.

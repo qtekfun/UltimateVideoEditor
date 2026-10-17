@@ -43,7 +43,25 @@ data class TrayState(
     val query: String = "",
     val layout: TrayLayout = TrayLayout.GRID,
     val height: TrayHeight = TrayHeight.COLLAPSED,
+    /** The tray is choosing several assets to add together: a tap numbers a tile instead of adding it. */
+    val picking: Boolean = false,
+    /** The chosen asset ids in the order they were chosen (the numbers on the tiles). */
+    val picked: List<String> = emptyList(),
 ) {
+    /** Turns choosing on or off; leaving it forgets the choice. */
+    fun withPicking(on: Boolean): TrayState = copy(picking = on, picked = if (on) picked else emptyList())
+
+    /** A tap on [assetId] while choosing: chosen assets lose their place (the later ones renumber down), others go last. */
+    fun togglePicked(assetId: String): TrayState =
+        copy(picked = if (assetId in picked) picked - assetId else picked + assetId)
+
+    /** The number shown on a tile (1 for the first chosen), or 0 when it is not chosen. */
+    fun pickNumber(assetId: String): Int = picked.indexOf(assetId) + 1
+
+    /** What the tray shows after the choice was added: choosing is over. */
+    fun afterAdding(): TrayState = withPicking(false)
+
+
     /** Selects [tab] and makes sure a bottom tray is tall enough to show it. */
     fun open(tab: TrayTab): TrayState = copy(tab = tab, height = if (height == TrayHeight.COLLAPSED) TrayHeight.HALF else height)
 }

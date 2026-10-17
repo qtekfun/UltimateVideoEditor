@@ -51,6 +51,9 @@ class ProxyManager(
     private val infos = ConcurrentHashMap<String, SourceInfo>()
     private val resolved = ConcurrentHashMap<String, ResolvedSource>()
 
+    /** The value of [ProxyWorker.changes] the [resolved] answers were made at: a proxy finishing is a change too. */
+    @Volatile private var resolvedAt = -1
+
     val worker = ProxyWorker(index, transcoder, scope, workerDispatcher, budgetBytes = { prefs.budgetBytes }, protectedKeys = { protectedKeys })
     private val planner = ProxyPlanner(
         entryOf = { asset -> index.get(ProxyKeys.of(jobOf(asset), prefs.targetShortSide)) },
@@ -79,6 +82,17 @@ class ProxyManager(
      */
     fun resolve(asset: MediaAssetDto, purpose: MediaPurpose, projectId: String): ResolvedSource {
         val enabled = prefs.isEnabled(projectId)
+        // The worker counts a change whenever a proxy is queued, finished, failed or removed, and it does not know this cache: an
+        // answer remembered before a proxy was ready must not outlive it, or the preview keeps opening the original.
+        val version = worker.changes.value
+        if (version != resolvedAt) {
+            synchronized(resolved) {
+                if (version != resolvedAt) {
+                    resolved.clear()
+                    resolvedAt = version
+                }
+            }
+        }
         val cacheKey = "${asset.id}|${asset.uri}|${asset.durationFrames}|${purpose.ordinal}|$enabled|${prefs.targetShortSide}"
         return resolved.getOrPut(cacheKey) {
             planner.resolve(asset, purpose, enabled).also { source ->

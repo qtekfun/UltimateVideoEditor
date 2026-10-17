@@ -8,6 +8,16 @@ data class GroupMove(val clipIds: List<String>, val deltaFrames: Long, val laneD
     override fun apply(timeline: Timeline) = GroupOps.move(timeline, clipIds, deltaFrames, laneDelta).linkedFrom(timeline)
 }
 
+/** Drops overlay clips into the base track at a cut, in timeline order, as one undo step (see [GroupOps.insertOnBase]). */
+data class GroupInsertBase(val clipIds: List<String>, val at: FrameIndex) : EditCommand {
+    override fun apply(timeline: Timeline) = GroupOps.insertOnBase(timeline, clipIds, at).linkedFrom(timeline)
+}
+
+/** Drops overlay clips onto the base replacing the footage under them, the earliest at [start] (see [GroupOps.overwriteOnBase]). */
+data class GroupOverwriteBase(val clipIds: List<String>, val start: FrameIndex) : EditCommand {
+    override fun apply(timeline: Timeline) = GroupOps.overwriteOnBase(timeline, clipIds, start).linkedFrom(timeline)
+}
+
 data class GroupDelete(val clipIds: List<String>) : EditCommand {
     override fun apply(timeline: Timeline) = GroupOps.delete(timeline, clipIds)
 }

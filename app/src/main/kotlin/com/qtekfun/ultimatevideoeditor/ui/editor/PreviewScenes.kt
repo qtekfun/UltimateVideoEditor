@@ -150,12 +150,34 @@ internal fun previewRequestsOnCanvas(
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
                         fx = clip.fxAt(playhead.value, canvasWidth, canvasHeight),
-                        // A proxy is an SDR Rec.709 stand-in whatever the original was: read it as that.
-                        sourceOverride = if (source.isProxy) SourceColorSpace.SDR.transferIndex else clip.colorOverride?.transferIndex ?: -1,
+                        // A proxy is read as the colour space it was made in: HLG for the proxy of an HDR file, SDR for the stand-in of one
+                        // whose device could not encode HDR (and for every SDR source), whatever the original was.
+                        sourceOverride = if (source.isProxy) {
+                            SourceColorSpace.fromId(source.proxyColorSpace).transferIndex
+                        } else {
+                            clip.colorOverride?.transferIndex ?: -1
+                        },
                     )
                 }
             }
             RenderKind.AUDIO -> null
         }
     }
+}
+
+/** What the preview tells the user about proxies: nothing, that a proxy is shown, or that its colours are not those of the original. */
+enum class PreviewProxyNote { NONE, PROXY, PROXY_SDR_OF_HDR }
+
+/**
+ * The note for the layers now in the preview: [PreviewProxyNote.PROXY_SDR_OF_HDR] when a proxy is an SDR stand-in of an HDR file
+ * (its colours will not match the original), [PreviewProxyNote.PROXY] for any other proxy (an HDR proxy keeps the colours).
+ */
+internal fun previewProxyNote(layers: List<PreviewRequest>, assets: List<MediaAssetDto>): PreviewProxyNote {
+    val proxied = layers.filter { it.proxyAssetId != null }
+    if (proxied.isEmpty()) return PreviewProxyNote.NONE
+    val sdrOfHdr = proxied.any { layer ->
+        val original = assets.firstOrNull { it.id == layer.proxyAssetId }?.let { SourceColorSpace.fromId(it.colorSpace) }
+        layer.sourceOverride == SourceColorSpace.SDR.transferIndex && original != null && original != SourceColorSpace.SDR
+    }
+    return if (sdrOfHdr) PreviewProxyNote.PROXY_SDR_OF_HDR else PreviewProxyNote.PROXY
 }

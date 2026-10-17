@@ -77,6 +77,8 @@ data class EditorState(
     val dropHint: DropHint? = null,
     /** The user's override of the drop action while a clip is dragged (the mode chip); [DropChoice.AUTO] again after every drag. */
     val dropChoice: DropChoice = DropChoice.AUTO,
+    /** The standing drop mode of the toolbar button: [DropChoice.AUTO] decides by position; INSERT or OVERWRITE force it for every drag. */
+    val dropMode: DropChoice = DropChoice.AUTO,
     /** True while the drop is an insert or an overwrite the user may switch, so the timeline shows the mode chip. */
     val dropChoiceOffered: Boolean = false,
     /** The clips being dragged or trimmed and the frame an edge snapped to, drawn by the timeline while the drag lasts. */
@@ -132,6 +134,8 @@ data class EditorState(
     val selectedClipIds: Set<String> = emptySet(),
     /** How many clips the clipboard holds. */
     val clipboardCount: Int = 0,
+    /** The question asked by Paste when another clip is selected: content or style; null when none is open. */
+    val pasteChoice: PasteChoice? = null,
     /** A slider drag on an audio tool is in progress: [dragPreview] holds it and the mixer plays it live. */
     val audioSessionActive: Boolean = false,
     /** What the audio analysis in progress is doing ("Measuring loudness…"), or null when idle. */
@@ -144,6 +148,8 @@ data class EditorState(
     val library: LibraryUiState = LibraryUiState(),
     /** The marker popup, or null when closed. */
     val markerPopup: MarkerPopup? = null,
+    /** The flag list (shot list) sheet is open. */
+    val flagListOpen: Boolean = false,
     /** "Marker added" confirmation shown for a moment after a one-tap marker. */
     val markerHint: MarkerHint? = null,
     /** Keys copied from a parameter's track (frames relative to the first key), ready to paste at the playhead. */
@@ -349,6 +355,9 @@ sealed interface EditorIntent : UiIntent {
     ) : EditorIntent
     /** Switches the dragged clip's drop between insert and overwrite (the mode chip, or a tap with a second finger). */
     data object FlipDropChoice : EditorIntent
+
+    /** The toolbar button: Auto, then Insert, then Overwrite, then Auto again. */
+    data object CycleDropMode : EditorIntent
     data class DragEnd(val commit: Boolean) : EditorIntent
 
     /** A drag of an asset from the media tray started; a clip for it is prepared and nothing is placed yet. */
@@ -669,6 +678,9 @@ sealed interface EditorIntent : UiIntent {
     data class ImportMedia(val uris: List<String>) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent
 
+    /** Adds the assets one after the other at the playhead, in this order, as one undo step (the tray's numbered selection). */
+    data class AddAssets(val assetIds: List<String>) : EditorIntent
+
     /** Show or hide the list of unreadable media with a Relink button for each. */
     data object ShowRelink : EditorIntent
     data object HideRelink : EditorIntent
@@ -801,3 +813,6 @@ internal fun FolderRelinkUi.without(assetId: String): FolderRelinkUi = when (thi
     )
     else -> this
 }
+
+/** What Paste asks: [destinations] are the selected clips that a 'Style' answer would change, [copiedClips] how many a 'Content' answer adds. */
+data class PasteChoice(val destinations: List<String>, val copiedClips: Int)

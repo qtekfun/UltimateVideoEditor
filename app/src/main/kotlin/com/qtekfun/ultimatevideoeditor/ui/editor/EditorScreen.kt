@@ -4,11 +4,13 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.layout.labelRes
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import android.net.Uri
 import com.qtekfun.ultimatevideoeditor.proxy.MediaPurpose
 import com.qtekfun.ultimatevideoeditor.proxy.ProxyManager
+import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalPreviewProxyNote
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalProxyIntent
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalProxyUi
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.ProxyBannerHost
@@ -92,6 +94,7 @@ import com.qtekfun.ultimatevideoeditor.engine.preview.OutputSpace
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.DisposableEffect
@@ -508,6 +511,9 @@ fun EditorScreen(
         )
     }
 
+    // Whether the preview shows a proxy and whether its colours differ from the original: the label over the preview says so.
+    val previewProxyNote = remember { mutableStateOf(PreviewProxyNote.NONE) }
+
     // Show the composite under the playhead (every video track, bottom first). Paused, every change
     // shows a still frame. Playing, the playhead is the audio clock: the native preview runs by
     // itself and is only re-anchored when the composition changes or drifts from it, never seeked
@@ -530,6 +536,7 @@ fun EditorScreen(
             unreadable = s.unreadableAssets,
         ) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)
+        previewProxyNote.value = previewProxyNote(layers, s.assets)
         when {
             s.isPlaying -> preview.follow(scene, s.playhead.value, s.fps)
             layers.isNotEmpty() -> preview.show(scene)
@@ -598,6 +605,7 @@ fun EditorScreen(
             bottomPanel = bottom,
             onImport = launchTrayImport,
             onAdd = { viewModel.onIntent(EditorIntent.AddAsset(it)) },
+            onAddMany = { viewModel.onIntent(EditorIntent.AddAssets(it)) },
             drag = trayDrag,
             onExternalFiles = { viewModel.onIntent(EditorIntent.ImportToTray(it)) },
             onPickSticker = { viewModel.onIntent(EditorIntent.AddSticker(it)) },
@@ -759,6 +767,7 @@ fun EditorScreen(
         LocalQualifierPick provides state.qualifierPick,
         LocalLookActions provides lookActions,
         LocalProxyUi provides proxyHolder,
+        LocalPreviewProxyNote provides previewProxyNote,
         LocalProxyIntent provides proxyVm::onIntent,
     ) {
     TrayDragRoot(trayDrag, Modifier.fillMaxSize()) {
@@ -1052,10 +1061,22 @@ private fun EditorMain(
                             onDispose { DisplayHdr.setWindowHdr(hdrContext, false) }
                         }
                         PreviewSurface(previewEngine, Modifier.fillMaxSize(), wanted = wanted, onOutputSpace = { granted = it })
-                        if (state.colorSpace.isHdr) {
+                        val proxyNote = LocalPreviewProxyNote.current?.value ?: PreviewProxyNote.NONE
+                        if (state.colorSpace.isHdr || proxyNote != PreviewProxyNote.NONE) {
+                            val modeText = when {
+                                !state.colorSpace.isHdr -> null
+                                granted == OutputSpace.HLG_2020 -> stringResource(R.string.ed_2a_hdr_hlg)
+                                else -> stringResource(R.string.ed_2a_hdr_project_sdr_preview)
+                            }
+                            val proxyText = when (proxyNote) {
+                                PreviewProxyNote.NONE -> null
+                                PreviewProxyNote.PROXY -> stringResource(R.string.ed_proxy_label)
+                                PreviewProxyNote.PROXY_SDR_OF_HDR -> stringResource(R.string.ed_proxy_sdr_of_hdr_label)
+                            }
                             Text(
-                                if (granted == OutputSpace.HLG_2020) stringResource(R.string.ed_2a_hdr_hlg) else stringResource(R.string.ed_2a_hdr_project_sdr_preview),
+                                listOfNotNull(modeText, proxyText).joinToString(" · "),
                                 style = MaterialTheme.typography.labelSmall,
+                                color = if (proxyNote == PreviewProxyNote.PROXY_SDR_OF_HDR) MaterialTheme.colorScheme.tertiary else Color.Unspecified,
                                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                             )
                         }
@@ -1184,10 +1205,15 @@ private fun EditorMain(
                                 ClipLinks.infoFor(state.timeline, id, hasAudio)?.canDetach == true
                             } == true,
                         ) { viewModel.onIntent(EditorIntent.DetachAudio); after() }
+                        ToolbarItem.CLIP_VOLUME -> ClipVolumeMenu(state, viewModel::onIntent)
                         ToolbarItem.DELETE -> ToolButton(EditorIcons.Delete, stringResource(R.string.ed_2a_delete_the_base_track_closes), enabled = hasSelection) {
                             viewModel.onIntent(EditorIntent.RippleDeleteSelected); after()
                         }
                         ToolbarItem.MARKER -> MarkerMenu(state, viewModel::onIntent)
+                        ToolbarItem.FLAG_LIST -> ToolButton(EditorIcons.FlagList, stringResource(R.string.flags_menu_list)) {
+                            viewModel.onIntent(MarkerIntent.OpenList); after()
+                        }
+                        ToolbarItem.DROP_MODE -> DropModeButton(state.dropMode) { viewModel.onIntent(EditorIntent.CycleDropMode) }
                         ToolbarItem.SELECT_MODE -> SelectModeButton(state, viewModel::onIntent)
                         ToolbarItem.CLOSE_GAP -> ToolButton(EditorIcons.CloseGap, stringResource(R.string.ed_2a_close_gap_before_clip_the), enabled = hasSelection && !state.selectedClipOnBase) {
                             viewModel.onIntent(EditorIntent.RippleAppendSelected); after()
@@ -1257,6 +1283,7 @@ private fun EditorMain(
                     }
                 }
                 if (state.selectMode || state.isMultiSelection) SelectionBar(state, viewModel::onIntent)
+                state.pasteChoice?.let { choice -> PasteChoiceDialog(choice, viewModel::onIntent) }
                 if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
 
                 }
@@ -1286,6 +1313,7 @@ private fun EditorMain(
                     }
                     // Under the ruler, so the marker being edited stays in view above the popup.
                     state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 40.dp)) }
+                    if (state.flagListOpen) FlagListSheet(state, viewModel::onIntent)
                     state.markerPopup?.let { MarkerPopupCard(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 36.dp, start = 8.dp, end = 8.dp)) }
                     if (state.inspectorOpen && inspectorOverlay) {
                         Surface(
@@ -1522,3 +1550,25 @@ private suspend fun requestThumbnails(
 private const val SCOPES_WIDTH = 0.6f
 private const val SCOPES_HEIGHT = 0.6f
 
+
+/** The question Paste asks when another clip is selected: paste the content (a copy at the playhead) or the style (look and sound). */
+@Composable
+private fun PasteChoiceDialog(choice: PasteChoice, onIntent: (EditorIntent) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onIntent(SelectionIntent.DismissPasteChoice) },
+        title = { Text(stringResource(R.string.ed_paste_choice_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.ed_paste_choice_content_desc))
+                Text(pluralStringResource(R.plurals.ed_paste_choice_style_desc, choice.destinations.size, choice.destinations.size))
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { onIntent(SelectionIntent.PasteContent) }) { Text(stringResource(R.string.ed_paste_choice_content)) }
+                TextButton(onClick = { onIntent(SelectionIntent.PasteStyle) }) { Text(stringResource(R.string.ed_paste_choice_style)) }
+            }
+        },
+        dismissButton = { TextButton(onClick = { onIntent(SelectionIntent.DismissPasteChoice) }) { Text(stringResource(R.string.common_cancel)) } },
+    )
+}
