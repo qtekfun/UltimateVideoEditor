@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.TimelineMapper
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
@@ -19,7 +21,7 @@ import kotlin.math.abs
 data class EdlFile(val name: String, val text: String)
 
 /** The EDLs of a project and what could not be put in them. */
-data class EdlExport(val files: List<EdlFile>, val notes: List<String>)
+data class EdlExport(val files: List<EdlFile>, val notes: List<UiText>)
 
 /**
  * CMX3600 export of the cuts of every video and audio track. CMX3600 has one video channel, so each track
@@ -38,10 +40,9 @@ object Edl {
         val tc = SmpteTimecode(fpsNum, fpsDen, dropFrame)
         val byId = assets.associateBy { it.id }
         val files = mutableListOf<EdlFile>()
-        val notes = linkedSetOf<String>()
+        val notes = linkedSetOf<UiText>()
         if (!dropFrame && fpsDen != 1) {
-            notes += "Rate ${rateLabel(fpsNum, fpsDen)} is written as non-drop frame at ${tc.nominal} fps: " +
-                "timecodes drift slightly from the wall clock over long timelines."
+            notes += UiText.res(R.string.edl_note_rate, rateLabel(fpsNum, fpsDen), tc.nominal)
         }
         var skipped = 0
         timeline.tracks.forEachIndexed { index, track ->
@@ -61,11 +62,11 @@ object Edl {
             }
             files += EdlFile("${fileSafe(name)}-$label.edl", sb.toString())
         }
-        if (skipped > 0) notes += "$skipped title, caption, sticker or photo clip(s) are not in the EDL (the format has no generators or stills)."
-        if (timeline.transitions.isNotEmpty()) notes += "${timeline.transitions.size} crossfade(s) are written as plain cuts."
+        if (skipped > 0) notes += UiText.plural(R.plurals.edl_note_skipped, skipped)
+        if (timeline.transitions.isNotEmpty()) notes += UiText.plural(R.plurals.edl_note_crossfades, timeline.transitions.size)
         val all = timeline.tracks.flatMap { it.clips }
         if (all.any { it.fx.effects.isNotEmpty() || !it.transform.isIdentity || it.keyframes.isNotEmpty() }) {
-            notes += "Effects, transforms and keyframes are not part of the EDL format and are left out."
+            notes += UiText.res(R.string.edl_note_effects)
         }
         return EdlExport(files, notes.toList())
     }
@@ -94,7 +95,7 @@ object Edl {
         tc: SmpteTimecode,
         fpsNum: Int,
         fpsDen: Int,
-        notes: MutableSet<String>,
+        notes: MutableSet<UiText>,
     ) {
         val channel = when {
             trackType == TrackType.AUDIO -> "AA"
@@ -110,8 +111,8 @@ object Edl {
             val speed = span.toDouble() / clip.durationFrames.toDouble()
             val rate = fpsNum.toDouble() / fpsDen * speed * (if (clip.reverse) -1 else 1)
             sb.append("M2   AX       %s                %s\n".format(formatRate(if (clip.isFreeze) 0.0 else rate), tc.format(srcIn)))
-            if (clip.speedRamp.isNotEmpty()) notes += "Speed ramps are written as their average speed."
-            if (clip.reverse) notes += "Reverse clips use a negative speed on an M2 line; check the source range in your editor."
+            if (clip.speedRamp.isNotEmpty()) notes += UiText.res(R.string.edl_note_ramps)
+            if (clip.reverse) notes += UiText.res(R.string.edl_note_reverse)
         }
         sb.append("* FROM CLIP NAME: ").append(asset?.let(MissingMedia::nameOf) ?: clip.assetId.orEmpty()).append('\n')
         sb.append("* CLIP ID: ").append(clip.id).append('\n')

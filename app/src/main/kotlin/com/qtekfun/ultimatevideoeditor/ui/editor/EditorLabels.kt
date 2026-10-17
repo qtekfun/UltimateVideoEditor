@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -252,4 +253,10 @@ fun TrackType.nameRes(): Int = when (this) {
     TrackType.VIDEO -> R.string.ed_vm_track_type_video
     TrackType.AUDIO -> R.string.ed_vm_track_type_audio
     TrackType.TITLE -> R.string.ed_vm_track_type_title
+}
+
+/** A tracking made with the default name ("Track 3") is shown in the language in use; a name the person typed is shown as written. */
+fun trackNameText(stored: String): UiText {
+    val number = Regex("Track ([0-9]+)").matchEntire(stored)?.groupValues?.get(1)?.toIntOrNull() // i18n-ok: the stored default name
+    return if (number != null) UiText.res(R.string.ed_2a_default_track_name, number) else UiText.Raw(stored)
 }

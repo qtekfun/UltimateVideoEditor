@@ -67,7 +67,7 @@ internal fun MediaBanners(state: EditorState, onImportFont: () -> Unit = {}, onI
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = stringResource(R.string.ed_2b_changes_are_not_saved, saveError),
+                    text = stringResource(R.string.ed_2b_changes_are_not_saved, saveError.asString()),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.weight(1f),
@@ -236,7 +236,7 @@ private fun ScanResults(outcome: FolderRelinkOutcome, onIntent: (EditorIntent) -
         if (withWarnings.isNotEmpty()) {
             item { Text(stringResource(R.string.ed_2b_relinked_with_a_note), style = MaterialTheme.typography.titleSmall) }
             items(withWarnings, key = { "w-" + it.old.id }) { r ->
-                Text("${MissingMedia.nameOf(r.asset)}: ${r.warnings.joinToString(". ")}", style = MaterialTheme.typography.bodySmall)
+                Text("${MissingMedia.nameOf(r.asset)}: ${UiText.join(". ", r.warnings).asString()}", style = MaterialTheme.typography.bodySmall)
             }
         }
         if (outcome.ambiguous.isNotEmpty()) {
@@ -259,7 +259,7 @@ private fun ScanResults(outcome: FolderRelinkOutcome, onIntent: (EditorIntent) -
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(item.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
-                        Text(item.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(item.reason.asString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     TextButton(onClick = { onIntent(EditorIntent.RequestRelink(item.assetId)) }) { Text(stringResource(R.string.ed_2b_relink)) }
                 }
@@ -270,11 +270,11 @@ private fun ScanResults(outcome: FolderRelinkOutcome, onIntent: (EditorIntent) -
 
 /** Shown when leaving was refused because the project could not be written. */
 @Composable
-internal fun SaveFailedDialog(message: String?, onIntent: (EditorIntent) -> Unit) {
+internal fun SaveFailedDialog(message: UiText?, onIntent: (EditorIntent) -> Unit) {
     AlertDialog(
         onDismissRequest = { onIntent(EditorIntent.RetrySave) },
         title = { Text(stringResource(R.string.ed_2b_changes_not_saved)) },
-        text = { Text(if (message != null) stringResource(R.string.ed_2b_save_failed_with, message) else stringResource(R.string.ed_2b_save_failed)) },
+        text = { Text(if (message != null) stringResource(R.string.ed_2b_save_failed_with, message.asString()) else stringResource(R.string.ed_2b_save_failed)) },
         confirmButton = { TextButton(onClick = { onIntent(EditorIntent.RetrySave) }) { Text(stringResource(R.string.ed_2b_retry)) } },
         dismissButton = { TextButton(onClick = { onIntent(EditorIntent.LeaveWithoutSaving) }) { Text(stringResource(R.string.ed_2b_leave_without_saving)) } },
     )

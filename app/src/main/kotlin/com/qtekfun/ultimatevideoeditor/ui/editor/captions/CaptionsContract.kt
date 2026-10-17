@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
 import com.qtekfun.ultimatevideoeditor.domain.captions.CaptionStyle
@@ -26,7 +27,7 @@ data class CaptionsState(
     val importAtPlayhead: Boolean = false,
     val playhead: Long = 0,
     val importing: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
 ) : UiState {
     val canAdd: Boolean get() = draftText.isNotBlank() && draftLength > 0
 
@@ -68,5 +69,5 @@ sealed interface CaptionsEffect : UiEffect {
 
     /** Every caption on the timeline should take [style]. */
     data class Restyle(val style: CaptionStyle, val canvasHeight: Int) : CaptionsEffect
-    data class ShowMessage(val text: String) : CaptionsEffect
+    data class ShowMessage(val text: UiText) : CaptionsEffect
 }

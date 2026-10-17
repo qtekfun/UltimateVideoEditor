@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.ClipDeletion
@@ -121,10 +123,10 @@ object MissingMedia {
 /** Outcome of checking a replacement file against the media it is meant to stand in for. */
 sealed interface RelinkVerdict {
     /** The replacement cannot work; [reason] says why in words for the user. */
-    data class Rejected(val reason: String) : RelinkVerdict
+    data class Rejected(val reason: UiText) : RelinkVerdict
 
     /** It can be used; [warnings] list differences worth knowing about (possibly none). */
-    data class Accepted(val warnings: List<String>) : RelinkVerdict
+    data class Accepted(val warnings: List<UiText>) : RelinkVerdict
 }
 
 /** Turns a probed replacement file into the library entry that replaces the old one; shared by every relink path. */
@@ -168,24 +170,23 @@ object RelinkCheck {
         neededSourceMicros: Long,
     ): RelinkVerdict {
         if (replacementUri in otherAssetUris) {
-            return RelinkVerdict.Rejected("That file is already in the project as another media item")
+            return RelinkVerdict.Rejected(UiText.res(R.string.rl_duplicate))
         }
         if (old.isImage != replacement.isImage) {
-            return RelinkVerdict.Rejected(if (old.isImage) "Pick a picture to replace a picture" else "Pick a video or audio file, not a picture")
+            return RelinkVerdict.Rejected(if (old.isImage) UiText.res(R.string.rl_pick_picture) else UiText.res(R.string.rl_pick_video_audio))
         }
-        if (old.hasVideo && !replacement.hasVideo) return RelinkVerdict.Rejected("The new file has no video")
-        if (old.hasAudio && !old.hasVideo && !replacement.hasAudio) return RelinkVerdict.Rejected("The new file has no audio")
-        val warnings = mutableListOf<String>()
-        if (old.hasAudio && old.hasVideo && !replacement.hasAudio) warnings += "The new file has no audio: its clips will be silent"
+        if (old.hasVideo && !replacement.hasVideo) return RelinkVerdict.Rejected(UiText.res(R.string.rl_no_video))
+        if (old.hasAudio && !old.hasVideo && !replacement.hasAudio) return RelinkVerdict.Rejected(UiText.res(R.string.rl_no_audio))
+        val warnings = mutableListOf<UiText>()
+        if (old.hasAudio && old.hasVideo && !replacement.hasAudio) warnings += UiText.res(R.string.rl_w_silent)
         if (!old.isImage) {
             if (replacement.durationMicros < neededSourceMicros) {
-                warnings += "The new file is shorter (${MissingMedia.clock(replacement.durationMicros)}) than the part used " +
-                    "(${MissingMedia.clock(neededSourceMicros)}): the end of some clips will have no picture"
+                warnings += UiText.res(R.string.rl_w_shorter, MissingMedia.clock(replacement.durationMicros), MissingMedia.clock(neededSourceMicros))
             }
             if (replacement.hasVideo && old.hasVideo && differs(old.nativeFpsNum, old.nativeFpsDen, replacement.fpsNum, replacement.fpsDen)) {
-                warnings += "The new file has a different frame rate"
+                warnings += UiText.res(R.string.rl_w_rate)
             }
-            if (old.colorSpace != replacement.colorSpace) warnings += "The new file uses another colour space (${replacement.colorSpace})"
+            if (old.colorSpace != replacement.colorSpace) warnings += UiText.res(R.string.rl_w_space, replacement.colorSpace)
         }
         return RelinkVerdict.Accepted(warnings)
     }

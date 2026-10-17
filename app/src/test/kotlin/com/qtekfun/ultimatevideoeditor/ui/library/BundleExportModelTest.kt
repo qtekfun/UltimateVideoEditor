@@ -78,7 +78,7 @@ class BundleExportModelTest {
             mediaCopied = 1,
             mediaSkipped = listOf("a.mp4", "b.mp4", "c.mp4", "d.mp4"),
             resourcesIncluded = 3,
-            resourcesSkipped = listOf("font x (not in this device's library)"),
+            resourcesSkipped = listOf(UiText.Raw("font x (not in this device's library)")),
             lutsIncluded = 2,
             fontsIncluded = 1,
         )
@@ -98,7 +98,7 @@ class BundleExportModelTest {
             installed = listOf("LUT Warm", "font Serif"),
             alreadyHere = listOf("LUT Cold"),
             rekeyed = listOf("LUT Warm"),
-            failed = listOf(ResourceProblem("LUT Junk", "it is not a valid .cube file")),
+            failed = listOf(ResourceProblem("LUT Junk", UiText.Raw("it is not a valid .cube file"))),
             missing = listOf("font Missing"),
         )
         assertEquals("2 LUT/fonts installed, 1 could not be installed, 1 still missing", BundleExportText.importSentence(report)?.english())

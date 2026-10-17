@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import com.qtekfun.ultimatevideoeditor.engine.preview.ScopeMode
 import org.junit.Assert.assertEquals
@@ -33,10 +34,10 @@ class ScopeScaleTest {
     @Test
     fun `every mode has a caption that names the signal of the project`() {
         for (mode in ScopeMode.entries) {
-            assertTrue(ScopeScale.caption(mode, ProjectColorSpace.REC709_SDR).isNotBlank())
+            assertTrue(ScopeScale.caption(mode, ProjectColorSpace.REC709_SDR).english().isNotBlank())
         }
-        assertTrue(ScopeScale.caption(ScopeMode.WAVEFORM, ProjectColorSpace.REC2020_HLG).contains("HLG"))
-        assertTrue(ScopeScale.caption(ScopeMode.WAVEFORM, ProjectColorSpace.REC709_SDR).contains("Rec.709"))
+        assertTrue(ScopeScale.caption(ScopeMode.WAVEFORM, ProjectColorSpace.REC2020_HLG).english().contains("HLG"))
+        assertTrue(ScopeScale.caption(ScopeMode.WAVEFORM, ProjectColorSpace.REC709_SDR).english().contains("Rec.709"))
     }
 
     @Test

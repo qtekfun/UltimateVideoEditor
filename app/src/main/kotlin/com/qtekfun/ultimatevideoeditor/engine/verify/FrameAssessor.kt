@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+
 /** A frame decoded from the output file: the display index its timestamp gives, and its signature in the same grid. */
 class DecodedFrame(val index: Long, val signature: FrameSignature)
 
@@ -43,17 +46,17 @@ class FrameAssessor(
             val firstLost = lastIndex + 1
             findings += Finding(
                 VerifyCheck.DECODE,
-                "the decoder stopped at frame ${firstLost + 1} of ${exp.totalFrames}: ${range.error}",
+                UiText.res(R.string.fv_decoder_stopped, firstLost + 1, exp.totalFrames, range.error.orEmpty()),
                 tailFrames = if (reachesEnd) exp.totalFrames - firstLost else 0,
             )
         } else if (missing > 0) {
             findings += Finding(
                 VerifyCheck.FRAME_COUNT,
-                "$missing ${plural(missing, "frame")} could not be decoded between frames ${range.from + 1} and ${range.to + 1}",
+                UiText.plural(R.plurals.fv_not_decoded, missing.toInt(), range.from + 1, range.to + 1),
                 tailFrames = if (reachesEnd && missingAtEnd > 0) missingAtEnd else 0,
             )
         }
-        if (outOfOrder > 0) findings += Finding(VerifyCheck.FRAME_ORDER, "$outOfOrder frames came out of order or twice")
+        if (outOfOrder > 0) findings += Finding(VerifyCheck.FRAME_ORDER, UiText.plural(R.plurals.fv_order, outOfOrder))
 
         // Blank frames, and the comparison with what was encoded.
         var compared = 0
@@ -87,14 +90,14 @@ class FrameAssessor(
         if (badFrames.isNotEmpty()) {
             findings += Finding(
                 VerifyCheck.PICTURE,
-                "${badFrames.size} checked ${plural(badFrames.size.toLong(), "frame")} (first: frame ${badFrames.first() + 1}) differ from what was encoded",
+                UiText.plural(R.plurals.fv_differs, badFrames.size, badFrames.size, badFrames.first() + 1),
                 tailFrames = tailRun(comparedFrames, badFrames, reachesEnd),
             )
         }
         if (blankFrames.isNotEmpty()) {
             findings += Finding(
                 VerifyCheck.FLAT_FRAME,
-                "${blankFrames.size} ${plural(blankFrames.size.toLong(), "frame")} are blank or one flat colour (first: frame ${blankFrames.first() + 1})",
+                UiText.plural(R.plurals.fv_blank, blankFrames.size, blankFrames.first() + 1),
                 tailFrames = tailRun(range.frames.map { it.index }.sorted(), blankFrames, reachesEnd),
             )
         }
@@ -130,5 +133,4 @@ class FrameAssessor(
         return neighbours.any { SignatureMath.isFlat(it, thresholds) }
     }
 
-    private fun plural(n: Long, word: String) = if (n == 1L) word else "${word}s"
 }

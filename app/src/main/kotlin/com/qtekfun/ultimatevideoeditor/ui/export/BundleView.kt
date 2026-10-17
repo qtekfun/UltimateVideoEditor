@@ -88,7 +88,7 @@ fun bundleViewFor(state: BundleJobState): BundleView? = when (state) {
             ),
             fileName = state.fileName,
             uri = state.uri,
-            warningLead = (state.verification as? BundleVerification.Warning)?.problems?.firstOrNull()?.let { UiText.Raw(it.substringBefore(". ")) } ?: UiText.Empty,
+            warningLead = (state.verification as? BundleVerification.Warning)?.problems?.firstOrNull() ?: UiText.Empty,
         )
     }
     is BundleJobState.Failed ->

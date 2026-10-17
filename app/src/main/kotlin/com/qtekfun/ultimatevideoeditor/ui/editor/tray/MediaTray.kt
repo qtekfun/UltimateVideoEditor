@@ -1,5 +1,10 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.tray
 
+import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.editor.described
+import com.qtekfun.ultimatevideoeditor.R
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -75,7 +80,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -213,8 +217,8 @@ private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPan
                 Tab(
                     selected = state.tab == tab,
                     onClick = { onState(state.open(tab)) },
-                    text = { Text(tab.label, maxLines = 1, fontSize = 13.sp) },
-                    modifier = Modifier.semantics { contentDescription = "${tab.label} tab" },
+                    text = { Text(stringResource(tab.labelRes), maxLines = 1, fontSize = 13.sp) },
+                    modifier = Modifier.described(stringResource(R.string.ed_s3_tab, stringResource(tab.labelRes))),
                 )
             }
         }
@@ -222,7 +226,7 @@ private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPan
             val expanded = state.height != TrayHeight.COLLAPSED
             ToolButton(
                 if (expanded) EditorIcons.LaneDown else EditorIcons.LaneUp,
-                if (expanded) "Make the media tray shorter" else "Make the media tray taller",
+                stringResource(if (expanded) R.string.ed_s3_tray_shorter else R.string.ed_s3_tray_taller),
             ) {
                 onState(state.copy(height = if (expanded) state.height.shorter() else state.height.taller()))
             }
@@ -246,7 +250,7 @@ private fun AssetBody(
             OutlinedTextField(
                 value = state.query,
                 onValueChange = { onState(state.copy(query = it)) },
-                placeholder = { Text("Search", fontSize = 13.sp) },
+                placeholder = { Text(stringResource(R.string.ed_s3_search), fontSize = 13.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f).height(52.dp),
             )
@@ -256,7 +260,7 @@ private fun AssetBody(
                 }
             }
             TextButton(onClick = { onState(state.copy(layout = if (state.layout == TrayLayout.GRID) TrayLayout.LIST else TrayLayout.GRID)) }) {
-                Text(if (state.layout == TrayLayout.GRID) "List" else "Grid")
+                Text(if (state.layout == TrayLayout.GRID) stringResource(R.string.ed_s3_list) else stringResource(R.string.ed_s3_grid))
             }
         }
         if (state.tab == TrayTab.MEDIA) {
@@ -268,7 +272,7 @@ private fun AssetBody(
                     FilterChip(
                         selected = state.filter == filter,
                         onClick = { onState(state.copy(filter = filter)) },
-                        label = { Text(filter.label, fontSize = 12.sp) },
+                        label = { Text(stringResource(filter.labelRes), fontSize = 12.sp) },
                     )
                 }
             }
@@ -288,7 +292,7 @@ private fun AssetBody(
                 }
             }
         } else if (state.tab == TrayTab.MEDIA && items.isNotEmpty()) DragHint(drag)
-        val importLabel = if (isImporting) "Importing…" else "Import"
+        val importLabel = stringResource(if (isImporting) R.string.ed_s3_importing else R.string.ed_s3_import)
         if (state.layout == TrayLayout.GRID) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(TileMinWidth),
@@ -319,10 +323,10 @@ private fun ImportTile(label: String, enabled: Boolean, onImport: () -> Unit, ro
             .then(if (row) Modifier.fillMaxWidth().height(48.dp) else Modifier.aspectRatio(1f))
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.secondaryContainer)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Import files into the media tray", onClick = onImport),
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = stringResource(R.string.ed_s3_import_files_into_the_media), onClick = onImport),
         contentAlignment = Alignment.Center,
     ) {
-        Text("+ $label", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Text(stringResource(R.string.ed_s3_plus_label, label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
     }
 }
 
@@ -346,19 +350,20 @@ internal fun AssetTile(
     val haptics = LocalHapticFeedback.current
     val dragShape = RoundedCornerShape(8.dp)
     val description = describe(item)
+    val addToTimeline = stringResource(R.string.ed_s3_add_to_timeline)
     val body = Modifier
         .graphicsLayer { alpha = if (drag.carry?.assetId == asset.id) 0.35f else 1f }
         .clip(dragShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
         .semantics {
             contentDescription = description
-            customActions = listOf(CustomAccessibilityAction("Add to timeline") { onAdd(asset.id); true })
+            customActions = listOf(CustomAccessibilityAction(addToTimeline) { onAdd(asset.id); true })
         }
         .onGloballyPositioned {
             coordinates = it
             drag.registerTile(asset.id, it)
         }
-        .clickable(role = Role.Button, onClickLabel = if (pickNumber != null) stringResource(R.string.tray_pick_toggle) else "Add at the playhead") {
+        .clickable(role = Role.Button, onClickLabel = if (pickNumber != null) stringResource(R.string.tray_pick_toggle) else stringResource(R.string.ed_s3_add_at_the_playhead)) {
             if (pickNumber != null) { if (!item.missing) onTogglePick() } else onAdd(asset.id)
         }
         // After clickable, so it is the inner one and sees the finger first: once a tile is picked up it consumes the lift,
@@ -427,7 +432,7 @@ private fun AddButton(item: TrayItem, onAdd: (String) -> Unit, modifier: Modifie
             .size(28.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary)
-            .clickable(role = Role.Button, onClickLabel = "Add ${item.name} at the playhead") { onAdd(item.asset.id) }
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_s3_add_at_the_playhead_2, item.name)) { onAdd(item.asset.id) }
             // The tile already offers the "Add to timeline" action to screen readers; this button is the same thing for the eye.
             .clearAndSetSemantics { },
         contentAlignment = Alignment.Center,
@@ -451,12 +456,12 @@ private fun DragHint(drag: TrayDragController) {
     if (seen) return
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            "Hold a clip and drag it onto the timeline",
+            stringResource(R.string.ed_s3_hold_a_clip_and_drag),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = dismiss) { Text("Got it", fontSize = 12.sp) }
+        TextButton(onClick = dismiss) { Text(stringResource(R.string.ed_s3_got_it), fontSize = 12.sp) }
     }
 }
 
@@ -482,7 +487,7 @@ private fun TileContent(item: TrayItem, thumbnail: ImageBitmap?, showName: Boole
             colourBadge(item.asset)?.let { InlineBadge(it, MaterialTheme.colorScheme.tertiary) }
             if (item.usage > 0) InlineBadge("×${item.usage}", MaterialTheme.colorScheme.primary)
         }
-        proxyStatusOf(item.asset.id).badgeLabel()?.let { Badge(it, Alignment.CenterEnd, MaterialTheme.colorScheme.secondary) }
+        proxyStatusOf(item.asset.id).badgeLabel()?.let { Badge(it.asString(), Alignment.CenterEnd, MaterialTheme.colorScheme.secondary) }
         if (showName) {
             Text(
                 item.name,
@@ -495,7 +500,7 @@ private fun TileContent(item: TrayItem, thumbnail: ImageBitmap?, showName: Boole
         }
         if (item.missing) {
             Box(Modifier.fillMaxSize().background(Color(0xAAB00020)), contentAlignment = Alignment.Center) {
-                Text("Missing", color = Color.White, fontSize = 11.sp)
+                Text(stringResource(R.string.ed_s3_missing), color = Color.White, fontSize = 11.sp)
             }
         }
     }
@@ -529,14 +534,14 @@ private fun BoxScope.Badge(
 internal fun durationLabel(asset: MediaAssetDto): String =
     if (asset.isImage) "" else formatTimecode(asset.durationFrames, FrameRate(asset.nativeFpsNum, asset.nativeFpsDen))
 
-private fun metaLine(item: TrayItem): String = buildList {
-    add(when (item.kind) { AssetKind.VIDEO -> "Video"; AssetKind.PHOTO -> "Photo"; AssetKind.AUDIO -> "Audio" })
-    durationLabel(item.asset).takeIf { it.isNotEmpty() }?.let(::add)
-    colourBadge(item.asset)?.let(::add)
-    if (item.usage > 0) add("used ${item.usage}×")
-    if (item.missing) add("missing")
-}.joinToString(" · ")
+@Composable
+private fun metaLine(item: TrayItem): String {
+    val kind = stringResource(item.kind.labelRes())
+    val used = if (item.usage > 0) stringResource(R.string.ed_s3_used_times, item.usage) else null
+    val missing = if (item.missing) stringResource(R.string.ed_s3_missing_lc) else null
+    return listOfNotNull(kind, durationLabel(item.asset).takeIf { it.isNotEmpty() }, colourBadge(item.asset), used, missing).joinToString(" · ")
+}
 
 /** What a screen reader says for a tile, including how to use it. */
-internal fun describe(item: TrayItem): String =
-    "${item.name}. ${metaLine(item)}. Tap to add at the playhead, or hold and drag onto the timeline."
+@Composable
+internal fun describe(item: TrayItem): String = stringResource(R.string.ed_s3_tile_description, item.name, metaLine(item))

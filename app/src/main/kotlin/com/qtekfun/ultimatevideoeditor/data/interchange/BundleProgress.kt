@@ -4,13 +4,13 @@ import java.io.IOException
 import java.io.OutputStream
 
 /** Thrown by [ProjectBundle.write] when its observer asked to stop; the caller removes the partial file. */
-class BundleWriteCancelled : IOException("The backup was cancelled")
+class BundleWriteCancelled : IOException("backup cancelled")
 
 /**
  * Thrown by an import when its observer asked to stop. A [CancellationException] so that nothing treats it as a failure; the
  * importer removes what it had made (scratch folder, copied footage) on the way out, so a cancelled import leaves nothing.
  */
-class ImportCancelled : java.util.concurrent.CancellationException("The import was cancelled")
+class ImportCancelled : java.util.concurrent.CancellationException("import cancelled")
 
 /** Names an import reports for the last step (project item, written and moved into place), so the words can say "finishing". */
 object ImportSteps {

@@ -57,7 +57,7 @@ const val TRANSITION_NEAR_FRAMES = 6L
 
 data class EditorState(
     val isLoading: Boolean = true,
-    val loadError: String? = null,
+    val loadError: UiText? = null,
     val projectName: String = "",
     val fps: FrameRate = FrameRate(30, 1),
     /** Project resolution: the canvas the preview composites on and clip positions are measured in. */
@@ -113,7 +113,7 @@ data class EditorState(
     /** The "scan a folder" relink: idle, running (with progress) or finished (with its results). */
     val folderRelink: FolderRelinkUi = FolderRelinkUi.Idle,
     /** The last autosave failed with this message; the project on disk is older than what is on screen. */
-    val saveError: String? = null,
+    val saveError: UiText? = null,
     /** Leaving was refused because the last save failed; the user chooses between retrying and discarding. */
     val leaveBlockedBySave: Boolean = false,
     /** Moving, trimming and dropping clips snaps to ruler markers (manual and beat) as well as to clip edges. */
@@ -139,7 +139,7 @@ data class EditorState(
     /** A slider drag on an audio tool is in progress: [dragPreview] holds it and the mixer plays it live. */
     val audioSessionActive: Boolean = false,
     /** What the audio analysis in progress is doing ("Measuring loudness…"), or null when idle. */
-    val audioBusy: String? = null,
+    val audioBusy: UiText? = null,
     /** The quiet region (clip frames) marked on the selected clip as the noise sample, if any. */
     val noiseRegion: NoiseRegion? = null,
     /** The track mixer sheet (volume, mute, solo, role, compressor, ducking) is open. */

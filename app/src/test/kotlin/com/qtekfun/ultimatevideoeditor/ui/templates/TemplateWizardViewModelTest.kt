@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.ClipPeeker
 import com.qtekfun.ultimatevideoeditor.data.MatchedClip
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
@@ -59,7 +61,7 @@ class TemplateWizardViewModelTest {
     /** Files by uri: video with 20 s of footage unless named otherwise. */
     private class FakeImporter : MediaImporter {
         override suspend fun import(uri: String): ProbedMedia = when {
-            uri.endsWith("broken") -> throw MediaImportException("This file cannot be read")
+            uri.endsWith("broken") -> throw MediaImportException("unreadable", userText = UiText.Raw("This file cannot be read"))
             uri.endsWith("photo") -> ProbedMedia(0, 0, 0, "Rec709-SDR", hasVideo = false, hasAudio = false, isImage = true, displayName = "photo.jpg")
             uri.endsWith("song") -> ProbedMedia(30_000_000, 0, 0, "Rec709-SDR", hasVideo = false, hasAudio = true, displayName = "song.mp3")
             uri.endsWith("short") -> ProbedMedia(500_000, 30, 1, "Rec709-SDR", hasVideo = true, hasAudio = true, displayName = "short.mp4")
@@ -148,7 +150,7 @@ class TemplateWizardViewModelTest {
         vm.select(montageId)
         for (i in 1..4) vm.pick("clip$i", "content://clip$i")
         vm.pick("clip5", "content://short")
-        assertTrue(vm.state.value.warnings.any { it.contains("Clip 5") && it.contains("shorter") })
+        assertTrue(vm.state.value.warnings.any { it.english().contains("Clip 5") && it.english().contains("shorter") })
         assertTrue(vm.state.value.canCreate)
     }
 
@@ -159,11 +161,11 @@ class TemplateWizardViewModelTest {
         vm.pick("main", "content://photo")
         // The photo went in, but the slot needs a video: the problem shows and Create stays off.
         for (id in listOf("intro", "outro")) vm.pick(id, "content://clip")
-        assertTrue(vm.state.value.problem!!.contains("Main clip"))
+        assertTrue(vm.state.value.problem!!.english().contains("Main clip"))
         assertFalse(vm.state.value.canCreate)
 
         vm.pick("main", "content://broken")
-        assertEquals("This file cannot be read", vm.state.value.message)
+        assertEquals("This file cannot be read", vm.state.value.message?.english())
         vm.clear("main")
         vm.pick("main", "content://clip")
         assertNull(vm.state.value.problem)
@@ -193,7 +195,7 @@ class TemplateWizardViewModelTest {
         vm.saveProjectAsTemplate(projectId)
         val mine = vm.state.value.templates.single { BuiltInTemplates.find(it.id) == null }
         assertEquals(5, mine.placeholders.size)
-        assertTrue(vm.state.value.message!!.contains("5 slots"))
+        assertTrue(vm.state.value.message!!.english().contains("5 slots"))
 
         vm.exportTemplate(mine.id, "mem://mine.uvtemplate")
         val text = String(io.files.getValue("mem://mine.uvtemplate"))
@@ -203,7 +205,7 @@ class TemplateWizardViewModelTest {
         assertTrue(vm.state.value.templates.none { it.id == mine.id })
         vm.importTemplate("mem://mine.uvtemplate")
         assertEquals(1, vm.state.value.templates.count { BuiltInTemplates.find(it.id) == null })
-        assertTrue(vm.state.value.message!!.startsWith("Added"))
+        assertTrue(vm.state.value.message!!.english().startsWith("Added"))
     }
 
     @Test
@@ -212,13 +214,13 @@ class TemplateWizardViewModelTest {
         val vm = viewModel(repo)
         val empty = repo.create("Empty", ProjectSettingsDto(1920, 1080, 30, 1, "Rec709-SDR"))
         vm.saveProjectAsTemplate(empty.id)
-        assertTrue(vm.state.value.message!!.contains("no clips"))
+        assertTrue(vm.state.value.message!!.english().contains("no clips"))
 
         io.files["mem://bad"] = "not json".toByteArray()
         vm.importTemplate("mem://bad")
-        assertTrue(vm.state.value.message!!.isNotBlank())
+        assertTrue(vm.state.value.message!!.english().isNotBlank())
         vm.importTemplate("mem://missing")
-        assertTrue(vm.state.value.message!!.contains("could not be read"))
+        assertTrue(vm.state.value.message!!.english().contains("could not be read"))
         assertEquals(BuiltInTemplates.all.size, vm.state.value.templates.size)
     }
 }

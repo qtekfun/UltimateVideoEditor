@@ -1,14 +1,14 @@
 package com.qtekfun.ultimatevideoeditor.domain
 
 /** How a title comes in or goes out: a preset that [TitleMotion] turns into keyframes of the clip. */
-enum class MotionPreset(val label: String) {
-    NONE("None"),
-    FADE("Fade"),
-    SLIDE_LEFT("Slide from left"),
-    SLIDE_RIGHT("Slide from right"),
-    SLIDE_UP("Slide from bottom"),
-    SLIDE_DOWN("Slide from top"),
-    POP("Pop"),
+enum class MotionPreset {
+    NONE,
+    FADE,
+    SLIDE_LEFT,
+    SLIDE_RIGHT,
+    SLIDE_UP,
+    SLIDE_DOWN,
+    POP,
 }
 
 /**

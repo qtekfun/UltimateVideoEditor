@@ -22,7 +22,7 @@ enum class VerifyCheck(@StringRes val labelRes: Int) {
  * the words around it are translated (see [VerificationText]). [tailFrames] says how many frames at the very end are affected (0 when the
  * problem is not at the end or cannot be counted); the headline uses it: "the last N frames look damaged".
  */
-data class Finding(val check: VerifyCheck, val message: String, val tailFrames: Long = 0)
+data class Finding(val check: VerifyCheck, val message: UiText, val tailFrames: Long = 0)
 
 /** What the exporter promised and the verifier measures the file against. */
 data class VerifyExpectation(

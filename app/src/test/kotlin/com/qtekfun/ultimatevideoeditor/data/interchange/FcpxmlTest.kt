@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.model.ProjectDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -77,8 +78,8 @@ class FcpxmlTest {
     @Test
     fun `the unsupported features are listed`() {
         val export = Fcpxml.export(sampleProject())
-        assertTrue(export.notes.any { it.contains("content://") })
-        assertTrue(export.notes.any { it.contains("Audio tools") })
+        assertTrue(export.notes.any { it.english().contains("content://") })
+        assertTrue(export.notes.any { it.english().contains("Audio tools") })
         assertTrue(export.xml.contains("<note>Not exported:"))
     }
 

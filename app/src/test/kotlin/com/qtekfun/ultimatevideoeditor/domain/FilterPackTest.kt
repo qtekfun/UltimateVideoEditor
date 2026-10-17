@@ -22,7 +22,7 @@ class FilterPackTest {
     fun `the pack has about twenty looks with unique ids and names`() {
         assertTrue(FilterPack.looks.size >= 20)
         assertEquals(FilterPack.looks.size, FilterPack.looks.map { it.id }.toSet().size)
-        assertEquals(FilterPack.looks.size, FilterPack.looks.map { it.name }.toSet().size)
+        assertEquals(FilterPack.looks.size, FilterPack.looks.map { it.nameRes }.toSet().size)
         assertNotNull(FilterPack.find("cinematic"))
         assertEquals(null, FilterPack.find("nope"))
     }
@@ -135,8 +135,8 @@ class FilterPackTest {
     fun `installing a look twice stores it once and a bad size is refused`() {
         val store = LutStore(tmp.newFolder("luts"))
         val look = checkNotNull(FilterPack.find("noir"))
-        val first = store.import(look.name, FilterPack.cube(look))
-        val second = store.import(look.name, FilterPack.cube(look))
+        val first = store.import(look.id, FilterPack.cube(look))
+        val second = store.import(look.id, FilterPack.cube(look))
         assertEquals(first, second)
         assertEquals(1, store.list().size)
         assertNotNull(store.load(first.key))

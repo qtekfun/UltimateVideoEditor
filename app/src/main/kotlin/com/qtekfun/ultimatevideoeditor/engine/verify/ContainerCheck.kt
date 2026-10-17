@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import kotlin.math.abs
 
 /**
@@ -22,10 +24,10 @@ object ContainerCheck {
         val findings = mutableListOf<Finding>()
         val video = file.video
         if (video == null) {
-            findings += Finding(VerifyCheck.CONTAINER, "the file has no video track")
+            findings += Finding(VerifyCheck.CONTAINER, UiText.res(R.string.fv_no_video))
             return findings
         }
-        if (file.mdatTruncated) findings += Finding(VerifyCheck.CONTAINER, "the file ends in the middle of its media data")
+        if (file.mdatTruncated) findings += Finding(VerifyCheck.CONTAINER, UiText.res(R.string.fv_cut_mdat))
         checkVideo(file, video, exp, findings)
         if (exp.hasAudio) checkAudio(file, exp, findings)
         return findings
@@ -38,18 +40,18 @@ object ContainerCheck {
             val missing = exp.totalFrames - count
             out += Finding(
                 VerifyCheck.FRAME_COUNT,
-                "the file holds $count frames, the export should have ${exp.totalFrames}",
+                UiText.res(R.string.fv_count, count, exp.totalFrames),
                 tailFrames = if (missing > 0) missing else 0,
             )
         }
         val empty = video.sizes.count { it <= 0 }
-        if (empty > 0) out += Finding(VerifyCheck.SAMPLE_DATA, "$empty frames are empty")
+        if (empty > 0) out += Finding(VerifyCheck.SAMPLE_DATA, UiText.plural(R.plurals.fv_empty_frames, empty))
         val outside = (0 until count).filter { video.offsets[it] + video.sizes[it] > file.fileSize }
         if (outside.isNotEmpty()) {
             val lastBytes = outside.maxOf { video.offsets[it] + video.sizes[it] } - file.fileSize
             out += Finding(
                 VerifyCheck.SAMPLE_DATA,
-                "${outside.size} frames lie beyond the end of the file ($lastBytes bytes missing)",
+                UiText.plural(R.plurals.fv_beyond_frames, outside.size, lastBytes),
                 tailFrames = framesFromEnd(video, outside.min()),
             )
         }
@@ -57,10 +59,10 @@ object ContainerCheck {
         val order = video.presentationOrder()
         val firstUs = video.presentationUs(order.first())
         val lastUs = video.presentationUs(order.last())
-        if (abs(firstUs) > frameUs) out += Finding(VerifyCheck.TIMING, "the first frame is at ${firstUs / 1000} ms, not at the start")
+        if (abs(firstUs) > frameUs) out += Finding(VerifyCheck.TIMING, UiText.res(R.string.fv_first, firstUs / 1000))
         val expectedLast = exp.ptsUsOf(exp.totalFrames - 1)
         if (abs(lastUs - expectedLast) > frameUs) {
-            out += Finding(VerifyCheck.TIMING, "the last frame is at ${lastUs / 1000} ms, expected ${expectedLast / 1000} ms")
+            out += Finding(VerifyCheck.TIMING, UiText.res(R.string.fv_last, lastUs / 1000, expectedLast / 1000))
         }
         var worstGap = 0.0
         var duplicate = 0
@@ -69,32 +71,32 @@ object ContainerCheck {
             if (gap <= 0.0) duplicate++
             if (gap > worstGap) worstGap = gap
         }
-        if (duplicate > 0) out += Finding(VerifyCheck.TIMING, "$duplicate frames share a timestamp")
-        if (worstGap > frameUs * 1.5) out += Finding(VerifyCheck.TIMING, "a gap of ${(worstGap / 1000).toLong()} ms between two frames")
+        if (duplicate > 0) out += Finding(VerifyCheck.TIMING, UiText.plural(R.plurals.fv_dup, duplicate))
+        if (worstGap > frameUs * 1.5) out += Finding(VerifyCheck.TIMING, UiText.res(R.string.fv_gap, (worstGap / 1000).toLong()))
         val expectedDuration = exp.durationUs
         if (abs(video.durationUs - expectedDuration) > frameUs) {
-            out += Finding(VerifyCheck.TIMING, "the picture lasts ${video.durationUs / 1000} ms, expected ${expectedDuration / 1000} ms")
+            out += Finding(VerifyCheck.TIMING, UiText.res(R.string.fv_picture_len, video.durationUs / 1000, expectedDuration / 1000))
         }
     }
 
     private fun checkAudio(file: Mp4File, exp: VerifyExpectation, out: MutableList<Finding>) {
         val audio = file.audio
         if (audio == null) {
-            out += Finding(VerifyCheck.AUDIO, "the file has no audio track although the project has sound")
+            out += Finding(VerifyCheck.AUDIO, UiText.res(R.string.fv_no_audio))
             return
         }
         if (audio.count == 0) {
-            out += Finding(VerifyCheck.AUDIO, "the audio track is empty")
+            out += Finding(VerifyCheck.AUDIO, UiText.res(R.string.fv_audio_empty))
             return
         }
-        if (audio.sizes.any { it <= 0 }) out += Finding(VerifyCheck.AUDIO, "${audio.sizes.count { it <= 0 }} audio samples are empty")
+        if (audio.sizes.any { it <= 0 }) out += Finding(VerifyCheck.AUDIO, UiText.plural(R.plurals.fv_audio_empty_samples, audio.sizes.count { it <= 0 }))
         val beyond = (0 until audio.count).count { audio.offsets[it] + audio.sizes[it] > file.fileSize }
-        if (beyond > 0) out += Finding(VerifyCheck.AUDIO, "$beyond audio samples lie beyond the end of the file")
+        if (beyond > 0) out += Finding(VerifyCheck.AUDIO, UiText.plural(R.plurals.fv_audio_beyond, beyond))
         val difference = audio.durationUs - exp.durationUs
         if (difference < -AUDIO_SHORTER_TOLERANCE_US) {
-            out += Finding(VerifyCheck.AUDIO, "the sound is ${-difference / 1000} ms shorter than the picture")
+            out += Finding(VerifyCheck.AUDIO, UiText.res(R.string.fv_audio_short, -difference / 1000))
         } else if (difference > AUDIO_LONGER_TOLERANCE_US) {
-            out += Finding(VerifyCheck.AUDIO, "the sound is ${difference / 1000} ms longer than the picture")
+            out += Finding(VerifyCheck.AUDIO, UiText.res(R.string.fv_audio_long, difference / 1000))
         }
     }
 

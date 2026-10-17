@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -109,10 +111,10 @@ internal fun FullscreenControls(
             ) {
                 ToolButton(
                     icon = if (playing) EditorIcons.Pause else EditorIcons.Play,
-                    description = if (playing) "Pause" else "Play",
+                    description = stringResource(if (playing) R.string.ed_2a_pause else R.string.ed_2a_play),
                     onClick = onPlayPause,
                 )
-                ToolButton(EditorIcons.FullscreenExit, "Leave fullscreen", onClick = onExit)
+                ToolButton(EditorIcons.FullscreenExit, stringResource(R.string.g_fullscreen_exit_name), onClick = onExit)
             }
         }
     }

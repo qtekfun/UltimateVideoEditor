@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.proxy
 
+import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
@@ -31,7 +33,7 @@ data class ProxyUiState(
     val suggestion: ProxySuggestion? = null,
     val sheetOpen: Boolean = false,
     val confirmClear: Boolean = false,
-    val message: String? = null,
+    val message: UiText? = null,
     /** Changes whenever what the preview and thumbnails should open changes (switch, proxy ready, settings). */
     val resolveVersion: Int = 0,
 ) : UiState {
@@ -127,7 +129,7 @@ class ProxyViewModel(
             ProxyIntent.CancelClear -> reduce { copy(confirmClear = false) }
             ProxyIntent.ConfirmClear -> {
                 val freed = manager.clearCache()
-                reduce { copy(confirmClear = false, message = "Freed ${megabytes(freed)}") }
+                reduce { copy(confirmClear = false, message = UiText.res(R.string.ed_s3_proxy_freed, megabytes(freed))) }
                 refresh(bumpResolve = true)
             }
             ProxyIntent.DismissSuggestion -> {
@@ -152,7 +154,7 @@ class ProxyViewModel(
             }
             is ProxyIntent.PreviewProxyFailed -> {
                 assets.firstOrNull { it.id == intent.assetId }?.let(manager::markUnusable)
-                reduce { copy(message = "A proxy could not be opened, so the original is used") }
+                reduce { copy(message = UiText.res(R.string.ed_s3_proxy_open_failed)) }
                 refresh(bumpResolve = true)
             }
             ProxyIntent.ClearMessage -> reduce { copy(message = null) }
@@ -206,4 +208,4 @@ class ProxyViewModel(
 }
 
 internal fun megabytes(bytes: Long): String =
-    if (bytes >= 1L shl 30) "%.1f GB".format(bytes / (1024.0 * 1024.0 * 1024.0)) else "%d MB".format(bytes / (1024 * 1024))
+    if (bytes >= 1L shl 30) "%.1f GB".format(bytes / (1024.0 * 1024.0 * 1024.0)) else "%d MB".format(bytes / (1024 * 1024)) // i18n-ok: unit symbols

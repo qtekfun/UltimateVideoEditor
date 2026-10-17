@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.title
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.FontRegistry
 import com.qtekfun.ultimatevideoeditor.data.TitlePresetStore
 import com.qtekfun.ultimatevideoeditor.data.fakeFont
@@ -73,7 +74,7 @@ class TitleLibraryViewModelTest {
         assertEquals("Alpha", imported)
         assertEquals(listOf("Alpha"), vm.state.value.fonts.map { it.family })
         assertEquals(1, vm.state.value.fontIds.size)
-        assertTrue(vm.state.value.message!!.contains("licence"))
+        assertTrue(vm.state.value.message!!.english().contains("licence"))
         assertFalse(vm.state.value.busy)
         vm.clearMessage()
         assertNull(vm.state.value.message)
@@ -84,10 +85,10 @@ class TitleLibraryViewModelTest {
         val files = Files(mutableMapOf("bad" to "this is not a font file".toByteArray()))
         val vm = vm(files)
         vm.importFont("bad")
-        assertTrue(vm.state.value.message!!.contains("not a TrueType or OpenType"))
+        assertTrue(vm.state.value.message!!.english().contains("not a TrueType or OpenType"))
         assertTrue(vm.state.value.fonts.isEmpty())
         vm.importFont("gone")
-        assertTrue(vm.state.value.message!!.contains("could not be read"))
+        assertTrue(vm.state.value.message!!.english().contains("could not be read"))
         assertFalse(vm.state.value.busy)
     }
 
@@ -108,7 +109,7 @@ class TitleLibraryViewModelTest {
         val saved = vm.state.value.presets.single()
         assertEquals("Mine", saved.name)
         assertEquals(MotionPreset.POP, saved.intro)
-        assertTrue(vm.state.value.message!!.contains("Saved"))
+        assertTrue(vm.state.value.message!!.english().contains("Saved"))
 
         vm.exportPreset(saved.id, "out")
         assertTrue(files.written.getValue("out").contains("\"format\": \"uvtitle\""))
@@ -120,7 +121,7 @@ class TitleLibraryViewModelTest {
         vm.importPreset("in")
         assertEquals("Mine", vm.state.value.presets.single().name)
         // The font the preset names is not on this device: the message says which.
-        assertTrue(vm.state.value.message!!.contains("Missing fonts"))
+        assertTrue(vm.state.value.message!!.english().contains("Missing fonts"))
         assertNotNull(vm.state.value.presets.single().fonts.firstOrNull())
     }
 
@@ -129,14 +130,14 @@ class TitleLibraryViewModelTest {
         val files = Files(mutableMapOf("junk" to "{ nope".toByteArray()))
         val vm = vm(files)
         vm.importPreset("junk")
-        assertTrue(vm.state.value.message!!.contains("not a title preset"))
+        assertTrue(vm.state.value.message!!.english().contains("not a title preset"))
         assertFalse(vm.state.value.busy)
 
         vm.savePreset("Ok", content, 4.0, MotionPreset.NONE, MotionPreset.NONE)
         files.failWrites = true
         vm.exportPreset(vm.state.value.presets.single().id, "x")
-        assertTrue(vm.state.value.message!!.contains("could not be written"))
+        assertTrue(vm.state.value.message!!.english().contains("could not be written"))
         vm.exportPreset("missing", "x")
-        assertTrue(vm.state.value.message!!.contains("no longer there"))
+        assertTrue(vm.state.value.message!!.english().contains("no longer there"))
     }
 }

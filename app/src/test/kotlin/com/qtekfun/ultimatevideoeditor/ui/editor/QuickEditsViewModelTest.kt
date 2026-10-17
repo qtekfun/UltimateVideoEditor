@@ -200,7 +200,7 @@ class QuickEditsViewModelTest {
         h.vm.onIntent(QuickEditIntent.OpenAutoCut)
         h.vm.onIntent(QuickEditIntent.FindSilences)
         advanceUntilIdle()
-        assertTrue(h.state.quickEdits.autoCut.message!!.contains("waveform"))
+        assertTrue(h.state.quickEdits.autoCut.message!!.english().contains("waveform"))
         assertTrue(h.state.quickEdits.autoCut.cuts.isEmpty())
 
         envelope.result = null
@@ -274,11 +274,11 @@ class QuickEditsViewModelTest {
         h.vm.onIntent(QuickEditIntent.OpenReframe)
         h.vm.onIntent(EditorIntent.SetPlayhead(350))
         h.vm.onIntent(QuickEditIntent.MarkReframePoint)
-        assertTrue(h.state.quickEdits.reframe.message!!.contains("playhead"))
+        assertTrue(h.state.quickEdits.reframe.message!!.english().contains("playhead"))
 
         h.vm.onIntent(QuickEditIntent.ApplyReframe)
         advanceUntilIdle()
-        assertTrue(h.state.quickEdits.reframe.message!!.contains("shape"))
+        assertTrue(h.state.quickEdits.reframe.message!!.english().contains("shape"))
         assertTrue(h.state.quickEdits.reframe.open)
     }
 

@@ -1906,7 +1906,7 @@ its own name. Android 13+: reads and writes `LocaleManager.applicationLocales`; 
 language the app does not have shows English.
 
 **Guards.** `TranslationsGuardTest` (keys both ways, format arguments, no empty text, plural forms per language, every string formats,
-`locales_config.xml`), `HardCodedTextRatchetTest` with `src/test/i18n/unmigrated.txt` (shrinks stage by stage), `UiTextTest`, lint
+`locales_config.xml`), `HardCodedTextRatchetTest` (its allow-list `src/test/i18n/unmigrated.txt` is empty and stays empty), `UiTextTest`, lint
 errors for `MissingTranslation`, `ExtraTranslation`, `StringFormatInvalid`, `StringFormatMatches`, `StringFormatCount` and
 `MissingQuantity`. The device scripts pin the app to English (`scripts/device-ui.sh`, `docs/QA.md`).
 
@@ -1916,7 +1916,21 @@ errors for `MissingTranslation`, `ExtraTranslation`, `StringFormatInvalid`, `Str
 
 **Migrated in stage 1:** Projects screen (cards, sort, selection bar, dialogs, snackbars, storage card), New project sheet and its
 presets, About, the export dialog, the bars of the project list, the bundle and import dialogs, the export service's notifications and
-channel, the verification texts. **Still English:** the editor and everything on the allow-list.
+channel, the verification texts.
+
+**Migrated in stages 3 to 5 (all of it, 1.1.0):** the media tray, library, captions, title layers and libraries, multicam, proxies, templates, scopes,
+stickers, frame saving and the first-run tips (3); the toolbar guide (`GuideEntry` and `GuideGesture` hold `R.string` ids, `scripts/gen-site.py`
+reads the English ones from `values/strings.xml` for the website), the language-specific privacy statement (`docs/PRIVACY.<language>.md`, shipped as
+`legal/PRIVACY.<language>.md` and chosen by About; `PrivacyTranslationTest` keeps its shape the same as the English one) and the label of
+clips on the native timeline (`ClipLabels.of(.., words)`) (4); the lower layers (5): exceptions that reach a screen implement
+`ui/text/UserFacing` (`userText`: `ProjectError`, `BundleError`, `LumaFusionError`, `MediaImportException`, `ResourceRejected`, `UiTextIOException`) and
+`reasonOf(error, fallback)` picks it; `EditError`s that the person can cause are `GroupEditUnavailable(UiText)`; outcomes and reports carry `UiText`
+(`StabOutcome.Failed`, `TrackOutcome.Failed`, `RelinkVerdict`, `UnresolvedAsset`, `LumaFusionReport`, `EdlExport.notes`, `FcpxmlExport.notes`,
+`BundleVerification.Warning`, `ResourceProblem`, `Finding`, `TemplateResult.warnings`).
+**Stays English on purpose:** technical diagnostics inside an otherwise translated sentence (the detail of a corrupt archive, the `problem()` validators
+of the domain, a message of the encoder or the system), names and sample text that are stored as written (a saved template or preset, the sample titles
+of the built-in templates, "Track 1" is worded when shown), the text of a crash report (addressed to the developer), the `<note>` written inside an
+FCPXML file, the online user guide and the website. Every such line says why with `// i18n-ok: reason`.
 
 ## 6. Timeline operations (specification for tests)
 

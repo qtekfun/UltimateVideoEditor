@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
 import com.qtekfun.ultimatevideoeditor.data.MediaImporter
 import com.qtekfun.ultimatevideoeditor.data.ProbedMedia
@@ -269,7 +270,7 @@ class StabiliseViewModelTest {
 
     @Test
     fun `a failed analysis tells the user and leaves the status alone`() = runTest(dispatcher) {
-        val stab = FakeStabiliser().apply { outcome = StabOutcome.Failed("The video could not be decoded") }
+        val stab = FakeStabiliser().apply { outcome = StabOutcome.Failed(UiText.Raw("The video could not be decoded")) }
         val h = harness(stab, project(stabilised = true))
         h.select("c1")
         h.vm.onIntent(EditorIntent.AnalyseStabilise)

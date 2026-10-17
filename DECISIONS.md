@@ -2001,6 +2001,22 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 - **Markdown.** The flag list's text is Markdown (`# title`, `## Colour (n)`, `- [ ] time · name: note`); *Share as Markdown*, *Save .md file*
   and *Save as CSV* are the three actions.
 
+## Translations, stages 3 to 5: the editor, the guide and the lower layers (2026-10-18, owner request: "terminalas todas de una vez")
+
+- **Done in one go.** The rest of the editor sheets (stage 3), the toolbar guide, the privacy statement and the labels the native timeline draws
+  (stage 4), and the error and report texts of the data, domain, engine and proxy layers (stage 5). The allow-list of the ratchet test is empty.
+- **How the lower layers speak.** Exceptions keep an English `message` for logs and implement `UserFacing` (`userText: UiText`); a screen that shows
+  an error calls `reasonOf(error, fallback)`. Results and reports that a person reads carry `UiText` (see SPECS 5.43). `EditError`s that the person
+  can cause carry `GroupEditUnavailable(UiText)`; the `problem()` validators and the `EditError.Invalid*` reasons stay English: no screen can
+  produce them.
+- **Left English on purpose**, with the reason on the line: technical details inside a translated sentence, stored names and sample text, crash
+  reports, the `<note>` inside an FCPXML file, the notices and licence, the online user guide and website (a later decision).
+- **Guide.** The in-app toolbar guide is now resource-based and has a new gesture (selecting several media in the tray); `scripts/gen-site.py`
+  reads the English words from `values/strings.xml`.
+- **Privacy statement.** `docs/PRIVACY.es.md` is shipped next to the English one; About shows the one for the language in use. A test keeps the
+  translation the same shape as the original so a promise cannot differ between languages.
+- **Bug found on the way:** the error shown when a base-track clip is dragged to another track said the opposite of what it meant.
+
 ## Privacy scrub of the repository (2026-10-17)
 
 - **Audit** (whole history, 742 commits, and the text of every PR, issue and release): no device serial, e-mail address, IP address, token, key,

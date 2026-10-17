@@ -4,9 +4,8 @@ English is the source language. Spanish (`es`) is the first translation. A langu
 (plus one line in `app/src/main/res/xml/locales_config.xml`). Translations are written by people and bundled in the app; nothing is
 downloaded and no translation service or SDK is used (`docs/PRIVACY.md`).
 
-Status: the Projects screen, the New project sheet, About, and the dialogs, bars and notifications of exports, backups and imports
-are translated. The editor and the rest are still English and move over in stages (`DECISIONS.md`, "Translations").
-`app/src/test/i18n/unmigrated.txt` lists what is still English.
+Status: every screen, dialog, message, notification, the toolbar guide, the first-run tips and the privacy statement are available in
+Spanish. What stays English on purpose is listed under "What is not translated" below. `app/src/test/i18n/unmigrated.txt` is empty.
 
 ## Adding a language
 
@@ -42,8 +41,9 @@ No Kotlin changes are needed. The picker lists the language under its own name (
 |---|---|
 | Composable code | `stringResource(R.string.x, args)` and `pluralStringResource(R.plurals.x, n, args)` |
 | View models, effects, notifications, pure classes with JVM tests | `UiText` (`ui/text/UiText.kt`): a resource id and arguments, resolved where it is shown, so a state kept in a view model follows a language change and the JVM tests need no Android |
-| Text of the lower layers (`data/`, `domain/`, `engine/`) | still English strings or exception messages; they reach the screen as `UiText.Raw` and are translated in a later stage |
-| Documents shown in About (privacy statement, notices, licence) | English files bundled as assets |
+| Text of the lower layers (`data/`, `domain/`, `engine/`, `proxy/`) | an exception that reaches a screen implements `UserFacing` (its `userText` is a `UiText`; its message stays English, for logs); a result or report carries `UiText` fields; `reasonOf(error, fallback)` picks the right one |
+| Documents shown in About | the privacy statement per language (`docs/PRIVACY.<language>.md`, `PrivacyTranslationTest` keeps its shape the same as the English one); the notices and the licence stay English (legal texts) |
+| The toolbar guide | `GuideEntry` / `GuideGesture` carry string resource ids (`g_<id>_name`, `_help`, `_when`, `gg_<id>_title`, `_help`); the website reads the English ones |
 
 In unit tests, `UiText.english()` (`src/test/.../ui/text/StringsXml.kt`) reads the real `values/strings.xml`, so a test asserts on the
 words the user reads, not on a resource id.
@@ -168,3 +168,15 @@ Keep one term for one idea across the app; add to this table when a stage introd
 - Technical diagnostics from the lower layers (the verifier's findings, `ProjectError` messages, the export engine's remarks).
 - `docs/USER_GUIDE.md`, the website and the in-app toolbar guide (decided in a later stage).
 - The privacy statement, the notices and the licence text shown in About.
+
+## What is not translated
+
+- **Technical detail inside a translated sentence**: the reason a project file is corrupt, the detail of a damaged archive, a message of the
+  encoder or of the system (an `IOException`). The sentence around it is translated.
+- **Names and sample text that are stored as written**: a saved text preset or project template keeps the words it was made with; the sample
+  titles of the built-in project templates ("My story"); the default name of a motion tracking ("Track 3") is worded when it is shown.
+- **The crash report** (a text file addressed to whoever reads the bug) and the `<note>` written inside an FCPXML file.
+- **The notices and licence documents** in About, the online user guide and the website.
+
+A new text for the person is always a resource. The place that would otherwise need an exception says why on its own line with
+`// i18n-ok: reason`; `HardCodedTextRatchetTest` allows only those.

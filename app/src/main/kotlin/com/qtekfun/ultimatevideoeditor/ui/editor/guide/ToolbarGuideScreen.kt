@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.guide
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
+import com.qtekfun.ultimatevideoeditor.R
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,14 +48,16 @@ import androidx.compose.ui.unit.dp
 internal fun ToolbarGuideScreen(onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     var query by rememberSaveable { mutableStateOf("") }
-    val entries = ToolbarGuide.search(query)
-    val gestures = ToolbarGuide.searchGestures(query)
+    val resources = LocalResources.current
+    val text = remember(resources) { { id: Int -> resources.getString(id) } }
+    val entries = ToolbarGuide.search(query, text)
+    val gestures = ToolbarGuide.searchGestures(query, text)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Toolbar guide") },
-                navigationIcon = { TextButton(onClick = onClose) { Text("Close") } },
+                title = { Text(stringResource(R.string.g_screen_title)) },
+                navigationIcon = { TextButton(onClick = onClose) { Text(stringResource(R.string.common_close)) } },
             )
         },
     ) { padding ->
@@ -64,28 +70,28 @@ internal fun ToolbarGuideScreen(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        label = { Text("Search symbols and gestures") },
+                        label = { Text(stringResource(R.string.g_search)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     )
                 }
                 item {
                     Text(
-                        "Long press any icon in the editor to see its name. Tap the ? at the top to open this guide again.",
+                        stringResource(R.string.g_hint),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 if (entries.isEmpty() && gestures.isEmpty()) {
-                    item { Text("Nothing matches \"$query\".") }
+                    item { Text(stringResource(R.string.g_nothing, query)) }
                 }
                 for (section in GuideSection.entries) {
                     val inSection = entries.filter { it.section == section }
                     if (inSection.isEmpty()) continue
-                    item(key = "h-${section.name}") { SectionHeader(section.title, section.where) }
+                    item(key = "h-${section.name}") { SectionHeader(stringResource(section.titleRes), stringResource(section.whereRes)) }
                     items(inSection, key = { it.id }) { EntryRow(it) }
                 }
                 if (gestures.isNotEmpty()) {
-                    item(key = "h-gestures") { SectionHeader("Gestures", "Things you do with your fingers; they have no button.") }
+                    item(key = "h-gestures") { SectionHeader(stringResource(R.string.g_gestures), stringResource(R.string.g_gestures_where)) }
                     items(gestures, key = { it.id }) { GestureRow(it) }
                 }
                 item { Box(modifier = Modifier.padding(bottom = 16.dp)) }
@@ -105,9 +111,11 @@ private fun SectionHeader(title: String, subtitle: String) {
 
 @Composable
 private fun EntryRow(entry: GuideEntry) {
+    val name = stringResource(entry.nameRes)
+    val help = stringResource(entry.helpRes)
     Row(
         modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-            contentDescription = "${entry.name}. ${entry.help}"
+            contentDescription = "$name. $help"
         },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -119,10 +127,10 @@ private fun EntryRow(entry: GuideEntry) {
             Icon(imageVector = entry.icon, contentDescription = null, modifier = Modifier.size(24.dp))
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(entry.name, style = MaterialTheme.typography.titleSmall)
-            Text(entry.help, style = MaterialTheme.typography.bodyMedium)
-            if (entry.enabledWhen.isNotEmpty()) {
-                Text("Available when: ${entry.enabledWhen}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(name, style = MaterialTheme.typography.titleSmall)
+            Text(help, style = MaterialTheme.typography.bodyMedium)
+            if (entry.enabledWhenRes != 0) {
+                Text(stringResource(R.string.g_available_when, stringResource(entry.enabledWhenRes)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -131,7 +139,7 @@ private fun EntryRow(entry: GuideEntry) {
 @Composable
 private fun GestureRow(gesture: GuideGesture) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(gesture.title, style = MaterialTheme.typography.titleSmall)
-        Text(gesture.help, style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(gesture.titleRes), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(gesture.helpRes), style = MaterialTheme.typography.bodyMedium)
     }
 }

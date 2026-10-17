@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
 import com.qtekfun.ultimatevideoeditor.data.MediaImporter
 import com.qtekfun.ultimatevideoeditor.data.ProbedMedia
@@ -260,7 +261,7 @@ class TrackViewModelTest {
 
     @Test
     fun `a failed analysis tells the user and keeps the target for another try`() = runTest(dispatcher) {
-        val tracker = FakeTracker().apply { outcome = TrackOutcome.Failed("The target could not be followed in this clip") }
+        val tracker = FakeTracker().apply { outcome = TrackOutcome.Failed(UiText.Raw("The target could not be followed in this clip")) }
         val h = harness(tracker)
         pickCentre(h)
         assertEquals(1, h.state.timeline.motionTracks.size)
@@ -321,7 +322,7 @@ class TrackViewModelTest {
 
     @Test
     fun `following needs an analysed path, another clip and a visual clip`() = runTest(dispatcher) {
-        val tracker = FakeTracker().apply { outcome = TrackOutcome.Failed("nope") }
+        val tracker = FakeTracker().apply { outcome = TrackOutcome.Failed(UiText.Raw("nope")) }
         val h = harness(tracker)
         pickCentre(h)
         val motion = h.state.timeline.motionTracks.single()
