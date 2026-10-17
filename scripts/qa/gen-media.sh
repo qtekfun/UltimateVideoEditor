@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generates the synthetic media of scripts/qa-smoke.sh with ffmpeg, 4 s each, small (640x360), into <dir>
-# (default /home/qtekfun/uvdata/qa-media: big files stay out of /tmp, which is RAM). Nothing here is a real recording.
+# (default ~/uvdata/qa-media: big files stay out of /tmp, which is RAM). Nothing here is a real recording.
 #
 #   avc_aac_30.mp4     H.264 + AAC, 30 fps, 440 Hz tone
 #   hevc_aac_30.mp4    HEVC (hvc1) + AAC, 30 fps
@@ -18,7 +18,7 @@
 # Idempotent: files that exist are kept (QA_REGEN=1 rebuilds them).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-dir="${1:-/home/qtekfun/uvdata/qa-media}"
+dir="${1:-$HOME/uvdata/qa-media}"
 mkdir -p "$dir"
 size=640x360
 tone="sine=frequency=440:sample_rate=48000:duration=4"

@@ -102,11 +102,11 @@ class CrashReportTest {
 
     @Test
     fun `the report of the unmounted-drive crash names the exception and drops the file name`() {
-        val error = IllegalArgumentException("Failed to determine if 4450-56F6:Movies/VID20260930191900.mp4 is child of 4450-56F6:Movies")
+        val error = IllegalArgumentException("Failed to determine if ABCD-1234:Movies/VID20260101000002.mp4 is child of ABCD-1234:Movies")
         val text = CrashReportFormat.format(error, "main", context, 0L)
 
         assertTrue(text.contains("java.lang.IllegalArgumentException: Failed to determine if"))
-        assertFalse(text.contains("VID20260930191900"))
+        assertFalse(text.contains("VID20260101000002"))
     }
 
     @Test

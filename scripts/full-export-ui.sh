@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Drives one complete export of a project through the real UI and checks the result. Run it with the phone unlocked and awake.
 #   scripts/full-export-ui.sh <serial> [options]
-#     --project NAME   project card in the hub              (default "Review IPhone 18 Pro Max")
-#     --file NAME      file name to save as                 (default "Review IPhone 18 Pro Max 4K.mp4")
+#     --project NAME   project card in the hub              (default "Sample review")
+#     --file NAME      file name to save as                 (default "Sample review 4K.mp4")
 #     --dir DIR        folder on the phone's storage         (default /sdcard/Movies)
 #     --pkg PKG        package to drive                      (default com.qtekfun.ultimatevideoeditor)
 #     --frames N --seconds S   expected frame count / duration (default 42891 / 714.85)
@@ -17,8 +17,8 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-project="Review IPhone 18 Pro Max"
-fname="Review IPhone 18 Pro Max 4K.mp4"
+project="Sample review"
+fname="Sample review 4K.mp4"
 dir="/sdcard/Movies"
 pkg="com.qtekfun.ultimatevideoeditor"
 want_frames=42891

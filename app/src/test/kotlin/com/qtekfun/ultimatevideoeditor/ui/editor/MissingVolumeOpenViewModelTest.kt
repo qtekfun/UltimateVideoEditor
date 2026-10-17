@@ -71,7 +71,7 @@ class MissingVolumeOpenViewModelTest {
     }
 
     private fun asset(id: String) =
-        MediaAssetDto(id, "content://com.android.externalstorage.documents/tree/4450-56F6%3A/document/4450-56F6%3A$id.mp4", durationFrames = 300, nativeFpsNum = 30, nativeFpsDen = 1, colorSpace = "Rec709-SDR")
+        MediaAssetDto(id, "content://com.android.externalstorage.documents/tree/ABCD-1234%3A/document/ABCD-1234%3A$id.mp4", durationFrames = 300, nativeFpsNum = 30, nativeFpsDen = 1, colorSpace = "Rec709-SDR")
 
     private val project = ProjectDto(
         id = "p1",
@@ -85,7 +85,7 @@ class MissingVolumeOpenViewModelTest {
     )
 
     private val failures: List<Pair<String, () -> Exception>> = listOf(
-        "unmounted volume" to { IllegalArgumentException("Failed to determine if 4450-56F6:Movies/VID20260930191900.mp4 is child of 4450-56F6:: java.io.FileNotFoundException: Missing root") },
+        "unmounted volume" to { IllegalArgumentException("Failed to determine if ABCD-1234:Movies/VID20260101000002.mp4 is child of ABCD-1234:: java.io.FileNotFoundException: Missing root") },
         "file not found" to { FileNotFoundException("No content provider") },
         "io error" to { IOException("EIO (I/O error)") },
         "illegal state" to { IllegalStateException("provider died") },
