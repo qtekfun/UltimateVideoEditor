@@ -109,6 +109,9 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
             if (!popup.isBeat) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.flags_shot), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onIntent(MarkerIntent.OpenList) }) {
+                        Icon(EditorIcons.FlagList, contentDescription = stringResource(R.string.flags_menu_list))
+                    }
                     Switch(
                         checked = popup.done,
                         onCheckedChange = { onIntent(MarkerIntent.DoneChanged(it)) },
@@ -117,11 +120,8 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
                 }
             }
             Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (color in MarkerColor.entries) MarkerSwatch(color, popup.color == color, onIntent)
-                }
-                IconButton(onClick = { onIntent(MarkerIntent.OpenList) }) {
-                    Icon(EditorIcons.FlagList, contentDescription = stringResource(R.string.flags_menu_list))
                 }
                 IconButton(onClick = { onIntent(MarkerIntent.DeleteOpen) }) {
                     Icon(EditorIcons.Delete, contentDescription = stringResource(R.string.ed_2a_delete_marker))
@@ -150,7 +150,7 @@ private fun MarkerSwatch(color: MarkerColor, selected: Boolean, onIntent: (Edito
     val plainDescription = stringResource(R.string.ed_2a_marker_colour, name)
     Box(
         Modifier
-            .size(32.dp)
+            .size(28.dp)
             .clip(CircleShape)
             .background(markerColour(color))
             .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
