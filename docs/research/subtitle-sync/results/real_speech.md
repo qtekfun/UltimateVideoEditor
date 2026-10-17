@@ -1,5 +1,5 @@
 
-### IMG_0677 (106 s, language detected: es, model base)
+### clip_b (106 s, language detected: es, model base)
 
 Words per pipeline: tok 244, dtw 244, vaddtw 229, ctc+snap 244, vadctc+snap 229, dtw+snap 244
 
@@ -37,9 +37,9 @@ Words per pipeline: tok 244, dtw 244, vaddtw 229, ctc+snap 244, vadctc+snap 229,
 
 **Cue cross-check against the energy envelope**: 39 cues, 25 flagged (64%): start or end more than 250 ms from the nearest energy-VAD edge, or under 40% of the cue is above floor+8 dB.
 
-Review PNGs: 5 windows in /home/qtekfun/uvdata/research/out/png/ (first is the quietest window).
+Review PNGs: 5 windows in ~/uvdata/research/out/png/ (first is the quietest window).
 
-### IMG_0014 (551 s, language detected: es, model base)
+### clip_a (551 s, language detected: es, model base)
 
 Words per pipeline: tok 1511, dtw 1511, vaddtw 1515, ctc+snap 1511, vadctc+snap 1515, dtw+snap 1511
 
@@ -77,4 +77,4 @@ Words per pipeline: tok 1511, dtw 1511, vaddtw 1515, ctc+snap 1511, vadctc+snap 
 
 **Cue cross-check against the energy envelope**: 211 cues, 189 flagged (90%): start or end more than 250 ms from the nearest energy-VAD edge, or under 40% of the cue is above floor+8 dB.
 
-Review PNGs: 4 windows in /home/qtekfun/uvdata/research/out/png/ (first is the quietest window).
+Review PNGs: 4 windows in ~/uvdata/research/out/png/ (first is the quietest window).

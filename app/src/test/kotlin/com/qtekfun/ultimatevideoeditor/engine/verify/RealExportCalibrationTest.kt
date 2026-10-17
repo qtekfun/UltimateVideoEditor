@@ -13,7 +13,7 @@ import org.junit.Test
  * Numbers measured here are quoted in DECISIONS.md "Post-export verification".
  */
 class RealExportCalibrationTest {
-    private val dir = File("/home/qtekfun/uvdata/out")
+    private val dir = File(System.getProperty("user.home"), "uvdata/out")
 
     private fun open(name: String): Pair<File, ByteSource>? {
         val f = File(dir, name)

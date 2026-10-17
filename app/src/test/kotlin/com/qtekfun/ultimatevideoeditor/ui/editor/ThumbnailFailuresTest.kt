@@ -17,10 +17,10 @@ class ThumbnailFailuresTest {
     @Test
     fun namesTheClipAndLogsKeyUriAndDetail() {
         val f = failures()
-        f.register(7L, "IMG_0014.mov", "content://x/IMG_0014.mov")
+        f.register(7L, "clip_a.mov", "content://x/clip_a.mov")
         f.onFailure(7L, EngineStatus.IO_ERROR, "empty file (0 bytes)")
-        assertEquals(listOf("No filmstrip for IMG_0014.mov (IO_ERROR)"), shown.english())
-        assertTrue(logged.single().contains("asset=7 name=IMG_0014.mov uri=content://x/IMG_0014.mov"))
+        assertEquals(listOf("No filmstrip for clip_a.mov (IO_ERROR)"), shown.english())
+        assertTrue(logged.single().contains("asset=7 name=clip_a.mov uri=content://x/clip_a.mov"))
         assertTrue(logged.single().contains("empty file (0 bytes)"))
     }
 

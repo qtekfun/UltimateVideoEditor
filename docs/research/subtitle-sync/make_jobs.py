@@ -21,9 +21,9 @@ for p in sorted(glob.glob(C + "/*.wav")):
             if cfg == "dtwvad" and m == "tiny" and base_file != "ls_main":
                 continue
             jobs.append(f"{PY} {RUN} {m} {p} {cfg} {lang}")
-for stem in ("IMG_0014", "IMG_0677", "IMG_0656", "VID20260918132047", "VID20260922204254"):
-    for m in (("base", "small") if stem in ("IMG_0014", "IMG_0677") else ("base",)):
+for stem in ("clip_a", "clip_b", "clip_d", "VID20260101000001", "VID20260101000003"):
+    for m in (("base", "small") if stem in ("clip_a", "clip_b") else ("base",)):
         for cfg in ("dtw", "dtwvad"):
-            jobs.append(f"{PY} {RUN} {m} /home/qtekfun/uvdata/research/real/{stem}.wav {cfg} auto")
+            jobs.append(f"{PY} {RUN} {m} {os.path.expanduser('~/uvdata/research/real')}/{stem}.wav {cfg} auto")
 open(f"{UVDATA}/jobs.txt", "w").write("\n".join(jobs) + "\n")
 print(len(jobs), "jobs")
