@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+
 /**
  * Looks at the stored bytes of the first and the last samples without decoding them. A video sample of H.264 / HEVC in
  * an MP4 is a chain of length-prefixed NAL units that must add up to the sample's size exactly; zeroed, overwritten or
@@ -37,11 +40,11 @@ object SampleCheck {
         if (bad > 0) {
             findings += Finding(
                 VerifyCheck.SAMPLE_DATA,
-                "$bad of the checked frames hold data that is not valid video (first at frame ${firstBad + 1} of $count)",
+                UiText.plural(R.plurals.fv_bad_data, bad, bad, firstBad + 1, count),
                 tailFrames = if (firstBadTail >= 0) (count - firstBadTail).toLong() else 0,
             )
         }
-        if (unreadable > 0) findings += Finding(VerifyCheck.SAMPLE_DATA, "$unreadable frames could not be read back from the file")
+        if (unreadable > 0) findings += Finding(VerifyCheck.SAMPLE_DATA, UiText.plural(R.plurals.fv_unreadable, unreadable))
         return findings
     }
 
@@ -54,7 +57,7 @@ object SampleCheck {
             val bytes = source.read(track.offsets[i], size)
             if (bytes.size == size && bytes.all { it == 0.toByte() }) zero++
         }
-        return if (zero > 0) listOf(Finding(VerifyCheck.AUDIO, "$zero of the last audio samples are blank data")) else emptyList()
+        return if (zero > 0) listOf(Finding(VerifyCheck.AUDIO, UiText.plural(R.plurals.fv_zero_audio, zero))) else emptyList()
     }
 
     /** True when [bytes] is exactly a chain of NAL units, each with a [lengthSize]-byte big-endian length. */

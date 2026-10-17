@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UserFacing
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.CURRENT_SCHEMA_VERSION
 import com.qtekfun.ultimatevideoeditor.data.model.ProjectDto
@@ -16,13 +19,13 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/** Why a bundle could not be read. [message] is meant for the user. */
-sealed class BundleError(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    class NotABundle(detail: String) : BundleError("This is not a ultimateVE project bundle ($detail)")
-    class UnsafePath(entry: String) : BundleError("The bundle contains an unsafe file name: ${entry.take(80)}")
-    class TooLarge(what: String) : BundleError("The bundle is larger than allowed ($what)")
-    class Corrupt(detail: String, cause: Throwable? = null) : BundleError("The bundle is damaged: $detail", cause)
-    class UnsupportedVersion(found: Int, supported: Int) : BundleError("The bundle was made by a newer version of the app (format $found, this app reads up to $supported)")
+/** Why a bundle could not be read. The message is English, for logs; [userText] is for the person (the technical detail inside it stays as written). */
+sealed class BundleError(message: String, override val userText: UiText, val detail: String, cause: Throwable? = null) : Exception(message, cause), UserFacing {
+    class NotABundle(detail: String) : BundleError("not a bundle: $detail", UiText.res(R.string.be_not_bundle, detail), detail)
+    class UnsafePath(entry: String) : BundleError("unsafe path: ${entry.take(80)}", UiText.res(R.string.be_unsafe_path, entry.take(80)), entry.take(80))
+    class TooLarge(what: String) : BundleError("too large: $what", UiText.res(R.string.be_too_large, what), what)
+    class Corrupt(detail: String, cause: Throwable? = null) : BundleError("damaged: $detail", UiText.res(R.string.be_corrupt, detail), detail, cause)
+    class UnsupportedVersion(found: Int, supported: Int) : BundleError("newer format $found, reads up to $supported", UiText.res(R.string.be_newer, found, supported), "format $found")
 }
 
 /** Reads the files a bundle can carry. In the app this goes through the system content resolver. */
@@ -99,7 +102,7 @@ data class BundleWriteResult(
     val mediaCopied: Int,
     val mediaSkipped: List<String>,
     val resourcesIncluded: Int = 0,
-    val resourcesSkipped: List<String> = emptyList(),
+    val resourcesSkipped: List<UiText> = emptyList(),
     val lutsIncluded: Int = 0,
     val fontsIncluded: Int = 0,
     /** The size of the finished file as the writer counted it, and every entry in it: what the check of the saved file compares against. */

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.verify
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
@@ -84,7 +86,7 @@ class Mp4TablesTest {
         val parsed = try {
             Mp4Reader.read(source)
         } catch (e: Mp4FormatException) {
-            return listOf(Finding(VerifyCheck.CONTAINER, e.message.orEmpty()))
+            return listOf(Finding(VerifyCheck.CONTAINER, UiText.Raw(e.message.orEmpty())))
         }
         val result = ContainerCheck.check(parsed, expectation).toMutableList()
         parsed.video?.let { result += SampleCheck.checkVideo(source, it, 30, 90) }
@@ -181,6 +183,6 @@ class Mp4TablesTest {
         // The picture of the clip with only seven seconds of sound.
         assumeTrue(ffmpeg("-i", clip.path, "-i", audioOnly.path, "-map", "0:v", "-map", "1:a", "-c", "copy", cutAudio.path))
 
-        assertTrue(findings(cutAudio).any { it.check == VerifyCheck.AUDIO && it.message.contains("shorter") })
+        assertTrue(findings(cutAudio).any { it.check == VerifyCheck.AUDIO && it.message.english().contains("shorter") })
     }
 }

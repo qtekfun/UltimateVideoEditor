@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.library
 
+import com.qtekfun.ultimatevideoeditor.ui.text.namedUiList
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleChoice
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundlePreview
@@ -69,7 +70,7 @@ object BundleExportText {
             ". ",
             head,
             if (result.mediaSkipped.isNotEmpty()) UiText.res(R.string.bundle_skipped_unreadable, namedList(result.mediaSkipped)) else UiText.Empty,
-            if (result.resourcesSkipped.isNotEmpty()) UiText.res(R.string.bundle_skipped_resources, namedList(result.resourcesSkipped)) else UiText.Empty,
+            if (result.resourcesSkipped.isNotEmpty()) UiText.res(R.string.bundle_skipped_resources, namedUiList(result.resourcesSkipped)) else UiText.Empty,
         )
     }
 

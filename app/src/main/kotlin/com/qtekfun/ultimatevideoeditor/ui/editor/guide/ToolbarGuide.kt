@@ -1,39 +1,41 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.guide
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorIcons
 import com.qtekfun.ultimatevideoeditor.ui.editor.SelectionIcons
 
 /** Where a symbol lives on the editor screen; the guide groups its entries by this, in this order. */
-internal enum class GuideSection(val title: String, val where: String) {
-    TOP_BAR("Top bar", "The row above the preview."),
-    TRANSPORT("Transport row", "Under the preview: the timecode, play controls and the view buttons."),
-    EDIT("Editing tools", "The scrolling tool row under the transport row."),
-    ADD("Adding content", "The tool row: titles, captions, stickers and markers."),
-    MEDIA("Media, sound and colour", "The tool row: library, proxies, mixer, multicam, scopes and quick edits."),
-    TRACKS("Tracks, transitions and canvas", "The tool row, at its right end."),
-    SELECTION("Selection bar", "Appears under the tool row while select mode is on or several clips are selected."),
-    PANELS("Preview, inspector and panels", "Buttons inside the preview, the inspector and the side panels."),
+internal enum class GuideSection(@StringRes val titleRes: Int, @StringRes val whereRes: Int) {
+    TOP_BAR(R.string.g_sec_top_bar, R.string.g_sec_top_bar_where),
+    TRANSPORT(R.string.g_sec_transport, R.string.g_sec_transport_where),
+    EDIT(R.string.g_sec_edit, R.string.g_sec_edit_where),
+    ADD(R.string.g_sec_add, R.string.g_sec_add_where),
+    MEDIA(R.string.g_sec_media, R.string.g_sec_media_where),
+    TRACKS(R.string.g_sec_tracks, R.string.g_sec_tracks_where),
+    SELECTION(R.string.g_sec_selection, R.string.g_sec_selection_where),
+    PANELS(R.string.g_sec_panels, R.string.g_sec_panels_where),
 }
 
 /**
  * One symbol of the editor and what it does. [icon] is the very [ImageVector] the toolbar draws, so the guide
- * cannot show a different picture. [enabledWhen] is empty when the button is always available.
+ * cannot show a different picture.
  *
- * Keep each entry on one line with plain string literals: scripts/gen-site.py reads this file to build the icons
- * page of the online guide.
+ * Keep each entry on one line with plain `R.string.x` names: scripts/gen-site.py reads this file and the English
+ * `values/strings.xml` to build the icons page of the online guide. [enabledWhenRes] is 0 when the button is always available.
  */
 internal class GuideEntry(
     val id: String,
     val section: GuideSection,
     val icon: ImageVector,
-    val name: String,
-    val help: String,
-    val enabledWhen: String,
+    @StringRes val nameRes: Int,
+    @StringRes val helpRes: Int,
+    @StringRes val enabledWhenRes: Int,
 )
 
 /** A touch gesture (no symbol): what you do and what happens. */
-internal class GuideGesture(val id: String, val title: String, val help: String)
+internal class GuideGesture(val id: String, @StringRes val titleRes: Int, @StringRes val helpRes: Int)
 
 /**
  * The single list behind the in-app toolbar guide. `ToolbarGuideTest` fails when an icon used in the editor has no
@@ -41,106 +43,111 @@ internal class GuideGesture(val id: String, val title: String, val help: String)
  */
 internal object ToolbarGuide {
     val entries: List<GuideEntry> = listOf(
-        GuideEntry("back", GuideSection.TOP_BAR, EditorIcons.Back, "Back", "Saves the project and returns to the project list.", "Always. If saving keeps failing, a dialog explains and keeps you here."),
-        GuideEntry("help", GuideSection.TOP_BAR, EditorIcons.Help, "Toolbar guide", "Opens this guide: every symbol of the editor and the gestures.", ""),
-        GuideEntry("layout", GuideSection.TOP_BAR, EditorIcons.LayoutPanes, "Layout", "Opens the layout sheet: presets, track height, audio track height (taller audio lanes for waveforms and fade handles), where the media tray and inspector sit, customise mode and reset. It also holds the switch Put video audio on an audio track (new video clips come in with their sound detached on an audio lane) and Edit toolbar: choose the order of the tool row, hide tools into the More menu (Split and Delete always stay) or reset it.", ""),
-        GuideEntry("undo", GuideSection.TOP_BAR, EditorIcons.Undo, "Undo", "Takes back the last edit. Every drag, drop and inspector change is one step.", "There is something to undo."),
-        GuideEntry("redo", GuideSection.TOP_BAR, EditorIcons.Redo, "Redo", "Brings back what Undo took away.", "You have just undone something."),
-        GuideEntry("export", GuideSection.TOP_BAR, EditorIcons.Export, "Export movie", "Opens the export dialog: resolution, frame rate, codec and destination.", "Playback is stopped and no other export is running."),
+        GuideEntry("back", GuideSection.TOP_BAR, EditorIcons.Back, R.string.g_back_name, R.string.g_back_help, R.string.g_back_when),
+        GuideEntry("help", GuideSection.TOP_BAR, EditorIcons.Help, R.string.g_help_name, R.string.g_help_help, 0),
+        GuideEntry("layout", GuideSection.TOP_BAR, EditorIcons.LayoutPanes, R.string.g_layout_name, R.string.g_layout_help, 0),
+        GuideEntry("undo", GuideSection.TOP_BAR, EditorIcons.Undo, R.string.g_undo_name, R.string.g_undo_help, R.string.g_undo_when),
+        GuideEntry("redo", GuideSection.TOP_BAR, EditorIcons.Redo, R.string.g_redo_name, R.string.g_redo_help, R.string.g_redo_when),
+        GuideEntry("export", GuideSection.TOP_BAR, EditorIcons.Export, R.string.g_export_name, R.string.g_export_help, R.string.g_export_when),
 
-        GuideEntry("prev", GuideSection.TRANSPORT, EditorIcons.SkipPrevious, "Previous clip boundary", "Jumps the playhead to the previous clip start or end and stops playback if it was playing. In the inspector's keyframe rows the same arrow jumps to the previous keyframe.", ""),
-        GuideEntry("play", GuideSection.TRANSPORT, EditorIcons.Play, "Play", "Starts playback from the playhead. The sound is the clock, so picture and sound stay together.", ""),
-        GuideEntry("pause", GuideSection.TRANSPORT, EditorIcons.Pause, "Pause", "Stops playback. This button replaces Play while the project is playing.", ""),
-        GuideEntry("next", GuideSection.TRANSPORT, EditorIcons.SkipNext, "Next clip boundary", "Jumps the playhead to the next clip start or end and stops playback if it was playing. In the inspector's keyframe rows the same arrow jumps to the next keyframe.", ""),
-        GuideEntry("save-frame", GuideSection.TRANSPORT, EditorIcons.FrameImage, "Save frame as image", "Saves the picture under the playhead as a PNG or JPEG, for a thumbnail or a cover.", ""),
-        GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, "Fit the whole project", "Zooms the time axis so the whole project is visible. Track heights do not change (the layout sheet sets them). This is not fullscreen: double tap the preview for that.", ""),
+        GuideEntry("prev", GuideSection.TRANSPORT, EditorIcons.SkipPrevious, R.string.g_prev_name, R.string.g_prev_help, 0),
+        GuideEntry("play", GuideSection.TRANSPORT, EditorIcons.Play, R.string.g_play_name, R.string.g_play_help, 0),
+        GuideEntry("pause", GuideSection.TRANSPORT, EditorIcons.Pause, R.string.g_pause_name, R.string.g_pause_help, 0),
+        GuideEntry("next", GuideSection.TRANSPORT, EditorIcons.SkipNext, R.string.g_next_name, R.string.g_next_help, 0),
+        GuideEntry("save-frame", GuideSection.TRANSPORT, EditorIcons.FrameImage, R.string.g_save_frame_name, R.string.g_save_frame_help, 0),
+        GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, R.string.g_fit_name, R.string.g_fit_help, 0),
 
-        GuideEntry("import", GuideSection.EDIT, EditorIcons.Add, "Import media", "Adds videos, photos or audio from your device at the playhead. Your files are not copied.", "No import is running. (In the layout sheet the same plus makes tracks taller.)"),
-        GuideEntry("split", GuideSection.EDIT, EditorIcons.Split, "Split at playhead", "Cuts the selected clip in two at the playhead (every selected clip the playhead is over, if several). With nothing selected it cuts every clip on every lane that the playhead is over, as one undo step. Playback pauses and the playhead stays exactly on the cut; after cutting selected clips the right-hand part is selected, so you can cut again.", "The playhead is inside a clip. Select a clip to cut only that one."),
-        GuideEntry("detach-audio", GuideSection.EDIT, EditorIcons.DetachAudio, "Detach audio", "Puts the selected video clip's sound on an audio lane (the first with room) and silences the clip. The two stay linked: moving, trimming, splitting or deleting one does the same to the other. In Adjust clip, Unlink makes them independent, Relink joins them again (and can realign them, showing how many frames they are out of sync), and Restore embedded audio gives the clip its sound back.", "A video clip that has sound and is not detached yet is selected."),
-        GuideEntry("clip-volume", GuideSection.EDIT, EditorIcons.Volume, "Clip volume", "Opens a small slider for the volume of the selected clips only (not the whole track), with Mute and Reset. A drag is one undo step. The same value is in the clip panel (Adjust clip) and on the track mixer for the whole lane.", "A clip with sound is selected."),
-        GuideEntry("delete", GuideSection.EDIT, EditorIcons.Delete, "Delete", "Deletes the selected clip. On the base track the gap closes by itself; on other tracks a gap is left.", "A clip is selected."),
-        GuideEntry("select-mode", GuideSection.EDIT, SelectionIcons.SelectMode, "Select several clips", "Turns select mode on or off. While on (the button is highlighted), tap clips to add or remove them and drag across empty space to draw a selection rectangle.", ""),
-        GuideEntry("close-gap", GuideSection.EDIT, EditorIcons.CloseGap, "Close gap before clip", "Slides an overlay or audio clip back until it touches the previous clip.", "A clip on an overlay or audio track is selected. The base track never has gaps, so it is off there."),
+        GuideEntry("import", GuideSection.EDIT, EditorIcons.Add, R.string.g_import_name, R.string.g_import_help, R.string.g_import_when),
+        GuideEntry("split", GuideSection.EDIT, EditorIcons.Split, R.string.g_split_name, R.string.g_split_help, R.string.g_split_when),
+        GuideEntry("detach-audio", GuideSection.EDIT, EditorIcons.DetachAudio, R.string.g_detach_audio_name, R.string.g_detach_audio_help, R.string.g_detach_audio_when),
+        GuideEntry("clip-volume", GuideSection.EDIT, EditorIcons.Volume, R.string.g_clip_volume_name, R.string.g_clip_volume_help, R.string.g_clip_volume_when),
+        GuideEntry("delete", GuideSection.EDIT, EditorIcons.Delete, R.string.g_delete_name, R.string.g_delete_help, R.string.g_delete_when),
+        GuideEntry("select-mode", GuideSection.EDIT, SelectionIcons.SelectMode, R.string.g_select_mode_name, R.string.g_select_mode_help, 0),
+        GuideEntry("close-gap", GuideSection.EDIT, EditorIcons.CloseGap, R.string.g_close_gap_name, R.string.g_close_gap_help, R.string.g_close_gap_when),
 
-        GuideEntry("title", GuideSection.ADD, EditorIcons.Title, "Add a title", "Adds a text title at the playhead. Edit its text and look in Adjust clip.", ""),
-        GuideEntry("captions", GuideSection.ADD, EditorIcons.Captions, "Captions", "Opens the captions sheet: type captions, import a .srt or .vtt file, pick a style.", ""),
-        GuideEntry("stickers", GuideSection.ADD, EditorIcons.Sticker, "Stickers", "Opens the media tray on its Stickers tab (shapes and emoji).", ""),
-        GuideEntry("templates", GuideSection.ADD, EditorIcons.TextTemplate, "Titles and text templates", "Opens the media tray on its Titles tab: lower third, pop title, slide-in headline, subtitle bar.", ""),
-        GuideEntry("flag-list", GuideSection.ADD, EditorIcons.FlagList, "Flag list", "Your flags as a shot list: grouped by colour, tick the ones you have shot, show only the pending ones or some colours. Share as Markdown sends a task list (`- [ ] 00:00:12:05 · name: note`, one heading per colour) to a notes or tasks app; Save .md file writes the same text to a file; Save as CSV writes a spreadsheet file. Also in the flag panel and the flag button's long-press menu.", ""),
-        GuideEntry("drop-mode-button", GuideSection.EDIT, EditorIcons.DropMode, "Drop mode button", "What a clip dropped on the base track does. Auto (A): near a cut it inserts, over a clip it overwrites. Insert (I): always inserts at the nearest cut. Overwrite (O): always replaces the footage it lands on. Tap to go through the three; the letter shows the one that is on. It applies to one clip and to a selection of clips dragged together, and the chip shown while dragging still flips a single drop.", ""),
-        GuideEntry("marker", GuideSection.ADD, EditorIcons.Flag, "Marker", "Tap: drops a marker at the playhead; over a clip it sticks to that clip and moves with it (switch it off in the marker panel). Long press: previous or next marker, the flag list (a shot list you can tick off, filter by colour, share as checkbox text or save as CSV), beat tools and marker snapping.", ""),
+        GuideEntry("title", GuideSection.ADD, EditorIcons.Title, R.string.g_title_name, R.string.g_title_help, 0),
+        GuideEntry("captions", GuideSection.ADD, EditorIcons.Captions, R.string.g_captions_name, R.string.g_captions_help, 0),
+        GuideEntry("stickers", GuideSection.ADD, EditorIcons.Sticker, R.string.g_stickers_name, R.string.g_stickers_help, 0),
+        GuideEntry("templates", GuideSection.ADD, EditorIcons.TextTemplate, R.string.g_templates_name, R.string.g_templates_help, 0),
+        GuideEntry("flag-list", GuideSection.ADD, EditorIcons.FlagList, R.string.g_flag_list_name, R.string.g_flag_list_help, 0),
+        GuideEntry("drop-mode-button", GuideSection.EDIT, EditorIcons.DropMode, R.string.g_drop_mode_button_name, R.string.g_drop_mode_button_help, 0),
+        GuideEntry("marker", GuideSection.ADD, EditorIcons.Flag, R.string.g_marker_name, R.string.g_marker_help, 0),
 
-        GuideEntry("quick-edits", GuideSection.MEDIA, EditorIcons.Silence, "Quick edits", "Cuts the silences out of the selected clip, or reframes a clip for another canvas shape.", ""),
-        GuideEntry("library", GuideSection.MEDIA, EditorIcons.Library, "Media library", "Opens the project's library: tags, notes, where each file is used, remove unused files, export a bundle. With a clip selected it opens on that clip's file.", ""),
-        GuideEntry("proxy", GuideSection.MEDIA, EditorIcons.Proxy, "Proxy media", "Opens the proxy sheet: small copies of heavy video for smooth editing. Export always uses the originals.", ""),
-        GuideEntry("mixer", GuideSection.MEDIA, EditorIcons.Mixer, "Mixer", "Opens the mixer: track volume, mute, solo, compressor and ducking.", ""),
-        GuideEntry("multicam", GuideSection.MEDIA, EditorIcons.Multicam, "Multicam", "Lines up several cameras by their sound and lets you cut between them.", ""),
-        GuideEntry("scopes", GuideSection.MEDIA, EditorIcons.Scopes, "Video scopes", "Shows or hides waveform, RGB parade, vectorscope and histogram over the preview.", ""),
+        GuideEntry("quick-edits", GuideSection.MEDIA, EditorIcons.Silence, R.string.g_quick_edits_name, R.string.g_quick_edits_help, 0),
+        GuideEntry("library", GuideSection.MEDIA, EditorIcons.Library, R.string.g_library_name, R.string.g_library_help, 0),
+        GuideEntry("proxy", GuideSection.MEDIA, EditorIcons.Proxy, R.string.g_proxy_name, R.string.g_proxy_help, 0),
+        GuideEntry("mixer", GuideSection.MEDIA, EditorIcons.Mixer, R.string.g_mixer_name, R.string.g_mixer_help, 0),
+        GuideEntry("multicam", GuideSection.MEDIA, EditorIcons.Multicam, R.string.g_multicam_name, R.string.g_multicam_help, 0),
+        GuideEntry("scopes", GuideSection.MEDIA, EditorIcons.Scopes, R.string.g_scopes_name, R.string.g_scopes_help, 0),
 
-        GuideEntry("transition", GuideSection.TRACKS, EditorIcons.Transition, "Transition", "Adds a crossfade at the selected cut. Choose its look in Adjust clip. In the selection bar the same symbol adds one to every selected clip.", "A clip next to another is selected, or the playhead is on a cut."),
-        GuideEntry("adjust", GuideSection.TRACKS, EditorIcons.Tune, "Adjust clip", "Opens the inspector for the selected clip: position, scale, rotation, opacity, volume, speed, effects, colour, keyframes.", "A clip is selected, or the inspector is already open (tap again to close it)."),
-        GuideEntry("add-track", GuideSection.TRACKS, EditorIcons.Layers, "Add track", "Opens a menu to add a video track (above the others) or an audio track.", ""),
-        GuideEntry("remove-track", GuideSection.TRACKS, EditorIcons.Minus, "Remove selected track", "Removes the selected track. In the layout sheet the same minus makes tracks shorter.", "A track is selected, it is empty and not the last of its kind."),
-        GuideEntry("lane-up", GuideSection.TRACKS, EditorIcons.LaneUp, "Move lane up", "Moves the selected overlay lane one step up. On the media tray the same arrow makes the tray taller. In Edit toolbar it moves a tool earlier in the bar.", "A track is selected. The base track never moves."),
-        GuideEntry("lane-down", GuideSection.TRACKS, EditorIcons.LaneDown, "Move lane down", "Moves the selected overlay lane one step down. On the media tray the same arrow makes the tray shorter. In Edit toolbar it moves a tool later in the bar.", "A track is selected. The base track never moves."),
-        GuideEntry("canvas", GuideSection.TRACKS, EditorIcons.CanvasFormat, "Canvas format", "Changes the aspect ratio, resolution and colour space of the project.", ""),
-        GuideEntry("safe-zone", GuideSection.TRACKS, EditorIcons.SafeZone, "Safe zones", "Outlines the areas that TikTok, Reels or Shorts cover with their own buttons, over the preview.", ""),
+        GuideEntry("transition", GuideSection.TRACKS, EditorIcons.Transition, R.string.g_transition_name, R.string.g_transition_help, R.string.g_transition_when),
+        GuideEntry("adjust", GuideSection.TRACKS, EditorIcons.Tune, R.string.g_adjust_name, R.string.g_adjust_help, R.string.g_adjust_when),
+        GuideEntry("add-track", GuideSection.TRACKS, EditorIcons.Layers, R.string.g_add_track_name, R.string.g_add_track_help, 0),
+        GuideEntry("remove-track", GuideSection.TRACKS, EditorIcons.Minus, R.string.g_remove_track_name, R.string.g_remove_track_help, R.string.g_remove_track_when),
+        GuideEntry("lane-up", GuideSection.TRACKS, EditorIcons.LaneUp, R.string.g_lane_up_name, R.string.g_lane_up_help, R.string.g_lane_up_when),
+        GuideEntry("lane-down", GuideSection.TRACKS, EditorIcons.LaneDown, R.string.g_lane_down_name, R.string.g_lane_down_help, R.string.g_lane_down_when),
+        GuideEntry("canvas", GuideSection.TRACKS, EditorIcons.CanvasFormat, R.string.g_canvas_name, R.string.g_canvas_help, 0),
+        GuideEntry("safe-zone", GuideSection.TRACKS, EditorIcons.SafeZone, R.string.g_safe_zone_name, R.string.g_safe_zone_help, 0),
 
-        GuideEntry("copy", GuideSection.SELECTION, SelectionIcons.Copy, "Copy", "Copies the selected clips with their effects, keyframes, speed and transitions.", "Clips are selected."),
-        GuideEntry("cut", GuideSection.SELECTION, SelectionIcons.Cut, "Cut", "Copies the selected clips, then deletes them.", "Clips are selected."),
-        GuideEntry("paste", GuideSection.SELECTION, SelectionIcons.Paste, "Paste", "Pastes the copied clips with the earliest one at the playhead. With another clip selected it asks first: Content adds a copy at the playhead, Style applies the copied clip's look and sound to the selected clips.", "Something has been copied."),
-        GuideEntry("duplicate", GuideSection.SELECTION, SelectionIcons.Duplicate, "Duplicate", "Pastes a copy right after the last selected clip.", "Clips are selected."),
-        GuideEntry("paste-attributes", GuideSection.SELECTION, SelectionIcons.PasteAttributes, "Paste attributes", "Copies position, effects, volume and speed of the copied clip onto the selection.", "Clips are selected and something has been copied."),
-        GuideEntry("align-left", GuideSection.SELECTION, SelectionIcons.AlignLeft, "Align starts", "Moves the selected clips so they all start together.", "Two or more clips are selected. Not on the base track."),
-        GuideEntry("align-right", GuideSection.SELECTION, SelectionIcons.AlignRight, "Align ends", "Moves the selected clips so they all end together.", "Two or more clips are selected. Not on the base track."),
-        GuideEntry("more", GuideSection.SELECTION, SelectionIcons.More, "More selection actions", "In the selection bar: selects a whole lane or everything after the playhead; sets speed, volume or opacity for the whole selection. At the end of the tool row the same dots open the More menu with the tools you hid (Layout, Edit toolbar).", ""),
-        GuideEntry("clear-selection", GuideSection.SELECTION, SelectionIcons.Close, "Clear the selection", "Deselects every clip.", "Clips are selected."),
+        GuideEntry("copy", GuideSection.SELECTION, SelectionIcons.Copy, R.string.g_copy_name, R.string.g_copy_help, R.string.g_copy_when),
+        GuideEntry("cut", GuideSection.SELECTION, SelectionIcons.Cut, R.string.g_cut_name, R.string.g_cut_help, R.string.g_cut_when),
+        GuideEntry("paste", GuideSection.SELECTION, SelectionIcons.Paste, R.string.g_paste_name, R.string.g_paste_help, R.string.g_paste_when),
+        GuideEntry("duplicate", GuideSection.SELECTION, SelectionIcons.Duplicate, R.string.g_duplicate_name, R.string.g_duplicate_help, R.string.g_duplicate_when),
+        GuideEntry("paste-attributes", GuideSection.SELECTION, SelectionIcons.PasteAttributes, R.string.g_paste_attributes_name, R.string.g_paste_attributes_help, R.string.g_paste_attributes_when),
+        GuideEntry("align-left", GuideSection.SELECTION, SelectionIcons.AlignLeft, R.string.g_align_left_name, R.string.g_align_left_help, R.string.g_align_left_when),
+        GuideEntry("align-right", GuideSection.SELECTION, SelectionIcons.AlignRight, R.string.g_align_right_name, R.string.g_align_right_help, R.string.g_align_right_when),
+        GuideEntry("more", GuideSection.SELECTION, SelectionIcons.More, R.string.g_more_name, R.string.g_more_help, 0),
+        GuideEntry("clear-selection", GuideSection.SELECTION, SelectionIcons.Close, R.string.g_clear_selection_name, R.string.g_clear_selection_help, R.string.g_clear_selection_when),
 
-        GuideEntry("keyframe-add", GuideSection.PANELS, EditorIcons.KeyframeOff, "Add a keyframe", "In the inspector: stores the current value at the playhead. The outlined diamond means there is no keyframe here yet.", "A clip is selected and the inspector is open."),
-        GuideEntry("keyframe-remove", GuideSection.PANELS, EditorIcons.KeyframeOn, "Remove the keyframe", "In the inspector: a filled diamond means a keyframe sits at the playhead; tap it to remove it. The same diamonds sit on clips in the timeline.", "The playhead is on a keyframe."),
-        GuideEntry("fullscreen-exit", GuideSection.PANELS, EditorIcons.FullscreenExit, "Leave fullscreen", "Appears in the strip over a fullscreen preview, next to play and pause. Double tap or Back do the same.", "Only in fullscreen."),
-        GuideEntry("panel-left", GuideSection.PANELS, EditorIcons.ChevronLeft, "Arrow left", "On a side panel: collapses a panel that sits on the left, or brings back a collapsed panel on the right. The arrow points the way the panel moves. In the marker popup it goes to the previous marker.", ""),
-        GuideEntry("panel-right", GuideSection.PANELS, EditorIcons.ChevronRight, "Arrow right", "On a side panel: collapses a panel that sits on the right, or brings back a collapsed panel on the left. In the marker popup it goes to the next marker.", ""),
-        GuideEntry("panel-up", GuideSection.PANELS, EditorIcons.ChevronUp, "Arrow up", "Brings back the media tray or inspector that you collapsed at the bottom.", "A bottom panel is collapsed."),
+        GuideEntry("keyframe-add", GuideSection.PANELS, EditorIcons.KeyframeOff, R.string.g_keyframe_add_name, R.string.g_keyframe_add_help, R.string.g_keyframe_add_when),
+        GuideEntry("keyframe-remove", GuideSection.PANELS, EditorIcons.KeyframeOn, R.string.g_keyframe_remove_name, R.string.g_keyframe_remove_help, R.string.g_keyframe_remove_when),
+        GuideEntry("fullscreen-exit", GuideSection.PANELS, EditorIcons.FullscreenExit, R.string.g_fullscreen_exit_name, R.string.g_fullscreen_exit_help, R.string.g_fullscreen_exit_when),
+        GuideEntry("panel-left", GuideSection.PANELS, EditorIcons.ChevronLeft, R.string.g_panel_left_name, R.string.g_panel_left_help, 0),
+        GuideEntry("panel-right", GuideSection.PANELS, EditorIcons.ChevronRight, R.string.g_panel_right_name, R.string.g_panel_right_help, 0),
+        GuideEntry("panel-up", GuideSection.PANELS, EditorIcons.ChevronUp, R.string.g_panel_up_name, R.string.g_panel_up_help, R.string.g_panel_up_when),
     )
 
     val gestures: List<GuideGesture> = listOf(
-        GuideGesture("press-hold-icon", "Long press any icon", "Shows its name and what it does in a small bubble. Screen readers read the same text."),
-        GuideGesture("tap-clip", "Tap a clip", "Selects it: a yellow outline with a handle at each end. Tap an empty lane to select that track."),
-        GuideGesture("drag-clip", "Drag a selected clip", "Moves it. Edges snap to neighbours, the playhead and markers. Dropping on the base track near a cut inserts it, over a clip overwrites it. While your finger is down a chip shows Insert or Overwrite: tap it, or tap anywhere with a second finger, to switch. The drag keeps to one direction: pull mainly down or up and the clip changes lane without moving in time; pull mainly sideways and it moves in time and stays on its lane (a small tick marks the lock); pull diagonally, or far across the other way, and it follows your finger freely. With several overlay clips selected (a run of photos on V2), drop them on the base track near a cut and they are all inserted there, in order, in one step; the playhead then waits at the end of what was inserted."),
-        GuideGesture("drop-mode", "Tap with a second finger while dragging", "Switches the drop between Insert (opens a gap, later clips move right) and Overwrite (replaces what the clip covers). The timeline shows the result before you let go."),
-        GuideGesture("trim", "Drag a clip's edge", "Trims it. The handles at the ends of the selected clip are the edges to drag."),
-        GuideGesture("scrub", "Drag the ruler or the red playhead", "Scrubs through the project. Swiping along the timeline while it plays, or dragging the playhead, stops playback so you can look around; press Play to continue."),
-        GuideGesture("pinch-time", "Pinch the timeline", "Zooms the time axis, whichever way your fingers spread. Track height does not change by gesture; the layout sheet sets it."),
-        GuideGesture("scroll", "Drag on empty timeline space", "Scrolls the timeline; a fling keeps it coasting."),
-        GuideGesture("long-press-clip", "Long press a clip", "Adds it to the selection (or removes it) without select mode."),
-        GuideGesture("lane-reorder", "Long press and drag a lane header", "Reorders the lane among lanes of its kind. The base track never moves."),
-        GuideGesture("flag-long", "Long press the flag", "Previous or next marker, the flag list, beat tools and marker snapping."),
-        GuideGesture("double-tap-preview", "Double tap the preview", "Fullscreen. Tap once to show the play and exit strip; double tap again or press Back to leave."),
-        GuideGesture("preview-transform", "Drag, pinch and twist on the preview", "Moves, scales and rotates the selected clip (or the selected title layer) while the playhead is on it."),
-        GuideGesture("divider", "Drag a divider, double tap it to reset", "The pill under the preview (and the bar beside a side panel) resizes the areas. A short vibration marks the default."),
-        GuideGesture("tray-drag", "Hold a tile in the media tray, then drag", "Lifts the item and carries it onto the timeline; an indicator shows what releasing will do. Release outside the timeline to cancel."),
-        GuideGesture("audio-fades", "Drag the white circles on an audio clip", "Select an audio clip: a white circle sits in each top corner. Drag the left one right for a fade in, the right one left for a fade out. The shaded ramp shows the curve; the Sound tools sheet sets the shape (equal power, linear or logarithmic) and the exact length."),
-        GuideGesture("volume-curve", "Double tap an audio clip, drag its dots", "Double tap the selected audio clip to add a volume point where you tapped. Drag a dot up or down for louder or quieter (the bottom edge is silent, 0 dB sticks), and sideways to move it in time. Double tap a dot to remove it. The Sound tools sheet has Add point at playhead and Clear."),
-        GuideGesture("tool-row-scroll", "Swipe the tool row sideways", "The tool row scrolls when the window is too narrow for every button."),
+        GuideGesture("press-hold-icon", R.string.gg_press_hold_icon_title, R.string.gg_press_hold_icon_help),
+        GuideGesture("tap-clip", R.string.gg_tap_clip_title, R.string.gg_tap_clip_help),
+        GuideGesture("drag-clip", R.string.gg_drag_clip_title, R.string.gg_drag_clip_help),
+        GuideGesture("drop-mode", R.string.gg_drop_mode_title, R.string.gg_drop_mode_help),
+        GuideGesture("trim", R.string.gg_trim_title, R.string.gg_trim_help),
+        GuideGesture("scrub", R.string.gg_scrub_title, R.string.gg_scrub_help),
+        GuideGesture("pinch-time", R.string.gg_pinch_time_title, R.string.gg_pinch_time_help),
+        GuideGesture("scroll", R.string.gg_scroll_title, R.string.gg_scroll_help),
+        GuideGesture("long-press-clip", R.string.gg_long_press_clip_title, R.string.gg_long_press_clip_help),
+        GuideGesture("lane-reorder", R.string.gg_lane_reorder_title, R.string.gg_lane_reorder_help),
+        GuideGesture("flag-long", R.string.gg_flag_long_title, R.string.gg_flag_long_help),
+        GuideGesture("double-tap-preview", R.string.gg_double_tap_preview_title, R.string.gg_double_tap_preview_help),
+        GuideGesture("preview-transform", R.string.gg_preview_transform_title, R.string.gg_preview_transform_help),
+        GuideGesture("divider", R.string.gg_divider_title, R.string.gg_divider_help),
+        GuideGesture("tray-drag", R.string.gg_tray_drag_title, R.string.gg_tray_drag_help),
+        GuideGesture("tray-select", R.string.gg_tray_select_title, R.string.gg_tray_select_help),
+        GuideGesture("audio-fades", R.string.gg_audio_fades_title, R.string.gg_audio_fades_help),
+        GuideGesture("volume-curve", R.string.gg_volume_curve_title, R.string.gg_volume_curve_help),
+        GuideGesture("tool-row-scroll", R.string.gg_tool_row_scroll_title, R.string.gg_tool_row_scroll_help),
     )
 
-    /** Entries whose name, help, section or enabled text contain every word of [query] (case-insensitive); all when blank. */
-    fun search(query: String): List<GuideEntry> {
+    /**
+     * Entries whose name, help, section or enabled text contain every word of [query] (case-insensitive); all when blank.
+     * [text] gives the words of a resource in the language in use, so the search follows what the person reads.
+     */
+    fun search(query: String, text: (Int) -> String): List<GuideEntry> {
         val words = query.lowercase().split(' ').filter { it.isNotBlank() }
         if (words.isEmpty()) return entries
         return entries.filter { entry ->
-            val haystack = "${entry.name} ${entry.help} ${entry.enabledWhen} ${entry.section.title}".lowercase()
+            val whenText = if (entry.enabledWhenRes != 0) text(entry.enabledWhenRes) else ""
+            val haystack = "${text(entry.nameRes)} ${text(entry.helpRes)} $whenText ${text(entry.section.titleRes)}".lowercase()
             words.all { it in haystack }
         }
     }
 
-    fun searchGestures(query: String): List<GuideGesture> {
+    fun searchGestures(query: String, text: (Int) -> String): List<GuideGesture> {
         val words = query.lowercase().split(' ').filter { it.isNotBlank() }
         if (words.isEmpty()) return gestures
         return gestures.filter { gesture ->
-            val haystack = "${gesture.title} ${gesture.help}".lowercase()
+            val haystack = "${text(gesture.titleRes)} ${text(gesture.helpRes)}".lowercase()
             words.all { it in haystack }
         }
     }

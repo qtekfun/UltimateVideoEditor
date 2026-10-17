@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.Context
 import android.net.Uri
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
@@ -261,7 +262,7 @@ class EditorAudio(
     private val engine: AudioPlaybackEngine? = try {
         AudioPlaybackEngine()
     } catch (e: EngineException) {
-        onError("Audio is unavailable: ${e.message}")
+        onError(context.getString(R.string.s5_audio_unavailable, e.message.orEmpty()))
         null
     }
 
@@ -309,9 +310,9 @@ class EditorAudio(
                 null
             } catch (e: MediaImportException) {
                 // A drive that is not connected, a lost grant or a dead provider: the clip plays silence.
-                "A media file cannot be read, so its audio cannot play (${e.message})"
+                context.getString(R.string.s5_audio_file_unreadable, e.message.orEmpty())
             } catch (e: AudioException) {
-                "A clip's audio cannot be played: ${e.message}"
+                context.getString(R.string.s5_audio_clip_unplayable, e.message.orEmpty())
             }
             opening -= key
             if (error != null) {
@@ -331,7 +332,7 @@ class EditorAudio(
         try {
             engine.setSnapshot(playable)
         } catch (e: AudioException) {
-            onError("The audio could not be updated: ${e.message}")
+            onError(context.getString(R.string.s5_audio_update_failed, e.message.orEmpty()))
         }
     }
 
@@ -341,12 +342,12 @@ class EditorAudio(
                 // An underrun is a glitch, not a failure to report to the user on every occurrence.
                 is AudioFault.Underrun -> Unit
                 is AudioFault.Decode -> if (reportedDecodeFaults.add(fault.clipKey)) {
-                    val message = "A clip's audio could not be decoded (${fault.error})"
+                    val message = context.getString(R.string.s5_audio_decode_failed, fault.error.toString())
                     // A drive pulled during playback fails here too: the editor finds out whether the file is gone.
                     val assetKey = latest?.clips?.firstOrNull { it.clipKey == fault.clipKey }?.assetKey
                     if (assetKey != null && onAssetFailure != null) onAssetFailure.invoke(assetKey, message) else onError(message)
                 }
-                is AudioFault.Device -> onError("The audio device failed (${fault.error})")
+                is AudioFault.Device -> onError(context.getString(R.string.s5_audio_device_failed, fault.error.toString()))
             }
         }
     }
@@ -359,7 +360,7 @@ class EditorAudio(
             engine.seek(fromFrame)
             engine.play()
         } catch (e: AudioException) {
-            onError("Audio playback failed: ${e.message}")
+            onError(context.getString(R.string.s5_audio_playback_failed, e.message.orEmpty()))
         }
     }
 
@@ -398,7 +399,7 @@ class EditorAudio(
         try {
             engine.seek(frame)
         } catch (e: AudioException) {
-            onError("Audio seek failed: ${e.message}")
+            onError(context.getString(R.string.s5_audio_seek_failed, e.message.orEmpty()))
         }
     }
 
@@ -410,22 +411,22 @@ class EditorAudio(
     // region analysis (loudness, noise profile)
 
     override suspend fun loudness(asset: MediaAssetDto, assetKey: Long, startMicros: Long, endMicros: Long): LoudnessResult {
-        val engine = engine ?: throw AudioAnalysisException("Audio measurements are not available")
+        val engine = engine ?: throw AudioAnalysisException(context.getString(R.string.s5_audio_measure_unavailable))
         awaitRegistered(engine, asset, assetKey)
         return try {
             withContext(Dispatchers.IO) { engine.measureLoudness(assetKey, startMicros, endMicros) }
         } catch (e: AudioException) {
-            throw analysisFailure(e, tooShort = "That stretch is too short to measure")
+            throw analysisFailure(e, tooShort = context.getString(R.string.s5_audio_too_short))
         }
     }
 
     override suspend fun noiseProfile(asset: MediaAssetDto, assetKey: Long, startMicros: Long, endMicros: Long): FloatArray {
-        val engine = engine ?: throw AudioAnalysisException("Audio measurements are not available")
+        val engine = engine ?: throw AudioAnalysisException(context.getString(R.string.s5_audio_measure_unavailable))
         awaitRegistered(engine, asset, assetKey)
         return try {
             withContext(Dispatchers.IO) { engine.measureNoiseProfile(assetKey, startMicros, endMicros) }
         } catch (e: AudioException) {
-            throw analysisFailure(e, tooShort = "The quiet stretch is too short: mark at least 0.1 s")
+            throw analysisFailure(e, tooShort = context.getString(R.string.s5_audio_quiet_too_short))
         }
     }
 
@@ -438,8 +439,8 @@ class EditorAudio(
         if (key !in registered && key !in opening && key !in failed) register(engine, asset, key)
         var waited = 0L
         while (key !in registered) {
-            if (key in failed) throw AudioAnalysisException("This file's sound cannot be opened")
-            if (waited >= REGISTER_TIMEOUT_MILLIS) throw AudioAnalysisException("The file took too long to open")
+            if (key in failed) throw AudioAnalysisException(context.getString(R.string.s5_audio_cannot_open))
+            if (waited >= REGISTER_TIMEOUT_MILLIS) throw AudioAnalysisException(context.getString(R.string.s5_audio_open_timeout))
             delay(REGISTER_POLL_MILLIS)
             waited += REGISTER_POLL_MILLIS
         }
@@ -447,10 +448,10 @@ class EditorAudio(
 
     private fun analysisFailure(e: AudioException, tooShort: String) = AudioAnalysisException(
         when (e.errorCode) {
-            AudioErrorCode.Cancelled -> "The measurement was cancelled"
+            AudioErrorCode.Cancelled -> context.getString(R.string.s5_audio_measure_cancelled)
             AudioErrorCode.InvalidArgument -> tooShort
-            AudioErrorCode.UnsupportedFormat -> "The sound of this file is in a format that cannot be measured"
-            else -> "The sound of this file could not be read (${e.errorCode})"
+            AudioErrorCode.UnsupportedFormat -> context.getString(R.string.s5_audio_unsupported)
+            else -> context.getString(R.string.s5_audio_unreadable_code, e.errorCode.toString())
         },
         e,
     )

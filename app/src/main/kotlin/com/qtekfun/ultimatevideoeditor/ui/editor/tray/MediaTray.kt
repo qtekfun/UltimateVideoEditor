@@ -350,13 +350,14 @@ internal fun AssetTile(
     val haptics = LocalHapticFeedback.current
     val dragShape = RoundedCornerShape(8.dp)
     val description = describe(item)
+    val addToTimeline = stringResource(R.string.ed_s3_add_to_timeline)
     val body = Modifier
         .graphicsLayer { alpha = if (drag.carry?.assetId == asset.id) 0.35f else 1f }
         .clip(dragShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
         .semantics {
             contentDescription = description
-            customActions = listOf(CustomAccessibilityAction("Add to timeline") { onAdd(asset.id); true })
+            customActions = listOf(CustomAccessibilityAction(addToTimeline) { onAdd(asset.id); true })
         }
         .onGloballyPositioned {
             coordinates = it

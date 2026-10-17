@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
@@ -530,7 +531,8 @@ class EditorViewModel(
     fun assetKey(assetId: String): Long = assetKeys.keyFor(assetId)
 
     /** Encodes [state] for the native canvas. All keys are stable for the life of this ViewModel. */
-    fun snapshotOf(state: EditorState): TimelineSnapshot {
+    /** [words] gives the text of a resource in the language in use (the screen passes its context); without it only data text is labelled. */
+    fun snapshotOf(state: EditorState, words: (UiText) -> String = ClipLabels.RAW_ONLY): TimelineSnapshot {
         val timeline = state.visibleTimeline
         val selection = state.selection
         val tracks = timeline.tracks.map {
@@ -606,7 +608,7 @@ class EditorViewModel(
             )
         }
         val labels = timeline.tracks.flatMap { track ->
-            track.clips.mapNotNull { clip -> ClipLabels.of(clip, clip.assetId?.let(assetNames::get))?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
+            track.clips.mapNotNull { clip -> ClipLabels.of(clip, clip.assetId?.let(assetNames::get), words)?.let { SnapshotLabel(clipKeys.keyFor(clip.id), it) } }
         }
         val markerLabels = timeline.markers.mapIndexedNotNull { index, marker ->
             ClipLabels.clean(marker.name.orEmpty()).takeIf { it.isNotEmpty() }?.let { SnapshotLabel(SnapshotLabel.markerKey(index), it) }
@@ -650,7 +652,7 @@ class EditorViewModel(
                 refreshTrack()
                 verifyAssets(project.mediaLibrary)
             } catch (e: ProjectError) {
-                reduce { copy(isLoading = false, loadError = e.message) }
+                reduce { copy(isLoading = false, loadError = reasonOf(e, UiText.res(R.string.s5_project_not_opened))) }
             }
         }
     }
@@ -836,7 +838,7 @@ class EditorViewModel(
                 // A file inside a folder the user granted is read through the folder's permission, which cannot be taken per file.
                 if (fromFolder) importer.verify(uri) else importer.import(uri)
             } catch (e: MediaImportException) {
-                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_open_the_file))))
+                emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_could_not_open_the_file))))
                 return@launch
             }
             val fps = state.value.fps
@@ -867,7 +869,7 @@ class EditorViewModel(
             }
             scheduleSave()
             val name = MissingMedia.nameOf(relinked)
-            emit(EditorEffect.ShowMessage(if (warnings.isEmpty()) UiText.res(R.string.ed_vm_relinked, name) else UiText.res(R.string.ed_vm_relinked_with_notes, name, warnings.joinToString(". "))))
+            emit(EditorEffect.ShowMessage(if (warnings.isEmpty()) UiText.res(R.string.ed_vm_relinked, name) else UiText.res(R.string.ed_vm_relinked_with_notes, name, UiText.join(". ", warnings))))
         }
     }
 
@@ -917,7 +919,7 @@ class EditorViewModel(
                 }
             } catch (e: FolderScanException) {
                 reduce { copy(folderRelink = resting) }
-                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_read_the_folder))))
+                emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_could_not_read_the_folder))))
                 return@launch
             } catch (e: CancellationException) {
                 reduce { copy(folderRelink = resting) }
@@ -1004,8 +1006,8 @@ class EditorViewModel(
             true
         } catch (e: ProjectError) {
             val first = state.value.saveError == null
-            reduce { copy(saveError = e.message ?: "unknown error") }
-            if (first) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_could_not_save_the_project, e.message.orEmpty())))
+            reduce { copy(saveError = reasonOf(e, UiText.res(R.string.s5_unknown_error))) }
+            if (first) emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_could_not_save_the_project, reasonOf(e, UiText.Empty))))
             saveRetryJob?.cancel()
             // A few quiet retries cover a transient failure (a full disk someone just cleared); after that the
             // banner stays and Retry is the user's call, instead of writing to a broken disk for ever.
@@ -1404,7 +1406,7 @@ class EditorViewModel(
                 h = boxH.coerceIn(TrackSeed.MIN_SIZE, TrackSeed.MAX_SIZE),
             )
             val existing = history.timeline.motionTracks.count { it.clipId == clip.id }
-            val motion = MotionTrack("mt-${idGenerator()}", clip.id, "Track ${existing + 1}", seed)
+            val motion = MotionTrack("mt-${idGenerator()}", clip.id, "Track ${existing + 1}", seed) // i18n-ok: a stored default name, worded when shown
             if (!execute(EditCommand.AddMotionTrack(motion))) return@launch
             reduce { copy(track = track.copy(picking = false, activeId = motion.id)) }
             startTrackAnalysis(motion.id)
@@ -1459,15 +1461,15 @@ class EditorViewModel(
         viewModelScope.launch {
             val path = withContext(trackDispatcher) { motionTracker.load(asset, motion, s.fps) }
             if (path == null) {
-                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_analyse_first, motion.name)))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_analyse_first, trackNameText(motion.name))))
                 return@launch
             }
             val keys = TrackMath.attachKeyframes(path, trackedClip, attached, s.canvasWidth, s.canvasHeight)
             if (execute(EditCommand.AttachToMotionTrack(attached.id, keys))) {
                 emit(
                     EditorEffect.ShowMessage(
-                        if (path.lostCount > 0) UiText.res(R.string.ed_vm_now_follows_lost, motion.name, keys.size, path.lostCount)
-                        else UiText.res(R.string.ed_vm_now_follows_keyframes, motion.name, keys.size),
+                        if (path.lostCount > 0) UiText.res(R.string.ed_vm_now_follows_lost, trackNameText(motion.name), keys.size, path.lostCount)
+                        else UiText.res(R.string.ed_vm_now_follows_keyframes, trackNameText(motion.name), keys.size),
                     ),
                 )
             }
@@ -1586,22 +1588,22 @@ class EditorViewModel(
     }
 
     /** What an eyedropper tap came to: [message] is what to tell the user (null when the key was set). */
-    private class PickOutcome(val message: String?, val keepArmed: Boolean = false)
+    private class PickOutcome(val message: UiText?, val keepArmed: Boolean = false)
 
     /** Reads the colour under the tap and keys the effect on it. */
     private suspend fun sampleAndKey(clip: Clip, asset: MediaAssetDto, effectId: String, x: Double, y: Double, playhead: FrameIndex): PickOutcome {
         val s = state.value
-        val aspect = frameSampler.aspect(asset) ?: return PickOutcome("The picture of this clip could not be read")
+        val aspect = frameSampler.aspect(asset) ?: return PickOutcome(UiText.res(R.string.pick_picture_unreadable))
         val pose = Keyframes.evaluate(clip.keyframes, playhead.value - clip.timelineStart.value, clip.transform)
         val (u, v) = TrackMath.fromCanvas(x, y, aspect, s.canvasWidth, s.canvasHeight, pose)
-        if (u !in 0.0..1.0 || v !in 0.0..1.0) return PickOutcome("Tap on the picture of the clip", keepArmed = true)
+        if (u !in 0.0..1.0 || v !in 0.0..1.0) return PickOutcome(UiText.res(R.string.pick_tap_picture), keepArmed = true)
         val micros = if (asset.isImage) 0L else s.fps.framesToMicros(clip.sourceFrameAtProjectFrame(playhead))
-        val colour = frameSampler.colorAt(asset, micros, u, v) ?: return PickOutcome("The colour could not be read from the picture")
+        val colour = frameSampler.colorAt(asset, micros, u, v) ?: return PickOutcome(UiText.res(R.string.pick_colour_unreadable))
         // The clip may have been edited while the frame was read.
         val current = history.timeline.trackOfClip(clip.id)?.clip(clip.id)?.fx?.effect(effectId)
-        if (current == null || current.type != EffectType.QUALIFIER) return PickOutcome("That effect is no longer on the clip")
+        if (current == null || current.type != EffectType.QUALIFIER) return PickOutcome(UiText.res(R.string.pick_effect_gone))
         val keyed = Qualifier.keyedOn(current.values, colour.r, colour.g, colour.b)
-        return PickOutcome(if (execute(EditCommand.SetEffectValues(clip.id, effectId, keyed))) null else "The key could not be set")
+        return PickOutcome(if (execute(EditCommand.SetEffectValues(clip.id, effectId, keyed))) null else UiText.res(R.string.pick_key_failed))
     }
 
     // endregion
@@ -2292,7 +2294,7 @@ class EditorViewModel(
         val analyzer = checkNotNull(audioAnalyzer)
         val fps = state.value.fps
         val key = LoudnessCache.keyOf(asset, clip.sourceIn.value, clip.sourceOut.value)
-        reduce { copy(audioBusy = "Measuring loudness…") }
+        reduce { copy(audioBusy = UiText.res(R.string.audio_busy_loudness)) }
         viewModelScope.launch {
             try {
                 val cached = loudnessCache.get(key)
@@ -2315,7 +2317,7 @@ class EditorViewModel(
                     emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_measured_lufs, lufs, gain, targetLufs)))
                 }
             } catch (e: AudioAnalysisException) {
-                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_the_loudness_could_not_be))))
+                emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_the_loudness_could_not_be))))
             } finally {
                 reduce { copy(audioBusy = null) }
             }
@@ -2376,7 +2378,7 @@ class EditorViewModel(
             return
         }
         val analyzer = checkNotNull(audioAnalyzer)
-        reduce { copy(audioBusy = "Listening to the noise…") }
+        reduce { copy(audioBusy = UiText.res(R.string.audio_busy_noise)) }
         viewModelScope.launch {
             try {
                 val profile = analyzer.noiseProfile(asset, assetKeys.keyFor(asset.id), startMicros, endMicros)
@@ -2385,7 +2387,7 @@ class EditorViewModel(
                     emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_noise_suppression_is_on)))
                 }
             } catch (e: AudioAnalysisException) {
-                emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_the_noise_could_not_be))))
+                emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_the_noise_could_not_be))))
             } finally {
                 reduce { copy(audioBusy = null) }
             }
@@ -2665,7 +2667,7 @@ class EditorViewModel(
         val asset = clip?.assetId?.let { id -> state.value.assets.firstOrNull { it.id == id } }
         if (clip == null || asset == null || auto.analyzing) return
         auto.settings.problem()?.let { problem ->
-            reduce { copy(quickEdits = quickEdits.copy(autoCut = quickEdits.autoCut.copy(message = problem))) }
+            reduce { copy(quickEdits = quickEdits.copy(autoCut = quickEdits.autoCut.copy(message = UiText.Raw(problem)))) }
             return
         }
         val fps = state.value.fps
@@ -2676,16 +2678,16 @@ class EditorViewModel(
             var cuts: List<com.qtekfun.ultimatevideoeditor.domain.CutSpan> = emptyList()
             val message = try {
                 when (val found = envelopeSource.envelope(asset.id, startMicros, endMicros)) {
-                    EnvelopeResult.NoWaveform -> "The waveform is still being prepared. Try again in a moment."
+                    EnvelopeResult.NoWaveform -> UiText.res(R.string.autocut_waveform_wait)
                     is EnvelopeResult.Found -> {
                         // The clip may have been edited while the analysis ran: map the silences onto where it is now.
                         val now = history.timeline.trackOfClip(clip.id)?.clip(clip.id)
                         if (now == null) {
-                            "The clip is no longer on the timeline"
+                            UiText.res(R.string.autocut_clip_gone)
                         } else {
                             val spans = SilenceDetector.detect(found.envelope, auto.settings)
                             cuts = AutoCutPlanner.cuts(now, fps, found.windowStartMicros, spans)
-                            if (cuts.isEmpty()) "No silences of that length and level in this clip" else null
+                            if (cuts.isEmpty()) UiText.res(R.string.autocut_none) else null
                         }
                     }
                 }
@@ -2721,7 +2723,7 @@ class EditorViewModel(
         val frame = state.value.selectedClipFrame
         val reframe = state.value.quickEdits.reframe
         if (frame == null) {
-            reduce { copy(quickEdits = quickEdits.copy(reframe = quickEdits.reframe.copy(message = "Move the playhead onto the clip first"))) }
+            reduce { copy(quickEdits = quickEdits.copy(reframe = quickEdits.reframe.copy(message = UiText.res(R.string.reframe_playhead)))) }
             return
         }
         val points = (reframe.points.filter { it.frame != frame } + ReframePoint(frame, reframe.u, reframe.v)).sortedBy { it.frame }
@@ -2737,7 +2739,7 @@ class EditorViewModel(
         viewModelScope.launch {
             val aspect = withContext(trackDispatcher) { motionTracker.frameAspect(asset) }
             if (aspect == null) {
-                reduce { copy(quickEdits = quickEdits.copy(reframe = quickEdits.reframe.copy(message = "Could not read the picture's shape"))) }
+                reduce { copy(quickEdits = quickEdits.copy(reframe = quickEdits.reframe.copy(message = UiText.res(R.string.reframe_shape)))) }
                 return@launch
             }
             if (execute(ReframeClip(clip.id, points, aspect, s.canvasWidth, s.canvasHeight, reframe.zoom))) {
@@ -3462,7 +3464,7 @@ class EditorViewModel(
                     val asset = assetFor(uri)
                     cursor = place(asset, cursor) ?: cursor
                 } catch (e: MediaImportException) {
-                    emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_import_the_file))))
+                    emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_could_not_import_the_file))))
                 }
             }
             reduce { copy(isImporting = false) }
@@ -3598,7 +3600,7 @@ class EditorViewModel(
                     val asset = assetFor(uri)
                     cursor = if (cursor == null) placeDropped(asset, frame, target) else place(asset, cursor)
                 } catch (e: MediaImportException) {
-                    emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_import_the_file))))
+                    emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_could_not_import_the_file))))
                 }
             }
             reduce { copy(isImporting = false) }
@@ -3630,7 +3632,7 @@ class EditorViewModel(
                 try {
                     assetFor(uri)
                 } catch (e: MediaImportException) {
-                    emit(EditorEffect.ShowMessage(rawOr(e.message, UiText.res(R.string.ed_vm_could_not_import_the_file))))
+                    emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_could_not_import_the_file))))
                 }
             }
             reduce { copy(isImporting = false) }
@@ -3724,7 +3726,7 @@ class EditorViewModel(
         // Audio-only files have no native frame rate; use the project's.
         val (fpsNum, fpsDen) = if (probed.hasVideo) probed.fpsNum to probed.fpsDen else project.num to project.den
         val durationFrames = FrameRate(fpsNum, fpsDen).microsToFrames(probed.durationMicros)
-        if (durationFrames <= 0) throw MediaImportException("The file is too short to place on the timeline")
+        if (durationFrames <= 0) throw MediaImportException("too short to place", userText = UiText.res(R.string.mi_too_short))
         val asset = MediaAssetDto(
             id = "asset-${idGenerator()}",
             uri = uri,
@@ -3794,35 +3796,35 @@ class EditorViewModel(
 
     // endregion
 
-    private fun describe(error: EditError): String = when (error) {
-        is EditError.Overlap -> "That would overlap another clip"
-        EditError.SplitOutsideClip -> "Move the playhead inside the selected clip to split it"
-        EditError.NegativeStart -> "A clip cannot start before the beginning of the timeline"
-        EditError.SourceOutOfRange -> "That is beyond the end of the source media"
-        is EditError.InvalidTrim -> "That trim is not possible: ${error.reason}"
-        is EditError.InvalidAppearance -> "That value is not allowed: ${error.reason}"
-        is EditError.InvalidAudio -> "That audio setting is not allowed: ${error.reason}"
-        is EditError.TrackNotFound, is EditError.ClipNotFound -> "The clip or track no longer exists"
-        is EditError.TrackNotEmpty -> "Move or delete the clips on that track before removing it"
-        is EditError.InvalidTransition -> "That transition is not possible: ${error.reason}"
-        is EditError.TransitionNotFound -> "The transition no longer exists"
-        EditError.NoBaseTrack -> "Add a video track first"
-        is EditError.BaseClipCannotLeave -> "Only a base clip can be lifted off the base"
-        is EditError.BaseTrackCannotMove -> "The base track stays at the bottom of the video lanes"
-        is EditError.TrackCannotMove -> "That lane cannot move further: ${error.reason}"
-        is EditError.NotATitle -> "That clip is not a title"
-        is EditError.InvalidKeyframe -> "That keyframe is not possible: ${error.reason}"
-        is EditError.KeyframeNotFound -> "There is no keyframe there"
-        is EditError.InvalidSpeed -> "That speed is not possible: ${error.reason}"
-        is EditError.InvalidEffect -> "That effect is not possible: ${error.reason}"
-        is EditError.EffectNotFound -> "That effect no longer exists"
-        is EditError.InvalidMarker -> "That marker is not possible: ${error.reason}"
-        is EditError.MarkerNotFound -> "The marker no longer exists"
-        is EditError.InvalidTemplate -> "That text template cannot be placed: ${error.reason}"
-        is EditError.CutToBeatUnavailable -> "Cut to beat is not possible: ${error.reason}"
+    private fun describe(error: EditError): UiText = when (error) {
+        is EditError.Overlap -> UiText.res(R.string.ee_overlap)
+        EditError.SplitOutsideClip -> UiText.res(R.string.ee_split_outside)
+        EditError.NegativeStart -> UiText.res(R.string.ee_negative_start)
+        EditError.SourceOutOfRange -> UiText.res(R.string.ee_source_range)
+        is EditError.InvalidTrim -> UiText.res(R.string.ee_invalid_trim, error.reason)
+        is EditError.InvalidAppearance -> UiText.res(R.string.ee_invalid_appearance, error.reason)
+        is EditError.InvalidAudio -> UiText.res(R.string.ee_invalid_audio, error.reason)
+        is EditError.TrackNotFound, is EditError.ClipNotFound -> UiText.res(R.string.ee_not_found)
+        is EditError.TrackNotEmpty -> UiText.res(R.string.ee_track_not_empty)
+        is EditError.InvalidTransition -> UiText.res(R.string.ee_invalid_transition, error.reason)
+        is EditError.TransitionNotFound -> UiText.res(R.string.ee_transition_gone)
+        EditError.NoBaseTrack -> UiText.res(R.string.ee_no_base)
+        is EditError.BaseClipCannotLeave -> UiText.res(R.string.ee_base_cannot_leave)
+        is EditError.BaseTrackCannotMove -> UiText.res(R.string.ee_base_stays)
+        is EditError.TrackCannotMove -> UiText.res(R.string.ee_lane_cannot_move, error.reason)
+        is EditError.NotATitle -> UiText.res(R.string.ee_not_title)
+        is EditError.InvalidKeyframe -> UiText.res(R.string.ee_invalid_keyframe, error.reason)
+        is EditError.KeyframeNotFound -> UiText.res(R.string.ee_no_keyframe)
+        is EditError.InvalidSpeed -> UiText.res(R.string.ee_invalid_speed, error.reason)
+        is EditError.InvalidEffect -> UiText.res(R.string.ee_invalid_effect, error.reason)
+        is EditError.EffectNotFound -> UiText.res(R.string.ee_effect_gone)
+        is EditError.InvalidMarker -> UiText.res(R.string.ee_invalid_marker, error.reason)
+        is EditError.MarkerNotFound -> UiText.res(R.string.ee_marker_gone)
+        is EditError.InvalidTemplate -> UiText.res(R.string.ee_invalid_template, error.reason)
+        is EditError.CutToBeatUnavailable -> UiText.res(R.string.ee_cut_to_beat, error.reason)
         is GroupEditUnavailable -> error.reason
         is EditError.DuplicateClipId, is EditError.DuplicateTrackId, is EditError.DuplicateTransitionId,
-        is EditError.InvalidClip, is EditError.TrackTypeMismatch -> "That edit is not valid"
+        is EditError.InvalidClip, is EditError.TrackTypeMismatch -> UiText.res(R.string.ee_not_valid)
     }
 
     // region media library, marker notes and exports to other tools
@@ -3941,9 +3943,9 @@ class EditorViewModel(
                 if (dirty && !persist()) throw IOException("the project could not be saved first")
                 BundleExportDraft(preview = interchange.bundlePreview(projectId), choice = choice)
             } catch (e: ProjectError) {
-                BundleExportDraft(choice = choice, failed = UiText.Raw(e.message ?: "The project could not be read"))
+                BundleExportDraft(choice = choice, failed = reasonOf(e, UiText.res(R.string.project_unreadable)))
             } catch (e: IOException) {
-                BundleExportDraft(choice = choice, failed = UiText.Raw(e.message ?: "The project could not be read"))
+                BundleExportDraft(choice = choice, failed = reasonOf(e, UiText.res(R.string.project_unreadable)))
             }
             reduce {
                 val current = library.bundleDraft ?: return@reduce this // closed while measuring
@@ -3997,7 +3999,7 @@ class EditorViewModel(
             try {
                 emit(EditorEffect.ShowMessage(writeExport(kind, uri, project)))
             } catch (e: ProjectError) {
-                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_export_failed, e.message.orEmpty())))
+                emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_export_failed, reasonOf(e, UiText.Empty))))
             } catch (e: IOException) {
                 emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_export_failed, e.message ?: "could not write the file"))) // i18n-ok: the system message when there is none
             } finally {
@@ -4018,29 +4020,33 @@ class EditorViewModel(
                 // A long job that outlives this editor: its dialog, the project list's bar and the notification show how far it is
                 // and how it ended, so nothing here waits for the copy.
                 when (val started = interchange.startBundleExport(projectId, project.name, uri, choice)) {
-                    BundleStart.Started -> return UiText.Raw("Backup started: progress is shown on screen and in the notification")
+                    BundleStart.Started -> return UiText.res(R.string.backup_started)
                     is BundleStart.Refused -> return started.reason
                     null -> Unit
                 }
                 val result = interchange.exportBundle(projectId, uri, choice)
-                return BundleExportText.exportMessage(UiText.Raw("Bundle written"), choice, result)
+                return BundleExportText.exportMessage(UiText.res(R.string.bundle_written), choice, result)
             }
             InterchangeKind.EDL -> {
                 val export = Edl.export(project)
                 if (export.files.isEmpty()) throw IOException("there are no video or audio clips to put in an EDL")
                 val bytes = if (export.files.size == 1) export.files.single().text.toByteArray(Charsets.UTF_8) else Edl.zip(export.files)
                 interchange.writeDocument(uri, bytes)
-                return UiText.Raw("EDL written (${export.files.size} track${if (export.files.size == 1) "" else "s"})" + leftOut(export.notes))
+                return UiText.join("", UiText.plural(R.plurals.s5_edl_written, export.files.size), leftOut(export.notes))
             }
             InterchangeKind.FCPXML -> {
                 val export = Fcpxml.export(project)
                 interchange.writeDocument(uri, export.xml.toByteArray(Charsets.UTF_8))
-                return UiText.Raw("FCPXML written" + leftOut(export.notes))
+                return UiText.join("", UiText.res(R.string.fcpxml_written), leftOut(export.notes))
             }
         }
     }
 
-    private fun leftOut(notes: List<String>): String = if (notes.isEmpty()) "" else ". Not carried over: ${notes.first().trimEnd('.')}${if (notes.size > 1) " (and ${notes.size - 1} more)" else ""}"
+    private fun leftOut(notes: List<UiText>): UiText = when {
+        notes.isEmpty() -> UiText.Empty
+        notes.size == 1 -> UiText.res(R.string.s5_left_out_one, notes.first())
+        else -> UiText.res(R.string.s5_left_out_more, notes.first(), notes.size - 1)
+    }
 
     // endregion
 

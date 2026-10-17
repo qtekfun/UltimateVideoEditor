@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.proxy
 
 import androidx.compose.ui.res.pluralStringResource
+import com.qtekfun.ultimatevideoeditor.proxy.ProxyMessages
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.R
@@ -89,7 +90,7 @@ fun ProxyStatus.describe(): UiText = when (this) {
     is ProxyStatus.Making -> UiText.res(R.string.ed_s3_proxy_making, permille / 10)
     is ProxyStatus.Ready -> UiText.res(R.string.ed_s3_proxy_ready, width, height, megabytes(bytes))
     ProxyStatus.OutOfDate -> UiText.res(R.string.ed_s3_proxy_old)
-    is ProxyStatus.Failed -> UiText.res(R.string.ed_s3_proxy_failed, reason)
+    is ProxyStatus.Failed -> UiText.res(R.string.ed_s3_proxy_failed, ProxyMessages.describe(reason))
 }
 
 /** The dismissible offer to make proxies, shown with the other notices at the top of the editor. */

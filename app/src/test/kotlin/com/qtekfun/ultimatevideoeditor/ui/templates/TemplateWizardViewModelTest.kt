@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.ClipPeeker
 import com.qtekfun.ultimatevideoeditor.data.MatchedClip
@@ -60,7 +61,7 @@ class TemplateWizardViewModelTest {
     /** Files by uri: video with 20 s of footage unless named otherwise. */
     private class FakeImporter : MediaImporter {
         override suspend fun import(uri: String): ProbedMedia = when {
-            uri.endsWith("broken") -> throw MediaImportException("This file cannot be read")
+            uri.endsWith("broken") -> throw MediaImportException("unreadable", userText = UiText.Raw("This file cannot be read"))
             uri.endsWith("photo") -> ProbedMedia(0, 0, 0, "Rec709-SDR", hasVideo = false, hasAudio = false, isImage = true, displayName = "photo.jpg")
             uri.endsWith("song") -> ProbedMedia(30_000_000, 0, 0, "Rec709-SDR", hasVideo = false, hasAudio = true, displayName = "song.mp3")
             uri.endsWith("short") -> ProbedMedia(500_000, 30, 1, "Rec709-SDR", hasVideo = true, hasAudio = true, displayName = "short.mp4")
@@ -149,7 +150,7 @@ class TemplateWizardViewModelTest {
         vm.select(montageId)
         for (i in 1..4) vm.pick("clip$i", "content://clip$i")
         vm.pick("clip5", "content://short")
-        assertTrue(vm.state.value.warnings.any { it.contains("Clip 5") && it.contains("shorter") })
+        assertTrue(vm.state.value.warnings.any { it.english().contains("Clip 5") && it.english().contains("shorter") })
         assertTrue(vm.state.value.canCreate)
     }
 

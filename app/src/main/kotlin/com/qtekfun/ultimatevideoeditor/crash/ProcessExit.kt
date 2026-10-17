@@ -182,6 +182,6 @@ class ProcessExitRecorder(
             frames.forEach { appendLine("\t$it") }
         }
         appendLine()
-        appendLine("No project, media or personal data is included in this report.")
+        appendLine("No project, media or personal data is included in this report.") // i18n-ok: the report is addressed to the developer
     }
 }

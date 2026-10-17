@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
 import com.qtekfun.ultimatevideoeditor.data.MediaImporter
 import com.qtekfun.ultimatevideoeditor.data.ProbedMedia
@@ -71,7 +72,7 @@ class EditorViewModelTest {
 
     private class FakeImporter(val media: Map<String, ProbedMedia>) : MediaImporter {
         override suspend fun import(uri: String): ProbedMedia =
-            media[uri] ?: throw MediaImportException("Unsupported file")
+            media[uri] ?: throw MediaImportException("unsupported", userText = UiText.Raw("Unsupported file"))
     }
 
     private val settings = ProjectSettingsDto(1920, 1080, 30, 1, "Rec709-SDR")

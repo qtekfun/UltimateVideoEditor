@@ -311,9 +311,9 @@ fun TrayDragGhost(controller: TrayDragController, modifier: Modifier = Modifier)
         val sizePx = with(density) { GhostSize.toPx() }
         val liftPx = with(density) { GhostLift.toPx() }
         val target = if (carry.returning) carry.home else Offset(carry.position.x, carry.position.y - liftPx)
-        val centre by animateOffsetAsState(target, if (carry.returning) tween(220) else snap(), label = "ghost")
-        val alpha by animateFloatAsState(if (carry.returning) 0f else 1f, tween(220), label = "ghostAlpha")
-        val scale by animateFloatAsState(if (carry.returning) 1f else 1.08f, tween(120), label = "ghostScale")
+        val centre by animateOffsetAsState(target, if (carry.returning) tween(220) else snap(), label = "ghost") // i18n-ok: animation name
+        val alpha by animateFloatAsState(if (carry.returning) 0f else 1f, tween(220), label = "ghostAlpha") // i18n-ok: animation name
+        val scale by animateFloatAsState(if (carry.returning) 1f else 1.08f, tween(120), label = "ghostScale") // i18n-ok: animation name
         LaunchedEffect(carry.returning) {
             if (carry.returning) {
                 kotlinx.coroutines.delay(240)

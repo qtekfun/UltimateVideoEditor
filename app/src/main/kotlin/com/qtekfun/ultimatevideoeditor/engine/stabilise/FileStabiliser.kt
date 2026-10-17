@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.stabilise
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.mediaOrNull
 import android.content.ContentResolver
 import android.net.Uri
@@ -65,8 +67,8 @@ class FileStabiliser internal constructor(
 
     override suspend fun analyse(asset: MediaAssetDto, clip: Clip, fps: FrameRate, onProgress: (Float) -> Unit): StabOutcome =
         withContext(Dispatchers.IO) {
-            synchronized(lock) { if (runningHandle != 0L) return@withContext StabOutcome.Failed("Another stabilisation analysis is running") }
-            if (!cacheDir.isDirectory && !cacheDir.mkdirs()) return@withContext StabOutcome.Failed("Could not create the analysis folder")
+            synchronized(lock) { if (runningHandle != 0L) return@withContext StabOutcome.Failed(UiText.res(R.string.st_busy)) }
+            if (!cacheDir.isDirectory && !cacheDir.mkdirs()) return@withContext StabOutcome.Failed(UiText.res(R.string.st_folder))
             val file = fileOf(asset)
             val (clipStart, clipEnd) = clipRange(clip, fps)
             var start = (clipStart - MARGIN_MICROS).coerceAtLeast(0L)
@@ -76,7 +78,7 @@ class FileStabiliser internal constructor(
                 start = minOf(start, it.rangeStartUs)
                 end = maxOf(end, it.rangeEndUs)
             }
-            val fd = opener.open(asset.uri) ?: return@withContext StabOutcome.Failed("The media file could not be opened")
+            val fd = opener.open(asset.uri) ?: return@withContext StabOutcome.Failed(UiText.res(R.string.st_open))
             val handle = native.create()
             synchronized(lock) { runningHandle = handle }
             try {
@@ -156,11 +158,11 @@ class FileStabiliser internal constructor(
         }
     }
 
-    private fun describe(code: Int): String = when (code) {
-        NATIVE_IO_ERROR -> "The media file could not be read"
-        NATIVE_UNSUPPORTED -> "This clip has too little picture or movement to analyse"
-        NATIVE_CODEC_ERROR -> "The video could not be decoded"
-        else -> "The analysis failed (code $code)"
+    private fun describe(code: Int): UiText = when (code) {
+        NATIVE_IO_ERROR -> UiText.res(R.string.st_read)
+        NATIVE_UNSUPPORTED -> UiText.res(R.string.st_unsupported)
+        NATIVE_CODEC_ERROR -> UiText.res(R.string.st_codec)
+        else -> UiText.res(R.string.st_failed_code, code)
     }
 
     private companion object {

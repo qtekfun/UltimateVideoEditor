@@ -1,6 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor.guide
 
 import com.qtekfun.ultimatevideoeditor.ui.about.AboutController
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,6 +13,8 @@ import java.io.File
  * describe an icon that a screen really uses.
  */
 class ToolbarGuideTest {
+    private fun english(id: Int): String = UiText.res(id).english()
+
     private val sourceRoot: File =
         listOf(File("."), File("app")).map { File(it, "src/main/kotlin/com/qtekfun/ultimatevideoeditor") }.first { it.isDirectory }
 
@@ -45,28 +49,28 @@ class ToolbarGuideTest {
         val ids = ToolbarGuide.entries.map { it.id } + ToolbarGuide.gestures.map { it.id }
         assertEquals("Duplicate ids: ${ids.groupBy { it }.filter { it.value.size > 1 }.keys}", ids.size, ids.toSet().size)
         for (entry in ToolbarGuide.entries) {
-            assertTrue("${entry.id} needs a name and a help text", entry.name.isNotBlank() && entry.help.isNotBlank())
+            assertTrue("${entry.id} needs a name and a help text", english(entry.nameRes).isNotBlank() && english(entry.helpRes).isNotBlank())
         }
         for (gesture in ToolbarGuide.gestures) {
-            assertTrue("${gesture.id} needs a title and a help text", gesture.title.isNotBlank() && gesture.help.isNotBlank())
+            assertTrue("${gesture.id} needs a title and a help text", english(gesture.titleRes).isNotBlank() && english(gesture.helpRes).isNotBlank())
         }
     }
 
     @Test
     fun `no section is empty and an icon is documented once`() {
         for (section in GuideSection.entries) {
-            assertTrue("Section ${section.title} has no entries", ToolbarGuide.entries.any { it.section == section })
+            assertTrue("Section ${section.name} has no entries", ToolbarGuide.entries.any { it.section == section })
         }
         assertEquals(ToolbarGuide.entries.size, ToolbarGuide.entries.map { it.icon.name }.toSet().size)
     }
 
     @Test
     fun `search matches names, help text and sections, and an empty query lists everything`() {
-        assertEquals(ToolbarGuide.entries.size, ToolbarGuide.search("  ").size)
-        assertTrue(ToolbarGuide.search("split").any { it.id == "split" })
-        assertTrue(ToolbarGuide.search("SELECTION BAR").any { it.id == "copy" })
-        assertTrue(ToolbarGuide.search("zzzz").isEmpty())
-        assertTrue(ToolbarGuide.searchGestures("fullscreen").any { it.id == "double-tap-preview" })
+        assertEquals(ToolbarGuide.entries.size, ToolbarGuide.search("  ", ::english).size)
+        assertTrue(ToolbarGuide.search("split", ::english).any { it.id == "split" })
+        assertTrue(ToolbarGuide.search("SELECTION BAR", ::english).any { it.id == "copy" })
+        assertTrue(ToolbarGuide.search("zzzz", ::english).isEmpty())
+        assertTrue(ToolbarGuide.searchGestures("fullscreen", ::english).any { it.id == "double-tap-preview" })
     }
 
     @Test

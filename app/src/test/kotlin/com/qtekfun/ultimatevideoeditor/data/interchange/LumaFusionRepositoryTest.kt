@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.ProbedMedia
 import com.qtekfun.ultimatevideoeditor.data.ProjectError
 import com.qtekfun.ultimatevideoeditor.data.ProjectRepository
@@ -163,7 +164,7 @@ class LumaFusionRepositoryTest {
         val folder = FakeMediaFolder(File(tmp.root, "media"), failListing = true)
         val uri = pack("p", mapOf("clip1.MOV" to bytes(100)))
         val e = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo(folder).importWithReport(uri) } }
-        assertTrue(e.message!!.contains("media folder is not available"))
+        assertTrue(e.userText.english().contains("media folder is not available"))
         assertTrue(projectDirs().isEmpty())
         val readOnly = FakeMediaFolder(File(tmp.root, "ro"), failCreate = true)
         assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo(readOnly).importWithReport(uri) } }
@@ -174,7 +175,7 @@ class LumaFusionRepositoryTest {
         val folder = FakeMediaFolder(File(tmp.root, "media"), free = 10)
         val uri = pack("p", mapOf("clip1.MOV" to bytes(100)))
         val e = assertThrows(ProjectError.Bundle::class.java) { runBlocking { repo(folder).importWithReport(uri) } }
-        assertTrue(e.message!!.contains("Not enough free space"))
+        assertTrue(e.userText.english().contains("Not enough free space"))
         assertTrue(folder.dir.list().orEmpty().isEmpty()) // the folders this import made are gone too
         assertTrue(projectDirs().isEmpty())
     }

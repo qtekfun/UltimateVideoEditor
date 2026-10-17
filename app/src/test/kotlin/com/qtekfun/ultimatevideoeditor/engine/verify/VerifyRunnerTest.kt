@@ -174,7 +174,7 @@ class VerifyRunnerTest {
     fun `audio shorter than the picture is reported`() {
         val outcome = run(file(audio = 400).bytes, good())
 
-        assertTrue(warning(outcome).findings.any { it.check == VerifyCheck.AUDIO && it.message.contains("shorter") })
+        assertTrue(warning(outcome).findings.any { it.check == VerifyCheck.AUDIO && it.message.english().contains("shorter") })
     }
 
     @Test

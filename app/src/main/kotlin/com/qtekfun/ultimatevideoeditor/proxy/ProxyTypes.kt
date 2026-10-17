@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.proxy
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.SourceColorSpace
 import kotlinx.serialization.Serializable
@@ -80,3 +82,30 @@ enum class ProxyErrorCode {
 
 /** A proxy could not be made. Never swallowed: the code decides what the user is told. */
 class ProxyException(val code: ProxyErrorCode, message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * The diagnostics a proxy job stores in its index entry (English, they live on disk) and the words for them: [describe] turns a stored text
+ * into resource text; anything else (a message from the encoder) is shown as it is.
+ */
+object ProxyMessages {
+    const val FAILED = "The proxy failed" // i18n-ok: stored diagnostic, worded by describe
+    const val NOT_FINISHED = "The proxy file could not be finished" // i18n-ok: stored diagnostic, worded by describe
+    const val OPEN_PREFIX = "Cannot open a file for the proxy: " // i18n-ok: stored diagnostic, worded by describe
+    const val NOT_MADE = "The proxy could not be made" // i18n-ok: stored diagnostic, worded by describe
+    const val NOT_OPENED = "The proxy could not be opened" // i18n-ok: stored diagnostic, worded by describe
+    const val SOURCE_CHANGED = "The source file changed" // i18n-ok: stored diagnostic, worded by describe
+    const val NO_VIDEO = "The file has no video picture to make a proxy of" // i18n-ok: stored diagnostic, worded by describe
+    const val UNREADABLE_PREFIX = "The source cannot be read: " // i18n-ok: stored diagnostic, worded by describe
+
+    fun describe(stored: String): UiText = when {
+        stored == FAILED -> UiText.res(R.string.px_failed)
+        stored == NOT_FINISHED -> UiText.res(R.string.px_not_finished)
+        stored.startsWith(OPEN_PREFIX) -> UiText.res(R.string.px_open, stored.removePrefix(OPEN_PREFIX))
+        stored == NOT_MADE -> UiText.res(R.string.px_not_made)
+        stored == NOT_OPENED -> UiText.res(R.string.px_not_opened)
+        stored == SOURCE_CHANGED -> UiText.res(R.string.px_source_changed)
+        stored == NO_VIDEO -> UiText.res(R.string.px_no_video)
+        stored.startsWith(UNREADABLE_PREFIX) -> UiText.res(R.string.px_unreadable, stored.removePrefix(UNREADABLE_PREFIX))
+        else -> UiText.Raw(stored)
+    }
+}

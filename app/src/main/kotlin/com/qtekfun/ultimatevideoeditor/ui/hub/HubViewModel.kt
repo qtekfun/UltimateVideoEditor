@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
@@ -213,7 +214,7 @@ class HubViewModel(
                         throw e
                     } catch (e: Exception) {
                         // Whatever went wrong is shown with its cause: an import never fails silently.
-                        emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_import_failed, e.javaClass.simpleName, e.message.orEmpty())))
+                        emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_import_failed, e.javaClass.simpleName, reasonOf(e, UiText.Empty))))
                     }
                 }
             }
@@ -339,14 +340,14 @@ class HubViewModel(
         val targets = state.value.selectedProjects
         if (targets.isEmpty()) return
         launchProjectOp {
-            var failure: String? = null
+            var failure: UiText? = null
             var made = 0
             for (target in targets) {
                 try {
                     projects.clone(target.id)
                     made++
                 } catch (e: ProjectError) {
-                    failure = failure ?: e.message
+                    failure = failure ?: reasonOf(e, UiText.Empty)
                 }
             }
             reduce { exitSelection() }
@@ -401,7 +402,7 @@ class HubViewModel(
                 val clip = reader.peek(uri)
                 reduceDraft { matched(clip) }
             } catch (e: MediaImportException) {
-                reduceDraft { copy(isMatching = false, matchError = e.message?.let { UiText.Raw(it) } ?: UiText.res(R.string.hub_match_cannot_read)) }
+                reduceDraft { copy(isMatching = false, matchError = reasonOf(e, UiText.res(R.string.hub_match_cannot_read))) }
             }
         }
     }
@@ -496,19 +497,19 @@ class HubViewModel(
     private fun confirmDelete() {
         val targets = state.value.deleteTargets.ifEmpty { return }
         launchProjectOp {
-            var failure: String? = null
+            var failure: UiText? = null
             var failed = 0
             for (target in targets) {
                 try {
                     projects.delete(target.id)
                 } catch (e: ProjectError) {
                     failed++
-                    failure = failure ?: e.message
+                    failure = failure ?: reasonOf(e, UiText.Empty)
                 }
             }
             reduce { copy(deleteTargets = emptyList(), selected = emptySet()) }
             refreshNow()
-            if (failed > 0) emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_delete_some_failed, failed, targets.size, failure.orEmpty())))
+            if (failed > 0) emit(HubEffect.ShowMessage(UiText.res(R.string.hub_msg_delete_some_failed, failed, targets.size, (failure ?: UiText.Empty))))
             else if (targets.size > 1) emit(HubEffect.ShowMessage(UiText.plural(R.plurals.hub_msg_deleted, targets.size)))
         }
     }
@@ -531,7 +532,7 @@ class HubViewModel(
             val draft = try {
                 BundleExportDraft(preview = projects.bundlePreview(project.id), choice = state.value.bundleExport?.draft?.choice ?: choice)
             } catch (e: ProjectError) {
-                BundleExportDraft(choice = choice, failed = e.message?.let { UiText.Raw(it) } ?: UiText.res(R.string.bundle_project_unreadable))
+                BundleExportDraft(choice = choice, failed = reasonOf(e, UiText.res(R.string.bundle_project_unreadable)))
             }
             // The dialog may have been closed or reopened for another project while the project was measured.
             reduce { if (bundleExport?.project?.id == project.id) copy(bundleExport = HubBundleExport(project, draft)) else this }
@@ -544,7 +545,7 @@ class HubViewModel(
                 block()
             } catch (e: ProjectError) {
                 reduce { copy(isLoading = false) }
-                emit(HubEffect.ShowMessage(e.message?.let { UiText.Raw(it) } ?: UiText.res(R.string.hub_msg_operation_failed)))
+                emit(HubEffect.ShowMessage(reasonOf(e, UiText.res(R.string.hub_msg_operation_failed))))
             }
         }
     }

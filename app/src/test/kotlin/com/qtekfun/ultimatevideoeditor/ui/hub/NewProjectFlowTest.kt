@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.hub
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.ClipPeeker
 import com.qtekfun.ultimatevideoeditor.data.MatchedClip
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
@@ -60,7 +61,7 @@ class NewProjectFlowTest {
 
     private class FakePeeker(private val answers: Map<String, MatchedClip>) : ClipPeeker {
         override suspend fun peek(uri: String): MatchedClip =
-            answers[uri] ?: throw MediaImportException("Cannot open the selected file")
+            answers[uri] ?: throw MediaImportException("cannot open", userText = UiText.Raw("Cannot open the selected file"))
     }
 
     private fun repository() = ProjectRepository(

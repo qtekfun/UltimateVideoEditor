@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.interchange.AutoRelink
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleError
 import com.qtekfun.ultimatevideoeditor.data.interchange.BundleChoice
@@ -299,7 +301,7 @@ class ProjectRepository(
     private fun readProjectText(input: java.io.InputStream): String {
         val max = maxDocumentBytes
         val bytes = input.readAtMost(max + 1)
-        if (bytes.size > max) throw ProjectError.Bundle("This file is not a project: it is bigger than ${max / (1024 * 1024)} MB and is neither a project file nor a bundle.")
+        if (bytes.size > max) throw ProjectError.Bundle(UiText.res(R.string.pe_not_a_project, max / (1024 * 1024)))
         return bytes.toString(Charsets.UTF_8)
     }
 
@@ -325,7 +327,7 @@ class ProjectRepository(
             val plan = bundleStep { ProjectBundle.plan(zip.entries) }
             val free = freeBytes(rootDir)
             if (free < plan.totalBytes + SPACE_MARGIN) {
-                throw ProjectError.Bundle("Not enough free space: this bundle needs ${gb(plan.totalBytes + SPACE_MARGIN)} and ${gb(free)} are free. Free some space and import again. Nothing was added to the project list.")
+                throw ProjectError.Bundle(UiText.res(R.string.pe_no_space_bundle, gb(plan.totalBytes + SPACE_MARGIN), gb(free)))
             }
             return importBundle(observer) { scratch -> bundleStep { ProjectBundle.extract(zip, scratch, observer = observer) } }
         }
@@ -335,7 +337,7 @@ class ProjectRepository(
     private inline fun <T> bundleStep(block: () -> T): T = try {
         block()
     } catch (e: BundleError) {
-        throw ProjectError.Bundle(e.message ?: "The bundle could not be read", e)
+        throw ProjectError.Bundle(e.userText, e)
     }
 
     /**
@@ -405,13 +407,13 @@ class ProjectRepository(
         val parsed = try {
             LumaFusionImport.parse(text)
         } catch (e: LumaFusionError) {
-            throw ProjectError.Bundle(e.message ?: "The LumaFusion project could not be read", e)
+            throw ProjectError.Bundle(e.userText, e)
         }
         val entries = if (zip != null && archive != null) LumaFusionPackage.mediaEntries(zip, archive) else emptyMap()
         val conversion = try {
             LumaFusionImport.convert(parsed, entries.keys)
         } catch (e: LumaFusionError) {
-            throw ProjectError.Bundle(e.message ?: "The LumaFusion project could not be converted", e)
+            throw ProjectError.Bundle(e.userText, e)
         }
         val scratch = File(rootDir, ".import-${idGenerator()}")
         val created = ArrayList<MediaTarget>()
@@ -462,7 +464,7 @@ class ProjectRepository(
                         spaceChecked = true
                         val free = target.freeBytes()
                         if (free != null && free < total + SPACE_MARGIN) {
-                            throw ProjectError.Bundle("Not enough free space in the media folder: the footage of this package needs ${gb(total + SPACE_MARGIN)} and ${gb(free)} are free. Free some space or choose another folder in Settings.")
+                            throw ProjectError.Bundle(UiText.res(R.string.pe_no_space_media, gb(total + SPACE_MARGIN), gb(free)))
                         }
                     }
                     try {
@@ -474,12 +476,12 @@ class ProjectRepository(
                             )
                         }
                     } catch (e: BundleError) {
-                        throw ProjectError.Bundle(e.message ?: "The footage could not be copied", e)
+                        throw ProjectError.Bundle(e.userText, e)
                     } catch (e: java.util.zip.ZipException) {
-                        throw ProjectError.Bundle("The package is damaged near $file (${e.message}). Nothing was kept.", e)
+                        throw ProjectError.Bundle(UiText.res(R.string.pe_package_damaged, file, e.message.orEmpty()), e)
                     } catch (e: IOException) {
                         log("copy of $fileName failed", e)
-                        throw ProjectError.Bundle("Could not write $fileName to the media folder (${e.message}). The folder may be full or unplugged; nothing was kept.", e)
+                        throw ProjectError.Bundle(UiText.res(R.string.pe_write_failed, fileName, e.message.orEmpty()), e)
                     }
                     uris[assetId] = target.uri
                     probeMedia?.invoke(target.uri)?.let { probed[assetId] = it }
@@ -536,7 +538,7 @@ class ProjectRepository(
     }
 
     private fun folderUnavailable(e: IOException) = ProjectError.Bundle(
-        "The media folder is not available (${e.message}). Choose it again in Settings, under About, and import again. Nothing was added to the project list.",
+        UiText.res(R.string.pe_folder_unavailable, e.message.orEmpty()),
         e,
     )
 
@@ -732,9 +734,9 @@ class ProjectRepository(
 
     private fun validName(name: String): String {
         val trimmed = name.trim()
-        if (trimmed.isEmpty()) throw ProjectError.InvalidName("Project name cannot be empty")
+        if (trimmed.isEmpty()) throw ProjectError.InvalidName(UiText.res(R.string.pe_name_empty))
         if (trimmed.length > MAX_NAME_LENGTH) {
-            throw ProjectError.InvalidName("Project name is longer than $MAX_NAME_LENGTH characters")
+            throw ProjectError.InvalidName(UiText.res(R.string.pe_name_long, MAX_NAME_LENGTH))
         }
         return trimmed
     }

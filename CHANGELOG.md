@@ -3,6 +3,17 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## 1.1.0
+
+- **Spanish everywhere.** The media tray, library, captions, titles, multicam, proxies, templates, scopes, stickers, frame saving, the first-run
+  tips, the toolbar guide, the privacy statement, the labels on the timeline and the error and report messages of the lower layers are translated.
+- **Drop mode button** (Auto / Insert / Overwrite) in the tool row; overwrite works for a group of clips too (see 1.0.1).
+- **Flag list** exports Markdown (`- [ ] 00:00:12:05 · name: note`), a `.md` file or CSV.
+
+## 1.0.1
+
+- Drop mode button, group overwrite on the base track, Markdown flag list, flag popup layout, privacy scrub of the repository.
+
 ## 1.0.0
 
 First stable release. Same code as 0.5.13 plus the maintenance documents (this file, `SECURITY.md`, the support policy in `docs/RELEASE.md`).

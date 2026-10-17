@@ -41,7 +41,7 @@ object BuiltInTemplates {
         val transitions = (0 until 4).map { Transition("montage-t$it", "slot-clip${it + 1}", "slot-clip${it + 2}", 8, TransitionType.SLIDE, TransitionDirection.UP) }
         val timeline = Timeline(
             tracks = listOf(
-                Track("track-t1", TrackType.TITLE, listOf(title("montage-title", "My story", 6, 72))),
+                Track("track-t1", TrackType.TITLE, listOf(title("montage-title", "My story", 6, 72))), // i18n-ok: a sample title
                 base,
                 Track("track-a1", TrackType.AUDIO, listOf(TemplateBuilder.slotClip(music, 0))),
             ),
@@ -49,8 +49,8 @@ object BuiltInTemplates {
         )
         return ProjectTemplate(
             id = "builtin-vertical-montage",
-            name = "Vertical montage",
-            description = "Five clips or photos in 9:16 with slide transitions, a title and optional music.",
+            name = "Vertical montage", // i18n-ok: stored name; the wizard words it from resources
+            description = "Five clips or photos in 9:16 with slide transitions, a title and optional music.", // i18n-ok: stored description; the wizard words it from resources
             width = 1080,
             height = 1920,
             fpsNum = 30,
@@ -73,7 +73,7 @@ object BuiltInTemplates {
         )
         val timeline = Timeline(
             tracks = listOf(
-                Track("track-t1", TrackType.TITLE, listOf(title("intro-title", "Your title", 12, 90), title("outro-title", "Thanks for watching", 432, 90))),
+                Track("track-t1", TrackType.TITLE, listOf(title("intro-title", "Your title", 12, 90), title("outro-title", "Thanks for watching", 432, 90))), // i18n-ok: sample titles
                 base,
             ),
             transitions = listOf(
@@ -83,8 +83,8 @@ object BuiltInTemplates {
         )
         return ProjectTemplate(
             id = "builtin-intro-outro",
-            name = "Intro and outro",
-            description = "An intro, a main clip and an outro with crossfades and titles, in 16:9.",
+            name = "Intro and outro", // i18n-ok: stored name; the wizard words it from resources
+            description = "An intro, a main clip and an outro with crossfades and titles, in 16:9.", // i18n-ok: stored description; the wizard words it from resources
             width = 1920,
             height = 1080,
             fpsNum = 30,
@@ -100,7 +100,7 @@ object BuiltInTemplates {
         val clip = Placeholder("clip", "Main clip", PlaceholderKind.VIDEO, frames = 300, minFrames = 120)
         var timeline = Timeline(tracks = listOf(Track("track-v1", TrackType.VIDEO, listOf(TemplateBuilder.slotClip(clip, 0)))))
         val template = checkNotNull(TextTemplates.find("lower-third") ?: TextTemplates.all.firstOrNull()) { "no text templates" }
-        val names = listOf("First speaker", "Second speaker", "Third speaker")
+        val names = listOf("First speaker", "Second speaker", "Third speaker") // i18n-ok: sample titles of the template
         names.forEachIndexed { i, text ->
             val command = AddTextTemplate(
                 templateId = template.id,
@@ -120,8 +120,8 @@ object BuiltInTemplates {
         }
         return ProjectTemplate(
             id = "builtin-lower-thirds",
-            name = "Lower thirds",
-            description = "One clip with three animated name titles over it, in 16:9.",
+            name = "Lower thirds", // i18n-ok: stored name; the wizard words it from resources
+            description = "One clip with three animated name titles over it, in 16:9.", // i18n-ok: stored description; the wizard words it from resources
             width = 1920,
             height = 1080,
             fpsNum = 30,

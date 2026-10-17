@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.data.FontRegistry
 import com.qtekfun.ultimatevideoeditor.data.LutStore
 import com.qtekfun.ultimatevideoeditor.data.ProjectJson
@@ -313,7 +314,7 @@ class BundleResourcesTest {
         val target = Device("t")
         val res = target.repo.importWithReport("doc://x").bundle!!.resources
         assertEquals(listOf("LUT Good", "font Good One"), res.installed)
-        val reasons = res.failed.associate { it.name to it.reason }
+        val reasons = res.failed.associate { it.name to it.reason.english() }
         assertEquals(5, reasons.size)
         assertTrue(reasons.getValue("LUT Tampered"), reasons.getValue("LUT Tampered").contains("checksum"))
         assertTrue(reasons.getValue("LUT Junk"), reasons.getValue("LUT Junk").contains("not a valid .cube"))
@@ -332,7 +333,7 @@ class BundleResourcesTest {
         val bare = ProjectRepository(File(tmp.root, "bare"), io, UnconfinedTestDispatcher(), idGenerator = { "bare-${++counter}" })
         val res = bare.importWithReport("doc://x").bundle!!.resources
         assertEquals(1, res.failed.size)
-        assertTrue(res.failed.single().reason, res.failed.single().reason.contains("cannot install"))
+        assertTrue(res.failed.single().reason.english(), res.failed.single().reason.english().contains("cannot install"))
     }
 
     @Test

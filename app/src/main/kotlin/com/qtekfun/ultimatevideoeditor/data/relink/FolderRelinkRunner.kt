@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.data.relink
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.MediaImportException
 import com.qtekfun.ultimatevideoeditor.data.MediaImporter
 import com.qtekfun.ultimatevideoeditor.data.MissingMedia
@@ -25,11 +27,11 @@ data class RelinkedAsset(
     val asset: MediaAssetDto,
     val file: FolderFile,
     val basis: MatchBasis,
-    val warnings: List<String>,
+    val warnings: List<UiText>,
 )
 
 /** A missing item with nothing usable in the folder; [reason] says why in words for the user. */
-data class UnresolvedAsset(val assetId: String, val name: String, val reason: String)
+data class UnresolvedAsset(val assetId: String, val name: String, val reason: UiText)
 
 /** A missing item that several files of the folder could be. */
 data class AmbiguousAsset(val assetId: String, val name: String, val candidates: List<FolderFile>)
@@ -88,7 +90,7 @@ data class FolderRelinkOutcome(
 }
 
 /** The reason of a missing item that has no file of its name in the scanned folder. */
-const val NOT_IN_FOLDER = "No file with this name in the folder"
+val NOT_IN_FOLDER: UiText = UiText.res(R.string.rl_not_in_folder)
 
 /** What a run is doing, for the progress line. */
 sealed interface FolderRelinkProgress {
@@ -158,7 +160,7 @@ class FolderRelinkRunner(
             val name = names.getValue(old.id)
             val probed = probes[match.file.uri] ?: probe(match.file.uri)
             if (probed == null) {
-                notFound += UnresolvedAsset(old.id, name, "Found ${match.file.path.joinToString("/")} but it cannot be read")
+                notFound += UnresolvedAsset(old.id, name, UiText.res(R.string.rl_found_unreadable, match.file.path.joinToString("/")))
                 continue
             }
             val others = library.filter { it.id != old.id }.map { it.uri } + taken
@@ -172,7 +174,7 @@ class FolderRelinkRunner(
             }
             val asset = RelinkApply.relinked(old, probed, match.file.uri, fps)
             if (asset == null) {
-                notFound += UnresolvedAsset(old.id, name, "The file in the folder is too short to use")
+                notFound += UnresolvedAsset(old.id, name, UiText.res(R.string.rl_too_short))
                 continue
             }
             taken += match.file.uri

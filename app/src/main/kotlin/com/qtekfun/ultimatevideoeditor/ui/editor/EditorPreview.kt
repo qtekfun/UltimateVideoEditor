@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.R
 import android.content.Context
 import android.net.Uri
 import android.os.Handler
@@ -109,12 +110,12 @@ class EditorPreview(
     val engine: PreviewEngine? = try {
         PreviewEngine.create { e ->
             main.post {
-                val message = "Preview error: ${e.message}"
+                val message = context.getString(R.string.s5_preview_error, e.message.orEmpty())
                 if (e.hasAsset && onAssetFailure != null) onAssetFailure.invoke(e.assetKey, message) else onError(message)
             }
         }
     } catch (e: PreviewException) {
-        onError("The preview could not start: ${e.message}")
+        onError(context.getString(R.string.s5_preview_start_failed, e.message.orEmpty()))
         null
     }
 
@@ -315,10 +316,10 @@ class EditorPreview(
                 engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
             } catch (e: TitleRasterException) {
                 brokenTitles += key
-                onError("A title could not be drawn: ${e.message}")
+                onError(context.getString(R.string.s5_title_not_drawn, e.message.orEmpty()))
             } catch (e: PreviewException) {
                 brokenTitles += key
-                onError("A title could not be shown: ${e.message}")
+                onError(context.getString(R.string.s5_title_not_shown, e.message.orEmpty()))
             }
         }
         return key.takeIf { it !in brokenTitles }
@@ -345,7 +346,7 @@ class EditorPreview(
                 val bitmap = outcome.getOrNull()
                 if (bitmap == null) {
                     brokenStills += key
-                    onError(outcome.exceptionOrNull()?.message ?: "A picture could not be shown")
+                    onError(outcome.exceptionOrNull()?.message ?: context.getString(R.string.s5_picture_not_shown))
                 } else {
                     try {
                         stillKeys.resize(key, bitmap.width.toLong() * bitmap.height * 4)
@@ -353,7 +354,7 @@ class EditorPreview(
                         uploadedStills += key
                     } catch (e: PreviewException) {
                         brokenStills += key
-                        onError("A picture could not be shown: ${e.message}")
+                        onError(context.getString(R.string.s5_picture_not_shown_why, e.message.orEmpty()))
                     }
                 }
                 if (!following) latest?.let(::show)
@@ -372,7 +373,7 @@ class EditorPreview(
                 loadingLuts -= key
                 if (lut == null) {
                     brokenLuts += key
-                    onError("A LUT used by this project is missing; its clip is shown without it")
+                    onError(context.getString(R.string.s5_lut_missing))
                     return@launch
                 }
                 try {
@@ -380,7 +381,7 @@ class EditorPreview(
                     uploadedLuts += key
                 } catch (e: PreviewException) {
                     brokenLuts += key
-                    onError("A LUT could not be shown: ${e.message}")
+                    onError(context.getString(R.string.s5_lut_not_shown, e.message.orEmpty()))
                 }
                 if (!following) latest?.let(::show)
             }
@@ -413,7 +414,7 @@ class EditorPreview(
         if (set == reportedSkipped) return
         reportedSkipped = set
         if (set.isNotEmpty()) {
-            onError("This device can preview $maxDecoders video layers at once; the lower ${set.size} are hidden in the preview")
+            onError(context.resources.getQuantityString(R.plurals.s5_layers_hidden, maxDecoders, maxDecoders, set.size))
         }
     }
 
@@ -429,9 +430,9 @@ class EditorPreview(
                 }.let { info -> if (info.software) softwareInfo = info }
                 null
             } catch (e: MediaImportException) {
-                "A media file cannot be read, so it cannot be previewed (${e.message})"
+                context.getString(R.string.s5_preview_file_unreadable, e.message.orEmpty())
             } catch (e: PreviewException) {
-                "This clip cannot be previewed: ${e.message}"
+                context.getString(R.string.s5_clip_not_previewable, e.message.orEmpty())
             }
             opening -= key
             if (error != null) {

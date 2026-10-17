@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.domain
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
+
 /**
  * A video clip's own sound and the audio clip detached from it (SPECS.md 5.38).
  *
@@ -17,7 +20,7 @@ object ClipLinks {
     /** Mixer prefix of the parameter tracks that belong to a clip's sound (volume, pan, EQ, voice). */
     private const val AUDIO_PARAM_PREFIX = "audio."
 
-    private fun unavailable(reason: String): EditResult.Failure = failure(EditError.InvalidAudio(reason))
+    private fun unavailable(reason: UiText): EditResult.Failure = failure(GroupEditUnavailable(reason))
 
     private fun linkIdFor(audioClipId: String) = "link-$audioClipId"
 
@@ -135,8 +138,8 @@ object ClipLinks {
     ): EditResult<Timeline> {
         val videoTrack = timeline.trackOfClip(videoClipId) ?: return failure(EditError.ClipNotFound(videoClipId))
         val video = checkNotNull(videoTrack.clip(videoClipId))
-        if (videoTrack.type != TrackType.VIDEO || !video.hasMedia || video.assetId == null) return unavailable("Only a video clip has sound to detach")
-        if (video.audioDetached) return unavailable("This clip's sound is already detached")
+        if (videoTrack.type != TrackType.VIDEO || !video.hasMedia || video.assetId == null) return unavailable(UiText.res(R.string.cl_only_video))
+        if (video.audioDetached) return unavailable(UiText.res(R.string.cl_already_detached))
         if (timeline.trackOfClip(audioClipId) != null) return failure(EditError.DuplicateClipId(audioClipId))
         var current = timeline
         if (current.track(audioTrackId) == null) {
@@ -176,7 +179,7 @@ object ClipLinks {
     fun unlink(timeline: Timeline, clipId: String): EditResult<Timeline> {
         val track = timeline.trackOfClip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
         val clip = checkNotNull(track.clip(clipId))
-        val link = clip.linkId ?: return unavailable("This clip is not linked")
+        val link = clip.linkId ?: return unavailable(UiText.res(R.string.cl_not_linked))
         return success(unlinked(timeline, link))
     }
 
@@ -189,12 +192,12 @@ object ClipLinks {
         val audioTrack = timeline.trackOfClip(audioClipId) ?: return failure(EditError.ClipNotFound(audioClipId))
         val video = checkNotNull(videoTrack.clip(videoClipId))
         var audio = checkNotNull(audioTrack.clip(audioClipId))
-        if (videoTrack.type != TrackType.VIDEO || !video.hasMedia) return unavailable("Pick a video clip and an audio clip")
-        if (audioTrack.type != TrackType.AUDIO) return unavailable("Pick a video clip and an audio clip")
-        if (video.assetId != audio.assetId) return unavailable("These clips come from different media, so they cannot be linked")
+        if (videoTrack.type != TrackType.VIDEO || !video.hasMedia) return unavailable(UiText.res(R.string.cl_pick_video_audio))
+        if (audioTrack.type != TrackType.AUDIO) return unavailable(UiText.res(R.string.cl_pick_video_audio))
+        if (video.assetId != audio.assetId) return unavailable(UiText.res(R.string.cl_different_media))
         var current = unlinked(unlinked(timeline, video.linkId), audio.linkId)
         if (realign) {
-            val offset = syncOffset(video, audio) ?: return unavailable("These clips play at different speeds, so they cannot be realigned automatically")
+            val offset = syncOffset(video, audio) ?: return unavailable(UiText.res(R.string.cl_different_speeds))
             if (offset != 0L) {
                 val start = audio.timelineStart.value - offset
                 if (start < 0) return failure(EditError.NegativeStart)
@@ -220,7 +223,7 @@ object ClipLinks {
     fun restoreEmbeddedAudio(timeline: Timeline, videoClipId: String): EditResult<Timeline> {
         val track = timeline.trackOfClip(videoClipId) ?: return failure(EditError.ClipNotFound(videoClipId))
         val video = checkNotNull(track.clip(videoClipId))
-        if (!video.audioDetached) return unavailable("This clip still has its own sound")
+        if (!video.audioDetached) return unavailable(UiText.res(R.string.cl_own_sound))
         var current = timeline
         val partner = partnerOf(timeline, video)
         if (partner != null) {

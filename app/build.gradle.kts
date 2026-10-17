@@ -39,6 +39,8 @@ val hasReleaseSigning = listOf("storeFile", "storePassword", "keyAlias", "keyPas
 abstract class CopyLegalAssets : DefaultTask() {
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val notices: RegularFileProperty
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val privacy: RegularFileProperty
+    /** The privacy statement in the other languages (`PRIVACY.<language>.md`); About shows the one for the language in use. */
+    @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) abstract val privacyTranslations: ConfigurableFileCollection
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val licence: RegularFileProperty
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
@@ -47,6 +49,7 @@ abstract class CopyLegalAssets : DefaultTask() {
         val dir = outputDir.get().asFile.resolve("legal").apply { deleteRecursively(); mkdirs() }
         notices.get().asFile.copyTo(dir.resolve("THIRD_PARTY_NOTICES.md"))
         privacy.get().asFile.copyTo(dir.resolve("PRIVACY.md"))
+        privacyTranslations.files.forEach { it.copyTo(dir.resolve(it.name)) }
         licence.get().asFile.copyTo(dir.resolve("LICENSE.txt"))
     }
 }
@@ -54,6 +57,7 @@ abstract class CopyLegalAssets : DefaultTask() {
 val copyLegalAssets = tasks.register<CopyLegalAssets>("copyLegalAssets") {
     notices.set(rootProject.file("THIRD_PARTY_NOTICES.md"))
     privacy.set(rootProject.file("docs/PRIVACY.md"))
+    privacyTranslations.from(rootProject.fileTree("docs") { include("PRIVACY.*.md") })
     licence.set(rootProject.file("LICENSE"))
 }
 

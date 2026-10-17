@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.domain.GroupEditUnavailable
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.R
@@ -51,7 +53,7 @@ data class TemplateWizardState(
     val busyPlaceholder: String? = null,
     val busy: Boolean = false,
     /** What fitting the media into the template would do right now: warnings, or why it cannot be done yet. */
-    val warnings: List<String> = emptyList(),
+    val warnings: List<UiText> = emptyList(),
     val problem: UiText? = null,
     val message: UiText? = null,
     /** Set when a project was created; the host opens it. */
@@ -92,9 +94,9 @@ class TemplateWizardViewModel(
         }
     }
 
-    fun select(templateId: String) {
+    fun select(templateId: String, name: String? = null) {
         val template = _state.value.templates.firstOrNull { it.id == templateId } ?: return
-        _state.update { it.copy(selected = template, name = template.name, picked = emptyMap(), warnings = emptyList(), problem = null, message = null) }
+        _state.update { it.copy(selected = template, name = name ?: template.name, picked = emptyMap(), warnings = emptyList(), problem = null, message = null) }
         recompute()
     }
 
@@ -134,7 +136,7 @@ class TemplateWizardViewModel(
             } catch (e: FileTooShortException) {
                 _state.update { it.copy(busyPlaceholder = null, message = UiText.res(R.string.ed_s3_tw_too_short)) }
             } catch (e: MediaImportException) {
-                _state.update { it.copy(busyPlaceholder = null, message = rawOr(e.message, UiText.res(R.string.ed_s3_tw_cannot_use))) }
+                _state.update { it.copy(busyPlaceholder = null, message = reasonOf(e, UiText.res(R.string.ed_s3_tw_cannot_use))) }
             }
         }
     }
@@ -162,7 +164,7 @@ class TemplateWizardViewModel(
                 }
                 _state.update { it.copy(busy = false, createdProjectId = id) }
             } catch (e: ProjectError) {
-                _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_tw_create_failed, e.message.orEmpty())) }
+                _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_tw_create_failed, reasonOf(e, UiText.Empty))) }
             } catch (e: IOException) {
                 _state.update { it.copy(busy = false, message = UiText.res(R.string.ed_s3_tw_save_failed, e.message.orEmpty())) }
             }
@@ -199,7 +201,7 @@ class TemplateWizardViewModel(
                     refresh()
                 }
             } catch (e: ProjectError) {
-                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_read_failed, e.message.orEmpty())) }
+                _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_read_failed, reasonOf(e, UiText.Empty))) }
             } catch (e: IOException) {
                 _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_template_save_failed, e.message.orEmpty())) }
             }
@@ -213,7 +215,7 @@ class TemplateWizardViewModel(
                 _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_added, stored.name)) }
                 refresh()
             } catch (e: TemplateFormatException) {
-                _state.update { it.copy(message = rawOr(e.message, UiText.res(R.string.ed_s3_tw_not_template))) }
+                _state.update { it.copy(message = reasonOf(e, UiText.res(R.string.ed_s3_tw_not_template))) }
             } catch (e: IOException) {
                 _state.update { it.copy(message = UiText.res(R.string.ed_s3_tw_file_unreadable, e.message.orEmpty())) }
             }
@@ -254,7 +256,7 @@ class TemplateWizardViewModel(
     }
 
     private fun describe(error: EditError): UiText = when (error) {
-        is EditError.InvalidClip -> UiText.Capitalised(UiText.Raw(error.reason))
+        is GroupEditUnavailable -> UiText.Capitalised(error.reason)
         else -> UiText.res(R.string.ed_s3_tw_cannot_fill)
     }
 

@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.english
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameIndex
 import com.qtekfun.ultimatevideoeditor.domain.StillKind
@@ -12,6 +13,8 @@ import org.junit.Test
 
 class ClipLabelsTest {
 
+    private fun label(clip: Clip, assetName: String? = null) = ClipLabels.of(clip, assetName) { it.english() }
+
     private fun title(text: String) =
         Clip("t", null, FrameIndex(0), FrameIndex(0), FrameIndex(30), title = TitleContent(text))
 
@@ -20,12 +23,12 @@ class ClipLabelsTest {
 
     @Test
     fun `a title shows its text as typed`() {
-        assertEquals("Lower third", ClipLabels.of(title("Lower third")))
+        assertEquals("Lower third", label(title("Lower third")))
     }
 
     @Test
     fun `only the first non blank line of a title is used`() {
-        assertEquals("First line", ClipLabels.of(title("\n  First line\nSecond")))
+        assertEquals("First line", label(title("\n  First line\nSecond")))
     }
 
     @Test
@@ -66,34 +69,34 @@ class ClipLabelsTest {
 
     @Test
     fun `a title with nothing in it falls back to Text`() {
-        assertEquals("Text", ClipLabels.of(title("")))
-        assertEquals("Text", ClipLabels.of(title("  \n ")))
+        assertEquals("Text", label(title("")))
+        assertEquals("Text", label(title("  \n ")))
     }
 
     @Test
     fun `a sticker shows its name and an unknown sticker a generic one`() {
-        assertEquals("Heart", ClipLabels.of(sticker("shape:heart")))
-        assertEquals("Fire", ClipLabels.of(sticker("emoji:🔥")))
-        assertEquals("Sticker", ClipLabels.of(sticker("shape:nope")))
-        assertEquals("Sticker", ClipLabels.of(sticker(null)))
+        assertEquals("Heart", label(sticker("shape:heart")))
+        assertEquals("Fire", label(sticker("emoji:🔥")))
+        assertEquals("Sticker", label(sticker("shape:nope")))
+        assertEquals("Sticker", label(sticker(null)))
     }
 
     @Test
     fun `a media clip shows the name of its file without the extension`() {
         val media = Clip("m", "a", FrameIndex(0), FrameIndex(0), FrameIndex(30))
-        assertEquals("Holiday clip", ClipLabels.of(media, "Holiday clip.mp4"))
-        assertEquals("v.2024.final", ClipLabels.of(media, "v.2024.final.mov"))
-        assertEquals("no extension", ClipLabels.of(media, "no extension"))
-        assertEquals("a.very-long-extension", ClipLabels.of(media, "a.very-long-extension"))
-        assertNull(ClipLabels.of(media, null))
-        assertNull(ClipLabels.of(media, "  "))
-        assertNull(ClipLabels.of(media)) // no name known: only the picture or the waveform
+        assertEquals("Holiday clip", label(media, "Holiday clip.mp4"))
+        assertEquals("v.2024.final", label(media, "v.2024.final.mov"))
+        assertEquals("no extension", label(media, "no extension"))
+        assertEquals("a.very-long-extension", label(media, "a.very-long-extension"))
+        assertNull(label(media, null))
+        assertNull(label(media, "  "))
+        assertNull(label(media)) // no name known: only the picture or the waveform
     }
 
     @Test
     fun `a photo shows its name too`() {
         val photo = Clip("p", "a", FrameIndex(0), FrameIndex(0), FrameIndex(30), still = StillKind.PHOTO)
-        assertEquals("Beach", ClipLabels.of(photo, "Beach.jpg"))
-        assertNull(ClipLabels.of(photo))
+        assertEquals("Beach", label(photo, "Beach.jpg"))
+        assertNull(label(photo))
     }
 }

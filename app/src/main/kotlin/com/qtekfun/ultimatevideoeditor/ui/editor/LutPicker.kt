@@ -105,12 +105,12 @@ class LutLibraryViewModel(
      * Bakes the built-in filter [id] into the library (a no-op when it is already there) and hands over its entry,
      * so it behaves like any imported LUT from then on. Nothing is downloaded: the cube is generated here.
      */
-    fun installFilter(id: String, onInstalled: (LutInfo) -> Unit) {
+    fun installFilter(id: String, name: String, onInstalled: (LutInfo) -> Unit) {
         val look = FilterPack.find(id) ?: return
         _state.update { it.copy(importing = true, error = null) }
         viewModelScope.launch {
             try {
-                val info = withContext(io) { store.import(look.name, FilterPack.cube(look)) }
+                val info = withContext(io) { store.import(name, FilterPack.cube(look)) }
                 _state.update { it.copy(importing = false, luts = withContextList(info, it.luts)) }
                 onInstalled(info)
             } catch (e: IOException) {
@@ -136,7 +136,7 @@ internal fun LutPickerDialog(
     onImport: (String) -> Unit,
     onDismiss: () -> Unit,
     filters: List<FilterLook> = FilterPack.looks,
-    onPickFilter: (String) -> Unit = {},
+    onPickFilter: (id: String, name: String) -> Unit = { _, _ -> },
 ) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onImport(uri.toString())
@@ -150,17 +150,18 @@ internal fun LutPickerDialog(
                     if (filters.isNotEmpty()) {
                         item(key = "filters-header") { Text(stringResource(R.string.ed_2b_filters), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp)) }
                         items(filters, key = { "filter-${it.id}" }) { look ->
+                            val lookName = stringResource(look.nameRes)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = !state.importing) { onPickFilter(look.id) }
+                                    .clickable(enabled = !state.importing) { onPickFilter(look.id, lookName) }
                                     .padding(vertical = 6.dp),
                             ) {
                                 FilterSwatch(look)
                                 Column(modifier = Modifier.padding(start = 12.dp)) {
-                                    Text(look.name, style = MaterialTheme.typography.bodyLarge)
-                                    Text(look.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(lookName, style = MaterialTheme.typography.bodyLarge)
+                                    Text(stringResource(look.descriptionRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }

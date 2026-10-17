@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.engine.stabilise
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Clip
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
@@ -25,7 +27,7 @@ sealed interface StabOutcome {
 
     data object Cancelled : StabOutcome
 
-    data class Failed(val message: String) : StabOutcome
+    data class Failed(val message: UiText) : StabOutcome
 }
 
 /**
@@ -61,7 +63,7 @@ object NoStabiliser : Stabiliser {
     override fun statusOf(asset: MediaAssetDto, clip: Clip, fps: FrameRate): StabStatus = StabStatus.Off
 
     override suspend fun analyse(asset: MediaAssetDto, clip: Clip, fps: FrameRate, onProgress: (Float) -> Unit): StabOutcome =
-        StabOutcome.Failed("Stabilisation is not available here")
+        StabOutcome.Failed(UiText.res(R.string.st_unavailable))
 
     override fun cancel() = Unit
 

@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.labelRes
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
@@ -351,7 +353,7 @@ fun EditorScreen(
             state = lutState,
             onPick = { viewModel.onIntent(EditorIntent.AddLut(it)) },
             onImport = { uri -> lutLibrary.import(uri) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
-            onPickFilter = { id -> lutLibrary.installFilter(id) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
+            onPickFilter = { id, name -> lutLibrary.installFilter(id, name) { viewModel.onIntent(EditorIntent.AddLut(it.key)) } },
             onDismiss = {
                 lutLibrary.clearError()
                 viewModel.onIntent(EditorIntent.CloseLutPicker)
@@ -666,9 +668,9 @@ fun EditorScreen(
     StateEffect(holder, { listOf(it.visibleTimeline, it.selectedClipId, it.selectedClipIds, it.missingMedia, it.fps, it.isLoading) }) { s ->
         if (s.isLoading) return@StateEffect
         try {
-            engine.setSnapshot(viewModel.snapshotOf(s))
+            engine.setSnapshot(viewModel.snapshotOf(s) { it.resolve(context) })
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
+            viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // The indicator of what releasing a dragged clip would do. After the snapshot effect, so the lane
@@ -686,7 +688,7 @@ fun EditorScreen(
         try {
             engine.setDropHint(indicator, lane, hint?.startFrame ?: 0L, hint?.endFrame ?: 0L)
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
+            viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // The clips being dragged or trimmed (lifted with a shadow) and the snap line. After the snapshot effect so the keys
@@ -696,7 +698,7 @@ fun EditorScreen(
         try {
             engine.setDragOverlay(overlay?.guideFrame, overlay?.let { viewModel.dragOverlayKeys(it) } ?: LongArray(0))
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
+            viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // The lane being dragged by its header and where it would land. After the snapshot effect, like the drop hint,
@@ -706,7 +708,7 @@ fun EditorScreen(
         try {
             engine.setLaneDrag(drag?.fromIndex ?: -1, drag?.toIndex ?: -1)
         } catch (e: EngineException) {
-            viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_timeline_not_drawn))))
+            viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_timeline_not_drawn))))
         }
     }
     // Follow the whole project's length until the user zooms by hand. Keyed on the committed
@@ -792,7 +794,7 @@ fun EditorScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(text = state.loadError.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                Text(text = state.loadError.asString(), style = MaterialTheme.typography.bodyLarge)
                 TextButton(onClick = onClose) { Text(stringResource(R.string.common_back)) }
             }
 
@@ -1512,13 +1514,13 @@ private suspend fun requestWaveform(
             descriptor.detachFd() to cache
         }
     } catch (e: MediaImportException) {
-        viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_media_unreadable, displayName(asset)))))
+        viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_media_unreadable, displayName(asset)))))
         return
     }
     try {
         engine.requestWaveform(viewModel.assetKey(asset.id), prepared.first, prepared.second)
     } catch (e: EngineException) {
-        viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_waveform_failed))))
+        viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_waveform_failed))))
     }
 }
 
@@ -1542,7 +1544,7 @@ private suspend fun requestThumbnails(
     try {
         engine.requestThumbnails(viewModel.assetKey(asset.id), prepared.first, prepared.second)
     } catch (e: EngineException) {
-        viewModel.onIntent(EditorIntent.ReportText(rawOr(e.message, UiText.res(R.string.ed_2a_thumbnail_failed))))
+        viewModel.onIntent(EditorIntent.ReportText(reasonOf(e, UiText.res(R.string.ed_2a_thumbnail_failed))))
     }
 }
 

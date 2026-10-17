@@ -1,5 +1,8 @@
 package com.qtekfun.ultimatevideoeditor.data.interchange
 
+import com.qtekfun.ultimatevideoeditor.ui.text.UserFacing
+import com.qtekfun.ultimatevideoeditor.ui.text.UiText
+import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.ClipAudioDto
 import com.qtekfun.ultimatevideoeditor.data.model.ClipDto
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
@@ -23,11 +26,11 @@ import java.math.BigInteger
 import kotlin.math.abs
 import kotlin.math.log10
 
-/** Why a LumaFusion project could not be read. [message] is meant for the user. */
-sealed class LumaFusionError(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    class NotLumaFusion(detail: String) : LumaFusionError("This is not a LumaFusion project ($detail)")
-    class Malformed(detail: String, cause: Throwable? = null) : LumaFusionError("The LumaFusion project is damaged: $detail", cause)
-    class Unsupported(detail: String) : LumaFusionError("This LumaFusion project cannot be imported: $detail")
+/** Why a LumaFusion project could not be read. The message is English, for logs; [userText] is for the person. */
+sealed class LumaFusionError(message: String, override val userText: UiText, cause: Throwable? = null) : Exception(message, cause), UserFacing {
+    class NotLumaFusion(detail: UiText) : LumaFusionError("not a LumaFusion project", UiText.res(R.string.lf_not_lf, detail))
+    class Malformed(detail: UiText, cause: Throwable? = null) : LumaFusionError("LumaFusion project damaged", UiText.res(R.string.lf_damaged, detail), cause)
+    class Unsupported(detail: UiText) : LumaFusionError("LumaFusion project unsupported", UiText.res(R.string.lf_unsupported, detail))
 }
 
 /** A CMTime of the archive: [value] / [timescale] seconds. */
@@ -129,7 +132,7 @@ data class LfProject(
 )
 
 /** What an import did, as lines for a person: what came across and what did not. */
-data class LumaFusionReport(val imported: List<String>, val notImported: List<String>) {
+data class LumaFusionReport(val imported: List<UiText>, val notImported: List<UiText>) {
     val isClean: Boolean get() = notImported.isEmpty()
 
     companion object {
@@ -170,9 +173,9 @@ object LumaFusionImport {
         val root = try {
             json.parseToJsonElement(text)
         } catch (e: IllegalArgumentException) {
-            throw LumaFusionError.Malformed("it is not valid JSON", e)
+            throw LumaFusionError.Malformed(UiText.res(R.string.lf_d_json), e)
         }
-        if (!looksLikeArchive(root)) throw LumaFusionError.NotLumaFusion("it has no tracks or no app version")
+        if (!looksLikeArchive(root)) throw LumaFusionError.NotLumaFusion(UiText.res(R.string.lf_d_no_tracks))
         val obj = root as JsonObject
         val attrs = obj["attributes"] as? JsonObject
         val size = (obj["resolution"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.doubleOrNull?.toInt() }.orEmpty()
@@ -439,23 +442,39 @@ object LumaFusionImport {
         return rounded.toLong()
     }
 
-    private class Note(val message: String) {
-        val where = ArrayList<String>()
+    private class Note(val message: UiText) {
+        val where = ArrayList<UiText>()
     }
 
     private class Notes {
-        private val map = LinkedHashMap<String, Note>()
+        private val map = LinkedHashMap<UiText, Note>()
 
-        fun add(category: String, where: String) {
+        fun add(category: UiText, where: UiText) {
             map.getOrPut(category) { Note(category) }.where += where
         }
 
-        fun lines(): List<String> = map.values.map { n ->
-            val sample = n.where.take(3).joinToString(", ")
-            val more = if (n.where.size > 3) " and ${n.where.size - 3} more" else ""
-            "${n.message}: ${n.where.size} ($sample$more)"
+        fun lines(): List<UiText> = map.values.map { n ->
+            val sample = UiText.join(", ", n.where.take(3))
+            if (n.where.size > 3) UiText.res(R.string.lf_note_more, n.message, n.where.size, sample, n.where.size - 3)
+            else UiText.res(R.string.lf_note_plain, n.message, n.where.size, sample)
         }
     }
+
+    private val whereProject: UiText = UiText.res(R.string.lf_w_project)
+
+    /** The LumaFusion property names collected while reading, worded for the person (the keys in code stay English). */
+    private fun props(names: List<String>): UiText = UiText.join(", ", names.map { name -> propLabels[name]?.let { UiText.res(it) } ?: UiText.Raw(name) })
+
+    private val propLabels: Map<String, Int> = mapOf(
+        "scale" to R.string.lf_p_scale, "position" to R.string.lf_p_position, "rotation" to R.string.lf_p_rotation,
+        "anchor point" to R.string.lf_p_anchor, "crop" to R.string.lf_p_crop, "horizontal flip" to R.string.lf_p_hflip,
+        "vertical flip" to R.string.lf_p_vflip, "blend mode" to R.string.lf_p_blend, "fit mode" to R.string.lf_p_fit,
+        "crop corner" to R.string.lf_p_corner, "crop softness" to R.string.lf_p_softness, "inverted crop" to R.string.lf_p_inverted,
+        "transform rotation" to R.string.lf_p_transform_rotation, "orientation" to R.string.lf_p_orientation,
+        "ducking" to R.string.lf_p_ducking, "fill" to R.string.lf_p_fill, "opacity" to R.string.lf_p_opacity,
+        "volume" to R.string.lf_p_volume, "pan" to R.string.lf_p_pan, "speed" to R.string.lf_p_speed,
+        "scale or position offset" to R.string.lf_p_offset, "shadow" to R.string.lf_p_shadow, "unnamed" to R.string.lf_p_unnamed,
+    )
 
     /**
      * Converts [lf] into a project. [available] holds the lower-case file names of footage that came along (empty for an
@@ -465,15 +484,15 @@ object LumaFusionImport {
         val notes = Notes()
         val cautions = Notes()
         val silenced = Notes()
-        val imported = ArrayList<String>()
+        val imported = ArrayList<UiText>()
         var (fpsNum, fpsDen) = frameRate(lf.step) ?: (0 to 0)
         if (fpsNum == 0) {
             fpsNum = 30
             fpsDen = 1
-            notes.add("Frame rate not found, 30 fps used", "project")
+            notes.add(UiText.res(R.string.lf_n_no_rate), whereProject)
         }
         if (lf.width < 16 || lf.height < 16 || lf.width > 16384 || lf.height > 16384) {
-            throw LumaFusionError.Malformed("the picture size ${lf.width} x ${lf.height} is not usable")
+            throw LumaFusionError.Malformed(UiText.res(R.string.lf_d_size, lf.width, lf.height))
         }
         val width = lf.width and 1.inv()
         val height = lf.height and 1.inv()
@@ -497,7 +516,7 @@ object LumaFusionImport {
         val anchor = videoTracks.firstOrNull { it.isAnchor } ?: videoTracks.firstOrNull { it.offset == 0 } ?: videoTracks.minByOrNull { it.offset }
         val overlays = videoTracks.filter { it !== anchor }.sortedByDescending { it.offset }
         val audioTracks = lf.tracks.filter { it.isAudio }.sortedByDescending { it.offset }
-        for (t in lf.tracks) if (!t.isVideo && !t.isAudio && t.clips.isNotEmpty()) notes.add("Track of an unknown kind (clips left out)", "${t.clips.size} clips")
+        for (t in lf.tracks) if (!t.isVideo && !t.isAudio && t.clips.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_unknown_track), UiText.plural(R.plurals.lf_w_clips, t.clips.size))
 
         class Placed(val clip: LfClip, val start: Long, var end: Long, val sourceIn: Long, val kind: Kind)
 
@@ -505,26 +524,26 @@ object LumaFusionImport {
             val placed = ArrayList<Placed>()
             for (c in track.clips.sortedBy { it.trackStart?.let { t -> t.value.toDouble() / t.timescale } ?: 0.0 }) {
                 val at = c.trackStart?.let { clock(toFrames(fpsNum, fpsDen, it)) } ?: "?"
-                val where = "$label at $at"
+                val where = UiText.res(R.string.lf_w_at, label, at)
                 val kind = when {
-                    c.assetIsBlank -> { notes.add("Blank or generated clips, left out", where); skipped++; continue }
-                    audioLane -> if (c.assetType == 0 && c.hasAudio) Kind.AUDIO else { notes.add("Clips without sound on an audio track, left out", where); skipped++; continue }
+                    c.assetIsBlank -> { notes.add(UiText.res(R.string.lf_n_blank), where); skipped++; continue }
+                    audioLane -> if (c.assetType == 0 && c.hasAudio) Kind.AUDIO else { notes.add(UiText.res(R.string.lf_n_no_sound), where); skipped++; continue }
                     c.assetType == 0 && c.hasVideo -> Kind.VIDEO
-                    c.assetType == 0 -> { notes.add("Clips without a picture on a video track, left out", where); skipped++; continue }
+                    c.assetType == 0 -> { notes.add(UiText.res(R.string.lf_n_no_picture), where); skipped++; continue }
                     c.assetType == 2 -> Kind.PHOTO
                     c.assetType == 4 && c.runtimeTitle != null && c.runtimeTitle.layers.isNotEmpty() && c.runtimeTitle.frameWidth > 0 && c.runtimeTitle.frameHeight > 0 -> Kind.TITLE
-                    c.assetType == 4 -> { notes.add("Titles without readable text or shape layers, left out", where); skipped++; continue }
-                    else -> { notes.add("Clips of a kind this app does not have (LumaFusion asset type ${c.assetType}), left out", where); skipped++; continue }
+                    c.assetType == 4 -> { notes.add(UiText.res(R.string.lf_n_empty_title), where); skipped++; continue }
+                    else -> { notes.add(UiText.res(R.string.lf_n_asset_type, c.assetType), where); skipped++; continue }
                 }
-                if (c.trackStart == null || c.trackDuration == null || c.sourceStart == null) { notes.add("Clips with missing times, left out", where); skipped++; continue }
+                if (c.trackStart == null || c.trackDuration == null || c.sourceStart == null) { notes.add(UiText.res(R.string.lf_n_no_times), where); skipped++; continue }
                 val start = toFrames(fpsNum, fpsDen, c.trackStart)
                 val end = toFrames(fpsNum, fpsDen, c.trackStart, c.trackDuration)
                 // A photo's or title's own source time is not a position in a file: it always starts at 0.
                 val sourceIn = if (kind == Kind.VIDEO || kind == Kind.AUDIO) toFrames(fpsNum, fpsDen, c.sourceStart) else 0L
-                if (start < 0 || sourceIn < 0 || end <= start) { notes.add("Clips too short or starting before zero, left out", where); skipped++; continue }
+                if (start < 0 || sourceIn < 0 || end <= start) { notes.add(UiText.res(R.string.lf_n_too_short), where); skipped++; continue }
                 val prev = placed.lastOrNull()
                 if (prev != null && start < prev.end) {
-                    if (start > prev.start) prev.end = start else { notes.add("Overlapping clips, left out", where); skipped++; continue }
+                    if (start > prev.start) prev.end = start else { notes.add(UiText.res(R.string.lf_n_overlap), where); skipped++; continue }
                 }
                 placed += Placed(c, start, end, sourceIn, kind)
             }
@@ -532,7 +551,7 @@ object LumaFusionImport {
         }
 
         /** Opacity, 180 degree rotation and a horizontal split-screen style placement; what is left over is reported. */
-        fun transformOf(c: LfClip, where: String): TransformDto {
+        fun transformOf(c: LfClip, where: UiText): TransformDto {
             val left = c.videoChanges.toMutableList()
 
             var scale = listOf(1.0, 1.0)
@@ -544,16 +563,16 @@ object LumaFusionImport {
                 // told apart from it, so no rotation is imported.
                 left -= "rotation"
                 left -= "orientation"
-                cautions.add("Clips with a rotation value (the app applies the file's own orientation; a turn added in LumaFusion is not imported)", where)
+                cautions.add(UiText.res(R.string.lf_c_rotation), where)
             }
             if (("scale" in left || "position" in left) && abs(c.translation[1]) < EPS && c.scale.all { it > 0.0 && it <= MAX_SCALE } && c.translation[0].let { abs(it) <= MAX_OFFSET_UNITS }) {
                 scale = c.scale
                 position = listOf(c.translation[0] * width / 2.0, 0.0)
                 left -= "scale"
                 left -= "position"
-                cautions.add("Clips whose size and position were converted with unit conventions inferred from sample files, not confirmed (check split screens)", where)
+                cautions.add(UiText.res(R.string.lf_c_units), where)
             }
-            if (left.isNotEmpty()) notes.add("Picture settings: ${left.joinToString()} (left at default)", where)
+            if (left.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_picture, props(left)), where)
             return TransformDto(
                 scale = scale,
                 rotation = 0.0,
@@ -562,24 +581,24 @@ object LumaFusionImport {
             )
         }
 
-        fun reportCommon(c: LfClip, where: String) {
-            if (c.reversed) notes.add("Reversed clips (play forwards)", where)
-            if (abs(c.speed - 1.0) > EPS) notes.add("Speed changes (play at normal speed, same place on the timeline)", where)
-            if (c.transitionType != 0) notes.add("Transitions (hard cut instead)", where)
-            if (c.effectNames.isNotEmpty()) notes.add("Effects (not applied)", "$where: ${c.effectNames.joinToString()}")
-            else if (c.effectCount > 0) notes.add("Effects (not applied)", where)
-            if (c.audioChanges.isNotEmpty()) notes.add("Audio ${c.audioChanges.joinToString()} (not applied)", where)
-            if (c.keyframed.isNotEmpty()) notes.add("Animated (keyframed) values: ${c.keyframed.joinToString()} (constant value used)", where)
+        fun reportCommon(c: LfClip, where: UiText) {
+            if (c.reversed) notes.add(UiText.res(R.string.lf_n_reversed), where)
+            if (abs(c.speed - 1.0) > EPS) notes.add(UiText.res(R.string.lf_n_speed), where)
+            if (c.transitionType != 0) notes.add(UiText.res(R.string.lf_n_transitions), where)
+            if (c.effectNames.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_effects), UiText.res(R.string.lf_w_detail, where, props(c.effectNames)))
+            else if (c.effectCount > 0) notes.add(UiText.res(R.string.lf_n_effects), where)
+            if (c.audioChanges.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_audio, props(c.audioChanges)), where)
+            if (c.keyframed.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_keyframed, props(c.keyframed)), where)
         }
 
-        fun titleOf(c: LfClip, where: String): TitleDto {
+        fun titleOf(c: LfClip, where: UiText): TitleDto {
             val t = checkNotNull(c.runtimeTitle)
             val layers = t.layers.map { l ->
                 val offsetX = ((l.x + l.w / 2.0) - t.frameWidth / 2.0) / t.frameWidth
                 val offsetY = ((l.y + l.h / 2.0) - t.frameHeight / 2.0) / t.frameHeight
-                if (l.extras.isNotEmpty()) notes.add("Title layer details (${l.extras.joinToString()}) not imported", where)
+                if (l.extras.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_layer_details, props(l.extras)), where)
                 if (l.isText) {
-                    if (l.fontName.isNotEmpty()) notes.add("Title fonts (default font used)", "$where: ${l.fontName}")
+                    if (l.fontName.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_fonts), UiText.res(R.string.lf_w_detail, where, l.fontName))
                     TitleLayerDto(
                         type = "text",
                         text = l.text,
@@ -605,8 +624,8 @@ object LumaFusionImport {
                     )
                 }
             }
-            if (t.unsupportedLayers > 0) notes.add("Title layers that are not text or plain shapes (pictures, other shapes)", where)
-            if (c.videoChanges.isNotEmpty()) notes.add("Title placement settings: ${c.videoChanges.joinToString()} (left at default)", where)
+            if (t.unsupportedLayers > 0) notes.add(UiText.res(R.string.lf_n_layers), where)
+            if (c.videoChanges.isNotEmpty()) notes.add(UiText.res(R.string.lf_n_placement, props(c.videoChanges)), where)
             titles++
             return TitleDto(text = layers.firstOrNull { it.type == "text" }?.text.orEmpty(), layers = layers)
         }
@@ -620,7 +639,7 @@ object LumaFusionImport {
                 val c = p.clip
                 clipCounter++
                 kept++
-                val where = "$label at ${clock(p.start)}"
+                val where = UiText.res(R.string.lf_w_at, label, clock(p.start))
                 reportCommon(c, where)
                 if (p.kind == Kind.TITLE) {
                     return ClipDto(id = "clip-$clipCounter", timelineStartFrame = p.start, sourceInFrame = 0, sourceOutFrame = p.end - p.start, title = titleOf(c, where))
@@ -632,7 +651,7 @@ object LumaFusionImport {
                 val gain = if (p.kind == Kind.PHOTO || !c.hasAudio) 0.0 else dbOf(c.volume)
                 val pan = if (p.kind == Kind.PHOTO || !c.hasAudio) 0.0 else c.pan.coerceIn(-1.0, 1.0)
                 // A clip that is silent here only because LumaFusion had it at volume 0 (its own or its track's) is listed, so it is not mistaken for lost audio.
-                if (p.kind != Kind.PHOTO && c.hasAudio && (c.volume <= 0.0 || track.volume <= 0.0)) silenced.add("Clips silent because their LumaFusion volume was 0", where)
+                if (p.kind != Kind.PHOTO && c.hasAudio && (c.volume <= 0.0 || track.volume <= 0.0)) silenced.add(UiText.res(R.string.lf_n_silenced), where)
                 return ClipDto(
                     id = "clip-$clipCounter",
                     assetId = assetId,
@@ -648,8 +667,8 @@ object LumaFusionImport {
             val mediaClips = placed.filter { it.kind != Kind.TITLE }.map(::clipOf)
             val titleClips = placed.filter { it.kind == Kind.TITLE }.map(::clipOf)
             if (titleClips.isNotEmpty()) titleTracks += TrackDto(id = "track-t${titleTracks.size + 1}", type = "title", order = 0, clips = titleClips)
-            if (track.hidden) notes.add("Hidden tracks (shown)", label)
-            if (track.locked) notes.add("Locked tracks (unlocked)", label)
+            if (track.hidden) notes.add(UiText.res(R.string.lf_n_hidden), UiText.Raw(label))
+            if (track.locked) notes.add(UiText.res(R.string.lf_n_locked), UiText.Raw(label))
             val volume = if (abs(track.volume - 1.0) > EPS) TrackAudioDto(volumeDb = dbOf(track.volume).coerceIn(-96.0, 24.0)) else null
             return TrackDto(id = id, type = type, order = 0, clips = mediaClips, audio = volume)
         }
@@ -686,30 +705,36 @@ object LumaFusionImport {
             )
         }
 
-        if (lf.colorspace > 1 || lf.colorspace < 0) notes.add("Colour space ${lf.colorspace} (Rec. 709 used; change it in the canvas settings)", "project")
-        if (lf.colorspace == 1) cautions.add("Project colour space 1 imported as HDR Rec.2020 HLG (inferred); switch it to SDR or back in the canvas settings of the editor", "project")
-        if (abs(lf.primaryVolume - 1.0) > EPS) notes.add("Project master volume (not applied)", "project")
-        if (!lf.backgroundBlack) notes.add("Background colour (black used)", "project")
-        if (lf.markerCount > 0) notes.add("Markers", "${lf.markerCount} markers")
-        if (lf.hasNotes) notes.add("Project notes", "project")
-        if (lf.needsCloudMedia) notes.add("Media stored in the cloud (not part of the file)", "project")
+        if (lf.colorspace > 1 || lf.colorspace < 0) notes.add(UiText.res(R.string.lf_n_colourspace, lf.colorspace), whereProject)
+        if (lf.colorspace == 1) cautions.add(UiText.res(R.string.lf_c_hdr), whereProject)
+        if (abs(lf.primaryVolume - 1.0) > EPS) notes.add(UiText.res(R.string.lf_n_master), whereProject)
+        if (!lf.backgroundBlack) notes.add(UiText.res(R.string.lf_n_background), whereProject)
+        if (lf.markerCount > 0) notes.add(UiText.res(R.string.lf_n_markers), UiText.plural(R.plurals.lf_w_markers, lf.markerCount))
+        if (lf.hasNotes) notes.add(UiText.res(R.string.lf_n_notes), whereProject)
+        if (lf.needsCloudMedia) notes.add(UiText.res(R.string.lf_n_cloud), whereProject)
 
         val inPackage = assetNames.keys.count { it.lowercase() in available }
-        val clipsWord = if (kept == 1) "1 clip" else "$kept clips"
-        imported += "$clipsWord on ${trackDtos.count { it.type == "video" }} video and ${trackDtos.count { it.type == "audio" }} audio tracks, ${width} x $height at ${rate(fpsNum, fpsDen)} fps"
+        imported += UiText.res(
+            R.string.lf_imported_summary,
+            UiText.plural(R.plurals.lf_clips, kept),
+            UiText.plural(R.plurals.lf_video_tracks, trackDtos.count { it.type == "video" }),
+            UiText.plural(R.plurals.lf_audio_tracks, trackDtos.count { it.type == "audio" }),
+            width, height, rate(fpsNum, fpsDen),
+        )
         if (assets.isNotEmpty()) {
-            imported += if (available.isEmpty()) "${assets.size} media files are not included: link them in the editor (Relink)"
-            else "$inPackage of ${assets.size} media files came with the package" + if (inPackage < assets.size) "; link the rest in the editor (Relink)" else ""
+            imported += if (available.isEmpty()) UiText.plural(R.plurals.lf_media_none, assets.size)
+            else if (inPackage < assets.size) UiText.plural(R.plurals.lf_media_some_rest, assets.size, inPackage, assets.size)
+            else UiText.plural(R.plurals.lf_media_all, assets.size, inPackage, assets.size)
         }
         val project = ProjectDto(
             id = "lumafusion-import",
-            name = lf.title.ifEmpty { "LumaFusion project" }.take(80),
+            name = lf.title.ifEmpty { "LumaFusion project" }.take(80), // i18n-ok: a stored project name
             settings = ProjectSettingsDto(width, height, fpsNum, fpsDen, space),
             mediaLibrary = assets,
             tracks = trackDtos,
         )
         imported += silenced.lines()
-        imported += cautions.lines().map { "Caution: $it" }
+        imported += cautions.lines().map { UiText.res(R.string.lf_caution, it) }
         return LumaFusionConversion(project, assetNames, LumaFusionReport(imported, notes.lines()))
     }
 

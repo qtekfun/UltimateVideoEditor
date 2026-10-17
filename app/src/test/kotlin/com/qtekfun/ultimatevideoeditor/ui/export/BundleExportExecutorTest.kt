@@ -231,7 +231,7 @@ class BundleExportExecutorTest {
         lateinit var executor: BundleExportExecutor
         verifier = BundleVerifier { _, _, _ ->
             states += executor.state.value
-            BundleVerification.Warning(listOf("Its table of contents cannot be read"))
+            BundleVerification.Warning(listOf(UiText.Raw("Its table of contents cannot be read")))
         }
         executor = executor()
 
