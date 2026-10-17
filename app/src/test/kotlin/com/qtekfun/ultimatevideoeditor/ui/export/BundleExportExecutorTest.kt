@@ -64,7 +64,7 @@ class BundleExportExecutorTest {
         val start = executor.start(
             job { observer ->
                 observer.onStart(1000, 2)
-                observer.onItem(BundleItemKind.MEDIA, "IMG_0014.mov", 1)
+                observer.onItem(BundleItemKind.MEDIA, "clip_a.mov", 1)
                 now += 300
                 observer.onBytes(400)
                 during += executor.state.value
@@ -78,7 +78,7 @@ class BundleExportExecutorTest {
         assertEquals(1, started)
         val running = during.single() as BundleJobState.Running
         assertEquals(40, running.progress.percent)
-        assertEquals("IMG_0014.mov", running.progress.itemName)
+        assertEquals("clip_a.mov", running.progress.itemName)
         val done = executor.state.value as BundleJobState.Done
         assertEquals("Holiday.uvbundle", done.fileName)
         assertEquals(252_300L, done.tookMs)

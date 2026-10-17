@@ -14,7 +14,7 @@
 #   --no-ui       skip the uiautomator flows (and the real-touch drag check)
 #
 # Environment: QA_PKG (default com.qtekfun.ultimatevideoeditor.qa; must carry a suffix: the unsuffixed app holds the user's project and
-# is refused), QA_DATA (default /home/qtekfun/uvdata/qa-smoke; large files never go to /tmp, which is RAM), QA_LOCK (default
+# is refused), QA_DATA (default ~/uvdata/qa-smoke; large files never go to /tmp, which is RAM), QA_LOCK (default
 # /tmp/pixel-device.lock, /tmp/tablet-device.lock on a Huawei).
 #
 # Exit codes: 0 every check passed (SKIP is not a failure), 1 a check failed, 2 usage or a safety refusal, 3 the device is busy
@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
 done
 
 pkg="${QA_PKG:-com.qtekfun.ultimatevideoeditor.qa}"
-data="${QA_DATA:-/home/qtekfun/uvdata/qa-smoke}"
+data="${QA_DATA:-$HOME/uvdata/qa-smoke}"
 media="$data/media"
 mkdir -p "$data" "$media"
 # The app's own external files directory, created by the app (a directory made by `adb shell` is not writable by the app).

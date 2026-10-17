@@ -18,7 +18,7 @@ class MediaAccessTest {
 
     /** The exceptions a provider, its process or its volume can throw, with the problem each must become. */
     private val gone: List<Pair<Exception, MediaProblem>> = listOf(
-        IllegalArgumentException("Failed to determine if 4450-56F6:Movies/VID.mp4 is child of 4450-56F6:: java.io.FileNotFoundException: Missing root for 4450-56F6") to MediaProblem.UNREADABLE,
+        IllegalArgumentException("Failed to determine if ABCD-1234:Movies/VID.mp4 is child of ABCD-1234:: java.io.FileNotFoundException: Missing root for ABCD-1234") to MediaProblem.UNREADABLE,
         IllegalArgumentException("Unknown URI content://x/y") to MediaProblem.UNREADABLE,
         FileNotFoundException("No content provider: content://x/y") to MediaProblem.UNREADABLE,
         IOException("EIO (I/O error)") to MediaProblem.UNREADABLE,

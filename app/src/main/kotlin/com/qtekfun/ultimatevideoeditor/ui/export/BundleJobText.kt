@@ -63,7 +63,7 @@ object BundleJobText {
     /** "42 MB/s". */
     fun rate(bytesPerSecond: Double): String = bytes(bytesPerSecond.toLong()) + "/s"
 
-    /** What is being written right now: "Packing media 3 of 12: IMG_0014.mov". */
+    /** What is being written right now: "Packing media 3 of 12: clip_a.mov". */
     fun step(progress: BundleProgress): UiText = when (progress.kind) {
         BundleItemKind.MEDIA -> UiText.res(R.string.bundle_step_media, progress.mediaIndex, progress.mediaCount, progress.itemName)
         BundleItemKind.RESOURCE -> UiText.res(R.string.bundle_step_resource, progress.itemName)

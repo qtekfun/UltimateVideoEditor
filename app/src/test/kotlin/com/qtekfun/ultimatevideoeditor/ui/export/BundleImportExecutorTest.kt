@@ -97,7 +97,7 @@ class BundleImportExecutorTest {
         executor.start(
             job { observer ->
                 observer.onStart(7_945_689_497, 14)
-                observer.onItem(BundleItemKind.MEDIA, "IMG_0014.mov", 3)
+                observer.onItem(BundleItemKind.MEDIA, "clip_a.mov", 3)
                 delay(1_000)
                 observer.onBytes(1_800_000_000)
                 delay(251_000)
@@ -109,7 +109,7 @@ class BundleImportExecutorTest {
         testScope.advanceTimeBy(2_000)
         testScope.runCurrent()
         val view = importViewFor(executor.state.value)!!
-        assertEquals("Importing project: file 3 of 14: IMG_0014.mov", view.step.english())
+        assertEquals("Importing project: file 3 of 14: clip_a.mov", view.step.english())
         assertEquals("Importing Holiday.uvbundle", view.title.english())
         assertTrue(view.progressLine.english(), view.progressLine.english().startsWith("1.7 of 7.4 GB"))
 

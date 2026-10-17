@@ -1,9 +1,9 @@
 """Shared helpers for the subtitle-sync experiments (host only, numpy + onnxruntime).
-Data lives outside the repo: UVDATA (default /home/qtekfun/uvdata/research/sync)."""
+Data lives outside the repo: UVDATA (default ~/uvdata/research/sync)."""
 import json, os, re, unicodedata, wave
 import numpy as np
 
-UVDATA = os.environ.get("UVDATA", "/home/qtekfun/uvdata/research/sync")
+UVDATA = os.environ.get("UVDATA", os.path.expanduser("~/uvdata/research/sync"))
 SR = 16000
 
 

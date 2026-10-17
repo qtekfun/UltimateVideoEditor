@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Generates synthetic (espeak-ng) speech test files, offline, under $OUT (default /home/qtekfun/uvdata/research/audio).
+# Generates synthetic (espeak-ng) speech test files, offline, under $OUT (default ~/uvdata/research/audio).
 # Needs espeak-ng and ffmpeg. No owner media is used. The JFK sample (public domain) comes from the whisper.cpp repo.
 set -euo pipefail
-OUT=${OUT:-/home/qtekfun/uvdata/research/audio}
+OUT=${OUT:-$HOME/uvdata/research/audio}
 mkdir -p "$OUT"
 cd "$OUT"
 cat > en.txt <<'EOF'

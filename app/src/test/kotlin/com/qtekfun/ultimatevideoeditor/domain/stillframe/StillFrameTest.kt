@@ -54,7 +54,7 @@ class StillFrameTest {
     @Test
     fun `the project name is cleaned for the gallery`() {
         assertEquals("a_b_00h00m00s00f_20261007-090503.jpg", frameFileName(" a/b ", 0, fps60, at))
-        assertEquals("Review_IPhone_18_Pro_Max_00h00m00s00f_20261007-090503.jpg", frameFileName("Review IPhone 18 Pro Max", 0, fps60, at))
+        assertEquals("Sample_review_00h00m00s00f_20261007-090503.jpg", frameFileName("Sample review", 0, fps60, at))
         assertEquals("a_b_c_d_00h00m00s00f_20261007-090503.jpg", frameFileName("a:b*c?\"d", 0, fps60, at))
         assertEquals("ultimateVE_00h00m00s00f_20261007-090503.jpg", frameFileName("  ", 0, fps60, at))
         assertEquals("ultimateVE_00h00m00s00f_20261007-090503.jpg", frameFileName("...", 0, fps60, at))
