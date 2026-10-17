@@ -272,7 +272,7 @@ class LibraryViewModelTest {
         assertEquals(INTERCHANGE_MIME, picker.mime)
 
         h.vm.onIntent(LibraryIntent.ExportTo(InterchangeKind.EDL, "doc://out"))
-        assertEquals("Writing EDL…", h.state.library.busy)
+        assertEquals("Writing EDL…", h.state.library.busy?.english())
         advanceUntilIdle()
         assertNull(h.state.library.busy)
         val text = h.interchange.documents.getValue("doc://out").toString(Charsets.UTF_8)

@@ -69,5 +69,5 @@ sealed interface CaptionsEffect : UiEffect {
 
     /** Every caption on the timeline should take [style]. */
     data class Restyle(val style: CaptionStyle, val canvasHeight: Int) : CaptionsEffect
-    data class ShowMessage(val text: String) : CaptionsEffect
+    data class ShowMessage(val text: UiText) : CaptionsEffect
 }

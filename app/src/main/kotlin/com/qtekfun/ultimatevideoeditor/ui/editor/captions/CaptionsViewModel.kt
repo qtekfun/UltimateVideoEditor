@@ -125,7 +125,7 @@ class CaptionsViewModel(
                 val clips = current.style.clipsFor(cues, current.canvasHeight, idGenerator)
                 emit(CaptionsEffect.ClipsReady(clips, intoExistingTrack = false))
                 val added = UiText.plural(R.plurals.ed_s3_added_captions, clips.size)
-                val message = if (file.skipped > 0) UiText.join("", added, UiText.plural(R.plurals.ed_s3_skipped_blocks, file.skipped)) else added
+                val message = if (file.skipped > 0) UiText.join(" ", added, UiText.plural(R.plurals.ed_s3_skipped_blocks, file.skipped)) else added
                 emit(CaptionsEffect.ShowMessage(message))
                 reduce { copy(importing = false, isOpen = false, existingCaptions = existingCaptions + clips.size) }
             } catch (e: IOException) {

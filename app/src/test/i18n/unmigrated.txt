@@ -7,29 +7,15 @@
 # Stage 2: editor toolbar, inspector and sheets
 # The editor, file by file (each one leaves this list when its stage migrates it)
 ui/editor/EditorAudio.kt
-ui/editor/EditorLibrary.kt
 ui/editor/EditorPreview.kt
 ui/editor/EditorViewModel.kt
-ui/editor/ScopeScale.kt
-ui/editor/ScopesPanel.kt
-ui/editor/StickerSheet.kt
-ui/editor/captions/CaptionsSheet.kt
-ui/editor/captions/CaptionsViewModel.kt
 ui/editor/guide/ToolbarGuide.kt
 ui/editor/guide/ToolbarGuideScreen.kt
-ui/editor/multicam/MulticamController.kt
 ui/editor/multicam/MulticamSheet.kt
-ui/editor/proxy/ProxySheet.kt
-ui/editor/title/TitleLayerEditor.kt
-ui/editor/title/TitleLibraries.kt
 ui/editor/tray/MediaTray.kt
 ui/editor/tray/TrayDrag.kt
 # Stage 3: tray, library, captions, titles
-ui/library/LibrarySheet.kt
-ui/templates/
-ui/frame/
 # Stage 4: toolbar guide, onboarding, help
-ui/onboarding/
 # Stage 5: error messages from the lower layers (typed errors with a UiText instead of English text)
 data/
 domain/
