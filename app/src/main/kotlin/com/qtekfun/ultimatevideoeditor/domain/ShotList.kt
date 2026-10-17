@@ -30,29 +30,29 @@ object ShotList {
     }
 
     /**
-     * Plain text with a checkbox per flag, one group per colour:
+     * Markdown with a task-list item per flag, one heading per colour (it renders as a checklist in any Markdown app and reads fine as plain text):
      *
      * ```
-     * Title
+     * # Title
      *
-     * Red (2)
-     * [ ] 00:00:12:05 · Lighthouse at sunset: wide shot
-     * [x] 00:01:03:00 · Hands cooking
+     * ## Red (2)
+     * - [ ] 00:00:12:05 · Lighthouse at sunset: wide shot
+     * - [x] 00:01:03:00 · Hands cooking
      * ```
      *
      * [timecode] formats a frame, [groupName] names a colour (null for flags without one); a flag without a name shows its note
-     * alone, and one with neither shows only its time. Empty selection gives just the title.
+     * alone, and one with neither shows only its time. Empty selection gives just the heading.
      */
     fun text(title: String, flags: List<Marker>, timecode: (Long) -> String, groupName: (MarkerColor?) -> String): String = buildString {
-        append(title)
+        append("# ").append(title)
         for (group in grouped(flags)) {
-            append("\n\n").append(groupName(group.color)).append(" (").append(group.flags.size).append(')')
+            append("\n\n## ").append(groupName(group.color)).append(" (").append(group.flags.size).append(')')
             for (flag in group.flags) append('\n').append(line(flag, timecode))
         }
     }
 
     private fun line(flag: Marker, timecode: (Long) -> String): String {
-        val check = if (flag.done) "[x]" else "[ ]"
+        val check = if (flag.done) "- [x]" else "- [ ]"
         val name = flag.name?.oneLine()
         val note = flag.note?.oneLine()
         val label = when {

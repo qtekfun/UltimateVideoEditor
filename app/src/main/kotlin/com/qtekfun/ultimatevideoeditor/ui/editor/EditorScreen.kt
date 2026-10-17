@@ -1213,6 +1213,7 @@ private fun EditorMain(
                         ToolbarItem.FLAG_LIST -> ToolButton(EditorIcons.FlagList, stringResource(R.string.flags_menu_list)) {
                             viewModel.onIntent(MarkerIntent.OpenList); after()
                         }
+                        ToolbarItem.DROP_MODE -> DropModeButton(state.dropMode) { viewModel.onIntent(EditorIntent.CycleDropMode) }
                         ToolbarItem.SELECT_MODE -> SelectModeButton(state, viewModel::onIntent)
                         ToolbarItem.CLOSE_GAP -> ToolButton(EditorIcons.CloseGap, stringResource(R.string.ed_2a_close_gap_before_clip_the), enabled = hasSelection && !state.selectedClipOnBase) {
                             viewModel.onIntent(EditorIntent.RippleAppendSelected); after()

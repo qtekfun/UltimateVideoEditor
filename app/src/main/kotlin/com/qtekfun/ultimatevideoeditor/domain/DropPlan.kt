@@ -115,23 +115,31 @@ object DropPlan {
     }
 
     /**
-     * What dropping a group of overlay clips on the base track would do: near a cut (or the base's start or end) the whole group is
-     * inserted there, in order. Null when the group cannot be inserted (see [GroupOps.canInsertOnBase]) or the aim is not at a cut;
-     * the caller then moves the group as before. [start] is where the group's earliest clip would start.
+     * What dropping a group of overlay clips on the base track would do, like [decide] for one clip: near a cut (or the base's start
+     * or end) the whole group is inserted there, in order; over the body of a clip it overwrites the footage the group covers
+     * (the earliest clip at [start], the others keeping their distances). [DropAim.choice] forces one or the other. Null when the group
+     * cannot be dropped on the base (see [GroupOps.canInsertOnBase]); the caller then moves the group as before.
      */
-    fun decideGroupInsert(timeline: Timeline, clipIds: List<String>, start: FrameIndex, aim: DropAim): DropDecision? {
+    fun decideGroupDrop(timeline: Timeline, clipIds: List<String>, start: FrameIndex, aim: DropAim): DropDecision? {
         if (!GroupOps.canInsertOnBase(timeline, clipIds)) return null
         val base = ClipDeletion.baseTrack(timeline) ?: return null
+        val first = maxOf(start.value, 0L)
         val length = GroupOps.totalLength(timeline, clipIds)
         val at = when {
             base.clips.isEmpty() -> 0L
-            start.value >= base.end.value -> base.end.value
-            else -> junctionFor(base.clips, maxOf(start.value, 0L), length, aim, includeEnds = true)
-        } ?: return null
+            first >= base.end.value -> base.end.value
+            else -> junctionFor(base.clips, first, length, aim, includeEnds = true)
+        }
+        if (at != null) {
+            return DropDecision(DropKind.INSERT, GroupInsertBase(clipIds, FrameIndex(at)), DropHint(DropKind.INSERT, base.id, at, at))
+        }
+        val spans = clipIds.mapNotNull { id -> timeline.trackOfClip(id)?.clip(id) }
+        val earliest = spans.minOf { it.timelineStart.value }
+        val reach = spans.maxOf { it.timelineEnd.value } - earliest
         return DropDecision(
-            DropKind.INSERT,
-            GroupInsertBase(clipIds, FrameIndex(at)),
-            DropHint(DropKind.INSERT, base.id, at, at),
+            DropKind.OVERWRITE,
+            GroupOverwriteBase(clipIds, FrameIndex(first)),
+            DropHint(DropKind.OVERWRITE, base.id, first, minOf(first + reach, base.end.value).coerceAtLeast(first)),
         )
     }
 

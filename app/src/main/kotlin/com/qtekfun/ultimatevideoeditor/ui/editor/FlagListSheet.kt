@@ -10,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -55,7 +57,7 @@ import java.io.IOException
  * recording B-roll: filter it (only pending, some colours) and share it as checkbox text or save it as CSV. A tap on a row
  * moves the playhead there.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
     val context = LocalContext.current
@@ -76,6 +78,16 @@ internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit)
     val csvHeader = listOf(R.string.flags_csv_done, R.string.flags_csv_colour, R.string.flags_csv_time, R.string.flags_csv_name, R.string.flags_csv_note)
         .map { stringResource(it) }
     val saveFailed = stringResource(R.string.flags_save_failed)
+    val fileBase = state.projectName.ifBlank { "flags" }
+    val saveMarkdown = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+        if (uri != null) {
+            val markdown = ShotList.text(title, shown, timecode) { groupNames[it].orEmpty() } + "\n"
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { writeText(context, uri, markdown) }
+                if (!ok) Toast.makeText(context, saveFailed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     val saveCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             val csv = ShotList.csv(csvHeader, shown, timecode) { groupNames[it].orEmpty() }
@@ -128,14 +140,22 @@ internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit)
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(bottom = 12.dp),
+            ) {
                 OutlinedButton(
                     enabled = shown.isNotEmpty(),
                     onClick = { shareText(context, ShotList.text(title, shown, timecode) { groupNames[it].orEmpty() }) },
                 ) { Text(stringResource(R.string.flags_share)) }
                 OutlinedButton(
                     enabled = shown.isNotEmpty(),
-                    onClick = { saveCsv.launch(state.projectName.ifBlank { "flags" } + ".csv") },
+                    onClick = { saveMarkdown.launch(fileBase + ".md") },
+                ) { Text(stringResource(R.string.flags_save_md)) }
+                OutlinedButton(
+                    enabled = shown.isNotEmpty(),
+                    onClick = { saveCsv.launch(fileBase + ".csv") },
                 ) { Text(stringResource(R.string.flags_save_csv)) }
             }
         }

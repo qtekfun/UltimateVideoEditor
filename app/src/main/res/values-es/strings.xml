@@ -1352,7 +1352,8 @@
     <string name="flags_mark_shot">Marcar esta bandera como grabada</string>
     <string name="flags_list_title">Lista de banderas</string>
     <string name="flags_only_pending">Solo pendientes</string>
-    <string name="flags_share">Compartir lista</string>
+    <string name="flags_share">Compartir en Markdown</string>
+    <string name="flags_save_md">Guardar archivo .md</string>
     <string name="flags_save_csv">Guardar como CSV</string>
     <string name="flags_save_failed">No se pudo guardar el archivo</string>
     <string name="flags_empty">No hay banderas que mostrar. Toca el botón de bandera para poner una en el cursor, o cambia los filtros.</string>
@@ -1381,4 +1382,11 @@
         <item quantity="many">%d seleccionados</item>
         <item quantity="other">%d seleccionados</item>
     </plurals>
+    <string name="drop_mode_tool">Modo de soltar</string>
+    <string name="drop_mode_auto">Modo de soltar: automático (cerca de un corte inserta, sobre un clip sobrescribe)</string>
+    <string name="drop_mode_insert">Modo de soltar: insertar siempre</string>
+    <string name="drop_mode_overwrite">Modo de soltar: sobrescribir siempre</string>
+    <string name="drop_mode_letter_auto">A</string>
+    <string name="drop_mode_letter_insert">I</string>
+    <string name="drop_mode_letter_overwrite">S</string>
 </resources>

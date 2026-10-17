@@ -50,21 +50,21 @@ class ShotListTest {
     }
 
     @Test
-    fun `text has a checkbox per flag, grouped, with the name and note joined`() {
+    fun `markdown has a task item per flag under a heading per colour, with the name and note joined`() {
         val text = ShotList.text("Trip", ShotList.select(flags, ShotList.Filter(onlyPending = false)), ::tc, ::group)
         assertEquals(
             """
-            Trip
+            # Trip
 
-            RED (2)
-            [ ] t30 · Lighthouse: wide shot
-            [ ] t90 · hands cooking
+            ## RED (2)
+            - [ ] t30 · Lighthouse: wide shot
+            - [ ] t90 · hands cooking
 
-            BLUE (1)
-            [x] t300 · Port
+            ## BLUE (1)
+            - [x] t300 · Port
 
-            No colour (1)
-            [ ] t120
+            ## No colour (1)
+            - [ ] t120
             """.trimIndent(),
             text,
         )
@@ -72,13 +72,13 @@ class ShotListTest {
 
     @Test
     fun `an empty selection gives only the title`() {
-        assertEquals("Trip", ShotList.text("Trip", emptyList(), ::tc, ::group))
+        assertEquals("# Trip", ShotList.text("Trip", emptyList(), ::tc, ::group))
     }
 
     @Test
     fun `line breaks in a note stay on one line so the checkbox list is not broken`() {
         val flag = Marker("n", FrameIndex(5), name = "A\nB", note = "first\r\n  second")
-        assertEquals("Trip\n\nNo colour (1)\n[ ] t5 · A B: first second", ShotList.text("Trip", listOf(flag), ::tc, ::group))
+        assertEquals("# Trip\n\n## No colour (1)\n- [ ] t5 · A B: first second", ShotList.text("Trip", listOf(flag), ::tc, ::group))
     }
 
     @Test

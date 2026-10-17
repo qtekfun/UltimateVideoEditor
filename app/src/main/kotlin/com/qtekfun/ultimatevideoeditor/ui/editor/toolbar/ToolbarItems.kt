@@ -18,6 +18,7 @@ enum class ToolbarItem(val id: String, @StringRes val labelRes: Int, val mandato
     FLAG_LIST("flag-list", R.string.flags_menu_list),
     SELECT_MODE("select-mode", R.string.ed_2a_tool_select_mode),
     CLOSE_GAP("close-gap", R.string.ed_2a_tool_close_gap),
+    DROP_MODE("drop-mode", R.string.drop_mode_tool),
     TITLE("title", R.string.ed_2a_tool_title),
     CAPTIONS("captions", R.string.ed_2a_tool_captions),
     STICKERS("stickers", R.string.ed_2a_tool_stickers),
