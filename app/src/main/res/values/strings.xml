@@ -1340,4 +1340,14 @@
         <item quantity="one">%d to shoot</item>
         <item quantity="other">%d to shoot</item>
     </plurals>
+    <string name="tray_pick">Select</string>
+    <string name="tray_pick_done">Done</string>
+    <string name="tray_pick_clear">Clear</string>
+    <string name="tray_pick_add">Add %1$d</string>
+    <string name="tray_pick_toggle">Select for adding</string>
+    <string name="tray_pick_number">Selected, number %1$d</string>
+    <plurals name="tray_picked_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
 </resources>

@@ -1964,3 +1964,18 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   the flag's note), no meaning attached to colours (they only group). Flags marked shot are not drawn differently on the ruler yet: the native
   snapshot would need a new field, and the list already separates them.
 - **Format.** `done` is optional in the project file (absent = false), so older projects load unchanged and older apps ignore it.
+
+## Groups insert into the base; the playhead follows inserts; the tray selects several (2026-10-17)
+
+- **Owner report.** Eight photos selected on V2 could not be dropped between two clips of V1 (a group drag only moved the clips in time and lanes).
+  After adding photos the playhead stayed put, so adding more meant moving it by hand. LumaFusion numbers the media you pick before inserting them.
+- **Group insert.** Dragging a selection of overlay video / photo clips (all on overlay lanes) over the base near a cut (the same aim as one clip,
+  including the Insert / Overwrite chip) is `DropPlan.decideGroupInsert`: one `GroupInsertBase` command that moves the clips onto the base one
+  after the other in timeline order (each `MagneticBase.move` at the previous clip's end), the base ripples, the lanes they left keep their gaps,
+  one undo step. Groups with base clips, audio or titles move as before.
+- **Playhead.** After an insert (a drag onto a cut, a tap or drag from the tray, a group insert) the playhead goes to the end of the inserted clips.
+  Overwrites and plain moves leave it where it is.
+- **Tray selection.** The tray's *Select* button turns taps into numbered choices (the number is the order of the taps); *Add N* sends
+  `AddAssets` and the clips go in at the playhead back to back as one undo step. Hold-and-drag is off while choosing. The choice is tray state
+  (`TrayState.picked`), not project state.
+- **Flag list.** Also given its own toolbar button and a button in the flag popup, because the long-press menu entry was not found.

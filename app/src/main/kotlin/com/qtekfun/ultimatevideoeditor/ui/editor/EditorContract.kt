@@ -673,6 +673,9 @@ sealed interface EditorIntent : UiIntent {
     data class ImportMedia(val uris: List<String>) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent
 
+    /** Adds the assets one after the other at the playhead, in this order, as one undo step (the tray's numbered selection). */
+    data class AddAssets(val assetIds: List<String>) : EditorIntent
+
     /** Show or hide the list of unreadable media with a Relink button for each. */
     data object ShowRelink : EditorIntent
     data object HideRelink : EditorIntent
