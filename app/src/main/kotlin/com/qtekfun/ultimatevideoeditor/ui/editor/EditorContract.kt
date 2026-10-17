@@ -77,6 +77,8 @@ data class EditorState(
     val dropHint: DropHint? = null,
     /** The user's override of the drop action while a clip is dragged (the mode chip); [DropChoice.AUTO] again after every drag. */
     val dropChoice: DropChoice = DropChoice.AUTO,
+    /** The standing drop mode of the toolbar button: [DropChoice.AUTO] decides by position; INSERT or OVERWRITE force it for every drag. */
+    val dropMode: DropChoice = DropChoice.AUTO,
     /** True while the drop is an insert or an overwrite the user may switch, so the timeline shows the mode chip. */
     val dropChoiceOffered: Boolean = false,
     /** The clips being dragged or trimmed and the frame an edge snapped to, drawn by the timeline while the drag lasts. */
@@ -353,6 +355,9 @@ sealed interface EditorIntent : UiIntent {
     ) : EditorIntent
     /** Switches the dragged clip's drop between insert and overwrite (the mode chip, or a tap with a second finger). */
     data object FlipDropChoice : EditorIntent
+
+    /** The toolbar button: Auto, then Insert, then Overwrite, then Auto again. */
+    data object CycleDropMode : EditorIntent
     data class DragEnd(val commit: Boolean) : EditorIntent
 
     /** A drag of an asset from the media tray started; a clip for it is prepared and nothing is placed yet. */

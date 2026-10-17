@@ -363,6 +363,7 @@ class EditorViewModel(
             is EditorIntent.DragStart -> dragStart(intent.hit)
             is EditorIntent.DragMove -> dragMove(intent.frame, intent.trackIndex, intent.zone, intent.reachFrames)
             EditorIntent.FlipDropChoice -> flipDropChoice()
+            EditorIntent.CycleDropMode -> reduce { copy(dropMode = DropChoice.entries[(dropMode.ordinal + 1) % DropChoice.entries.size]) }
             is EditorIntent.DragEnd -> dragEnd(intent.commit)
             EditorIntent.SplitAtPlayhead -> splitAtPlayhead()
             EditorIntent.RippleDeleteSelected -> deleteSelectedAtCut()
@@ -1798,6 +1799,9 @@ class EditorViewModel(
         updateDragOverlay()
     }
 
+    /** The choice for this drag: what the chip or a second finger asked for, else the drop mode set on the toolbar button. */
+    private fun effectiveDropChoice(): DropChoice = state.value.dropChoice.takeIf { it != DropChoice.AUTO } ?: state.value.dropMode
+
     /** The chip (or a second finger) asks for the other action: the drop is decided again at once, without the finger moving. */
     private fun flipDropChoice() {
         val session = drag ?: return
@@ -1847,7 +1851,7 @@ class EditorViewModel(
                 session.target = target
                 moveDrag(
                     session, base, FrameIndex((frame - session.grabOffset).coerceAtLeast(0)), target ?: DropTarget.Lane(sourceTrack.id), playhead,
-                    DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), state.value.dropChoice),
+                    DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), effectiveDropChoice()),
                 )
                 return
             }
@@ -2125,13 +2129,13 @@ class EditorViewModel(
         // Over the base the group is dropped into a cut, in order, like a single clip is.
         val baseTrack = ClipDeletion.baseTrack(base)
         if (zone == DragZone.LANES && baseTrack != null && base.tracks.getOrNull(trackIndex)?.id == baseTrack.id) {
-            val aim = DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), state.value.dropChoice)
-            val decision = DropPlan.decideGroupInsert(base, ids, FrameIndex((earliest + requested).coerceAtLeast(0)), aim)
-            val insert = decision?.command
-            val result = insert?.apply(base)?.markersFrom(base) as? EditResult.Success
+            val aim = DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), effectiveDropChoice())
+            val decision = DropPlan.decideGroupDrop(base, ids, FrameIndex((earliest + requested).coerceAtLeast(0)), aim)
+            val dropCommand = decision?.command
+            val result = dropCommand?.apply(base)?.markersFrom(base) as? EditResult.Success
             if (decision != null && result != null) {
-                session.insertIds = ids
-                pendingDragCommand = if (result.value == base) null else insert
+                session.insertIds = ids.takeIf { decision.kind == DropKind.INSERT }
+                pendingDragCommand = if (result.value == base) null else dropCommand
                 reduce { copy(dragPreview = result.value, dropHint = decision.hint, dropChoiceOffered = true) }
                 return
             }
@@ -3525,7 +3529,10 @@ class EditorViewModel(
         val base = history.timeline
         val target = trayTarget(base, trackIndex, zone, session.target)
         session.target = target
-        val decision = DropPlan.decideNew(base, session.clip, session.type, FrameIndex(frame), target, snapWith(base, state.value.playhead))
+        val decision = DropPlan.decideNew(
+            base, session.clip, session.type, FrameIndex(frame), target, snapWith(base, state.value.playhead),
+            DropAim(choice = effectiveDropChoice(), finger = FrameIndex(frame.coerceAtLeast(0))),
+        )
         session.command = decision.command
         if (decision.kind == DropKind.NEW_LANE) {
             // The canvas draws the new-lane placeholder on a lane of the timeline it shows, so show one (empty).
@@ -3601,7 +3608,10 @@ class EditorViewModel(
     /** Places [asset] the way a drop at [frame] over [target] would; returns where the clip ends, or null if nothing was placed. */
     private fun placeDropped(asset: MediaAssetDto, frame: Long, target: DropTarget): FrameIndex? {
         val (clip, type) = newClipFor(asset) ?: return null
-        val decision = DropPlan.decideNew(history.timeline, clip, type, FrameIndex(frame), target, snapWith(history.timeline, state.value.playhead))
+        val decision = DropPlan.decideNew(
+            history.timeline, clip, type, FrameIndex(frame), target, snapWith(history.timeline, state.value.playhead),
+            DropAim(choice = effectiveDropChoice(), finger = FrameIndex(frame.coerceAtLeast(0))),
+        )
         val command = decision.command
         if (command == null) {
             emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vm_drop_on_a_lane, MissingMedia.nameOf(asset), UiText.res(type.nameRes()))))
