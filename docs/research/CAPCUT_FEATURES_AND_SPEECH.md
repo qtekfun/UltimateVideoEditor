@@ -576,7 +576,7 @@ Speech and libraries:
 - Lottie renderers: https://github.com/Samsung/rlottie (MIT), https://github.com/airbnb/lottie-android (Apache-2.0), https://github.com/thorvg/thorvg (MIT); licence summaries from search results only.
 
 Own measurements: `docs/research/whisper-host-bench/` (`make-test-audio.sh`, `run-bench.sh`, `wer.py`, `results-2026-10-07.txt`).
-The whisper.cpp clone, models and audio live outside the repo under `/home/qtekfun/uvdata/research`.
+The whisper.cpp clone, models and audio live outside the repo under `~/uvdata/research`.
 
 Not verified: any per-device phone benchmark; Giphy/Tenor licensing; rlottie binary size; Kirin i8mm support; EMUI cross-app binding
 behaviour; CapCut cloud versus on-device processing per feature; which Android recognition services support `EXTRA_AUDIO_SOURCE`.

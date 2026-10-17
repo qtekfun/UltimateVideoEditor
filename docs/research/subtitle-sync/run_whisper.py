@@ -5,8 +5,8 @@ Models are the q5_1 files from the earlier study; DTW preset is the model family
 import json, os, re, subprocess, sys, time
 from common import UVDATA
 
-W = "/home/qtekfun/uvdata/research/whisper.cpp"
-M = "/home/qtekfun/uvdata/research"
+W = os.path.expanduser("~/uvdata/research/whisper.cpp")
+M = os.path.expanduser("~/uvdata/research")
 model, wav, cfg, lang = sys.argv[1:5]
 out_dir = sys.argv[5] if len(sys.argv) > 5 else f"{UVDATA}/runs"
 os.makedirs(out_dir, exist_ok=True)

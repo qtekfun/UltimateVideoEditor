@@ -31,9 +31,9 @@ class ImportViewTest {
 
     @Test
     fun `the step names the file and its place in the list`() {
-        val p = BundleProgress(BundleItemKind.MEDIA, "IMG_0014.mov", 3, 12, 1_800_000_000, 7_945_689_497, 5.0e7, 120_000)
+        val p = BundleProgress(BundleItemKind.MEDIA, "clip_a.mov", 3, 12, 1_800_000_000, 7_945_689_497, 5.0e7, 120_000)
 
-        assertEquals("Importing project: file 3 of 12: IMG_0014.mov", ImportJobText.step(p).english())
+        assertEquals("Importing project: file 3 of 12: clip_a.mov", ImportJobText.step(p).english())
         assertEquals("File 3 of 12", ImportJobText.shortStep(p).english())
         assertEquals("1.7 of 7.4 GB, about 2 min left", ImportJobText.progressLine(p).english())
     }
@@ -64,7 +64,7 @@ class ImportViewTest {
 
     @Test
     fun `the bar, the dialog and the notification say the same thing`() {
-        val p = BundleProgress(BundleItemKind.MEDIA, "IMG_0014.mov", 3, 12, 1_800_000_000, 7_945_689_497)
+        val p = BundleProgress(BundleItemKind.MEDIA, "clip_a.mov", 3, 12, 1_800_000_000, 7_945_689_497)
         val view = importViewFor(running(p))!!
         val note = importNotificationFor(running(p))!!
 

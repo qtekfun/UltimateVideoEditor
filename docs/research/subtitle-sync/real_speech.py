@@ -1,8 +1,8 @@
 """Real owner footage (no hand-made ground truth): drift, agreement between independent methods, edge-vs-VAD error,
 hallucination/omission, suspicious-word flags, review PNGs, CSV and importable .srt/.vtt.
 Writes numbers to results/real_speech.md (safe to commit) and everything with spoken words to $OUT (default
-/home/qtekfun/uvdata/research/out, NEVER commit).
-usage: real_speech.py <model> <stem> [<stem> ...]   (wav in /home/qtekfun/uvdata/research/real/<stem>.wav)"""
+~/uvdata/research/out, NEVER commit).
+usage: real_speech.py <model> <stem> [<stem> ...]   (wav in ~/uvdata/research/real/<stem>.wav)"""
 import csv, json, os, sys
 import numpy as np
 import matplotlib
@@ -13,10 +13,10 @@ from sync_lib import load_whisper, match, flat
 import pipelines as P
 import dsp
 
-OUT = os.environ.get("OUT", "/home/qtekfun/uvdata/research/out")
+OUT = os.environ.get("OUT", os.path.expanduser("~/uvdata/research/out"))
 os.makedirs(OUT + "/png", exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
-RW = "/home/qtekfun/uvdata/research/real"
+RW = os.path.expanduser("~/uvdata/research/real")
 model = sys.argv[1]
 doc = []
 

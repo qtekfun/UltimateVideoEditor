@@ -141,12 +141,12 @@ the alignment's ~15 ms is.
   audio at VAD pauses in our own code and call whisper per chunk (NOT built or measured here). Do not trust whisper.cpp VAD times.
 - DTW alone has a stable -25..-37 ms bias and no drift, a usable fallback.
 
-## 5. Real footage of the owner (no ground truth): IMG_0014 (551 s, Spanish) and IMG_0677 (106 s)
+## 5. Real footage of the owner (no ground truth): clip_a (551 s, Spanish) and clip_b (106 s)
 
 Run with base q5_1, language auto (detected `es`), pipelines tok/dtw/ctc+snap. Numbers (`results/real_speech.md`, no text included):
-- Hallucination/omission: 1 of 1515 words (IMG_0014) and 4 of 229 words (IMG_0677) lie >0.5 s from speech according to both VADs;
+- Hallucination/omission: 1 of 1515 words (clip_a) and 4 of 229 words (clip_b) lie >0.5 s from speech according to both VADs;
   no >= 2 s speech region without a transcribed word.
-- **Drift:** per-minute median of (dtw start - CTC start) over the 9 minutes of IMG_0014 is -55..-40 ms for minutes 0-8 and +7 ms in the
+- **Drift:** per-minute median of (dtw start - CTC start) over the 9 minutes of clip_a is -55..-40 ms for minutes 0-8 and +7 ms in the
   last partial minute: flat, no drift, and equal to the -37 ms DTW bias measured against truth. (Two independent methods do not disagree
   with a growing offset over 9 minutes.)
 - **Agreement between methods** (not accuracy): dtw vs CTC median 65 ms, 65% within 100 ms, p90 393 ms; whisper tok vs CTC median 253 ms,
@@ -154,10 +154,10 @@ Run with base q5_1, language auto (detected `es`), pipelines tok/dtw/ctc+snap. N
 - **The VAD-edge and "cue cross-check" proxies I wrote were not informative**: phrase edges of continuous commentary sit mid-speech and
   the nearest VAD onset is often seconds away (medians > 1 s for every pipeline, including the best); the cue cross-check flagged 90% of
   cues. Do not read those two rows as sync errors. They need redesign (compare only at pauses > 0.4 s).
-- Suspicious-word flag rate: 8.2% (IMG_0014), 42.8% (IMG_0677, quiet/ambient commentary; the "quiet" threshold is too strict there).
+- Suspicious-word flag rate: 8.2% (clip_a), 42.8% (clip_b, quiet/ambient commentary; the "quiet" threshold is too strict there).
 - Review material (contains the owner's speech, kept outside the repo, not committed): `.srt`/`.vtt` made with the ctc+snap pipeline,
-  plus word CSV and waveform PNGs, in `/home/qtekfun/uvdata/research/out/` (`IMG_0014.base.srt|vtt`, `IMG_0677.base.srt|vtt`,
-  `*.words.csv`, `png/IMG_0014_{0000,0180,0360,0540}.png`, `png/IMG_0677_{0000,0020,0040,0060,0090}.png`). Times in the files are in
+  plus word CSV and waveform PNGs, in `~/uvdata/research/out/` (`clip_a.base.srt|vtt`, `clip_b.base.srt|vtt`,
+  `*.words.csv`, `png/clip_a_{0000,0180,0360,0540}.png`, `png/clip_b_{0000,0020,0040,0060,0090}.png`). Times in the files are in
   seconds with millisecond precision; the app's `Subtitles.toCues` rounds each cue to the nearest frame of the project fps (24/30/60) and
   gives every cue at least one frame, so a 60 fps project keeps +-8 ms. Each PNG shows waveform, Silero speech (teal), whisper token
   boundaries (red dotted), DTW (blue dashed), CTC (green, words printed), phrase edges (black) and the energy envelope. The first PNG
@@ -166,7 +166,7 @@ Run with base q5_1, language auto (detected `es`), pipelines tok/dtw/ctc+snap. N
 - Important for karaoke-style animation: the app's SRT import keeps only cue times; word timing inside a cue is synthesised by
   `CaptionAnimator.synthesizeWords` (even spacing). Real per-word times need a richer import (word-per-cue SRT, or a new internal
   format), otherwise word-level accuracy from this study is lost at import.
-- Not done: IMG_0014 with `small`, the VAD-gated `small` run, the other clips (IMG_0650/0656/0657, VID*.mp4) beyond transcription
+- Not done: clip_a with `small`, the VAD-gated `small` run, the other clips (clip_c/0656/0657, VID*.mp4) beyond transcription
   runs on a few; no PNG/CSV for them.
 
 ## 6. Cost (host x86, 4 threads; numbers from runs that overlapped with other jobs unless marked)
@@ -256,7 +256,7 @@ Edits for a *local-only* model (never online):
 ## 9. Reproduce / resume
 
 Scripts in `docs/research/subtitle-sync/` (python venv with numpy, scipy, onnxruntime, soundfile, pyarrow, matplotlib at
-`/home/qtekfun/uvdata/research/sync/venv`; data in `/home/qtekfun/uvdata/research/sync`, `.../real`, `.../out`; none in the repo):
+`~/uvdata/research/sync/venv`; data in `~/uvdata/research/sync`, `.../real`, `.../out`; none in the repo):
 ```
 python build_ls.py            # LibriSpeech + MFA truth (needs data/data/dev_clean-00000-of-00001.parquet from the HF dataset above)
 python gen_tts.py en-us 160 audio/tts_en audio/en_script.txt   # espeak word events
@@ -264,7 +264,7 @@ python make_conditions.py     # noise, music, fast, overlap variants
 python make_jobs.py && python run_jobs.py $UVDATA/jobs.txt 3     # whisper runs (THREADS=4 env)
 python emis_cache.py 3 "$UVDATA/audio/cond/*.wav"                # MMS emissions cache
 python eval_matrix.py && python summarise.py && python longform.py
-python extract_real.py && python real_speech.py base IMG_0677 IMG_0014   # owner clips, writes to $OUT (not the repo)
+python extract_real.py && python real_speech.py base clip_b clip_a   # owner clips, writes to $OUT (not the repo)
 ```
 `results/tables.md`, `longform.md`, `real_speech.md` hold the numbers (no speech content).
 Models used (outside the repo): `ggml-{tiny,base,small}-q5_1.bin`, `ggml-silero-v6.2.0.bin`, `silero_vad.onnx`, MMS `model_int8.onnx`.

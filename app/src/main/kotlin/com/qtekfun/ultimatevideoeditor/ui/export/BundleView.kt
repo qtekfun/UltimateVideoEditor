@@ -14,7 +14,7 @@ data class BundleView(
     val projectId: String,
     val projectName: String,
     val title: UiText,
-    /** What is happening: "Packing media 3 of 12: IMG_0014.mov". Empty when finished. */
+    /** What is happening: "Packing media 3 of 12: clip_a.mov". Empty when finished. */
     val step: UiText = UiText.Empty,
     val stepShort: UiText = UiText.Empty,
     /** "1.8 of 7.4 GB, about 2 min left". Empty when finished. */

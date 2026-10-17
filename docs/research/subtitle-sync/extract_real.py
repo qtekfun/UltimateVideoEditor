@@ -4,8 +4,8 @@ import glob, os, subprocess
 import numpy as np
 from common import read_wav
 
-CL = "/home/qtekfun/uvdata/clips"
-OUT = "/home/qtekfun/uvdata/research/real"
+CL = os.path.expanduser("~/uvdata/clips")
+OUT = os.path.expanduser("~/uvdata/research/real")
 os.makedirs(OUT, exist_ok=True)
 for p in sorted(glob.glob(CL + "/*")):
     n = os.path.splitext(os.path.basename(p))[0]
