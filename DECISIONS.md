@@ -1979,3 +1979,12 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   `AddAssets` and the clips go in at the playhead back to back as one undo step. Hold-and-drag is off while choosing. The choice is tray state
   (`TrayState.picked`), not project state.
 - **Flag list.** Also given its own toolbar button and a button in the flag popup, because the long-press menu entry was not found.
+
+## 1.0.0 (2026-10-17)
+
+- **Owner decision.** The editor is mature enough for an official release and for maintenance mode; no release candidates ("lo de las rcs no me
+  gusta"). 1.0.0 is the code of 0.5.13 with the maintenance documents (`CHANGELOG.md`, `SECURITY.md`, the support policy in `docs/RELEASE.md`).
+- **What was not done.** The device regression run (`qa-smoke.sh`) needs a suffixed debug build installed on a phone; the OPPO only gets signed
+  releases, the Pixel is off limits, the MatePad was not attached. Instead the signed 0.5.13 was smoke-tested by hand on the OPPO (log row in
+  `docs/RELEASE.md`). The Spanish translation of the tray, library, captions, titles, guide and lower-layer errors (stages 3 to 5) is still open
+  and ships in a later `1.x.0`; English is the fallback for every missing string.
