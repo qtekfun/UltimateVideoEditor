@@ -1888,3 +1888,115 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 **Not verified:** nothing was run on a phone or emulator (none allowed). JVM tests, the guard tests, a debug build and `lintRelease` only.
 
 **Stage 2b (owner decisions, 2026-10-09):** names of actions use the Spanish infinitive ("Deshacer", "Rehacer", "Copiar", "Eliminar"), sentences to the person the informal imperative; short chips get the shortest natural term with the long form in the content description (`docs/TRANSLATING.md`). `EditorEffect.ShowMessage` takes a `UiText` (a `String` constructor stays for text of the lower layers), replacing the interim `ShowText`; the domain enums keep their English names and are translated for display in `EditorLabels.kt`.
+
+## HDR proxies keep their colours, and the preview says when it shows a proxy (2026-10-16)
+
+- **Why.** On the owner's OPPO the HDR HLG project looked dim and flat one day after it looked right. Nothing about the colour path had
+  changed between versions; the preview was showing a 720p SDR proxy (the log of the opened file said `video/avc 1280x720 transfer=3`)
+  of the Dolby Vision original, because proxies were on. By design an HDR source got an SDR stand-in, which the HLG project lifts to
+  reference white: a different picture with the label still saying "HDR HLG". Two faults: the stand-in lost the colours, and nothing
+  on screen said a proxy was in use.
+- **Decision.** An HDR source (HLG or PQ) gets an HLG 10-bit HEVC proxy; a device whose encoder rejects it (`ENCODER_UNSUPPORTED`)
+  gets the SDR stand-in after one retry. The entry records the colour space of the file and the preview reads the proxy as that.
+  The key of an HDR source's proxy now includes its colour space, so the old SDR stand-ins are not reused (they can be removed with
+  "Remove unused"); SDR sources keep their keys. A PQ source becomes an HLG proxy (the output is always HLG).
+- **On screen.** A label over the preview says "proxy" whenever one is shown, in the tertiary colour with "SDR proxy: colours differ
+  from the original" when the stand-in is SDR and the original is HDR. Export never uses proxies.
+- **Not done.** A clip's own colour override is not applied to its proxy (the proxy is made from the file's own colour); the
+  thumbnails of a proxy are read as before.
+
+## Paste asks content or style (2026-10-16)
+
+- **Owner request.** Select a clip, copy, go to another clip and, before pasting, be asked whether to paste the content (which
+  duplicates the clip) or the style (which applies it to the selected destination clip).
+- **Rule.** Paste asks only when a selected clip is not one of the copied clips; the question lists those clips as the destinations of
+  'Style'. With nothing else selected (nothing, or only the copied clips) it pastes the content at once, as before, so the usual
+  copy-and-paste flow gets no extra tap. 'Style' is the existing Paste attributes (transform, effects, volume, speed, reverse), one undo
+  step; the separate Paste attributes button stays. Cancel changes nothing.
+- **Not done.** 'Style' does not yet carry fades, the volume curve, colour grade or effects keyframes: they belong to the length of the
+  clip they were made on (see ClipAttributes). A saved, named preset of a style is a possible next step.
+
+## Clip drags keep to one axis (2026-10-16)
+
+- **Owner report.** Dragging a clip (for instance the audio taken out of a video) down to another lane drifted along the time axis
+  before it arrived, so it did not land at the same frames; moving it along a lane could also tip it into the next lane.
+- **Decision.** `DragAxisLock`, applied in `TimelineSurfaceView` to every clip-drag position before it is hit-tested. From the point where
+  the finger went down: until it has moved 14 dp the clip stays where it was; then mainly vertical (vertical at least 1.25 times
+  horizontal) locks the time position, mainly horizontal locks the lane, and anything between is free. A lock lets go for the rest
+  of the drag when the finger is 48 dp away along the other axis, so a clip can still be carried anywhere. A tick (haptic) marks the lock
+  and the release. Group drags, trim, marker, lane-header and tray drags are not changed.
+- **Why 14 / 48 dp.** The touch slop (about 8 dp) has already passed when the drag starts; 14 dp gives a direction without a dead feeling,
+  and 48 dp is a lane's worth of travel, so leaving the lock is a deliberate pull.
+- **Not done.** There is no drawn guide line for the locked axis (the native canvas would need a new overlay); the tick and the drop hint
+  are the feedback. A setting to turn the lock off is not offered: a diagonal pull is already free.
+## A volume button for the selected clips (2026-10-16)
+
+- **Owner report.** There is a volume for a single clip (the Volume slider of the clip panel) but it is not where anyone looks, and the
+  panels near it (the mixer, the track controls) act on the whole lane.
+- **Decision.** A tool-row button "Clip volume" (loudspeaker icon, right after Detach audio) opens a small slider for the selected
+  clips only, with Mute and Reset to 0 dB; it is enabled when a selected clip makes a sound (an audio clip, or a video clip whose sound
+  is not detached). The value is applied when the finger lifts (`SelectionIntent.SetGroupGain`, one undo step, every selected clip with
+  sound); the clip panel's Volume stays. As a toolbar item it can be moved or hidden like the others (saved orders get it right after
+  Detach audio).
+- **Not done.** No live audio while the slider moves (the mixer hears it once the value is set); a per-clip volume curve and fades stay
+  in the sound tools of an audio clip.
+
+## The preview follows a proxy that finishes (2026-10-16)
+
+- **Owner report.** The proxy of the main clip was ready (the filmstrip used it) but the preview kept opening the 4K original and the
+  new "proxy" label never appeared.
+- **Cause.** `ProxyManager.resolve` remembers which file to open per asset and purpose, and the memory was only cleared by the manager's
+  own `invalidate()` (switch, remove, settings). A proxy that the worker finished only bumped the worker's change counter, so an answer
+  remembered while the proxy was still being made (the original) stayed for the preview. The thumbnails asked with another key, so they
+  got the proxy.
+- **Fix.** The memory is tied to `ProxyWorker.changes`: when the counter has moved since the answers were made (a proxy queued, started,
+  finished, failed or removed), `resolve` starts again. A test makes the situation: ask while the proxy is being made, let it finish, ask
+  again, for the preview and for the thumbnails.
+
+## The flag list is the shot list (2026-10-16)
+
+- **Owner use.** Flags note shots still to record (B-roll). They wanted that list at hand while filming, in a form a tasks app takes.
+- **Decision.** A flag gets `done` ("Shot"), ticked in its popup or in the new **Flag list** sheet (flag button, long press). The sheet lists the
+  manual flags in time order, grouped by colour (red … purple, no colour last), with "Only pending" and per-colour filters. **Share list**
+  sends checkbox text (`[ ] 00:00:12:05 · Name: note`) through the system share sheet; **Save as CSV** writes `done,colour,time,name,note`
+  through the system file picker. Beat markers never appear. Pure logic in `domain/ShotList.kt`, tests in `ShotListTest`.
+- **Not done, on purpose.** No automatic "shot" when a clip lands on a flag (it can be wrong), no target duration field (the owner writes it in
+  the flag's note), no meaning attached to colours (they only group). Flags marked shot are not drawn differently on the ruler yet: the native
+  snapshot would need a new field, and the list already separates them.
+- **Format.** `done` is optional in the project file (absent = false), so older projects load unchanged and older apps ignore it.
+
+## Groups insert into the base; the playhead follows inserts; the tray selects several (2026-10-17)
+
+- **Owner report.** Eight photos selected on V2 could not be dropped between two clips of V1 (a group drag only moved the clips in time and lanes).
+  After adding photos the playhead stayed put, so adding more meant moving it by hand. LumaFusion numbers the media you pick before inserting them.
+- **Group insert.** Dragging a selection of overlay video / photo clips (all on overlay lanes) over the base near a cut (the same aim as one clip,
+  including the Insert / Overwrite chip) is `DropPlan.decideGroupInsert`: one `GroupInsertBase` command that moves the clips onto the base one
+  after the other in timeline order (each `MagneticBase.move` at the previous clip's end), the base ripples, the lanes they left keep their gaps,
+  one undo step. Groups with base clips, audio or titles move as before.
+- **Playhead.** After an insert (a drag onto a cut, a tap or drag from the tray, a group insert) the playhead goes to the end of the inserted clips.
+  Overwrites and plain moves leave it where it is.
+- **Tray selection.** The tray's *Select* button turns taps into numbered choices (the number is the order of the taps); *Add N* sends
+  `AddAssets` and the clips go in at the playhead back to back as one undo step. Hold-and-drag is off while choosing. The choice is tray state
+  (`TrayState.picked`), not project state.
+- **Flag list.** Also given its own toolbar button and a button in the flag popup, because the long-press menu entry was not found.
+
+## 1.0.0 (2026-10-17)
+
+- **Owner decision.** The editor is mature enough for an official release and for maintenance mode; no release candidates ("lo de las rcs no me
+  gusta"). 1.0.0 is the code of 0.5.13 with the maintenance documents (`CHANGELOG.md`, `SECURITY.md`, the support policy in `docs/RELEASE.md`).
+- **What was not done.** The device regression run (`qa-smoke.sh`) needs a suffixed debug build installed on a phone; the OPPO only gets signed
+  releases, the Pixel is off limits, the MatePad was not attached. Instead the signed 0.5.13 was smoke-tested by hand on the OPPO (log row in
+  `docs/RELEASE.md`). The Spanish translation of the tray, library, captions, titles, guide and lower-layer errors (stages 3 to 5) is still open
+  and ships in a later `1.x.0`; English is the fallback for every missing string.
+
+## Standing drop mode, group overwrite, Markdown flag list (2026-10-17)
+
+- **Owner report (on 1.0.0).** While a clip is dragged the Insert / Overwrite chip cannot be tapped, and releasing near a cut always inserted, so
+  Overwrite was out of reach; flags were meant to be exported as Markdown and the option was not found.
+- **Drop mode button.** A toolbar button (`DROP_MODE`, letter A / I / O, "S" in Spanish) sets the standing mode before the drag: Auto (position
+  decides), Insert (always the nearest cut) or Overwrite (never inserts). The chip and the second-finger tap still flip one drop. It applies to a
+  clip, a group, and media dragged from the tray.
+- **Group overwrite.** `DropPlan.decideGroupDrop` replaces `decideGroupInsert`: near a cut the group inserts, over a clip it overwrites
+  (`GroupOverwriteBase`: the group is lifted off its lanes first so it never clears itself, each clip keeps its distance from the earliest).
+- **Markdown.** The flag list's text is Markdown (`# title`, `## Colour (n)`, `- [ ] time · name: note`); *Share as Markdown*, *Save .md file*
+  and *Save as CSV* are the three actions.

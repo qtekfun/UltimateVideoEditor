@@ -192,6 +192,24 @@ class TimelineSurfaceView(
 
     private val scrubGate = ScrubGate(slopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat())
 
+    // A clip drag keeps to one axis (see DragAxisLock): down to another lane without drifting in time, along a lane without changing it.
+    private val axisLock = DragAxisLock(decidePx = 14f * resources.displayMetrics.density, releasePx = 48f * resources.displayMetrics.density)
+
+    /** The drag's next position for a finger at ([x], [y]), after the axis lock; ticks when the lock engages or lets go. */
+    private fun lockedDragPoint(x: Float, y: Float): DragAxisLock.Point {
+        val before = axisLock.axis
+        val point = axisLock.apply(x, y)
+        if (axisLock.axis != before && axisLock.axis != DragAxisLock.Axis.UNDECIDED) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        return point
+    }
+
+    private fun dragTo(x: Float, y: Float) {
+        val point = lockedDragPoint(x, y)
+        dragX = point.x
+        dragY = point.y
+        editing()?.onDragMove(engine.hitTest(point.x, point.y), reachAt(point.x, point.y))
+    }
+
     // A pinch zooms the time axis, whichever way the fingers are spread; lanes keep the height of the layout preset.
     private val pinch = TimelinePinch(engine::zoomBy)
 
@@ -246,9 +264,7 @@ class TimelineSurfaceView(
                 if (shapingActive) {
                     shaping()?.onDragMove(engine.hitTest(e2.x, e2.y))
                 } else if (dragging) {
-                    dragX = e2.x
-                    dragY = e2.y
-                    editing()?.onDragMove(engine.hitTest(e2.x, e2.y), reachAt(e2.x, e2.y))
+                    dragTo(e2.x, e2.y)
                 } else if (marquee) {
                     engine.setMarquee(downX, downY, e2.x, e2.y)
                 } else {
@@ -324,6 +340,7 @@ class TimelineSurfaceView(
         val handler = editing() ?: return
         if (!handler.canDrag(hit)) return
         dragging = true
+        axisLock.begin(downX, downY)
         handler.onDragStart(hit)
         postOnAnimation(edgeScroll)
     }
@@ -380,11 +397,7 @@ class TimelineSurfaceView(
                     }
                 }
             }
-            if (dragging && event.actionMasked == MotionEvent.ACTION_MOVE) {
-                dragX = event.x
-                dragY = event.y
-                editing()?.onDragMove(engine.hitTest(event.x, event.y), reachAt(event.x, event.y))
-            }
+            if (dragging && event.actionMasked == MotionEvent.ACTION_MOVE) dragTo(event.x, event.y)
         }
         if (shapingActive && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
             shapingActive = false

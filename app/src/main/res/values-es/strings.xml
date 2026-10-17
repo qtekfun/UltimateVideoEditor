@@ -576,7 +576,7 @@
     <string name="ed_2a_clips_keep_their_relative_position">Los clips conservan su posición relativa. Cambiar el lienzo borra el historial de deshacer.</string>
     <string name="ed_2a_copy_the_selected_clips">Copiar los clips seleccionados</string>
     <string name="ed_2a_cut_the_selected_clips_copy">Cortar los clips seleccionados (copiar y luego eliminar)</string>
-    <string name="ed_2a_paste_the_copied_clips_at">Pegar los clips copiados en el cabezal</string>
+    <string name="ed_2a_paste_the_copied_clips_at">Pegar los clips copiados en el cabezal, o preguntar si pegar su estilo en los clips seleccionados</string>
     <string name="ed_2a_duplicate_the_selected_clips_right">Duplicar los clips seleccionados justo después del último</string>
     <string name="ed_2a_delete_the_selected_clips_the">Eliminar los clips seleccionados (la pista base cierra sus huecos)</string>
     <string name="ed_2a_align_the_starts_of_the">Alinear los inicios de los clips seleccionados</string>
@@ -1326,4 +1326,67 @@
     <string name="ed_2b_preset_timeline_desc">Diseño con enfoque en la línea de tiempo</string>
     <string name="ed_2b_preset_preview_desc">Diseño con enfoque en la vista previa</string>
     <string name="ed_2b_preset_two_desc">Diseño con dos paneles</string>
+    <string name="ed_proxy_label">proxy</string>
+    <string name="ed_proxy_sdr_of_hdr_label">proxy SDR: los colores difieren del original</string>
+    <string name="ed_paste_choice_title">Pegar</string>
+    <string name="ed_paste_choice_content">Contenido</string>
+    <string name="ed_paste_choice_style">Estilo</string>
+    <string name="ed_paste_choice_content_desc">Contenido añade una copia de los clips copiados en el cabezal.</string>
+    <plurals name="ed_paste_choice_style_desc">
+        <item quantity="one">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) al clip seleccionado.</item>
+        <item quantity="many">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) a los %d de clips seleccionados.</item>
+        <item quantity="other">Estilo aplica el aspecto y el sonido del clip copiado (efectos, posición, escala, rotación, velocidad y volumen) a los %d clips seleccionados.</item>
+    </plurals>
+    <string name="ed_clipvol_tool">Volumen del clip</string>
+    <string name="ed_clipvol_button">Volumen de los clips seleccionados (solo estos, no toda la pista)</string>
+    <plurals name="ed_clipvol_title">
+        <item quantity="one">Volumen del clip seleccionado</item>
+        <item quantity="many">Volumen de los %d de clips seleccionados</item>
+        <item quantity="other">Volumen de los %d clips seleccionados</item>
+    </plurals>
+    <string name="ed_clipvol_db">%1$.1f dB</string>
+    <string name="ed_clipvol_mute">Silenciar</string>
+    <string name="ed_clipvol_reset">Restablecer a 0 dB</string>
+    <string name="flags_menu_list">Lista de banderas</string>
+    <string name="flags_shot">Grabado</string>
+    <string name="flags_mark_shot">Marcar esta bandera como grabada</string>
+    <string name="flags_list_title">Lista de banderas</string>
+    <string name="flags_only_pending">Solo pendientes</string>
+    <string name="flags_share">Compartir en Markdown</string>
+    <string name="flags_save_md">Guardar archivo .md</string>
+    <string name="flags_save_csv">Guardar como CSV</string>
+    <string name="flags_save_failed">No se pudo guardar el archivo</string>
+    <string name="flags_empty">No hay banderas que mostrar. Toca el botón de bandera para poner una en el cursor, o cambia los filtros.</string>
+    <string name="flags_text_title">Lista de planos · %1$s</string>
+    <string name="flags_no_colour">Sin color</string>
+    <string name="flags_unnamed">Bandera en %1$s</string>
+    <string name="flags_csv_done">Hecho</string>
+    <string name="flags_csv_colour">Color</string>
+    <string name="flags_csv_time">Tiempo</string>
+    <string name="flags_csv_name">Nombre</string>
+    <string name="flags_csv_note">Nota</string>
+    <string name="flags_go_to">Ir a esta bandera</string>
+    <plurals name="flags_pending_count">
+        <item quantity="one">%d por grabar</item>
+        <item quantity="many">%d por grabar</item>
+        <item quantity="other">%d por grabar</item>
+    </plurals>
+    <string name="tray_pick">Seleccionar</string>
+    <string name="tray_pick_done">Hecho</string>
+    <string name="tray_pick_clear">Quitar</string>
+    <string name="tray_pick_add">Añadir %1$d</string>
+    <string name="tray_pick_toggle">Seleccionar para añadir</string>
+    <string name="tray_pick_number">Seleccionado, número %1$d</string>
+    <plurals name="tray_picked_count">
+        <item quantity="one">%d seleccionado</item>
+        <item quantity="many">%d seleccionados</item>
+        <item quantity="other">%d seleccionados</item>
+    </plurals>
+    <string name="drop_mode_tool">Modo de soltar</string>
+    <string name="drop_mode_auto">Modo de soltar: automático (cerca de un corte inserta, sobre un clip sobrescribe)</string>
+    <string name="drop_mode_insert">Modo de soltar: insertar siempre</string>
+    <string name="drop_mode_overwrite">Modo de soltar: sobrescribir siempre</string>
+    <string name="drop_mode_letter_auto">A</string>
+    <string name="drop_mode_letter_insert">I</string>
+    <string name="drop_mode_letter_overwrite">S</string>
 </resources>

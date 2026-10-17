@@ -95,7 +95,7 @@ jobs:
           test -s dist/USER_GUIDE.pdf
 
       - name: Upload release files
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ultimatevideo-release-${{ github.ref_name }}
           path: |
@@ -107,7 +107,7 @@ jobs:
 
       # The R8 mapping turns a minified stack trace back into readable names; keep it with the build.
       - name: Upload R8 mapping
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ultimatevideo-r8-mapping-${{ github.ref_name }}
           path: dist/mapping.txt.gz

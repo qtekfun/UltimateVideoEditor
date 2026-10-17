@@ -1452,8 +1452,14 @@ Heavy footage (4K, long GOP, high bitrate) is edited through small stand-in file
   source's own frame rate and length (so every timeline frame maps to the same frame of the proxy), scaled so the
   short side is 720 or 1080 (never larger than the source, even sides, same aspect and display rotation), H.264,
   about 0.15 bits per pixel (2-40 Mbps), a keyframe every second (the engine's setting), **no audio** (sound is
-  always read from the original). HDR sources are tone-mapped to SDR; the preview reads a proxy as SDR Rec.709
-  (`PreviewRequest.sourceOverride = 0`), so HDR looks flatter while editing with proxies.
+  always read from the original). HDR sources (HLG, PQ) get an HLG 10-bit HEVC proxy (`ExportSettings.hdr`, the
+  source read as what it is, the output HLG) so the preview keeps their colours; where the encoder cannot do that, one SDR retry
+  makes the H.264 stand-in (tone-mapped), as before. `ProxyEntry.colorSpace` records which (SDR for entries that predate the
+  field) and `ResolvedSource.proxyColorSpace` carries it, so the preview reads the proxy as that
+  (`PreviewRequest.sourceOverride`: 1 for an HLG proxy, 0 for an SDR one). The proxy key includes the source colour space for HDR
+  sources only, so the SDR stand-ins that older versions made for HDR files are never reused. The preview label says **proxy**
+  when one is on screen and **SDR proxy: colours differ from the original** for an SDR stand-in of an HDR file
+  (`PreviewProxyNote`).
 - **Side index** (`proxy/ProxyIndex`): `cacheDir/proxies/index.json` plus `<key>.mp4`; never in `project.json`, so
   bundles and interchange files are unaffected. The key is a hash of source uri, length, frame rate and proxy size
   (a relinked or re-proxied asset gets a new key). Entries carry their own job (uri, length, rate, colour space), so a
@@ -1728,6 +1734,11 @@ Kotlin `TimelineSnapshotTest`.
 **Tests.** `ClipLinksTest` (commands; linked move, base reorder, trim, split, delete, ripple, speed, group move, duplicate; unlinked
 independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
 round trip, broken link), `ToolbarGuideTest`, `DetachedTransitionAudioTest`, `PlaceWithDetachedAudioTest`, `VideoAudioPlacementViewModelTest`.
+
+### 5.41a Flag list (shot list)
+
+Manual flags carry `done`. The flag list sheet (`ui/editor/FlagListSheet.kt`, opened from the flag button's long-press menu) shows them grouped by
+colour with filters, ticks, share as checkbox text and save as CSV; formatting is `domain/ShotList.kt`. Decision: DECISIONS.md "The flag list is the shot list".
 
 ### 5.41 Markers stick to clips
 

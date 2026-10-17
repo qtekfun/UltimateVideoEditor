@@ -30,6 +30,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import com.qtekfun.ultimatevideoeditor.ui.editor.PreviewProxyNote
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +50,9 @@ import com.qtekfun.ultimatevideoeditor.proxy.SuggestionReason
 val LocalProxyUi = staticCompositionLocalOf<State<ProxyUiState>?> { null }
 
 val LocalProxyIntent = staticCompositionLocalOf<(ProxyIntent) -> Unit> { {} }
+
+/** What the preview says about proxies right now (set by the editor, read by the label over the preview). */
+val LocalPreviewProxyNote = staticCompositionLocalOf<State<PreviewProxyNote>?> { null }
 
 /** The proxy status of [assetId] in the open project (None outside an editor). Read in the leaf that shows it. */
 @Composable

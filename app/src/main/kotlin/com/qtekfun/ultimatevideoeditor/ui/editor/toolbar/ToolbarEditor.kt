@@ -33,10 +33,13 @@ internal fun ToolbarItem.icon(): ImageVector = when (this) {
     ToolbarItem.IMPORT -> EditorIcons.Add
     ToolbarItem.SPLIT -> EditorIcons.Split
     ToolbarItem.DETACH_AUDIO -> EditorIcons.DetachAudio
+    ToolbarItem.CLIP_VOLUME -> EditorIcons.Volume
     ToolbarItem.DELETE -> EditorIcons.Delete
     ToolbarItem.MARKER -> EditorIcons.Flag
+    ToolbarItem.FLAG_LIST -> EditorIcons.FlagList
     ToolbarItem.SELECT_MODE -> SelectionIcons.SelectMode
     ToolbarItem.CLOSE_GAP -> EditorIcons.CloseGap
+    ToolbarItem.DROP_MODE -> EditorIcons.DropMode
     ToolbarItem.TITLE -> EditorIcons.Title
     ToolbarItem.CAPTIONS -> EditorIcons.Captions
     ToolbarItem.STICKERS -> EditorIcons.Sticker
