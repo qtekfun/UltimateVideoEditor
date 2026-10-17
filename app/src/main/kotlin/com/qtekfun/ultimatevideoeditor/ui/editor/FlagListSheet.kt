@@ -71,7 +71,8 @@ internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit)
 
     val title = stringResource(R.string.flags_text_title, state.projectName)
     val timecode = { frame: Long -> formatTimecode(frame, state.fps) }
-    val groupNames = MarkerColor.entries.associateWith { stringResource(markerColourName(it)) } + (null to stringResource(R.string.flags_no_colour))
+    val groupNames = MarkerColor.entries.associateWith { stringResource(markerColourName(it)).replaceFirstChar { c -> c.uppercase() } } +
+        (null to stringResource(R.string.flags_no_colour))
     val csvHeader = listOf(R.string.flags_csv_done, R.string.flags_csv_colour, R.string.flags_csv_time, R.string.flags_csv_name, R.string.flags_csv_note)
         .map { stringResource(it) }
     val saveFailed = stringResource(R.string.flags_save_failed)
