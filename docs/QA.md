@@ -24,7 +24,7 @@ scripts/qa/selftest.sh                                # no device: proves the as
 ```
 
 Exit code 0 means every check passed (a SKIP is not a failure), 1 a check failed, 2 a refusal or bad usage, 3 the device is busy,
-4 the screen is locked. The table is also written to `/home/qtekfun/uvdata/qa-smoke/last-result.txt`; logs and the exported
+4 the screen is locked. The table is also written to `~/uvdata/qa-smoke/last-result.txt`; logs and the exported
 files of the last run stay in that directory (big files never go to `/tmp`, which is RAM).
 
 Safety, enforced by the script:

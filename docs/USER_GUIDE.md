@@ -771,7 +771,7 @@ stops, the whole picture (all layers, titles, stickers and transitions, as an ex
 size (for example 3840 x 2160) in the **Pictures/ultimateVE** folder, so it shows up in your gallery. A message at the bottom shows
 "Saving frame..." and then "Saved to Pictures/ultimateVE/<name>" with **Share** and **Open** (the system image viewer).
 
-The file is named after the project, the frame and the moment you saved it, for example `Review_IPhone_18_Pro_Max_00h01m23s12f_20261007-091503.jpg`
+The file is named after the project, the frame and the moment you saved it, for example `Sample_review_00h01m23s12f_20261007-091503.jpg`
 (project, hours-minutes-seconds-frames of the frame, date and time). A project larger than 4096 pixels on its longest side is saved at that
 limit and the message says so. A frame in a gap of the timeline, or after the end of the project, is saved as a black image and the message
 tells you. With an HDR (HLG) project the picture is converted to SDR with the same tone mapping as an SDR export, so it does not look washed
@@ -813,7 +813,7 @@ Everything goes through the system file picker and stays on your device: nothing
   Whatever the project uses but you leave out (or this phone does not have) is still named in the bundle, so the
   other phone can tell you which LUT or font to get. The project file and a card picture are always included.
   - **Progress and the end of the backup.** After you choose where to save, a window shows what is happening
-    (**Packing media 3 of 12: IMG_0014.mov**), how many bytes are done of the total, the percent, the speed and the time left
+    (**Packing media 3 of 12: clip_a.mov**), how many bytes are done of the total, the percent, the speed and the time left
     (for example **1.8 of 7.4 GB, about 2 min left**). **Hide** closes the window and the backup goes on; the same progress is
     in a bar at the bottom of the project list (tap it to open the window again) and in a notification, so you can leave the
     app or turn the screen off. **Cancel** stops within a moment and removes the half-written file; if the file manager refuses to
@@ -838,7 +838,7 @@ Everything goes through the system file picker and stays on your device: nothing
 - **Import progress** (bundles, LumaFusion packages and project files alike). The phone never freezes while a project is
   imported: the picker closes at once and the import runs in the background.
   - A small project file is imported before you could read anything, so it only shows a message ("Imported "Holiday"").
-  - Anything longer opens a dialog after a moment: **Importing project: file 3 of 12: IMG_0014.mov**, a bar, **1.8 of 7.4 GB,
+  - Anything longer opens a dialog after a moment: **Importing project: file 3 of 12: clip_a.mov**, a bar, **1.8 of 7.4 GB,
     about 2 min left** and the speed. **Hide** closes the dialog and the import goes on: a bar at the bottom of the project list
     and a notification show the same; tap either to open the dialog again. You can leave the app or turn the screen off.
   - **Cancel** stops within a moment and removes everything the import had copied; no half project is ever left in the list.

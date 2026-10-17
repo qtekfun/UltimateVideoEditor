@@ -2,7 +2,7 @@
 # Host-side whisper.cpp benchmark (this Linux laptop only; no phone). Needs a built whisper-cli in $W/build/bin,
 # models in $R/models and test audio from make-test-audio.sh in $R/audio. Output: one CSV-ish line per run.
 set -uo pipefail
-R=${R:-/home/qtekfun/uvdata/research}
+R=${R:-$HOME/uvdata/research}
 W=${W:-$R/whisper.cpp}
 THREADS=${THREADS:-4}
 CLI=$W/build/bin/whisper-cli

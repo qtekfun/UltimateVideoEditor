@@ -26,7 +26,7 @@ import com.qtekfun.ultimatevideoeditor.ui.export.importViewFor
 
 /**
  * The progress and the result of a project import, over whatever screen is showing, driven by the process-wide [ImportJobHost].
- * Running: "Importing project: file 3 of 12: IMG_0014.mov", bytes done of total, percent, speed, time left, and Cancel (stops
+ * Running: "Importing project: file 3 of 12: clip_a.mov", bytes done of total, percent, speed, time left, and Cancel (stops
  * within one chunk and removes everything the import made) or Hide (the import goes on; the bar of the project list and the
  * notification still show it). Ended: the result with Open, what it did not do cleanly, and Close. Opens by itself only after a
  * moment ([com.qtekfun.ultimatevideoeditor.ui.export.BundleImportExecutor]), so a small file never flashes it.

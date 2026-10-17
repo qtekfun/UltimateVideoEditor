@@ -18,7 +18,7 @@ class BundleJobTextTest {
     private val mib = 1024L * 1024
 
     private val packing = BundleProgress(
-        kind = BundleItemKind.MEDIA, itemName = "IMG_0014.mov", mediaIndex = 3, mediaCount = 12,
+        kind = BundleItemKind.MEDIA, itemName = "clip_a.mov", mediaIndex = 3, mediaCount = 12,
         doneBytes = (1.8 * gib).toLong(), totalBytes = (7.4 * gib).toLong(), bytesPerSecond = 42.0 * mib, remainingMs = 120_000,
     )
 
@@ -49,7 +49,7 @@ class BundleJobTextTest {
 
     @Test
     fun `the step line names the media file and its place`() {
-        assertEquals("Packing media 3 of 12: IMG_0014.mov", BundleJobText.step(packing).english())
+        assertEquals("Packing media 3 of 12: clip_a.mov", BundleJobText.step(packing).english())
         assertEquals("Media 3 of 12", BundleJobText.shortStep(packing).english())
         assertEquals("Writing the project data", BundleJobText.step(BundleProgress()).english())
         assertEquals("Adding warm.cube", BundleJobText.step(BundleProgress(kind = BundleItemKind.RESOURCE, itemName = "warm.cube")).english())
@@ -103,7 +103,7 @@ class BundleJobTextTest {
         val view = bundleViewFor(running)!!
 
         assertEquals("Backing up Holiday", view.title.english())
-        assertEquals("Packing media 3 of 12: IMG_0014.mov", view.step.english())
+        assertEquals("Packing media 3 of 12: clip_a.mov", view.step.english())
         assertEquals("1.8 of 7.4 GB, about 2 min left", view.progressLine.english())
         assertEquals("42.0 MB/s", view.rateLine)
         assertEquals(24, view.percent)
