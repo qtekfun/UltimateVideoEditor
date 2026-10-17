@@ -3,6 +3,7 @@ package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.ui.editor.labelText
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
+import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import androidx.compose.ui.text.AnnotatedString
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.R
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,12 +75,13 @@ fun CaptionsHost(
     onMessage: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
                 is CaptionsEffect.ClipsReady -> onClips(effect.clips, effect.intoExistingTrack)
                 is CaptionsEffect.Restyle -> onRestyle(effect.style, effect.canvasHeight)
-                is CaptionsEffect.ShowMessage -> onMessage(effect.text)
+                is CaptionsEffect.ShowMessage -> onMessage(effect.text.resolve(context))
             }
         }
     }

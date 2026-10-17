@@ -13,7 +13,8 @@ internal object ScopeScale {
     /** Labels from the top line to the bottom line of a waveform or parade, as percent of the signal. */
     fun verticalLabels(mode: ScopeMode, space: ProjectColorSpace): List<String> = when (mode) {
         ScopeMode.WAVEFORM, ScopeMode.PARADE ->
-            if (space.isHdr) listOf("100 · 1000 nit", "75 · 203 nit", "50", "25", "0") // i18n-ok: a unit symbol else listOf("100", "75", "50", "25", "0")
+            // i18n-ok: unit symbols and numbers
+            if (space.isHdr) listOf("100 · 1000 nit", "75 · 203 nit", "50", "25", "0") else listOf("100", "75", "50", "25", "0")
         ScopeMode.VECTORSCOPE, ScopeMode.HISTOGRAM -> emptyList()
     }
 

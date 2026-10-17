@@ -149,7 +149,8 @@ internal class MulticamController(
                 host.message(UiText.res(R.string.ed_s3_mc_no_length, displayName(asset)))
                 return
             }
-            MulticamAngle("angle-${host.newId()}", "Cam ${'A' + i}" // i18n-ok: a stored angle name, asset.id, ui.draft.offsetOf(asset.id), length)
+            // i18n-ok: a stored angle name
+            MulticamAngle("angle-${host.newId()}", "Cam ${'A' + i}", asset.id, ui.draft.offsetOf(asset.id), length)
         }
         val inFrame = angles.maxOf { it.coverageStart }
         val length = angles.minOf { it.coverageEnd } - inFrame
