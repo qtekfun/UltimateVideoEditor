@@ -1988,3 +1988,15 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   releases, the Pixel is off limits, the MatePad was not attached. Instead the signed 0.5.13 was smoke-tested by hand on the OPPO (log row in
   `docs/RELEASE.md`). The Spanish translation of the tray, library, captions, titles, guide and lower-layer errors (stages 3 to 5) is still open
   and ships in a later `1.x.0`; English is the fallback for every missing string.
+
+## Standing drop mode, group overwrite, Markdown flag list (2026-10-17)
+
+- **Owner report (on 1.0.0).** While a clip is dragged the Insert / Overwrite chip cannot be tapped, and releasing near a cut always inserted, so
+  Overwrite was out of reach; flags were meant to be exported as Markdown and the option was not found.
+- **Drop mode button.** A toolbar button (`DROP_MODE`, letter A / I / O, "S" in Spanish) sets the standing mode before the drag: Auto (position
+  decides), Insert (always the nearest cut) or Overwrite (never inserts). The chip and the second-finger tap still flip one drop. It applies to a
+  clip, a group, and media dragged from the tray.
+- **Group overwrite.** `DropPlan.decideGroupDrop` replaces `decideGroupInsert`: near a cut the group inserts, over a clip it overwrites
+  (`GroupOverwriteBase`: the group is lifted off its lanes first so it never clears itself, each clip keeps its distance from the earliest).
+- **Markdown.** The flag list's text is Markdown (`# title`, `## Colour (n)`, `- [ ] time · name: note`); *Share as Markdown*, *Save .md file*
+  and *Save as CSV* are the three actions.

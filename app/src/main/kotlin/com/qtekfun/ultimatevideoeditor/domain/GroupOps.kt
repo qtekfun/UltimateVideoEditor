@@ -124,6 +124,33 @@ object GroupOps {
         }
     }
 
+    /**
+     * Drops the overlay clips onto the base track replacing the footage they cover, each keeping its distance from the earliest
+     * one: the earliest lands at [start] (a drop past the base's end is placed at the end, like a single clip). The clips are lifted
+     * off their lanes first, so an overwrite never clears a clip of the group itself; overlays above what is replaced are cleared as for
+     * one clip ([LaneOps.overwriteNewClip]). One result, all or nothing.
+     */
+    fun overwriteOnBase(timeline: Timeline, ids: Collection<String>, start: FrameIndex): EditResult<Timeline> {
+        if (!canInsertOnBase(timeline, ids)) return unavailable("Only clips on overlay lanes can be dropped on the base together")
+        val base = checkNotNull(ClipDeletion.baseTrack(timeline))
+        return members(timeline, ids).andThen { sel ->
+            val earliest = sel.minOf { it.clip.timelineStart.value }
+            val groupIds = sel.map { it.clip.id }.toSet()
+            var current = timeline
+            for (track in timeline.tracks) {
+                if (track.clips.any { it.id in groupIds }) current = current.withTrack(track.withClips(track.clips.filter { it.id !in groupIds }))
+            }
+            for (member in sel) {
+                val at = FrameIndex(start.value + (member.clip.timelineStart.value - earliest))
+                current = when (val result = LaneOps.overwriteNewClip(current, member.clip, base.id, at)) {
+                    is EditResult.Success -> result.value
+                    is EditResult.Failure -> return@andThen result
+                }
+            }
+            EditResult.Success(current)
+        }
+    }
+
     // endregion
 
     // region move and align
