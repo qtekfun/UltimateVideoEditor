@@ -240,8 +240,8 @@ class SplitPlayheadViewModelTest {
         assertEquals(listOf("x", "x~n0", "y", "z"), h.clips("v2").map { it.id })
         assertEquals(listOf("c1", "c1~n1", "c2", "c3"), h.clips("v1").map { it.id })
         assertEquals(FrameIndex(30), h.state.playhead)
-        // The parts to the right of the cut are selected; z, which the playhead is not over, stays selected.
-        assertEquals(setOf("x~n0", "c1~n1", "z"), h.state.selection)
+        // Only the parts to the right of the cut stay selected; z, which the playhead is not over, would otherwise go with the next delete.
+        assertEquals(setOf("x~n0", "c1~n1"), h.state.selection)
 
         h.vm.onIntent(EditorIntent.Undo)
         assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
