@@ -1773,9 +1773,12 @@ class EditorViewModel(
         }
         val clipId = clipKeys.idFor(hit.clipKey) ?: return
         val clip = history.timeline.trackOfClip(clipId)?.clip(clipId) ?: return
-        val mode = when (hit.kind) {
-            HitKind.CLIP_LEFT_EDGE -> DragMode.TRIM_START
-            HitKind.CLIP_RIGHT_EDGE -> DragMode.TRIM_END
+        // With several clips selected a drag moves them all, wherever on a clip it starts: trimming is for one clip.
+        val several = state.value.selection.size > 1 && clipId in state.value.selection
+        val mode = when {
+            several -> DragMode.MOVE
+            hit.kind == HitKind.CLIP_LEFT_EDGE -> DragMode.TRIM_START
+            hit.kind == HitKind.CLIP_RIGHT_EDGE -> DragMode.TRIM_END
             else -> DragMode.MOVE
         }
         val group = state.value.selection.takeIf { mode == DragMode.MOVE && it.size > 1 && clipId in it }?.toList()
