@@ -1723,11 +1723,13 @@ class EditorViewModel(
         if (!execute(command)) return@withSelection
         val rightOf = commands.associate { (id, split) -> id to split.newClipId } // the new id is the right-hand part
         pausePlayback()
+        // Only the parts that were cut stay selected: a selected clip the playhead was not over must not be taken by the delete that follows.
+        val cutParts = if (spanning.isEmpty()) selected.toList() else rightOf.values.toList()
         reduce {
             copy(
                 playhead = cut,
-                selectedClipId = rightOf[primary] ?: primary,
-                selectedClipIds = if (selected.size > 1) selected.mapTo(LinkedHashSet()) { rightOf[it] ?: it } else emptySet(),
+                selectedClipId = rightOf[primary] ?: cutParts.firstOrNull() ?: primary,
+                selectedClipIds = if (cutParts.size > 1) cutParts.mapTo(LinkedHashSet()) { rightOf[it] ?: it } else emptySet(),
             )
         }
         playbackOutput?.seek(cut.value)

@@ -232,6 +232,19 @@ class SelectionViewModelTest {
 
     // endregion
 
+    @Test
+    fun `cutting with several selected keeps only the cut parts selected, so the delete does not take the rest of the lane`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("x", "y", "z")
+        h.vm.onIntent(EditorIntent.SetPlayhead(150))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        assertEquals(1, h.state.selection.size)
+        h.vm.onIntent(EditorIntent.RippleDeleteSelected)
+        assertEquals("x", h.clips("v2").first().id)
+        assertEquals(3, h.clips("v2").size)
+        assertEquals(listOf(0L, 100L, 300L), h.starts("v2"))
+    }
+
     // region group drag
 
     @Test
