@@ -85,42 +85,67 @@ object GroupOps {
         is EditResult.Failure -> this
     }
 
-    // region insert on the base
+    // region drop on the base, and move to other lanes
 
     /**
-     * True when the clips can be dropped into a cut of the base track together: every one is a video or photo clip on an
-     * overlay lane (a base clip would leave a hole in the cut being aimed at, and audio or titles have no place there).
+     * True when the clips can be dropped on the base track together: every one is on a video lane (the base or an overlay) and at
+     * least one comes from an overlay lane (a group of base clips only is reordered, see [move]). Audio and titles have no place there.
      */
     fun canInsertOnBase(timeline: Timeline, ids: Collection<String>): Boolean {
         val base = ClipDeletion.baseTrack(timeline) ?: return false
         if (ids.isEmpty()) return false
-        return ids.all { id ->
-            val track = timeline.trackOfClip(id) ?: return@all false
-            track.id != base.id && track.type == TrackType.VIDEO
-        }
+        val tracks = ids.map { id -> timeline.trackOfClip(id) ?: return false }
+        return tracks.all { it.type == TrackType.VIDEO } && tracks.any { it.id != base.id }
     }
 
     /** The total length of the clips, which is the room a group needs in a cut. */
     fun totalLength(timeline: Timeline, ids: Collection<String>): Long =
         ids.sumOf { id -> timeline.trackOfClip(id)?.clip(id)?.durationFrames ?: 0L }
 
+    /** Takes the clips of the group off the timeline: base clips close their gaps, clips of other lanes leave a gap. */
+    private fun withoutMembers(timeline: Timeline, sel: List<Member>, base: Track): EditResult<Timeline> {
+        var current = timeline
+        for (member in sel.filter { it.track.id == base.id }.sortedByDescending { it.clip.timelineStart.value }) {
+            current = when (val closed = TimelineOps.rippleDelete(current, member.clip.id)) {
+                is EditResult.Success -> closed.value
+                is EditResult.Failure -> return closed
+            }
+        }
+        val others = sel.filter { it.track.id != base.id }.map { it.clip.id }.toSet()
+        for (track in current.tracks) {
+            if (track.clips.any { it.id in others }) current = current.withTrack(track.withClips(track.clips.filter { it.id !in others }))
+        }
+        return EditResult.Success(current)
+    }
+
     /**
-     * Drops the overlay clips into the base track at [at], one after the other in the order they have on the timeline (earliest
-     * first, upper lane first on a tie), each ripple-inserted where the previous one ended. The base opens room for all of them,
-     * everything after the cut moves right by the group's length, and the lanes they came from keep their gaps.
+     * Drops the clips into the base track at the cut [at] (a frame of the timeline as it is now), one after the other in the order they
+     * have on the timeline (earliest first, upper lane first on a tie). The base opens room for all of them, everything after the cut moves
+     * right by the group's length, and the lanes they came from keep their gaps. Base clips of the group leave their place first (the base
+     * closes the gap), so the cut is found by the first clip that stays at or after [at].
      */
     fun insertOnBase(timeline: Timeline, ids: Collection<String>, at: FrameIndex): EditResult<Timeline> {
         if (!canInsertOnBase(timeline, ids)) return unavailable(UiText.res(R.string.ge_insert_overlay_only))
         val base = checkNotNull(ClipDeletion.baseTrack(timeline))
         return members(timeline, ids).andThen { sel ->
-            var current = timeline
-            var cursor = at
+            val groupIds = sel.map { it.clip.id }.toSet()
+            val anchorId = base.clips.firstOrNull { it.id !in groupIds && it.timelineStart.value >= at.value }?.id
+            var current = when (val removed = withoutMembers(timeline, sel.filter { it.track.id == base.id }, base)) {
+                is EditResult.Success -> removed.value
+                is EditResult.Failure -> return@andThen removed
+            }
+            val room = checkNotNull(current.track(base.id))
+            var cursor = anchorId?.let { id -> room.clip(id)?.timelineStart } ?: room.end
             for (member in sel) {
-                val moved = when (val result = MagneticBase.move(current, member.clip.id, cursor, base.id, null)) {
-                    is EditResult.Success -> result.value
-                    is EditResult.Failure -> return@andThen result
+                val moved = if (member.track.id == base.id) {
+                    MagneticBase.insert(current, member.clip.copy(timelineStart = cursor), cursor)
+                } else {
+                    MagneticBase.move(current, member.clip.id, cursor, base.id, null)
                 }
-                current = moved
+                current = when (moved) {
+                    is EditResult.Success -> moved.value
+                    is EditResult.Failure -> return@andThen moved
+                }
                 cursor = checkNotNull(current.trackOfClip(member.clip.id)?.clip(member.clip.id)).timelineEnd
             }
             EditResult.Success(current)
@@ -128,7 +153,7 @@ object GroupOps {
     }
 
     /**
-     * Drops the overlay clips onto the base track replacing the footage they cover, each keeping its distance from the earliest
+     * Drops the clips onto the base track replacing the footage they cover, each keeping its distance from the earliest
      * one: the earliest lands at [start] (a drop past the base's end is placed at the end, like a single clip). The clips are lifted
      * off their lanes first, so an overwrite never clears a clip of the group itself; overlays above what is replaced are cleared as for
      * one clip ([LaneOps.overwriteNewClip]). One result, all or nothing.
@@ -138,10 +163,9 @@ object GroupOps {
         val base = checkNotNull(ClipDeletion.baseTrack(timeline))
         return members(timeline, ids).andThen { sel ->
             val earliest = sel.minOf { it.clip.timelineStart.value }
-            val groupIds = sel.map { it.clip.id }.toSet()
-            var current = timeline
-            for (track in timeline.tracks) {
-                if (track.clips.any { it.id in groupIds }) current = current.withTrack(track.withClips(track.clips.filter { it.id !in groupIds }))
+            var current = when (val removed = withoutMembers(timeline, sel, base)) {
+                is EditResult.Success -> removed.value
+                is EditResult.Failure -> return@andThen removed
             }
             for (member in sel) {
                 val at = FrameIndex(start.value + (member.clip.timelineStart.value - earliest))
@@ -153,6 +177,66 @@ object GroupOps {
             EditResult.Success(current)
         }
     }
+
+    /**
+     * Moves video clips (from the base, from overlay lanes, or both) onto overlay lanes, [deltaFrames] later (negative: earlier), each
+     * clip keeping its distance in time from the others. [grabbedId] is the clip the finger holds and [destTrackId] the overlay lane the
+     * finger is over, or null for "above the lanes": then new lanes are made on top, one for each lane the clips came from, in the same
+     * order. With a destination lane: clips from the base go to it, and when the grabbed clip came from an overlay lane the other overlay
+     * clips shift by as many lanes as it did (the lanes must exist). Base clips leave the base, which closes the gaps; nothing else
+     * moves. A clip lands on its lane replacing what it covers there. One result, all or nothing.
+     */
+    fun moveToOverlays(timeline: Timeline, ids: Collection<String>, deltaFrames: Long, grabbedId: String, destTrackId: String?): EditResult<Timeline> {
+        val base = ClipDeletion.baseTrack(timeline) ?: return failure(EditError.NoBaseTrack)
+        return members(timeline, ids).andThen { sel ->
+            if (sel.any { it.track.type != TrackType.VIDEO }) return@andThen unavailable(UiText.res(R.string.ge_video_only))
+            val grabbed = sel.firstOrNull { it.clip.id == grabbedId } ?: return@andThen failure(EditError.ClipNotFound(grabbedId))
+            if (sel.minOf { it.clip.timelineStart.value } + deltaFrames < 0) return@andThen failure(EditError.NegativeStart)
+            val overlays = timeline.tracks.filter { it.type == TrackType.VIDEO && it.id != base.id }
+            var current = when (val removed = withoutMembers(timeline, sel, base)) {
+                is EditResult.Success -> removed.value
+                is EditResult.Failure -> return@andThen removed
+            }
+            // The lane each source lane goes to.
+            val destOf = LinkedHashMap<String, String>()
+            if (destTrackId == null) {
+                val sources = sel.map { it.track }.distinctBy { it.id }.sortedBy { source -> if (source.id == base.id) Int.MAX_VALUE else overlays.indexOfFirst { it.id == source.id } }
+                val top = current.tracks.indexOfFirst { it.type == TrackType.VIDEO }.coerceAtLeast(0)
+                sources.forEachIndexed { index, source ->
+                    val id = freshLaneId(current)
+                    current = when (val added = TimelineOps.addTrack(current, Track(id, TrackType.VIDEO), top + index)) {
+                        is EditResult.Success -> added.value
+                        is EditResult.Failure -> return@andThen added
+                    }
+                    destOf[source.id] = id
+                }
+            } else {
+                val dest = timeline.track(destTrackId) ?: return@andThen failure(EditError.TrackNotFound(destTrackId))
+                if (dest.type != TrackType.VIDEO || dest.id == base.id) return@andThen failure(EditError.TrackTypeMismatch(grabbedId, destTrackId))
+                val grabbedIndex = overlays.indexOfFirst { it.id == grabbed.track.id }
+                val shift = if (grabbedIndex >= 0) overlays.indexOfFirst { it.id == dest.id } - grabbedIndex else 0
+                for (source in sel.map { it.track }.distinctBy { it.id }) {
+                    val sourceIndex = overlays.indexOfFirst { it.id == source.id }
+                    destOf[source.id] = when {
+                        source.id == base.id -> dest.id
+                        grabbedIndex < 0 -> source.id
+                        else -> overlays.getOrNull(sourceIndex + shift)?.id ?: return@andThen unavailable(UiText.res(R.string.ge_no_lane_for_all))
+                    }
+                }
+            }
+            for (member in sel) {
+                val placed = member.clip.copy(timelineStart = member.clip.timelineStart + deltaFrames)
+                current = when (val result = TimelineOps.overwrite(current, destOf.getValue(member.track.id), placed)) {
+                    is EditResult.Success -> result.value
+                    is EditResult.Failure -> return@andThen result
+                }
+            }
+            EditResult.Success(current)
+        }
+    }
+
+    private fun freshLaneId(timeline: Timeline): String =
+        generateSequence(1) { it + 1 }.map { "track-v$it" }.first { timeline.track(it) == null }
 
     // endregion
 
