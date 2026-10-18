@@ -251,6 +251,16 @@ class SelectionViewModelTest {
     }
 
     @Test
+    fun `with several clips selected a drag from a clip edge moves the group instead of trimming`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("x", "y")
+        h.vm.onIntent(EditorIntent.DragStart(h.hit("x", frame = 0, kind = HitKind.CLIP_LEFT_EDGE)))
+        h.vm.onIntent(EditorIntent.DragMove(frame = 30, trackIndex = 0))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(listOf(30L, 130L, 300L), h.starts("v2"))
+    }
+
+    @Test
     fun `a position that would land on another clip keeps the last valid preview`() = runTest(dispatcher) {
         val h = harness()
         h.select("x", "y")
