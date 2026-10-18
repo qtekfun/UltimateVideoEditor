@@ -37,14 +37,15 @@ class GroupInsertBaseTest {
     }
 
     @Test
-    fun `a base clip, an audio clip or an unknown id make the group ineligible`() {
+    fun `an audio clip, an unknown id, no clips or only base clips make the group ineligible`() {
         val t = scene()
         assertTrue(GroupOps.canInsertOnBase(t, listOf("p1", "q")))
-        assertEquals(false, GroupOps.canInsertOnBase(t, listOf("p1", "a")))
+        assertTrue(GroupOps.canInsertOnBase(t, listOf("p1", "a"))) // a base clip may travel with overlay clips
+        assertEquals(false, GroupOps.canInsertOnBase(t, listOf("a", "b"))) // only base clips: a reorder
         assertEquals(false, GroupOps.canInsertOnBase(t, listOf("p1", "m")))
         assertEquals(false, GroupOps.canInsertOnBase(t, listOf("p1", "nope")))
         assertEquals(false, GroupOps.canInsertOnBase(t, emptyList()))
-        assertTrue(GroupInsertBase(listOf("p1", "a"), f(100)).apply(t) is EditResult.Failure)
+        assertTrue(GroupInsertBase(listOf("p1", "m"), f(100)).apply(t) is EditResult.Failure)
     }
 
     @Test
@@ -74,7 +75,7 @@ class GroupInsertBaseTest {
 
     @Test
     fun `an ineligible group has no group decision`() {
-        assertNull(DropPlan.decideGroupDrop(scene(), listOf("p1", "a"), f(104), DropAim()))
+        assertNull(DropPlan.decideGroupDrop(scene(), listOf("p1", "m"), f(104), DropAim()))
     }
 
     @Test

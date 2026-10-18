@@ -2027,3 +2027,16 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 - **Not fixable without rewriting history**, which the project does not do: the commits carry the author address the owner configured in git
   (`user.email`), so it is public in every commit; the old file names stay in old commits. Going forward use GitHub's `@users.noreply.github.com`
   address (Settings, Emails, "Keep my email addresses private") for new commits.
+
+## Moving selected clips: wherever the finger lets go; select mode scrolls (2026-10-18)
+
+- **Owner report.** Photos meant for V2 went to V1 and a multi-selection on the base could not be moved to V2; in select mode a drag on empty
+  space drew a rectangle instead of scrolling; a drag of selected clips should take them to where the finger is, on another lane, and above the
+  top lane make new lanes.
+- **Decision.** A selection of video clips dragged over an overlay lane lifts the base clips onto it (the base closes behind them), keeps the
+  clips' distances in time, and shifts the other overlay clips by as many lanes as the grabbed one moved (`GroupMoveToLanes`,
+  `GroupOps.moveToOverlays`). Dragged above the lanes it makes new lanes on top, one for each lane the clips came from, in the same order. Over the
+  base it inserts or overwrites in a cut as before, now also for a group that carries base clips (`insertOnBase` removes them first and aims at the
+  cuts of the clips that stay). Audio and title groups keep the old lane-by-lane move.
+- **Select mode** no longer draws a marquee: taps select, a drag on empty space scrolls (`TimelineSurfaceView`).
+- **The lane media is added to** follows the selected clip when an edit moves it to another lane, so after lifting photos to V2 the tray adds to V2.
