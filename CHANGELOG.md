@@ -3,6 +3,13 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## 1.2.0
+
+- **Selected clips move together to wherever you let go.** Base clips can be dragged to an overlay lane (the base closes behind them); dragging above
+  the top lane makes new lanes; a group with base clips can also be dropped into a cut of the base.
+- **Select mode scrolls.** Dragging empty space no longer draws a rectangle: taps select, drags scroll.
+- **The lane new media goes to follows the selected clip** when it changes lane.
+
 ## 1.1.0
 
 - **Spanish everywhere.** The media tray, library, captions, titles, multicam, proxies, templates, scopes, stickers, frame saving, the first-run

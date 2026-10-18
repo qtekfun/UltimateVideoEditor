@@ -654,7 +654,7 @@
     <!-- Editor (stage 2a), continued -->
     <string name="ed_2a_hdr_project_sdr_preview">Proyecto HDR, vista previa SDR</string>
     <string name="ed_2a_play">Reproducir</string>
-    <string name="ed_2a_select_several_clips_tap_them">Selecciona varios clips: tócalos uno a uno o arrastra un rectángulo (una pulsación larga sobre un clip también lo añade)</string>
+    <string name="ed_2a_select_several_clips_tap_them">Selecciona varios clips: tócalos uno a uno (una pulsación larga sobre un clip también lo añade); arrastrar por un espacio vacío sigue desplazando</string>
     <string name="ed_2a_selected">%1$s seleccionados</string>
     <string name="ed_2a_show_path">Mostrar la trayectoria</string>
     <string name="ed_2a_analyse">Analizar</string>
@@ -1810,8 +1810,8 @@
         <item quantity="many">Este dispositivo solo puede mostrar %1$d capas de vídeo a la vez; las %2$d inferiores no se ven en la vista previa</item>
         <item quantity="other">Este dispositivo solo puede mostrar %1$d capas de vídeo a la vez; las %2$d inferiores no se ven en la vista previa</item>
     </plurals>
-    <string name="ge_insert_overlay_only">Solo se pueden insertar juntos en la base los clips de pistas superpuestas</string>
-    <string name="ge_drop_overlay_only">Solo se pueden soltar juntos en la base los clips de pistas superpuestas</string>
+    <string name="ge_insert_overlay_only">Solo se pueden insertar juntos en la base los clips de vídeo y de foto</string>
+    <string name="ge_drop_overlay_only">Solo se pueden soltar juntos en la base los clips de vídeo y de foto</string>
     <string name="ge_no_lane_for_all">Ahí no hay pista para todos los clips seleccionados</string>
     <string name="ge_base_or_others">Para mover clips juntos, selecciona solo clips de la pista base o solo clips de las otras pistas</string>
     <string name="ge_base_reorder_only">Los clips de la pista base solo se pueden reordenar a lo largo de la base</string>
@@ -2225,7 +2225,7 @@
     <string name="g_delete_help">Elimina el clip seleccionado. En la pista base el hueco se cierra solo; en las demás pistas queda un hueco.</string>
     <string name="g_delete_when">Hay un clip seleccionado.</string>
     <string name="g_select_mode_name">Seleccionar varios clips</string>
-    <string name="g_select_mode_help">Activa o desactiva el modo de selección. Mientras está activado (el botón aparece resaltado), toca clips para añadirlos o quitarlos y arrastra por un espacio vacío para dibujar un rectángulo de selección.</string>
+    <string name="g_select_mode_help">Activa o desactiva el modo de selección. Mientras está activado (el botón aparece resaltado), toca clips para añadirlos o quitarlos; arrastrar por un espacio vacío desplaza la línea de tiempo como siempre.</string>
     <string name="g_close_gap_name">Cerrar hueco antes del clip</string>
     <string name="g_close_gap_help">Desliza un clip superpuesto o de audio hacia atrás hasta que toque el clip anterior.</string>
     <string name="g_close_gap_when">Hay seleccionado un clip de una pista superpuesta o de audio. La pista base nunca tiene huecos, así que ahí está desactivado.</string>
@@ -2323,7 +2323,7 @@
     <string name="gg_tap_clip_title">Tocar un clip</string>
     <string name="gg_tap_clip_help">Lo selecciona: un contorno amarillo con un tirador en cada extremo. Toca una pista vacía para seleccionar esa pista.</string>
     <string name="gg_drag_clip_title">Arrastrar un clip seleccionado</string>
-    <string name="gg_drag_clip_help">Lo mueve. Los bordes se pegan a los vecinos, al cabezal y a los marcadores. Si lo sueltas en la pista base cerca de un corte, se inserta; sobre un clip, sobrescribe. Mientras tienes el dedo apoyado, un chip muestra Insertar o Sobrescribir: tócalo, o toca en cualquier sitio con un segundo dedo, para cambiar; o fija el modo antes con el botón «Modo de soltar» de la fila de herramientas. El arrastre se queda en una dirección: tira sobre todo hacia abajo o hacia arriba y el clip cambia de pista sin moverse en el tiempo; tira sobre todo de lado y se mueve en el tiempo y se queda en su pista (una pequeña marca indica el bloqueo); tira en diagonal, o muy lejos en el otro sentido, y sigue tu dedo con libertad. Con varios clips superpuestos seleccionados (una tira de fotos en V2), suéltalos en la pista base cerca de un corte y se insertan todos ahí, en orden, en un solo paso; después el cabezal espera al final de lo insertado.</string>
+    <string name="gg_drag_clip_help">Lo mueve. Los bordes se pegan a los vecinos, al cabezal y a los marcadores. Si lo sueltas en la pista base cerca de un corte, se inserta; sobre un clip, sobrescribe. Mientras tienes el dedo apoyado, un chip muestra Insertar o Sobrescribir: tócalo, o toca en cualquier sitio con un segundo dedo, para cambiar; o fija el modo antes con el botón «Modo de soltar» de la fila de herramientas. El arrastre se queda en una dirección: tira sobre todo hacia abajo o hacia arriba y el clip cambia de pista sin moverse en el tiempo; tira sobre todo de lado y se mueve en el tiempo y se queda en su pista (una pequeña marca indica el bloqueo); tira en diagonal, o muy lejos en el otro sentido, y sigue tu dedo con libertad. Con varios clips superpuestos seleccionados (una tira de fotos en V2), suéltalos en la pista base cerca de un corte y se insertan todos ahí, en orden, en un solo paso; después el cabezal espera al final de lo insertado. Los clips seleccionados se mueven siempre juntos y caen donde sueltes: en otra pista (los clips de la base la dejan y se cierra detrás) o, si arrastras por encima de la pista superior, en pistas nuevas.</string>
     <string name="gg_drop_mode_title">Tocar con un segundo dedo mientras arrastras</string>
     <string name="gg_drop_mode_help">Cambia el soltar entre Insertar (abre un hueco, los clips posteriores se desplazan a la derecha) y Sobrescribir (sustituye lo que cubre el clip). La línea de tiempo muestra el resultado antes de que sueltes.</string>
     <string name="gg_trim_title">Arrastrar el borde de un clip</string>
@@ -2460,4 +2460,5 @@
         <item quantity="many">%1$s (y %2$d sitios más)</item>
         <item quantity="other">%1$s (y %2$d sitios más)</item>
     </plurals>
+    <string name="ge_video_only">Solo los clips de vídeo y de foto se pueden mover juntos a otra pista de vídeo</string>
 </resources>

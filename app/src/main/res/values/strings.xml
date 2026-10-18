@@ -632,7 +632,7 @@
     <!-- Editor (stage 2a), continued -->
     <string name="ed_2a_hdr_project_sdr_preview">HDR project, SDR preview</string>
     <string name="ed_2a_play">Play</string>
-    <string name="ed_2a_select_several_clips_tap_them">Select several clips: tap them one by one, or drag a rectangle (a long press on a clip also adds it)</string>
+    <string name="ed_2a_select_several_clips_tap_them">Select several clips: tap them one by one (a long press on a clip also adds it); dragging empty space still scrolls</string>
     <string name="ed_2a_selected">%1$s selected</string>
     <string name="ed_2a_show_path">Show path</string>
     <string name="ed_2a_analyse">Analyse</string>
@@ -1768,8 +1768,8 @@
         <item quantity="one">This device can preview %1$d video layer at once; the lower %2$d are hidden in the preview</item>
         <item quantity="other">This device can preview %1$d video layers at once; the lower %2$d are hidden in the preview</item>
     </plurals>
-    <string name="ge_insert_overlay_only">Only clips on overlay lanes can be inserted into the base together</string>
-    <string name="ge_drop_overlay_only">Only clips on overlay lanes can be dropped on the base together</string>
+    <string name="ge_insert_overlay_only">Only video and photo clips can be inserted into the base together</string>
+    <string name="ge_drop_overlay_only">Only video and photo clips can be dropped on the base together</string>
     <string name="ge_no_lane_for_all">There is no lane there for all the selected clips</string>
     <string name="ge_base_or_others">To move clips together, select only base-track clips or only clips on the other lanes</string>
     <string name="ge_base_reorder_only">Base-track clips can only be reordered along the base</string>
@@ -2172,7 +2172,7 @@
     <string name="g_delete_help">Deletes the selected clip. On the base track the gap closes by itself; on other tracks a gap is left.</string>
     <string name="g_delete_when">A clip is selected.</string>
     <string name="g_select_mode_name">Select several clips</string>
-    <string name="g_select_mode_help">Turns select mode on or off. While on (the button is highlighted), tap clips to add or remove them and drag across empty space to draw a selection rectangle.</string>
+    <string name="g_select_mode_help">Turns select mode on or off. While on (the button is highlighted), tap clips to add or remove them; dragging empty space scrolls the timeline as usual.</string>
     <string name="g_close_gap_name">Close gap before clip</string>
     <string name="g_close_gap_help">Slides an overlay or audio clip back until it touches the previous clip.</string>
     <string name="g_close_gap_when">A clip on an overlay or audio track is selected. The base track never has gaps, so it is off there.</string>
@@ -2270,7 +2270,7 @@
     <string name="gg_tap_clip_title">Tap a clip</string>
     <string name="gg_tap_clip_help">Selects it: a yellow outline with a handle at each end. Tap an empty lane to select that track.</string>
     <string name="gg_drag_clip_title">Drag a selected clip</string>
-    <string name="gg_drag_clip_help">Moves it. Edges snap to neighbours, the playhead and markers. Dropping on the base track near a cut inserts it, over a clip overwrites it. While your finger is down a chip shows Insert or Overwrite: tap it, or tap anywhere with a second finger, to switch; or set the mode beforehand with the Drop mode button in the tool row. The drag keeps to one direction: pull mainly down or up and the clip changes lane without moving in time; pull mainly sideways and it moves in time and stays on its lane (a small tick marks the lock); pull diagonally, or far across the other way, and it follows your finger freely. With several overlay clips selected (a run of photos on V2), drop them on the base track near a cut and they are all inserted there, in order, in one step; the playhead then waits at the end of what was inserted.</string>
+    <string name="gg_drag_clip_help">Moves it. Edges snap to neighbours, the playhead and markers. Dropping on the base track near a cut inserts it, over a clip overwrites it. While your finger is down a chip shows Insert or Overwrite: tap it, or tap anywhere with a second finger, to switch; or set the mode beforehand with the Drop mode button in the tool row. The drag keeps to one direction: pull mainly down or up and the clip changes lane without moving in time; pull mainly sideways and it moves in time and stays on its lane (a small tick marks the lock); pull diagonally, or far across the other way, and it follows your finger freely. With several overlay clips selected (a run of photos on V2), drop them on the base track near a cut and they are all inserted there, in order, in one step; the playhead then waits at the end of what was inserted. Selected clips always move together and land where you let go: on another lane (base clips leave the base and it closes behind them) or, dragging above the top lane, on new lanes.</string>
     <string name="gg_drop_mode_title">Tap with a second finger while dragging</string>
     <string name="gg_drop_mode_help">Switches the drop between Insert (opens a gap, later clips move right) and Overwrite (replaces what the clip covers). The timeline shows the result before you let go.</string>
     <string name="gg_trim_title">Drag a clip\'s edge</string>
@@ -2394,4 +2394,5 @@
         <item quantity="one">%1$s (and %2$d more place)</item>
         <item quantity="other">%1$s (and %2$d more places)</item>
     </plurals>
+    <string name="ge_video_only">Only video and photo clips can move to another video lane together</string>
 </resources>
