@@ -259,7 +259,6 @@ class TimelineSurfaceView(
                 if (!dragging && !marquee && !shapingActive) {
                     tryStartShaping()
                     if (!shapingActive) tryStartDrag()
-                    if (!dragging && !shapingActive) tryStartMarquee()
                 }
                 if (shapingActive) {
                     shaping()?.onDragMove(engine.hitTest(e2.x, e2.y))
@@ -352,14 +351,6 @@ class TimelineSurfaceView(
         shapingActive = true
         performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         target.onDragStart(hit)
-    }
-
-    /** In select mode a drag that starts on empty lane space draws a selection rectangle instead of scrolling. */
-    private fun tryStartMarquee() {
-        val target = selecting() ?: return
-        if (!target.selectMode) return
-        val kind = downHit?.kind ?: return
-        if (kind == HitKind.EMPTY_TRACK || kind == HitKind.ABOVE_LANES || kind == HitKind.NONE) marquee = true
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) = engine.surfaceCreated(holder.surface)

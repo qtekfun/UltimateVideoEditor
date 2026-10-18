@@ -114,6 +114,7 @@ import com.qtekfun.ultimatevideoeditor.domain.GroupPasteAttributes
 import com.qtekfun.ultimatevideoeditor.domain.GroupPaste
 import com.qtekfun.ultimatevideoeditor.domain.GroupOps
 import com.qtekfun.ultimatevideoeditor.domain.GroupMove
+import com.qtekfun.ultimatevideoeditor.domain.GroupMoveToLanes
 import com.qtekfun.ultimatevideoeditor.domain.GroupDuplicate
 import com.qtekfun.ultimatevideoeditor.domain.GroupDelete
 import com.qtekfun.ultimatevideoeditor.domain.GroupAlign
@@ -1221,9 +1222,15 @@ class EditorViewModel(
                 canRedo = canRedo,
                 selectedClipId = selectedClipId?.takeIf { committed.trackOfClip(it) != null },
                 selectedClipIds = selectedClipIds.filterTo(LinkedHashSet()) { committed.trackOfClip(it) != null },
-                // If the selected track vanished (undo, removal), fall back to the first video track.
-                selectedTrackId = selectedTrackId?.takeIf { committed.track(it) != null }
-                    ?: committed.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
+                // The active lane follows the selected clip when an edit moved it to another lane (a clip lifted to V2 makes V2 the lane the
+                // next added media goes to); if the selected track vanished (undo, removal), fall back to the first video track.
+                selectedTrackId = run {
+                    val clipId = selectedClipId
+                    val before = clipId?.let { this.timeline.trackOfClip(it)?.id }
+                    val now = clipId?.let { committed.trackOfClip(it)?.id }
+                    if (now != null && now != before && selectedTrackId == before) now
+                    else selectedTrackId?.takeIf { committed.track(it) != null } ?: committed.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id
+                },
             )
         }
         refreshStabilise()
@@ -2128,9 +2135,12 @@ class EditorViewModel(
         val anchor = anchorTrack.clip(session.clipId) ?: return
         val earliest = ids.mapNotNull { id -> base.trackOfClip(id)?.clip(id)?.timelineStart?.value }.minOrNull() ?: return
         val requested = ((frame - session.grabOffset) - anchor.timelineStart.value).coerceAtLeast(-earliest)
-        // Over the base the group is dropped into a cut, in order, like a single clip is.
+        // The lane under the finger, as the canvas shows it (a lane made by the preview counts as "a new lane").
+        val shown = state.value.dragPreview ?: base
+        val overId = if (zone == DragZone.LANES) shown.tracks.getOrNull(trackIndex)?.id else null
         val baseTrack = ClipDeletion.baseTrack(base)
-        if (zone == DragZone.LANES && baseTrack != null && base.tracks.getOrNull(trackIndex)?.id == baseTrack.id) {
+        // Over the base the group is dropped into a cut, in order, like a single clip is.
+        if (baseTrack != null && overId == baseTrack.id) {
             val aim = DropAim(reachFrames, FrameIndex(frame.coerceAtLeast(0)), effectiveDropChoice())
             val decision = DropPlan.decideGroupDrop(base, ids, FrameIndex((earliest + requested).coerceAtLeast(0)), aim)
             val dropCommand = decision?.command
@@ -2143,6 +2153,20 @@ class EditorViewModel(
             }
         }
         val delta = GroupOps.snappedDelta(base, ids, requested, snapWith(base, playhead)).coerceAtLeast(-earliest)
+        // Video clips go wherever the finger lets go: onto an overlay lane (even from the base), or above the lanes onto new ones.
+        val allVideo = ids.all { id -> base.trackOfClip(id)?.type == TrackType.VIDEO }
+        val anyOnBase = ids.any { id -> base.trackOfClip(id)?.id == baseTrack?.id }
+        val toNewLanes = allVideo && (zone == DragZone.ABOVE_LANES || (overId != null && base.track(overId) == null))
+        val toOverlay = allVideo && anyOnBase && overId != null && overId != baseTrack?.id && base.track(overId)?.type == TrackType.VIDEO
+        if (toNewLanes || toOverlay) {
+            val command = GroupMoveToLanes(ids, delta, session.clipId, overId.takeIf { toOverlay })
+            val result = command.apply(base).markersFrom(base) as? EditResult.Success ?: return
+            pendingDragCommand = if (result.value == base) null else command
+            val at = earliest + delta
+            val hint = if (toNewLanes) DropHint(DropKind.NEW_LANE, null, at, at + ids.sumOf { id -> base.trackOfClip(id)?.clip(id)?.durationFrames ?: 0L }) else null
+            reduce { copy(dragPreview = result.value, dropHint = hint, dropChoiceOffered = false) }
+            return
+        }
         val command = GroupMove(ids, delta, laneDeltaFor(base, anchorTrack, trackIndex, zone))
         val result = command.apply(base).markersFrom(base) as? EditResult.Success ?: return
         pendingDragCommand = if (result.value == base) null else command

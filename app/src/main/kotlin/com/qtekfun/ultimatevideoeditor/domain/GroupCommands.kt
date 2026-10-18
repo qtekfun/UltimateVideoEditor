@@ -18,6 +18,11 @@ data class GroupOverwriteBase(val clipIds: List<String>, val start: FrameIndex) 
     override fun apply(timeline: Timeline) = GroupOps.overwriteOnBase(timeline, clipIds, start).linkedFrom(timeline)
 }
 
+/** Moves video clips from the base and / or overlay lanes onto an overlay lane, or onto new lanes above (null), as one undo step (see [GroupOps.moveToOverlays]). */
+data class GroupMoveToLanes(val clipIds: List<String>, val deltaFrames: Long, val grabbedId: String, val destTrackId: String?) : EditCommand {
+    override fun apply(timeline: Timeline) = GroupOps.moveToOverlays(timeline, clipIds, deltaFrames, grabbedId, destTrackId).linkedFrom(timeline)
+}
+
 data class GroupDelete(val clipIds: List<String>) : EditCommand {
     override fun apply(timeline: Timeline) = GroupOps.delete(timeline, clipIds)
 }

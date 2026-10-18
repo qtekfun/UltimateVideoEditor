@@ -287,6 +287,52 @@ class SelectionViewModelTest {
         assertEquals(listOf(0L, 100L, 300L), h.starts("v2"))
     }
 
+    @Test
+    fun `selected base clips dragged onto an overlay lane leave the base and land where the finger is`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1", "c2")
+        assertEquals("v1", h.state.selectedTrackId)
+        h.vm.onIntent(EditorIntent.DragStart(h.hit("c1", frame = 10)))
+        h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = 0)) // lane 0 is v2
+        val preview = checkNotNull(h.state.dragPreview)
+        assertEquals(listOf("c1", "c2", "z"), preview.track("v2")!!.clips.map { it.id })
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        assertEquals(listOf("c3"), h.clips("v1").map { it.id })
+        assertEquals(listOf(0L), h.starts("v1")) // the base closed behind them
+        assertEquals(listOf("c1", "c2", "z"), h.clips("v2").map { it.id })
+        // The lane the clips are on is the lane the next media is added to.
+        assertEquals("v2", h.state.selectedTrackId)
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(listOf("c1", "c2", "c3"), h.clips("v1").map { it.id })
+    }
+
+    @Test
+    fun `selected clips dragged above the top lane open new lanes`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1", "c2")
+        h.vm.onIntent(EditorIntent.DragStart(h.hit("c1", frame = 10)))
+        h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
+        assertEquals(DropKind.NEW_LANE, h.state.dropHint?.kind)
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        val top = h.timeline.tracks.first()
+        assertEquals(listOf("c1", "c2"), top.clips.map { it.id })
+        assertEquals(listOf("c3"), h.clips("v1").map { it.id })
+        assertEquals(top.id, h.state.selectedTrackId)
+    }
+
+    @Test
+    fun `overlay clips dragged above the lanes get a new lane too, and keep their times`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("x", "y")
+        h.vm.onIntent(EditorIntent.DragStart(h.hit("x", frame = 10)))
+        h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
+        h.vm.onIntent(EditorIntent.DragEnd(commit = true))
+        val top = h.timeline.tracks.first()
+        assertEquals(listOf("x", "y"), top.clips.map { it.id })
+        assertEquals(listOf(0L, 100L), top.clips.map { it.timelineStart.value })
+        assertEquals(listOf("z"), h.clips("v2").map { it.id })
+    }
+
     // endregion
 
     // region group edits

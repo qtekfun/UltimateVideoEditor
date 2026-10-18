@@ -125,10 +125,17 @@ object DropPlan {
         val base = ClipDeletion.baseTrack(timeline) ?: return null
         val first = maxOf(start.value, 0L)
         val length = GroupOps.totalLength(timeline, clipIds)
+        // The base as it will be once the group's own base clips have left it: the cuts to aim at are those of the clips that stay.
+        val stay = base.clips.filter { it.id !in clipIds }
+        var cursor = 0L
+        val compact = stay.map { clip -> clip.copy(timelineStart = FrameIndex(cursor)).also { cursor += clip.durationFrames } }
         val at = when {
-            base.clips.isEmpty() -> 0L
-            first >= base.end.value -> base.end.value
-            else -> junctionFor(base.clips, first, length, aim, includeEnds = true)
+            compact.isEmpty() -> 0L
+            first >= cursor -> base.end.value
+            else -> junctionFor(compact, first, length, aim, includeEnds = true)?.let { cut ->
+                val i = compact.indexOfFirst { it.timelineStart.value == cut }
+                if (i >= 0) stay[i].timelineStart.value else base.end.value
+            }
         }
         if (at != null) {
             return DropDecision(DropKind.INSERT, GroupInsertBase(clipIds, FrameIndex(at)), DropHint(DropKind.INSERT, base.id, at, at))
