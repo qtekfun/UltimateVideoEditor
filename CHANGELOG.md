@@ -3,6 +3,11 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## 1.2.2
+
+- **Cutting with several clips selected no longer empties the lane.** After a cut only the parts that were cut stay selected, so deleting one
+  piece leaves the other selected clips alone.
+
 ## 1.2.1
 
 - **Dragging several selected clips from a clip's edge moves them all.** It used to trim the clip you grabbed.
