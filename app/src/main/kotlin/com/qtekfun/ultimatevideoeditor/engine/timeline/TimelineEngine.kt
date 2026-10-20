@@ -121,6 +121,7 @@ class TimelineEngine(
     // The view can outlive the engine by a frame when a screen is torn down; late surface
     // callbacks after close() have nothing left to release.
     fun surfaceChanged(width: Int, height: Int) {
+        viewWidth = width
         if (handle != 0L) NativeTimeline.nativeSurfaceChanged(handle, width, height)
     }
 
@@ -141,7 +142,10 @@ class TimelineEngine(
     fun setWaveformScale(scale: WaveformScale) = NativeTimeline.nativeSetWaveformScale(live(), scale.code)
 
     fun scrollBy(dx: Float, dy: Float) = NativeTimeline.nativeScrollBy(live(), dx, dy)
-    fun zoomBy(factor: Float, focusX: Float) = NativeTimeline.nativeZoomBy(live(), factor, focusX)
+    fun zoomBy(factor: Float, focusX: Float) {
+        detailZoomed = false
+        NativeTimeline.nativeZoomBy(live(), factor, focusX)
+    }
     fun fling(velocityX: Float) = NativeTimeline.nativeFling(live(), velocityX)
 
     /** Refits the time axis to the project length while it is still following it. */
@@ -151,7 +155,27 @@ class TimelineEngine(
      * The "Fit" button: zooms the time axis so the whole project fits. It keeps following the panel and the project length until
      * the user zooms by hand. Lane heights are not touched: they are the layout sheet's preset.
      */
-    fun fitToContent() = NativeTimeline.nativeFitToContent(live())
+    fun fitToContent() {
+        detailZoomed = false
+        NativeTimeline.nativeFitToContent(live())
+    }
+
+    private var detailZoomed = false
+    private var viewWidth = 0
+
+    /**
+     * Zooms the time axis in as far as it goes around [focusX] (the view centre when null), or, when it already is, back out to the
+     * whole project. Zooming or fitting by hand forgets which of the two comes next.
+     */
+    fun toggleDetailZoom(focusX: Float?) {
+        val h = live()
+        if (detailZoomed) {
+            NativeTimeline.nativeFitToContent(h)
+        } else {
+            NativeTimeline.nativeZoomBy(h, DETAIL_ZOOM_FACTOR, focusX ?: (viewWidth / 2f))
+        }
+        detailZoomed = !detailZoomed
+    }
 
     /** False once the user has zoomed by hand, until the next [fitToContent]. */
     fun isAutoFit(): Boolean = NativeTimeline.nativeIsAutoFit(live())
@@ -229,3 +253,6 @@ class TimelineEngine(
         if (status != EngineStatus.OK) throw EngineException("$what failed: $status")
     }
 }
+
+/** Larger than the zoom range (0.02 to 96 px per frame), so the native clamp lands on the closest zoom. */
+private const val DETAIL_ZOOM_FACTOR = 100_000f

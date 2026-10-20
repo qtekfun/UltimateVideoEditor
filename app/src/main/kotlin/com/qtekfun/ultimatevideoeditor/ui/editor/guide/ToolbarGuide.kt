@@ -55,6 +55,7 @@ internal object ToolbarGuide {
         GuideEntry("pause", GuideSection.TRANSPORT, EditorIcons.Pause, R.string.g_pause_name, R.string.g_pause_help, 0),
         GuideEntry("next", GuideSection.TRANSPORT, EditorIcons.SkipNext, R.string.g_next_name, R.string.g_next_help, 0),
         GuideEntry("save-frame", GuideSection.TRANSPORT, EditorIcons.FrameImage, R.string.g_save_frame_name, R.string.g_save_frame_help, 0),
+        GuideEntry("zoom-detail", GuideSection.TRANSPORT, EditorIcons.ZoomDetail, R.string.g_zoom_detail_name, R.string.g_zoom_detail_help, 0),
         GuideEntry("fit", GuideSection.TRANSPORT, EditorIcons.Fit, R.string.g_fit_name, R.string.g_fit_help, 0),
 
         GuideEntry("import", GuideSection.EDIT, EditorIcons.Add, R.string.g_import_name, R.string.g_import_help, R.string.g_import_when),

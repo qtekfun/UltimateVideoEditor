@@ -549,6 +549,8 @@
     <string name="ed_2a_previous_clip_boundary">Límite de clip anterior</string>
     <string name="ed_2a_next_clip_boundary">Límite de clip siguiente</string>
     <string name="ed_2a_save_frame_as_image_the">Guardar el fotograma como imagen: la imagen bajo el cabezal, en PNG o JPEG</string>
+    <string name="ed_zd_zoom_to_detail">Zoom al detalle</string>
+    <string name="ed_zd_zoom_to_detail_hint">Añade un botón junto a Ajustar, y un doble toque en la regla de tiempo, que acercan la línea de tiempo al máximo, hasta los fotogramas, y la devuelven a todo el proyecto.</string>
     <string name="ed_2a_fit_the_whole_project">Ajustar todo el proyecto a la vista</string>
     <string name="ed_2a_import_media">Importar archivos multimedia</string>
     <string name="ed_2a_split_at_playhead">Dividir en el cabezal</string>
@@ -2216,6 +2218,8 @@
     <string name="g_next_help">Lleva el cabezal al inicio o al final del clip siguiente y detiene la reproducción si estaba en marcha. En las filas de fotogramas clave del inspector, la misma flecha salta al fotograma clave siguiente.</string>
     <string name="g_save_frame_name">Guardar fotograma como imagen</string>
     <string name="g_save_frame_help">Guarda la imagen que hay bajo el cabezal como PNG o JPEG, para una miniatura o una portada.</string>
+    <string name="g_zoom_detail_name">Zoom al detalle</string>
+    <string name="g_zoom_detail_help">Acerca el eje de tiempo al máximo alrededor del cursor, hasta fotogramas sueltos; vuelve a tocarlo para volver a ver todo el proyecto. Solo aparece si lo activas en la hoja de diseño, donde también activa el doble toque en la regla de tiempo.</string>
     <string name="g_fit_name">Ajustar a todo el proyecto</string>
     <string name="g_fit_help">Acerca o aleja el eje de tiempo para ver todo el proyecto. La altura de las pistas no cambia (la fija la hoja de diseño). Esto no es pantalla completa: para eso toca dos veces la vista previa.</string>
     <string name="g_import_name">Importar medios</string>

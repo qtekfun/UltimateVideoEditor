@@ -20,6 +20,7 @@ fun TimelineHost(
     dropTarget: TimelineDropTarget? = null,
     selecting: TimelineSelecting? = null,
     shaping: TimelineShaping? = null,
+    detailZoom: Boolean = false,
 ) {
     val currentOnTap = rememberUpdatedState(onTap)
     val currentEditing = rememberUpdatedState(editing)
@@ -28,6 +29,7 @@ fun TimelineHost(
     val currentShaping = rememberUpdatedState(shaping)
     AndroidView(
         modifier = modifier,
+        update = { it.detailZoomOnRuler = detailZoom },
         factory = { context ->
             TimelineSurfaceView(context, engine, { currentOnTap.value(it) }, { currentEditing.value }, { currentDropTarget.value }, { currentSelecting.value }, { currentShaping.value })
         },
