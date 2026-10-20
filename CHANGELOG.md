@@ -3,6 +3,11 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## 1.3.1
+
+- **The preview and the timeline no longer stay cropped after rotating.** Going back to portrait could leave both drawn in a third of the
+  width. A resize now takes the preview's window surface again, as the timeline already did, and the timeline does it on every size callback.
+
 ## 1.3.0
 
 - **HDR footage no longer dazzles next to photos and SDR video.** HLG and PQ clips are measured in the background (a dozen frames of the original,
