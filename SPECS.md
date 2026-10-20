@@ -1735,6 +1735,34 @@ Kotlin `TimelineSnapshotTest`.
 independence; relink and offset; restore; collisions), `DetachedAudioSnapshotTest` (the mix), `DetachedAudioMapperTest` (old projects,
 round trip, broken link), `ToolbarGuideTest`, `DetachedTransitionAudioTest`, `PlaceWithDetachedAudioTest`, `VideoAudioPlacementViewModelTest`.
 
+### 5.44 HDR level (automatic brightness of HDR footage)
+
+Phone HLG footage is recorded with its diffuse content (skin, walls) well above 203 nit, the reference white that SDR video, photos and graphics
+sit at in an HDR project (5.x colour pipeline); next to them it dazzles, and the cut back to SDR material looks like the brightness drops. The
+HDR level is a display-light gain, applied per clip, that only ever dims.
+
+- **Measuring** (`engine/hdr/HdrLevelMeasure`, `MediaCodecHdrLevelAnalyzer`, `ui/editor/HdrLevelAnalysis`): for every HLG or PQ clip that would be
+  dimmed, one file at a time in the background, 12 frames spread over the original (never a proxy) are decoded by the post-export verifier's
+  `MediaCodecFrameSource` and signed (`FrameSignature`: mean Y'CbCr of a 32 x 18 grid). Each cell becomes a luminance in nit (BT.2020 non-constant
+  luminance to R'G'B', then HLG inverse OETF and OOTF at 1000 nit, or the PQ EOTF; `domain/HdrLevel.cellNits`). All cells of all frames are pooled,
+  the brightest 2 % dropped, and the 90th percentile of the rest, divided by 203 nit, is the file's diffuse level. Results are kept in
+  `files/hdr/levels.json` (key: file URI, length, and how the clip reads it: HLG or PQ), shared by every project; a file that cannot be measured
+  is shown as recorded and not asked again in the session.
+- **Gain** (`HdrLevel.gainFor`): level <= 1 gives 1; otherwise 1 / level, limited to -1.5 stops; changes under half a percent are ignored. The
+  project setting `settings.hdrBrightness` (`comfortable` by default, `original`; unknown reads as comfortable) and the clip's `hdrAutoLevel`
+  (true, false, absent = follow the project) decide whether it applies (`HdrLevels.gainOf`). Until a file is measured its clips are drawn without a
+  gain; when it is, `EditorState.hdr` changes and the preview redraws (the gain is part of the draw signature).
+- **Applying** (`render/shaders.h` `uLevel`, mirrored by `render/color_math.h`): in the composite pass, on the source and before the effect chain
+  (exposure, LUT, grade), by the one `drawScene` path of the preview, the exporter and the saved frame. HLG into HLG scales the scene light by
+  gain^(1/1.2) (the OOTF makes display light scale as scene light^1.2); HLG or PQ into SDR scale the display light before the tone map; PQ into
+  HLG scale it before the conversion. SDR sources never carry a gain, so a project without HDR clips renders exactly as before.
+- **UI**: the project format dialog has "HDR brightness" for an HDR project; the inspector of an HLG or PQ clip shows "HDR level: -0.8 steps (auto)"
+  (or no change, measuring, off) with a switch. Both are undoable edits except the project setting, which is saved with the project.
+- **Photos** (`engine/still/UltraHdrPhoto`, `GainmapMath`): in an HDR project a photo with a gain map (Android 14 and later) is rasterised as its HDR
+  picture: SDR base (sRGB) boosted by the map at full weight, white at 203 nit, encoded as 8-bit HLG with a fixed ordered dither, and marked
+  `TitleBitmap.hlg`; the layer is then read as an HLG source, so an SDR export tone-maps it like HLG video. Without a gain map, or in an SDR project, a photo is as
+  before.
+
 ### 5.41a Flag list (shot list)
 
 Manual flags carry `done`. The flag list sheet (`ui/editor/FlagListSheet.kt`, opened from the flag button's long-press menu) shows them grouped by

@@ -2040,3 +2040,39 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
   cuts of the clips that stay). Audio and title groups keep the old lane-by-lane move.
 - **Select mode** no longer draws a marquee: taps select, a drag on empty space scrolls (`TimelineSurfaceView`).
 - **The lane media is added to** follows the selected clip when an edit moves it to another lane, so after lifting photos to V2 the tray adds to V2.
+
+## HDR level: automatic dimming of HLG and PQ clips to reference white (2026-10-20)
+
+- **Owner report.** In HLG projects viewers complained that the main shot dazzles and that cutting to inserted photos or SDR video "drops the
+  brightness". The SDR to HLG conversion was already right (SDR white at 203 nit, BT.2408, see "SDR white sits at 203 nit"); the cause is that phone
+  HLG footage has its diffuse content (skin, walls) far above 203 nit, and that Ultra HDR photos lost their gain map.
+- **Decision.** Each HLG or PQ clip gets a display-light gain that only dims: `gain = 203 / level`, `level` being the diffuse level of the file in
+  nit, limited to -1.5 stops, 1 when the file is at or below 203 nit. The level is measured once per file from 12 frames of the original and cached
+  per file and colour space (`HdrLevelCache`, like the loudness cache). The gain is applied in the composite shader to the source in display light,
+  before the clip's effects, so preview, export and saved frame agree (one `drawScene` path); in an SDR project it acts before the HLG to SDR tone
+  map. It is not an effect on the clip: the clip has a discreet line and a switch (`Clip.hdrAutoLevel`, null follows the project), the project has
+  "HDR brightness" (`settings.hdrBrightness`: `comfortable` is the default for new and old projects, `original` is the earlier behaviour).
+- **Percentile.** The 90th percentile of the pooled cell luminances after dropping the brightest 2 %. A median or mean would follow the background
+  (a face on a dark room would not be dimmed); the maximum or 99th percentile would follow lamps, the sun and specular highlights. The top 2 % is
+  discarded so that lamps and glints cannot set the level, and the 90th of the rest is where skin and walls sit: the "diffuse" content the BT.2408 reference
+  white is about. The cells are means over 16 x 16 samples, which already average isolated glints.
+- **Cell means, not pixels.** The analysis reuses the verifier's `MediaCodecFrameSource` and `FrameSignature`, which give the mean Y'CbCr of a 32 x 18
+  grid per frame, not every pixel. The percentile is therefore over 12 x 576 cell means, and a very small bright subject (under a cell) is averaged into its
+  surroundings. *Alternative:* a reader of its own that looks at every decoded pixel (an exact percentile) was not done: more code to keep next to the
+  verifier for a measurement that only has to be right to a fraction of a stop.
+- **Proxies.** The measurement is of the original; a proxy of an HDR file is HLG 10-bit ("HDR proxies keep their colours"), so the same gain applies to
+  it. An SDR stand-in (an encoder that cannot make HEVC Main10) is read as SDR and has no gain, as it never had the HDR colours.
+- **Why not.** *Tone-map to a fixed 203 nit* (clamp): flattens highlights that are fine. *Per-frame adaptive gain*: it makes the picture pump; a clip has
+  one level. *Gain in the signal domain* (multiply the HLG signal): HLG is not linear, so highlights would not scale together with the rest. *Let the
+  clip's exposure effect do it*: it would be a visible effect the user must undo, and runs after the colour conversion. *Analyse at import only*:
+  existing projects, relinked files and colour overrides would never be measured.
+- **Photos.** *Conflicted with* "Photos and stickers are title-like still clips drawn through the title texture path" (8-bit RGBA at canvas size,
+  drawn as SDR graphics, zero native changes, 8 MB per 1080p photo). Owner's choice: keep 8 bits. A photo with a gain map in an HDR project is
+  made on the CPU into 8-bit HLG (dithered, fixed pattern so preview and export are the same) and uploaded through the same path; the only native
+  change is a per-layer flag (`LayerDraw::hlgPicture`, carried by the clip's colour mode / source override) that reads the picture as HLG instead of SDR
+  graphics. Memory is unchanged. *Alternative not done:* RGBA16F textures (twice the memory, a new upload API, the exporter holds the pictures).
+  The SDR base is decoded with the sRGB curve, as the format defines, while ordinary SDR photos use gamma 2.4 in the shader; the two differ by a
+  few percent in the shadows only, white is 203 nit in both.
+- **Limits.** Not seen on a device yet (PLAN.md): the maths, the plans and the view model are covered by host and JVM tests; the shader is checked
+  against its CPU reference only through `color_math.h`. The measurement of a file read with a colour override is of that reading; a file that cannot be
+  decoded keeps its HDR brightness as recorded. A project with HLG footage in an SDR project is dimmed too (the setting is shown only for HDR projects).
