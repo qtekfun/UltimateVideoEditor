@@ -898,8 +898,8 @@ void TimelineRenderer::surfaceChanged(int width, int height) {
         // After a rotation or resize the EGL window surface keeps the buffer geometry and
         // transform it had, and the compositor rejects those buffers (the timeline stays blank
         // or stuck at the old size). Recreating the EGL surface for the same window fixes it.
-        const bool resized = state_->width > 0 && (state_->width != width || state_->height != height);
-        if (resized && state_->requestedWindow != nullptr) state_->windowRequestPending = true;
+        // Any later callback counts, even one that repeats the size: a half-turn changes the transform but not the size.
+        if (state_->width > 0 && state_->requestedWindow != nullptr) state_->windowRequestPending = true;
         state_->width = width;
         state_->height = height;
         state_->vp.viewWidth = std::max(1, width);

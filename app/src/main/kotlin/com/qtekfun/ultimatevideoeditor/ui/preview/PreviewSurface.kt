@@ -31,6 +31,8 @@ fun PreviewSurface(
         modifier = modifier,
         factory = { context ->
             SurfaceView(context).apply {
+                var lastWidth = 0
+                var lastHeight = 0
                 holder.addCallback(
                     object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -40,8 +42,17 @@ fun PreviewSurface(
                             report.value(engine.outputSpace())
                         }
 
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) =
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            // After a rotation the EGL window surface keeps the buffer geometry it had and the picture stays
+                            // cropped at the old size, so a resize takes the surface again (the timeline does the same).
+                            if (lastWidth > 0 && (width != lastWidth || height != lastHeight)) {
+                                engine.detachSurface()
+                                engine.attachSurface(holder.surface)
+                            }
+                            lastWidth = width
+                            lastHeight = height
                             engine.surfaceChanged()
+                        }
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) = engine.detachSurface()
                     },
