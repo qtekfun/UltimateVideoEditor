@@ -806,7 +806,7 @@ fun EditorScreen(
                 val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat())
                 val layout = remember {
                     val prefs = PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE))
-                    EditorLayoutController(prefs, window, prefs, prefs)
+                    EditorLayoutController(prefs, window, prefs, prefs, detailZoomStore = prefs)
                 }
                 // Hiding the system bars changes the window by a few dp: that must not re-pick the layout, so it waits.
                 LaunchedEffect(window, fullscreen.active) { if (!fullscreen.active) layout.onWindow(window) }
@@ -1190,6 +1190,12 @@ private fun EditorMain(
                     }
                     Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
                         ToolButton(EditorIcons.FrameImage, stringResource(R.string.ed_2a_save_frame_as_image_the), onClick = onSaveFrame)
+                        if (layout.detailZoom) {
+                            ToolButton(EditorIcons.ZoomDetail, stringResource(R.string.ed_zd_zoom_to_detail)) {
+                                engine.toggleDetailZoom(null)
+                                engine.ensureVisible(viewModel.state.value.playhead.value)
+                            }
+                        }
                         ToolButton(EditorIcons.Fit, stringResource(R.string.ed_2a_fit_the_whole_project)) { engine.fitToContent() }
                     }
                 }
@@ -1305,6 +1311,7 @@ private fun EditorMain(
                         dropTarget = dropTarget,
                         selecting = selecting,
                         shaping = shaping,
+                        detailZoom = layout.detailZoom,
                         modifier = Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
                             trayDropBounds?.bounds = coordinates.boundsInRoot().let { RootBounds(it.left, it.top, it.right, it.bottom) }
                         },

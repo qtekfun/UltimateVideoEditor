@@ -91,6 +91,9 @@ class TimelineSurfaceView(
 
     private var hovering = false
 
+    /** True when the person turned on "Zoom to detail": a double tap on the ruler then zooms in to the frames, or back out. */
+    var detailZoomOnRuler = false
+
     // Media dragged in from outside keeps the timeline scrolling near its side edges, like a clip drag.
     private val hoverScroll = object : Runnable {
         override fun run() {
@@ -282,6 +285,10 @@ class TimelineSurfaceView(
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (detailZoomOnRuler && engine.hitTest(e.x, e.y).kind == HitKind.RULER) {
+                    engine.toggleDetailZoom(e.x)
+                    return true
+                }
                 val target = shaping() ?: return false
                 target.onDoubleTap(engine.hitTest(e.x, e.y))
                 return true

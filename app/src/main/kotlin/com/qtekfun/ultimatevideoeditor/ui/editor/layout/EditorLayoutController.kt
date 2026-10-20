@@ -12,7 +12,13 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrder
 import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrderStore
 
 /** Layouts kept in local preferences, one entry per window size class and orientation. */
-class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore, ToolbarOrderStore {
+class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore, ToolbarOrderStore, DetailZoomStore {
+    override fun detailZoomOn(): Boolean = prefs.getBoolean(DETAIL_ZOOM_KEY, false)
+
+    override fun setDetailZoom(on: Boolean) {
+        prefs.edit().putBoolean(DETAIL_ZOOM_KEY, on).apply()
+    }
+
     override fun loadOrder(): ToolbarOrder = ToolbarOrder.parse(prefs.getString(TOOLBAR_KEY, null))
 
     override fun saveOrder(order: ToolbarOrder) {
@@ -45,6 +51,7 @@ class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, Wave
         private const val WAVEFORM_KEY = "waveform_scale"
         private const val TOOLBAR_KEY = "toolbar_order"
         private const val VIDEO_AUDIO_KEY = "video_audio_on_track"
+        private const val DETAIL_ZOOM_KEY = "detail_zoom"
     }
 }
 
@@ -61,6 +68,7 @@ class EditorLayoutController(
     private val waveformStore: WaveformScaleStore = NoWaveformScaleStore,
     private val placementStore: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
     private val toolbarStore: ToolbarOrderStore = NoToolbarOrderStore,
+    private val detailZoomStore: DetailZoomStore = NoDetailZoomStore,
 ) {
     var window by mutableStateOf(initialWindow)
         private set
@@ -83,6 +91,16 @@ class EditorLayoutController(
         if (on == videoAudioOnTrack) return
         videoAudioOnTrack = on
         placementStore.setOn(on)
+    }
+
+    /** True when the transport row shows the zoom-to-detail button and a double tap on the ruler does the same. One choice everywhere. */
+    var detailZoom by mutableStateOf(detailZoomStore.detailZoomOn())
+        private set
+
+    fun chooseDetailZoom(on: Boolean) {
+        if (on == detailZoom) return
+        detailZoom = on
+        detailZoomStore.setDetailZoom(on)
     }
 
     /** The order and visibility of the main tool row. One choice for every layout and project; the presets leave it alone. */

@@ -205,6 +205,18 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                 )
             }
 
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.ed_zd_zoom_to_detail), style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.ed_zd_zoom_to_detail_hint), style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(
+                    checked = controller.detailZoom,
+                    onCheckedChange = { controller.chooseDetailZoom(it) },
+                    modifier = Modifier.described(stringResource(R.string.ed_zd_zoom_to_detail)),
+                )
+            }
+
             var toolbarOpen by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {

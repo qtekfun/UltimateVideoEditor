@@ -527,6 +527,8 @@
     <string name="ed_2a_previous_clip_boundary">Previous clip boundary</string>
     <string name="ed_2a_next_clip_boundary">Next clip boundary</string>
     <string name="ed_2a_save_frame_as_image_the">Save frame as image: the picture under the playhead as PNG or JPEG</string>
+    <string name="ed_zd_zoom_to_detail">Zoom to detail</string>
+    <string name="ed_zd_zoom_to_detail_hint">Adds a button next to Fit, and a double tap on the time ruler, that zoom the timeline all the way in to the frames and back out to the whole project.</string>
     <string name="ed_2a_fit_the_whole_project">Fit the whole project</string>
     <string name="ed_2a_import_media">Import media</string>
     <string name="ed_2a_split_at_playhead">Split at playhead</string>
@@ -2163,6 +2165,8 @@
     <string name="g_next_help">Jumps the playhead to the next clip start or end and stops playback if it was playing. In the inspector\'s keyframe rows the same arrow jumps to the next keyframe.</string>
     <string name="g_save_frame_name">Save frame as image</string>
     <string name="g_save_frame_help">Saves the picture under the playhead as a PNG or JPEG, for a thumbnail or a cover.</string>
+    <string name="g_zoom_detail_name">Zoom to detail</string>
+    <string name="g_zoom_detail_help">Zooms the time axis all the way in around the playhead, to single frames; tap again to go back out to the whole project. It only shows when turned on in the layout sheet, where it also turns on the double tap on the time ruler.</string>
     <string name="g_fit_name">Fit the whole project</string>
     <string name="g_fit_help">Zooms the time axis so the whole project is visible. Track heights do not change (the layout sheet sets them). This is not fullscreen: double tap the preview for that.</string>
     <string name="g_import_name">Import media</string>

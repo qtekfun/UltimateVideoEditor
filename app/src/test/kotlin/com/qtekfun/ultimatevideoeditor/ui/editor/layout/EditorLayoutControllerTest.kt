@@ -138,6 +138,31 @@ class EditorLayoutControllerTest {
     }
 
     @Test
+    fun `zoom to detail is off by default, remembered, and survives presets and other windows`() {
+        val store = object : DetailZoomStore {
+            var on = false
+            var writes = 0
+            override fun detailZoomOn() = on
+            override fun setDetailZoom(on: Boolean) {
+                this.on = on
+                writes++
+            }
+        }
+        val controller = EditorLayoutController(MemoryStore(), phone, detailZoomStore = store)
+        assertFalse(controller.detailZoom)
+
+        controller.chooseDetailZoom(true)
+        controller.chooseDetailZoom(true)
+        assertEquals(1, store.writes)
+
+        controller.dispatch(LayoutAction.Reset)
+        controller.onWindow(phoneSideways)
+        assertTrue(controller.detailZoom)
+        assertTrue(EditorLayoutController(MemoryStore(), phone, detailZoomStore = store).detailZoom)
+        assertFalse(NoDetailZoomStore.detailZoomOn())
+    }
+
+    @Test
     fun `video audio on a track is off by default, remembered, and survives presets and other windows`() {
         val placement = MemoryPlacement()
         val controller = EditorLayoutController(MemoryStore(), phone, placementStore = placement)
