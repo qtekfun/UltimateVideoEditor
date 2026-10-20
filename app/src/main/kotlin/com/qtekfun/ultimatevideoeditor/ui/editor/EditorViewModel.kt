@@ -139,7 +139,10 @@ import com.qtekfun.ultimatevideoeditor.domain.paramValueAt
 import com.qtekfun.ultimatevideoeditor.domain.Snap
 import com.qtekfun.ultimatevideoeditor.domain.SnapGuides
 import com.qtekfun.ultimatevideoeditor.domain.SpeedRamps
+import com.qtekfun.ultimatevideoeditor.domain.HdrBrightness
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
+import com.qtekfun.ultimatevideoeditor.domain.SourceColorSpace
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 import com.qtekfun.ultimatevideoeditor.domain.TimelineOps
 import com.qtekfun.ultimatevideoeditor.domain.TitleContent
@@ -236,6 +239,12 @@ class EditorViewModel(
     private val videoAudioPlacement: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
     /** Lists the files of a folder the user picked, to relink every missing file in one step (SPECS 5.40). */
     private val folderScanner: FolderScanner = NoFolderScanner,
+    /** Finds how bright the diffuse content of an HDR file is, to dim it to reference white (the "HDR level"). */
+    private val hdrAnalyzer: HdrLevelAnalyzer = HdrLevelAnalyzer.None,
+    /** Diffuse levels kept per file and colour space, shared by every project. */
+    private val hdrLevelCache: HdrLevelCache = HdrLevelCache.None,
+    /** Where the cache is read and the analysis waits; the decoding itself runs in the analyser. */
+    private val hdrDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD, MARKER }
@@ -419,6 +428,8 @@ class EditorViewModel(
             is EditorIntent.ApplyGrade -> applyGrade(intent.values, intent.curves)
             is EditorIntent.SetBlendMode -> withSelection { execute(EditCommand.SetBlendMode(it, intent.mode)) }
             is EditorIntent.SetClipColor -> withSelection { execute(EditCommand.SetColorOverride(it, intent.space)) }
+            is EditorIntent.SetHdrBrightness -> changeHdrBrightness(intent.brightness)
+            is EditorIntent.SetClipHdrLevel -> withSelection { execute(EditCommand.SetHdrAutoLevel(it, intent.on)) }
             is EditorIntent.SetStabilise -> withSelection { execute(EditCommand.SetStabilise(it, intent.stabilise)) }
             EditorIntent.AnalyseStabilise -> analyseStabilise()
             EditorIntent.CancelStabilise -> stabiliser.cancel()
@@ -642,6 +653,7 @@ class EditorViewModel(
                         canvasWidth = project.settings.width,
                         canvasHeight = project.settings.height,
                         colorSpace = ProjectColorSpace.fromId(project.settings.colorSpace),
+                        hdr = HdrLevels(HdrBrightness.fromId(project.settings.hdrBrightness), hdrProject = ProjectColorSpace.fromId(project.settings.colorSpace).isHdr),
                         timeline = timeline,
                         selectedTrackId = timeline.tracks.firstOrNull { it.type == TrackType.VIDEO }?.id,
                         assets = project.mediaLibrary,
@@ -691,6 +703,7 @@ class EditorViewModel(
         // refreshed facts are stored with the next save, and opening alone never rewrites project.json.
         if (stale.isNotEmpty()) scheduleSave()
         publishMissingCount()
+        refreshHdrLevels()
     }
 
     /** The probed files whose library entry lacks something the probe found (see [verifyAssets]). */
@@ -1235,7 +1248,67 @@ class EditorViewModel(
         }
         refreshStabilise()
         refreshTrack()
+        refreshHdrLevels()
     }
+
+    // region HDR level
+
+    private var hdrJob: Job? = null
+
+    /** Files whose level could not be measured this session (the picture is then shown as recorded); not asked again. */
+    private val hdrUnmeasured = HashSet<String>()
+
+    private fun changeHdrBrightness(brightness: HdrBrightness) {
+        if (brightness == state.value.hdr.brightness) return
+        baseProject = baseProject?.let { it.copy(settings = it.settings.copy(hdrBrightness = brightness.id)) }
+        reduce { copy(hdr = hdr.copy(brightness = brightness)) }
+        scheduleSave()
+        refreshHdrLevels()
+    }
+
+    /**
+     * Makes sure every HLG or PQ clip that would be dimmed has its file measured: from the cache when it was seen before, else by
+     * reading a dozen frames of the original in the background, one file at a time. Until a file is measured its clips are shown as
+     * recorded; when it is, [EditorState.hdr] changes and the preview redraws.
+     */
+    private fun refreshHdrLevels() {
+        if (hdrJob?.isActive == true) return  // its loop looks again after each file
+        if (nextHdrAnalysis() == null) return
+        hdrJob = viewModelScope.launch {
+            while (true) {
+                val (asset, space) = nextHdrAnalysis() ?: break
+                val key = HdrLevelCache.keyOf(asset, space)
+                // The cache is a file and the analysis a decode: neither runs on the main thread.
+                val level = withContext(hdrDispatcher) { hdrLevelCache.get(key) ?: hdrAnalyzer.diffuseLevel(asset, space)?.also { hdrLevelCache.put(key, it) } }
+                if (level == null) {
+                    hdrUnmeasured += key
+                } else {
+                    reduce { copy(hdr = hdr.copy(levels = hdr.levels + (key to level))) }
+                }
+            }
+        }
+    }
+
+    /** The first (file, colour space) a clip needs measured and has not got, or null. */
+    private fun nextHdrAnalysis(): Pair<MediaAssetDto, SourceColorSpace>? {
+        val current = state.value
+        val assets = current.playableAssets.associateBy { it.id }
+        if (assets.isEmpty()) return null
+        for (track in history.timeline.tracks) {
+            if (track.type != TrackType.VIDEO) continue
+            for (clip in track.clips) {
+                if (!clip.hasMedia || !current.hdr.wantsAnalysis(clip.hdrAutoLevel)) continue
+                val asset = clip.assetId?.let(assets::get)?.takeIf { it.hasVideo } ?: continue
+                val space = clip.colorOverride ?: SourceColorSpace.fromId(asset.colorSpace)
+                if (space == SourceColorSpace.SDR) continue
+                val key = HdrLevelCache.keyOf(asset, space)
+                if (key !in current.hdr.levels && key !in hdrUnmeasured) return asset to space
+            }
+        }
+        return null
+    }
+
+    // endregion
 
     // region stabiliser
 
@@ -3198,7 +3271,7 @@ class EditorViewModel(
     private fun changeColorSpace(space: ProjectColorSpace) {
         if (space == state.value.colorSpace) return
         baseProject = baseProject?.let { it.copy(settings = it.settings.copy(colorSpace = space.id)) }
-        reduce { copy(colorSpace = space, canvasDialogOpen = false) }
+        reduce { copy(colorSpace = space, hdr = hdr.copy(hdrProject = space.isHdr), canvasDialogOpen = false) }
         scheduleSave()
     }
 

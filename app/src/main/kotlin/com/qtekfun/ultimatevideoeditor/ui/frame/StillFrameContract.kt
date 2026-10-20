@@ -3,6 +3,7 @@ package com.qtekfun.ultimatevideoeditor.ui.frame
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 import com.qtekfun.ultimatevideoeditor.mvi.UiEffect
 import com.qtekfun.ultimatevideoeditor.mvi.UiIntent
@@ -21,6 +22,8 @@ data class StillFrameInput(
     val frame: Long,
     /** Library files that cannot be read; a clip that needs one of them under the frame cannot be drawn. */
     val missingAssetIds: Set<String> = emptySet(),
+    /** The project's HDR brightness setting and measured levels, so the saved picture is dimmed as the preview is. */
+    val hdr: HdrLevels = HdrLevels.NONE,
 )
 
 /** A saved picture the snackbar offers to share or open. */

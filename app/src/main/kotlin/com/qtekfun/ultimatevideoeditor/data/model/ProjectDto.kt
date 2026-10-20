@@ -170,6 +170,8 @@ data class ProjectSettingsDto(
     val fpsNum: Int,
     val fpsDen: Int,
     val colorSpace: String,
+    /** `comfortable` (dim HDR footage whose diffuse level is above reference white) or `original`; absent and unknown read as comfortable. */
+    val hdrBrightness: String = "comfortable",
 )
 
 @Serializable
@@ -245,6 +247,8 @@ data class ClipDto(
     val transform: TransformDto = TransformDto(),
     val gainDb: Double = 0.0,
     val colorOverride: String? = null,
+    /** The clip's HDR level: true on, false off, absent follows the project (`settings.hdrBrightness`). */
+    val hdrAutoLevel: Boolean? = null,
     /** Text payload; present exactly on clips of `title` tracks. */
     val title: TitleDto? = null,
     /** Animated pose in clip frames; empty means [transform] holds for the whole clip. */

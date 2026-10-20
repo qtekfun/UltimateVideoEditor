@@ -3,6 +3,16 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **HDR footage no longer dazzles next to photos and SDR video.** HLG and PQ clips are measured in the background (a dozen frames of the original,
+  once per file) and, when their everyday content (skin, walls) is brighter than the 203 nit reference white, dimmed to it, never by more than
+  one and a half stops and never brightened. The gain is applied to the source before effects, in the preview and in the export alike, and
+  also before the tone map in an SDR project. Project setting "HDR brightness" (Comfortable, the default, or Original) and a per-clip line
+  "HDR level: -0.8 steps (auto)" with a switch in the inspector.
+- **Ultra HDR photos keep their gain map in an HDR project.** The photo is made into its HDR picture (HLG, white at 203 nit) instead of its
+  SDR rendition; photos without a gain map and every photo in an SDR project are shown as before.
+
 ## 1.2.2
 
 - **Cutting with several clips selected no longer empties the lane.** After a cut only the parts that were cut stay selected, so deleting one

@@ -171,6 +171,15 @@ object TimelineOps {
         return updateClip(timeline, clipId) { it.copy(colorOverride = space) }
     }
 
+    /** Turns the clip's HDR level on (true), off (false) or back to the project's setting (null). Only a video clip has one. */
+    fun setHdrAutoLevel(timeline: Timeline, clipId: String, on: Boolean?): EditResult<Timeline> {
+        val clip = timeline.trackOfClip(clipId)?.clip(clipId) ?: return failure(EditError.ClipNotFound(clipId))
+        if (on != null && (!clip.hasMedia || timeline.trackOfClip(clipId)?.type != TrackType.VIDEO)) {
+            return failure(EditError.InvalidClip("only a video clip has an HDR level"))
+        }
+        return updateClip(timeline, clipId) { it.copy(hdrAutoLevel = on) }
+    }
+
     /**
      * Turns the stabiliser on with [stabilise] (strength rounded to a percent, so equal settings share one table), or
      * off when null. Only clips that play a video file can be stabilised.

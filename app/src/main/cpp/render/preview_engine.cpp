@@ -668,11 +668,12 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
             if (layer.title != 0) {
                 LayerDraw draw;
                 draw.titleKey = layer.title;
+                draw.hlgPicture = layer.source == static_cast<int32_t>(SourceTransfer::Hlg);  // an HDR photo, see LayerDraw
                 draw.transform = layer.transform;
                 draw.fx = layer.fx;
                 frames.push_back(nullptr);  // keeps `frames` and `layers` index-aligned for the canvas size below
                 layers.push_back(draw);
-                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title, layer.fx, -1});
+                signature.push_back(DrawnLayer{0, 0, layer.transform, layer.title, layer.fx, layer.source});
                 continue;
             }
             auto asset = assets_.find(layer.asset);
@@ -688,6 +689,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                                                                     static_cast<OutputSpace>(effectiveSpace_.load()))
                                                      : asset->second.mode;
             LayerDraw draw{frame.get(), mode, asset->second.turns, layer.transform};
+            draw.level = layer.level;
             draw.fx = layer.fx;
             stab::resolveStabilisation(&draw.fx, layer.frame);  // the stabiliser's correction for this source frame
             // Smooth slow motion and the repair effects read neighbouring source frames when they are decoded
@@ -720,7 +722,7 @@ void PreviewEngine::maybeDraw(bool force, int64_t presentNs) {
                 }
             }
             layers.push_back(std::move(draw));
-            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source, layer.mix, neighbours});
+            signature.push_back(DrawnLayer{layer.asset, layer.frame, layer.transform, 0, layer.fx, layer.source, layer.mix, layer.level, neighbours});
         }
     }
     if (layers.empty()) return;

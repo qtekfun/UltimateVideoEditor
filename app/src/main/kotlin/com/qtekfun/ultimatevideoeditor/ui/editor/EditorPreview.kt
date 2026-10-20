@@ -63,6 +63,8 @@ data class PreviewRequest(
     val mix: Float = 0f,
     /** Set when [uri] is a proxy of this asset (see `ProxyPlanner`), so a failure to open it can be traced back. */
     val proxyAssetId: String? = null,
+    /** The clip's HDR level: a display-light gain of at most 1 for an HLG or PQ source (1 = none); part of the picture, so a late analysis redraws. */
+    val level: Float = 1f,
 )
 
 /** The whole composite: the project canvas and its layers, bottom layer first. */
@@ -145,6 +147,9 @@ class EditorPreview(
     private val loadingStills = HashSet<Int>()
     private val uploadedStills = HashSet<Int>()
     private val brokenStills = HashSet<Int>()
+
+    /** Uploaded pictures that are HLG encoded (HDR photos): their layers are read as HLG sources. */
+    private val hlgStills = HashSet<Int>()
 
     // 3D LUTs are read and parsed off the main thread, then uploaded once per library key (keys are content
     // hashes, so a key never changes meaning). Until a LUT is on the GPU its layer shows ungraded.
@@ -273,7 +278,7 @@ class EditorPreview(
             val still = layer.still
             when {
                 title != null -> titleKeyFor(engine, scene, title)?.let { Ready(layer, titleKey = it) }
-                still != null -> stillKeyFor(engine, scene, still)?.let { Ready(layer, titleKey = it) }
+                still != null -> stillKeyFor(engine, scene, still)?.let { Ready(layer, titleKey = it, hlg = it in hlgStills) }
                 else -> Ready(layer, titleKey = 0)
             }
         }
@@ -281,6 +286,7 @@ class EditorPreview(
         for (key in titleKeys.drain()) engine.releaseTitle(key)
         for (key in stillKeys.drain()) {
             uploadedStills -= key
+            hlgStills -= key
             loadingStills -= key
             engine.releaseTitle(key)
         }
@@ -288,10 +294,10 @@ class EditorPreview(
     }
 
     /** A layer that can be drawn now; [titleKey] is the uploaded raster of a title layer, else 0. */
-    private data class Ready(val request: PreviewRequest, val titleKey: Int) {
+    private data class Ready(val request: PreviewRequest, val titleKey: Int, val hlg: Boolean = false) {
         fun toLayer(withEnd: Boolean): PreviewLayer =
             if (titleKey != 0) {
-                PreviewLayer(0, 0, request.transform.toPlacement(), titleKey = titleKey, fx = request.fx)
+                PreviewLayer(0, 0, request.transform.toPlacement(), titleKey = titleKey, fx = request.fx, sourceOverride = if (hlg) HLG_SOURCE else -1)
             } else {
                 PreviewLayer(
                     request.assetKey,
@@ -303,6 +309,7 @@ class EditorPreview(
                     sourceOverride = request.sourceOverride,
                     mix = request.mix,
                     mixTowardsPrevious = request.reverse,
+                    level = request.level,
                 )
             }
     }
@@ -352,6 +359,7 @@ class EditorPreview(
                         stillKeys.resize(key, bitmap.width.toLong() * bitmap.height * 4)
                         engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels, bitmap.displayWidth, bitmap.displayHeight)
                         uploadedStills += key
+                        if (bitmap.hlg) hlgStills += key else hlgStills -= key
                     } catch (e: PreviewException) {
                         brokenStills += key
                         onError(context.getString(R.string.s5_picture_not_shown_why, e.message.orEmpty()))
@@ -491,6 +499,9 @@ class EditorPreview(
     }
 
     private companion object {
+        /** The native index of an HLG source (`SourceColorSpace.HLG.transferIndex`), which an HDR photo is read as. */
+        const val HLG_SOURCE = 1
+
         /** The native and audio clocks agree to well under this, so a re-anchor means a real discontinuity. */
         const val DRIFT_THRESHOLD_FRAMES = 2L
         const val SYNC_TAG = "UVSync"

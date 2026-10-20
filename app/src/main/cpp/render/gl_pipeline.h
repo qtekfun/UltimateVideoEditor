@@ -31,6 +31,12 @@ struct LayerDraw {
     // both); null when they are not decoded, in which case those effects use what they have.
     const decode::GpuFrame* prev = nullptr;
     const decode::GpuFrame* next = nullptr;
+    // HDR level: a display-light gain of at most 1 applied to an HLG or PQ source before anything else (render/shaders.h
+    // uLevel). 1 means none; SDR sources never carry one.
+    float level = 1.0f;
+    // A title layer whose picture is already HLG encoded at reference white (an HDR photo made from its gain map): it is
+    // drawn like an HLG video clip, so an SDR target tone-maps it. Other pictures are SDR graphics.
+    bool hlgPicture = false;
 };
 
 // GLES programs used by the preview. Render thread only, with the EGL context current.
@@ -152,6 +158,11 @@ private:
     void snapshotDestination(const Viewport& vp);
 
     ColorMode titleMode() const { return outputSpace_ == OutputSpace::Hlg2020 ? ColorMode::Sdr709ToHlg2020 : ColorMode::Sdr709; }
+    // The colour mode a layer's pixels are read with: a video's own, a title's graphics mode, or HLG for an HDR picture.
+    ColorMode modeOf(const LayerDraw& layer) const {
+        if (layer.titleKey == 0) return layer.mode;
+        return layer.hlgPicture ? colorModeFor(SourceTransfer::Hlg, outputSpace_) : titleMode();
+    }
 
     EglContext& egl_;
     OutputSpace outputSpace_ = OutputSpace::Sdr709;
@@ -160,6 +171,7 @@ private:
     unsigned vao_ = 0;
     unsigned fbo_ = 0;
     int compositeModeLoc_ = -1;
+    int compositeLevelLoc_ = -1;
     int compositeTurnsLoc_ = -1;
     int compositeXformLoc_ = -1;
     int compositeOpacityLoc_ = -1;

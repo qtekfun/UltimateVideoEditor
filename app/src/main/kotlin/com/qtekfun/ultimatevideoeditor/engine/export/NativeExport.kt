@@ -110,6 +110,7 @@ class NativeExportRunner : ExportRunner {
             clips[o + 6] = c.lane.toLong()
             clips[o + 7] = c.crossfadeInFrames
             clips[o + 8] = c.titleKey.toLong()
+            clips[o + 9] = Math.round(c.level * LEVEL_SCALE)
             val t = i * CLIP_DOUBLES
             transforms[t] = c.positionX
             transforms[t + 1] = c.positionY
@@ -216,7 +217,9 @@ class NativeExportRunner : ExportRunner {
 
         /** Added to the codec value for a smart export; see `export_jni.cpp`. */
         const val SMART_FLAG = 0x400
-        const val CLIP_LONGS = 9
+        const val CLIP_LONGS = 10
+        /** The HDR level crosses JNI in millionths. */
+        const val LEVEL_SCALE = 1_000_000.0
         const val CLIP_DOUBLES = 6
         const val KEY_CLIP_LONGS = 2
         const val KEY_LONGS = 2

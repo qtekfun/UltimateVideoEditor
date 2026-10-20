@@ -44,6 +44,7 @@ precision highp float;
 in vec2 vPos;
 uniform sampler2D uTex;
 uniform int uMode;   // render/color_space.h ColorMode: 0 SDR, 1 HLG->SDR, 2 SDR->HLG, 3 HLG, 4 PQ->SDR, 5 PQ->HLG
+uniform float uLevel;  // HDR level: display-light gain (<= 1) applied to HLG/PQ sources before anything else; <= 0 or 1 means none
 uniform int uTurns;  // clockwise quarter turns applied for display (layout_math.h rotateUv)
 uniform float uOpacity;  // layer opacity, applied through alpha blending
 uniform int uPremul;     // 1 = premultiplied RGBA title texture (alpha comes from the texture)
@@ -64,6 +65,8 @@ const float SYSTEM_GAMMA = 1.2;
 const float DIFFUSE_WHITE = 203.0;
 const float PEAK = 1000.0;
 const float KNEE = 0.9;
+
+float levelGain() { return uLevel > 0.0 ? uLevel : 1.0; }
 
 vec3 hlgInverseOetf(vec3 e) {
     e = clamp(e, 0.0, 1.0);
@@ -92,7 +95,7 @@ vec3 hlg2020ToSdr709(vec3 hlg) {
     vec3 scene = hlgInverseOetf(hlg);
     float ys = dot(scene, vec3(0.2627, 0.6780, 0.0593));
     float gain = ys > 0.0 ? pow(ys, SYSTEM_GAMMA - 1.0) : 0.0;
-    vec3 display = scene * gain * (PEAK / DIFFUSE_WHITE);
+    vec3 display = scene * gain * (PEAK / DIFFUSE_WHITE) * levelGain();
     float l = dot(display, vec3(0.2627, 0.6780, 0.0593));
     if (l > 0.0) display *= toneMapLuma(l) / l;
     vec3 lin = vec3(
@@ -107,6 +110,11 @@ vec3 hlgOetf(vec3 e) {
     vec3 lo = sqrt(3.0 * e);
     vec3 hi = A * log(max(12.0 * e - B, 1e-6)) + C;
     return mix(hi, lo, lessThanEqual(e, vec3(1.0 / 12.0)));
+}
+
+// An HLG signal with its display light scaled by `gain`: the OOTF makes display light scale as scene light ^ 1.2.
+vec3 hlgScaleDisplay(vec3 hlg, float gain) {
+    return hlgOetf(hlgInverseOetf(hlg) * pow(gain, 1.0 / SYSTEM_GAMMA));
 }
 
 // Display light (1.0 = 1000 nit, clipped) -> nonlinear HLG signal.
@@ -139,7 +147,7 @@ vec3 pqToDisplay203(vec3 e) {
 }
 
 vec3 pq2020ToSdr709(vec3 pq) {
-    vec3 display = pqToDisplay203(pq);
+    vec3 display = pqToDisplay203(pq) * levelGain();
     float l = dot(display, vec3(0.2627, 0.6780, 0.0593));
     if (l > 0.0) display *= toneMapLuma(l) / l;
     vec3 lin = vec3(
@@ -150,7 +158,7 @@ vec3 pq2020ToSdr709(vec3 pq) {
 }
 
 vec3 pq2020ToHlg2020(vec3 pq) {
-    return displayToHlgSignal(pqToDisplay203(pq) * (DIFFUSE_WHITE / PEAK));
+    return displayToHlgSignal(pqToDisplay203(pq) * levelGain() * (DIFFUSE_WHITE / PEAK));
 }
 
 vec2 rotateUv(vec2 o) {
@@ -198,6 +206,7 @@ void main() {
     else if (uMode == 2) rgb = sdr709ToHlg2020(rgb);
     else if (uMode == 4) rgb = pq2020ToSdr709(rgb);
     else if (uMode == 5) rgb = pq2020ToHlg2020(rgb);
+    else if (uMode == 3 && levelGain() != 1.0) rgb = hlgScaleDisplay(rgb, levelGain());
     if (uOutPremul == 1) {
         outColor = vec4(rgb * alpha, alpha);
         return;

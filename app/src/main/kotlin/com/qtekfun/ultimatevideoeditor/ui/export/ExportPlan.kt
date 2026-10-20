@@ -6,6 +6,7 @@ import com.qtekfun.ultimatevideoeditor.domain.AnimationSegment
 import com.qtekfun.ultimatevideoeditor.domain.AnimationTiming
 import com.qtekfun.ultimatevideoeditor.domain.ClipTransform
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.Interpolation
 import com.qtekfun.ultimatevideoeditor.domain.Keyframes
 import com.qtekfun.ultimatevideoeditor.domain.RenderClip
@@ -51,6 +52,7 @@ private fun RenderClip.toSpec(
     start: Long = startFrame,
     duration: Long = durationFrames,
     crossfadeIn: Long = crossfadeInFrames,
+    level: Double = 1.0,
 ) = VideoClipSpec(
     startFrame = start,
     durationFrames = duration,
@@ -75,6 +77,7 @@ private fun RenderClip.toSpec(
     fx = fx,
     // Keyframed effect values and the effects or mask a transition adds go over as the effects of every project frame of the spec.
     fxFrames = if (hasAnimatedFx || shapesTransitionFx) List(duration.toInt()) { i -> fxAt(start + i, canvasWidth, canvasHeight) } else null,
+    level = level,
 )
 
 private fun poseKey(frame: Long, t: ClipTransform, interpolation: Int) = ExportKeyframe(
@@ -112,6 +115,16 @@ private fun RenderClip.exportKeyframes(canvasWidth: Int, canvasHeight: Int): Lis
 }
 
 private val SDR = SourceColorSpace.SDR.nativeModeValue
+
+/**
+ * [this] with the clips of the pictures in [hdrPictures] (the (kind, id) of the stills that came out HLG encoded: HDR photos) marked as
+ * HLG sources, which is how the engine reads them. Which photos those are is only known once they are rasterised, after the plan.
+ */
+internal fun List<VideoClipSpec>.withHdrPictures(stills: Map<Int, StillRef>, hdrPictures: Set<Pair<StillKind, String>>): List<VideoClipSpec> =
+    if (hdrPictures.isEmpty()) this else map { clip ->
+        val still = stills[clip.titleKey]
+        if (clip.titleKey != 0 && still != null && (still.kind to still.id) in hdrPictures) clip.copy(colorMode = SourceColorSpace.HLG.nativeModeValue) else clip
+    }
 
 /** Bit where the smooth-slow-motion mix (permille) sits in a packed source-table entry; see `sourceFrameFor` in encode/export_math.h. */
 internal const val SOURCE_MIX_SHIFT = 44
@@ -187,6 +200,7 @@ internal fun buildExportPlan(
     fps: FrameRate,
     canvasWidth: Int = 1920,
     canvasHeight: Int = 1080,
+    hdr: HdrLevels = HdrLevels.NONE,
 ): ExportPlan? {
     val assetsById = assets.associateBy { it.id }
     val assetKeys = KeyRegistry()
@@ -203,7 +217,7 @@ internal fun buildExportPlan(
             RenderKind.AUDIO -> continue
             RenderKind.VIDEO -> if (clip.still != null) {
                 val id = clip.assetId ?: continue
-                val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: continue else id)
+                val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: continue else id, hdr = hdr.hdrProject && clip.still == StillKind.PHOTO)
                 val timing = if (clip.still == StillKind.PHOTO) assetsById[id]?.animationTiming() else null
                 if (timing == null) {
                     val pictureKey = stills.getOrPut(ref) { nextPictureKey++ }
@@ -236,6 +250,8 @@ internal fun buildExportPlan(
                     // What the source is; the engine converts it to the colour space the export renders in
                     // (HLG sources are tone-mapped for an SDR export, kept for an HLG one).
                     colorMode = (clip.colorOverride ?: SourceColorSpace.fromId(asset.colorSpace)).nativeModeValue,
+                    // The same gain the preview draws with, from the same levels: what is shown is what is written.
+                    level = hdr.gainOf(clip.hdrAutoLevel, asset.uri, asset.durationFrames, SourceColorSpace.fromId(asset.colorSpace), clip.colorOverride),
                 )
             }
             RenderKind.TITLE -> {

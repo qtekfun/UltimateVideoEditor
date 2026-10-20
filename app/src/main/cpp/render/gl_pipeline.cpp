@@ -101,6 +101,7 @@ Status GlPipeline::init(Error* error) {
     glUseProgram(compositeProgram_);
     glUniform1i(glGetUniformLocation(compositeProgram_, "uTex"), 0);
     compositeModeLoc_ = glGetUniformLocation(compositeProgram_, "uMode");
+    compositeLevelLoc_ = glGetUniformLocation(compositeProgram_, "uLevel");
     compositeTurnsLoc_ = glGetUniformLocation(compositeProgram_, "uTurns");
     compositeXformLoc_ = glGetUniformLocation(compositeProgram_, "uXform");
     compositeOpacityLoc_ = glGetUniformLocation(compositeProgram_, "uOpacity");
@@ -463,7 +464,9 @@ Status GlPipeline::runEffectChain(const LayerDraw& layer, unsigned sourceTexture
         const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         glUniformMatrix3fv(compositeXformLoc_, 1, GL_FALSE, identity);
         glUniform1f(compositeOpacityLoc_, 1.0f);
-        glUniform1i(compositeModeLoc_, static_cast<int>(layer.titleKey != 0 ? titleMode() : layer.mode));
+        glUniform1i(compositeModeLoc_, static_cast<int>(modeOf(layer)));
+        // The HDR level acts here, in display light, before any effect of the clip sees the picture.
+        glUniform1f(compositeLevelLoc_, layer.titleKey != 0 ? 1.0f : layer.level);
         glUniform1i(compositeTurnsLoc_, layer.titleKey != 0 ? 0 : layer.turns);
         glUniform1i(compositePremulLoc_, layer.titleKey != 0 ? 1 : 0);
         glUniform1i(compositeSrcGlLoc_, 0);
@@ -687,8 +690,9 @@ Status GlPipeline::drawScene(const std::vector<LayerDraw>& layers, int canvasWid
         glUniform1f(compositeOpacityLoc_, clampOpacity(layer.transform.opacity));
         // Effect intermediates already went through the colour conversion in pass 0; titles are SDR
         // graphics, so in an HLG target they are placed at reference white.
-        const ColorMode drawMode = fromIntermediate ? ColorMode::Sdr709 : titleLayer ? titleMode() : layer.mode;
+        const ColorMode drawMode = fromIntermediate ? ColorMode::Sdr709 : modeOf(layer);
         glUniform1i(compositeModeLoc_, static_cast<int>(drawMode));
+        glUniform1f(compositeLevelLoc_, fromIntermediate || titleLayer ? 1.0f : layer.level);  // pass 0 already applied it to an intermediate
         glUniform1i(compositeTurnsLoc_, premultiplied ? 0 : layer.turns);
         glUniform1i(compositePremulLoc_, premultiplied ? 1 : 0);
         glUniform1i(compositeSrcGlLoc_, fromIntermediate ? 1 : 0);

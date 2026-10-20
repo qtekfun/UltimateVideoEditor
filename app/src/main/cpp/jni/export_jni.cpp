@@ -19,7 +19,7 @@ using uv::encode::ExportParams;
 using uv::encode::VideoClip;
 
 constexpr const char* kExceptionClass = "com/qtekfun/ultimatevideoeditor/engine/export/ExportException";
-constexpr size_t kClipLongs = 9;     // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey
+constexpr size_t kClipLongs = 10;    // start, duration, sourceIn, assetKey, layer, colorMode, lane, fadeIn, titleKey, levelMicro
 constexpr size_t kTitleInts = 5;     // key, width, height, displayWidth, displayHeight per title
 constexpr size_t kClipDoubles = 6;   // posX, posY, scaleX, scaleY, rotationDeg, opacity
 constexpr size_t kKeyClipLongs = 2;  // keyframe origin frame, keyframe count per clip
@@ -240,6 +240,8 @@ JNIEXPORT jlong JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_export_Nativ
         c.lane = static_cast<int32_t>(flat[i + 6]);
         c.fadeInFrames = flat[i + 7];
         c.titleKey = static_cast<uint32_t>(flat[i + 8]);
+        // The HDR level in millionths; anything outside (0, 1] means none, as in the preview.
+        c.level = (flat[i + 9] > 0 && flat[i + 9] <= 1'000'000) ? static_cast<float>(flat[i + 9]) / 1'000'000.0f : 1.0f;
         params.clips.push_back(c);
     }
 

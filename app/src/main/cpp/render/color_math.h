@@ -72,10 +72,11 @@ inline float bt709Oetf(float l) {
 }
 
 // Nonlinear HLG BT.2020 RGB in [0,1] -> nonlinear BT.709 SDR RGB in [0,1].
-inline Vec3 hlg2020ToSdr709(const Vec3& hlg) {
+// `level` is the HDR level (see hlgScaleDisplay): a display-light gain applied before the tone map.
+inline Vec3 hlg2020ToSdr709(const Vec3& hlg, float level = 1.0f) {
     const Vec3 scene{hlgInverseOetf(hlg.r), hlgInverseOetf(hlg.g), hlgInverseOetf(hlg.b)};
     Vec3 display = hlgOotf(scene);
-    const float scale = kPeakNits / kDiffuseWhiteNits;
+    const float scale = kPeakNits / kDiffuseWhiteNits * level;
     display = {display.r * scale, display.g * scale, display.b * scale};
     const float l = luminance2020(display);
     if (l > 0.0f) {
@@ -145,6 +146,14 @@ inline Vec3 displayToHlgSignal(Vec3 display) {
     return {hlgOetf(scene.r), hlgOetf(scene.g), hlgOetf(scene.b)};
 }
 
+// An HLG signal with its display light scaled by `gain` (the HDR level of render/shaders.h). The OOTF makes display
+// light grow as scene light ^ 1.2, so the scene light is scaled by gain ^ (1 / 1.2); a gain of 1 returns `hlg` untouched.
+inline Vec3 hlgScaleDisplay(const Vec3& hlg, float gain) {
+    if (gain == 1.0f) return hlg;
+    const float k = std::pow(gain, 1.0f / kSystemGamma);
+    return {hlgOetf(hlgInverseOetf(hlg.r) * k), hlgOetf(hlgInverseOetf(hlg.g) * k), hlgOetf(hlgInverseOetf(hlg.b) * k)};
+}
+
 // Nonlinear SDR Rec.709 RGB in [0,1] -> nonlinear HLG Rec.2020 RGB in [0,1].
 inline Vec3 sdr709ToHlg2020(const Vec3& sdr) {
     const Vec3 lin{std::pow(std::clamp(sdr.r, 0.0f, 1.0f), kSdrGamma), std::pow(std::clamp(sdr.g, 0.0f, 1.0f), kSdrGamma),
@@ -161,8 +170,9 @@ inline Vec3 pq2020ToDisplayRelative203(const Vec3& pq) {
     return {pqEotfNits(pq.r) * k, pqEotfNits(pq.g) * k, pqEotfNits(pq.b) * k};
 }
 
-inline Vec3 pq2020ToSdr709(const Vec3& pq) {
+inline Vec3 pq2020ToSdr709(const Vec3& pq, float level = 1.0f) {
     Vec3 display = pq2020ToDisplayRelative203(pq);
+    display = {display.r * level, display.g * level, display.b * level};
     const float l = luminance2020(display);
     if (l > 0.0f) {
         const float k = toneMapLuma(l) / l;
@@ -173,20 +183,21 @@ inline Vec3 pq2020ToSdr709(const Vec3& pq) {
     return {bt709Oetf(lin.r), bt709Oetf(lin.g), bt709Oetf(lin.b)};
 }
 
-inline Vec3 pq2020ToHlg2020(const Vec3& pq) {
-    const float k = kDiffuseWhiteNits / kPeakNits;  // 203-nit-relative -> 1000-nit-relative
+inline Vec3 pq2020ToHlg2020(const Vec3& pq, float level = 1.0f) {
+    const float k = kDiffuseWhiteNits / kPeakNits * level;  // 203-nit-relative -> 1000-nit-relative, with the HDR level
     const Vec3 rel = pq2020ToDisplayRelative203(pq);
     return displayToHlgSignal({rel.r * k, rel.g * k, rel.b * k});
 }
 
 // Applies `mode` (render/color_space.h) to a nonlinear source pixel. Mirrors the composite shader.
-inline Vec3 convertToTarget(int mode, const Vec3& rgb) {
+inline Vec3 convertToTarget(int mode, const Vec3& rgb, float level = 1.0f) {
     switch (mode) {
-        case 1: return hlg2020ToSdr709(rgb);
+        case 1: return hlg2020ToSdr709(rgb, level);
         case 2: return sdr709ToHlg2020(rgb);
-        case 4: return pq2020ToSdr709(rgb);
-        case 5: return pq2020ToHlg2020(rgb);
-        default: return rgb;  // 0 SDR->SDR and 3 HLG->HLG are sampled as is
+        case 3: return hlgScaleDisplay(rgb, level);
+        case 4: return pq2020ToSdr709(rgb, level);
+        case 5: return pq2020ToHlg2020(rgb, level);
+        default: return rgb;  // 0 SDR->SDR is sampled as is; an SDR source never has a level
     }
 }
 

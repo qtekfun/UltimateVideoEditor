@@ -6,6 +6,7 @@ import com.qtekfun.ultimatevideoeditor.domain.ClipTransform
 import com.qtekfun.ultimatevideoeditor.domain.MissingMediaCard
 import com.qtekfun.ultimatevideoeditor.domain.FrameIndex
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.RenderKind
 import com.qtekfun.ultimatevideoeditor.domain.SourceColorSpace
 import com.qtekfun.ultimatevideoeditor.proxy.ResolvedSource
@@ -71,6 +72,7 @@ internal fun previewRequestsOnCanvas(
     canvasHeight: Int,
     sourceOf: (MediaAssetDto) -> ResolvedSource,
     unreadable: List<MediaAssetDto> = emptyList(),
+    hdr: HdrLevels = HdrLevels.NONE,
     assetKeyOf: (String) -> Int,
 ): List<PreviewRequest> {
     val assetsById = assets.associateBy { it.id }
@@ -106,7 +108,7 @@ internal fun previewRequestsOnCanvas(
                 clip.assetId?.let { id ->
                     // A photo is drawn from its file, a sticker from its built-in art; neither has a decoder.
                     if (clip.still == StillKind.PHOTO && id !in assetsById) return@let unreadableById[id]?.let { card(it, transform) }
-                    val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: return@let null else id)
+                    val ref = StillRef(clip.still, if (clip.still == StillKind.PHOTO) assetsById[id]?.uri ?: return@let null else id, hdr = hdr.hdrProject && clip.still == StillKind.PHOTO)
                         // An animated GIF or WebP shows the animation frame of this project frame, looping.
                         .let { base ->
                             val timing = assetsById[id]?.animationTiming()
@@ -150,6 +152,8 @@ internal fun previewRequestsOnCanvas(
                         endFrame = if (clip.retime == null) clip.sourceInFrame + clip.durationFrames else null,
                         reverse = clip.isReverse,
                         fx = clip.fxAt(playhead.value, canvasWidth, canvasHeight),
+                        // The gain follows the original file's colour (its analysis is of the original); only HLG and PQ readings use it.
+                        level = hdr.gainOf(clip.hdrAutoLevel, asset.uri, asset.durationFrames, SourceColorSpace.fromId(asset.colorSpace), clip.colorOverride).toFloat(),
                         // A proxy is read as the colour space it was made in: HLG for the proxy of an HDR file, SDR for the stand-in of one
                         // whose device could not encode HDR (and for every SDR source), whatever the original was.
                         sourceOverride = if (source.isProxy) {

@@ -29,6 +29,7 @@ import com.qtekfun.ultimatevideoeditor.domain.Keyframes
 import com.qtekfun.ultimatevideoeditor.domain.MotionPreset
 import com.qtekfun.ultimatevideoeditor.domain.ParamKey
 import com.qtekfun.ultimatevideoeditor.domain.displayedAt
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 import com.qtekfun.ultimatevideoeditor.domain.TitleContent
@@ -65,6 +66,8 @@ data class EditorState(
     val canvasHeight: Int = 1080,
     /** Colour space the project is composited and exported in; HDR (HLG) or SDR. */
     val colorSpace: ProjectColorSpace = ProjectColorSpace.REC709_SDR,
+    /** The project's HDR brightness setting and the diffuse levels measured so far; the preview and the exporter read the gain from it. */
+    val hdr: HdrLevels = HdrLevels(),
     /** Committed timeline; only changes through the undo history. */
     val timeline: Timeline = Timeline(),
     /** Provisional timeline while a clip is being dragged; discarded or committed on release. */
@@ -608,6 +611,12 @@ sealed interface EditorIntent : UiIntent {
     data class ApplyGrade(val values: List<Double>, val curves: GradeCurves?) : EditorIntent
 
     /** Reads the selected video clip's source as this colour space; null goes back to what its file says. */
+    /** The project's HDR brightness: dim HDR footage whose diffuse level is above reference white (Comfortable) or keep it as recorded. */
+    data class SetHdrBrightness(val brightness: com.qtekfun.ultimatevideoeditor.domain.HdrBrightness) : EditorIntent
+
+    /** Turns the selected clips' automatic HDR level on or off; null goes back to the project's setting. */
+    data class SetClipHdrLevel(val on: Boolean?) : EditorIntent
+
     data class SetClipColor(val space: com.qtekfun.ultimatevideoeditor.domain.SourceColorSpace?) : EditorIntent
     data class UpdateMask(val mask: ClipMask?) : EditorIntent
 

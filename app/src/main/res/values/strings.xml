@@ -843,6 +843,15 @@
     <string name="ed_2b_relink_and_realign">Relink and realign</string>
     <string name="ed_2b_restore_embedded_audio">Restore embedded audio</string>
     <string name="ed_2b_source_colour">Source colour</string>
+    <string name="ed_2b_hdr_level_steps">HDR level: %1$s steps (auto)</string>
+    <string name="ed_2b_hdr_level_none">HDR level: no change (auto)</string>
+    <string name="ed_2b_hdr_level_measuring">HDR level: measuring…</string>
+    <string name="ed_2b_hdr_level_off">HDR level: off</string>
+    <string name="ed_2b_hdr_level_switch">Automatic HDR level for this clip</string>
+    <string name="ed_2a_hdr_brightness">HDR brightness</string>
+    <string name="ed_2a_hdr_brightness_comfortable">Comfortable</string>
+    <string name="ed_2a_hdr_brightness_original">Original</string>
+    <string name="ed_2a_hdr_brightness_note">Comfortable dims HDR clips whose everyday content (skin, walls) is brighter than reference white, so they sit well next to photos and SDR video. Original keeps them as recorded.</string>
     <string name="ed_2b_auto">Auto (%1$s)</string>
     <string name="ed_2b_reset_colour_grade">Reset colour grade</string>
     <string name="ed_2b_looks">Looks · %1$s</string>

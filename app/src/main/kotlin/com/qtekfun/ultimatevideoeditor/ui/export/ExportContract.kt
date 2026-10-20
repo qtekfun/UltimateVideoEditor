@@ -3,6 +3,7 @@ package com.qtekfun.ultimatevideoeditor.ui.export
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 import com.qtekfun.ultimatevideoeditor.engine.export.ExportCodec
@@ -23,6 +24,8 @@ data class ExportInput(
     val colorSpace: ProjectColorSpace = ProjectColorSpace.REC709_SDR,
     /** Library files that cannot be read; clips that need them cannot be exported. */
     val missingAssetIds: Set<String> = emptySet(),
+    /** The project's HDR brightness setting and measured levels at the moment the dialog opened. */
+    val hdr: HdrLevels = HdrLevels.NONE,
 )
 
 sealed interface ExportPhase {

@@ -32,6 +32,7 @@ struct VideoClip {
     int64_t assetKey = 0;
     int32_t layer = 0;      // 0 is the topmost track; a lower number is drawn over a higher one
     int32_t colorMode = 0;  // mirrors render::ColorMode
+    float level = 1.0f;     // HDR level: a display-light gain of at most 1 for an HLG or PQ source (1 = none)
     // Mirrors ClipTransform: canvas pixels (+x right, +y down), clockwise degrees, opacity 0..1.
     double posX = 0.0;
     double posY = 0.0;

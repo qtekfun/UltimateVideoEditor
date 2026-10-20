@@ -93,6 +93,7 @@ import com.qtekfun.ultimatevideoeditor.domain.TrackType
 import com.qtekfun.ultimatevideoeditor.ui.preview.wantedOutputSpace
 import com.qtekfun.ultimatevideoeditor.ui.preview.DisplayHdr
 import com.qtekfun.ultimatevideoeditor.engine.preview.OutputSpace
+import com.qtekfun.ultimatevideoeditor.domain.HdrBrightness
 import com.qtekfun.ultimatevideoeditor.domain.ProjectColorSpace
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -390,6 +391,7 @@ fun EditorScreen(
                 ExportInput(
                     projectId, live.projectName, live.canvasWidth, live.canvasHeight, live.fps, live.timeline, live.assets, live.colorSpace,
                     missingAssetIds = live.missingMedia.keys,
+                    hdr = live.hdr,
                 ),
             ),
         )
@@ -411,6 +413,7 @@ fun EditorScreen(
                     assets = live.assets,
                     frame = live.playhead.value,
                     missingAssetIds = live.missingMedia.keys,
+                    hdr = live.hdr,
                 ),
             ),
         )
@@ -523,7 +526,7 @@ fun EditorScreen(
     StateEffect(
         holder,
         // The proxy version changes when the switch flips or a proxy finishes: the preview then opens another file.
-        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.mediaChecked, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading, proxyHolder.value.resolveVersion) },
+        { listOf(it.playhead, it.isPlaying, it.visibleTimeline, it.assets, it.missingMedia, it.mediaChecked, it.fps, it.canvasWidth, it.canvasHeight, it.isLoading, it.hdr, proxyHolder.value.resolveVersion) },
     ) { s ->
         if (s.isLoading) return@StateEffect
         val layers = previewRequestsOnCanvas(
@@ -536,6 +539,7 @@ fun EditorScreen(
             sourceOf = { proxyVm.resolve(it, MediaPurpose.PREVIEW) },
             // Clips of files that cannot be read show a "Media missing" card in the preview (never in an export).
             unreadable = s.unreadableAssets,
+            hdr = s.hdr,
         ) { viewModel.assetKey(it).toInt() }
         val scene = PreviewScene(s.canvasWidth, s.canvasHeight, layers)
         previewProxyNote.value = previewProxyNote(layers, s.assets)
@@ -1286,7 +1290,7 @@ private fun EditorMain(
                 }
                 if (state.selectMode || state.isMultiSelection) SelectionBar(state, viewModel::onIntent)
                 state.pasteChoice?.let { choice -> PasteChoiceDialog(choice, viewModel::onIntent) }
-                if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, viewModel::onIntent)
+                if (state.canvasDialogOpen) CanvasDialog(state.canvasWidth, state.canvasHeight, state.colorSpace, state.hdr.brightness, viewModel::onIntent)
 
                 }
             },
@@ -1423,7 +1427,7 @@ private fun SafeZoneMenu(current: SafeZonePlatform?, onSelect: (SafeZonePlatform
 /** Pick another canvas shape or size from the same presets as New project. The current one is marked. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace, onIntent: (EditorIntent) -> Unit) {
+private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace, hdrBrightness: HdrBrightness, onIntent: (EditorIntent) -> Unit) {
     AlertDialog(
         onDismissRequest = { onIntent(EditorIntent.DismissCanvasDialog) },
         title = { Text(stringResource(R.string.ed_2a_project, width, height, aspectLabelOf(width, height))) },
@@ -1448,6 +1452,23 @@ private fun CanvasDialog(width: Int, height: Int, colorSpace: ProjectColorSpace,
                         stringResource(R.string.ed_2a_hdr_projects_note),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Text(stringResource(R.string.ed_2a_hdr_brightness), style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (option in HdrBrightness.entries) {
+                            FilterChip(
+                                selected = option == hdrBrightness,
+                                onClick = { onIntent(EditorIntent.SetHdrBrightness(option)) },
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            if (option == HdrBrightness.COMFORTABLE) R.string.ed_2a_hdr_brightness_comfortable else R.string.ed_2a_hdr_brightness_original,
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    Text(stringResource(R.string.ed_2a_hdr_brightness_note), style = MaterialTheme.typography.bodySmall)
                 }
                 for (group in ProjectPresets.resolutionGroups) {
                     Text(stringResource(group.titleRes), style = MaterialTheme.typography.labelLarge)

@@ -45,6 +45,8 @@ data class RenderClip(
     val still: StillKind? = null,
     /** The clip's colour space override, or null to use the asset's detected one. */
     val colorOverride: SourceColorSpace? = null,
+    /** The clip's own HDR level setting (see [Clip.hdrAutoLevel]): true on, false off, null follows the project. */
+    val hdrAutoLevel: Boolean? = null,
     /** Pan, fade handles, EQ, noise suppression and normalisation of the clip's sound. */
     val audio: ClipAudio = ClipAudio.NONE,
     /** Keyframed parameters (effect values, volume, pan, EQ gains); frames are relative to [keyframeOriginFrame]. */
@@ -227,6 +229,7 @@ fun Timeline.renderClips(): List<RenderClip> {
                     ?.let { clip.fx.copy(stabKey = StabKey.of(checkNotNull(clip.assetId), it)) }
                     ?: clip.fx,
                 colorOverride = clip.colorOverride,
+                hdrAutoLevel = clip.hdrAutoLevel,
                 still = clip.still,
                 audio = clip.audio,
                 params = clip.params,
