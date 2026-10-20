@@ -2,11 +2,7 @@ package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.engine.audio.LoudnessResult
-import kotlinx.serialization.builtins.MapSerializer
-import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.Json
 import java.io.File
-import java.io.IOException
 
 /**
  * Offline measurements of a media file for the audio tools: integrated loudness (for "normalise")
@@ -66,31 +62,10 @@ internal const val LOUDNESS_CACHE_PATH = "loudness/cache.json"
  * [LoudnessCache] on disk: one small JSON file of `key -> LUFS`, read once and rewritten on each new
  * measurement. A damaged or unreadable file is treated as empty (it only holds recomputable values).
  */
-class FileLoudnessCache(private val file: File) : LoudnessCache {
-    private val serializer = MapSerializer(String.serializer(), Double.serializer())
-    private val values: MutableMap<String, Double> = load()
+class FileLoudnessCache(file: File) : LoudnessCache {
+    private val values = FileDoubleMap(file)
 
-    @Synchronized
-    override fun get(key: String): Double? = values[key]
+    override fun get(key: String): Double? = values.get(key)
 
-    @Synchronized
-    override fun put(key: String, lufs: Double) {
-        values[key] = lufs
-        try {
-            file.parentFile?.mkdirs()
-            val temp = File(file.parentFile, file.name + ".tmp")
-            temp.writeText(Json.encodeToString(serializer, values))
-            if (!temp.renameTo(file)) throw IOException("could not replace ${file.name}")
-        } catch (_: IOException) {
-            // Losing a cache entry only costs a re-measurement later.
-        }
-    }
-
-    private fun load(): MutableMap<String, Double> = try {
-        if (file.isFile) Json.decodeFromString(serializer, file.readText()).toMutableMap() else mutableMapOf()
-    } catch (_: IOException) {
-        mutableMapOf()
-    } catch (_: kotlinx.serialization.SerializationException) {
-        mutableMapOf()
-    }
+    override fun put(key: String, lufs: Double) = values.put(key, lufs)
 }

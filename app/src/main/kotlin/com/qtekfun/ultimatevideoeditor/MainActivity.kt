@@ -62,7 +62,9 @@ import com.qtekfun.ultimatevideoeditor.engine.timeline.CachedEnvelopeSource
 import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformCache
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorScreen
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorViewModel
+import com.qtekfun.ultimatevideoeditor.ui.editor.hdrLevelCacheIn
 import com.qtekfun.ultimatevideoeditor.ui.editor.loudnessCacheIn
+import com.qtekfun.ultimatevideoeditor.engine.hdr.MediaCodecHdrLevelAnalyzer
 import com.qtekfun.ultimatevideoeditor.ui.hub.FileDiskLister
 import com.qtekfun.ultimatevideoeditor.ui.hub.HubIntent
 import com.qtekfun.ultimatevideoeditor.ui.hub.PrefsHubViewStore
@@ -353,6 +355,8 @@ class MainActivity : ComponentActivity() {
                                         maxDecoders = DecoderLimits.maxPreviewDecoders(),
                                     ),
                                     loudnessCache = loudnessCacheIn(filesDir),
+                                    hdrAnalyzer = MediaCodecHdrLevelAnalyzer(applicationContext),
+                                    hdrLevelCache = hdrLevelCacheIn(filesDir),
                                     videoAudioPlacement = PrefsLayoutStore(getSharedPreferences(PrefsLayoutStore.FILE, MODE_PRIVATE)),
                                     motionTracker = FileMotionTracker(
                                         File(filesDir, "projects/$projectId/track"),

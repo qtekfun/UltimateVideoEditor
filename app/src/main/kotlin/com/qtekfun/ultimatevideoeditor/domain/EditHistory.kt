@@ -276,6 +276,11 @@ sealed interface EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setColorOverride(timeline, clipId, space)
     }
 
+    /** Turns a clip's automatic HDR level on, off or back to the project's setting (null). */
+    data class SetHdrAutoLevel(val clipId: String, val on: Boolean?) : EditCommand {
+        override fun apply(timeline: Timeline) = TimelineOps.setHdrAutoLevel(timeline, clipId, on)
+    }
+
     data class SetBlendMode(val clipId: String, val mode: BlendMode) : EditCommand {
         override fun apply(timeline: Timeline) = TimelineOps.setBlendMode(timeline, clipId, mode)
     }

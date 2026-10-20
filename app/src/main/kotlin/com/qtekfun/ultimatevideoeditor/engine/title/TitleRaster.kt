@@ -31,6 +31,8 @@ class TitleBitmap(
     /** Canvas pixels the picture covers at scale 1; a still keeps its native size and is drawn scaled to this. */
     val displayWidth: Int = width,
     val displayHeight: Int = height,
+    /** The pixels are already HLG encoded at reference white (an HDR photo made from its gain map); the compositor reads them as an HLG source. */
+    val hlg: Boolean = false,
 ) {
     init {
         require(width > 0 && height > 0) { "title bitmap must not be empty: ${width}x$height" }

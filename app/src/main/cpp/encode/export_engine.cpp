@@ -595,6 +595,8 @@ public:
                 ensurePicture(clip->titleKey);
                 render::LayerDraw title;
                 title.titleKey = clip->titleKey;
+                // A picture the clip says is HLG (an HDR photo) is read as an HLG source; any other is SDR graphics.
+                title.hlgPicture = render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)) == render::SourceTransfer::Hlg;
                 title.fx = fxAt(*clip, projectFrame);
                 title.transform = render::LayerTransform{
                     static_cast<float>(pose.posX),   static_cast<float>(pose.posY),        static_cast<float>(pose.scaleX),
@@ -644,6 +646,7 @@ public:
             }
             // The clip carries what its source is (render::ColorMode value of any target); the target is the export's.
             layer.mode = render::colorModeFor(render::sourceTransferOf(static_cast<render::ColorMode>(clip->colorMode)), space_);
+            layer.level = clip->level;
             layer.turns = asset.turns;
             layer.fx = fxAt(*clip, projectFrame);
             stab::resolveStabilisation(&layer.fx, source);  // the stabiliser's correction for this source frame

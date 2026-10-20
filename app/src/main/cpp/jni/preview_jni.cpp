@@ -185,7 +185,7 @@ JNIEXPORT void JNICALL Java_com_qtekfun_ultimatevideoeditor_engine_preview_Nativ
 }
 
 namespace {
-constexpr jsize kParamsPerLayer = 9;
+constexpr jsize kParamsPerLayer = 10;
 
 // `ids` holds `idStride` longs per layer ({assetId, frame} and, for playback, the exclusive limit
 // frame) and `params` {posX, posY, scaleX, scaleY, rotationDeg, opacity, direction, source, mix}, both bottom to top.
@@ -237,6 +237,8 @@ bool parseScene(JNIEnv* env, jlongArray ids, jfloatArray params, jdoubleArray fx
         // -1 (or anything out of range) keeps the asset's own colour; 0..2 is a SourceTransfer override.
         layer.source = (p[7] >= 0.0f && p[7] <= 2.0f) ? static_cast<int32_t>(p[7]) : -1;
         layer.mix = (p[8] > -1.0f && p[8] < 1.0f) ? p[8] : 0.0f;
+        // The HDR level is a gain that only ever dims: anything outside (0, 1] means none.
+        layer.level = (p[9] > 0.0f && p[9] <= 1.0f) ? p[9] : 1.0f;
         out->push_back(layer);
     }
     return true;

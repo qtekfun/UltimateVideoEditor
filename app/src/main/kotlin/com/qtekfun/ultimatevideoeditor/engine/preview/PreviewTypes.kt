@@ -132,6 +132,8 @@ data class PreviewLayer(
      */
     val mix: Float = 0f,
     val mixTowardsPrevious: Boolean = false,
+    /** The HDR level: a display-light gain of at most 1 applied to an HLG or PQ source before anything else (1 = none). */
+    val level: Float = 1f,
 )
 
 data class AssetInfo(

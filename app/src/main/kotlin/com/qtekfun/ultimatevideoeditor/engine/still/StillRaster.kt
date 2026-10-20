@@ -19,9 +19,10 @@ import kotlin.math.roundToInt
 /**
  * What a still clip shows: for a [StillKind.PHOTO] [id] is the image's `content://` URI, for a
  * [StillKind.STICKER] it is a built-in sticker id (see [StickerIds]). [frame] is the animation frame of an animated
- * GIF or WebP (0 for everything else, which is also the first frame of an animation).
+ * GIF or WebP (0 for everything else, which is also the first frame of an animation). [hdr] is set for a photo in an HDR
+ * project: a photo with a gain map is then made into HDR (see [TitleBitmap.hlg]) instead of its SDR rendition.
  */
-data class StillRef(val kind: StillKind, val id: String, val frame: Int = 0)
+data class StillRef(val kind: StillKind, val id: String, val frame: Int = 0, val hdr: Boolean = false)
 
 /** A photo or sticker could not be turned into pixels. The message is fit to show to the user. */
 class StillRasterException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -102,8 +103,11 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         val stored = when (ref.kind) {
             StillKind.PHOTO -> {
                 val raw = decodeAnimatedFrame(ref) ?: decodePhoto(ref.id, canvasWidth, canvasHeight)
-                val plan = StillFit.plan(raw.width, raw.height, canvasWidth, canvasHeight)
-                Stored(scaleTo(raw, plan.textureWidth, plan.textureHeight), plan.displayWidth, plan.displayHeight)
+                // A photo with a gain map, in an HDR project, becomes its HDR picture (HLG at reference white); otherwise it stays as is.
+                val hdr = if (ref.hdr) UltraHdrPhoto.toHlg(raw) else null
+                val picture = if (hdr != null) hdr.also { raw.recycle() } else raw
+                val plan = StillFit.plan(picture.width, picture.height, canvasWidth, canvasHeight)
+                Stored(scaleTo(picture, plan.textureWidth, plan.textureHeight), plan.displayWidth, plan.displayHeight, hlg = hdr != null)
             }
             StillKind.STICKER -> drawSticker(ref.id, canvasWidth, canvasHeight).let { Stored(it, it.width, it.height) }
         }
@@ -115,7 +119,7 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
             val pixels = ByteBuffer.allocateDirect(argb.width * argb.height * BYTES_PER_PIXEL)
             argb.copyPixelsToBuffer(pixels)
             pixels.rewind()
-            return TitleBitmap(argb.width, argb.height, pixels, stored.displayWidth, stored.displayHeight)
+            return TitleBitmap(argb.width, argb.height, pixels, stored.displayWidth, stored.displayHeight, stored.hlg)
         } catch (e: OutOfMemoryError) {
             throw StillRasterException("Not enough memory to show a picture", e)
         } finally {
@@ -150,7 +154,7 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
     }
 
     /** A bitmap stored as a texture and the canvas size it is drawn at. */
-    private class Stored(val bitmap: Bitmap, val displayWidth: Int, val displayHeight: Int)
+    private class Stored(val bitmap: Bitmap, val displayWidth: Int, val displayHeight: Int, val hlg: Boolean = false)
 
     /** [decoded] scaled to [w] x [h]; the input bitmap is recycled when a new one is made. */
     private fun scaleTo(decoded: Bitmap, w: Int, h: Int): Bitmap {

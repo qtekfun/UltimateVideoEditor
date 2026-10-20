@@ -112,6 +112,8 @@ data class VideoClipSpec(
      * Null means [fx] holds for the whole clip.
      */
     val fxFrames: List<ClipFx>? = null,
+    /** The HDR level: a display-light gain of at most 1 applied to an HLG or PQ source before anything else (1 = none). */
+    val level: Double = 1.0,
 )
 
 /**

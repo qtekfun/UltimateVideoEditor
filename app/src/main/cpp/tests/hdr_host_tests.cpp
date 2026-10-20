@@ -152,6 +152,69 @@ void titlesStayAtReferenceWhiteInAnHdrTarget() {
     CHECK(w.r < 0.8f);
 }
 
+// Display luminance in nit of an HLG signal (1000 nit system): the quantity the HDR level scales.
+double hlgNits(const Vec3& hlg) {
+    const Vec3 d = hlgOotf({hlgInverseOetf(hlg.r), hlgInverseOetf(hlg.g), hlgInverseOetf(hlg.b)});
+    return luminance2020(d) * kPeakNits;
+}
+
+void levelOfOneChangesNothing() {
+    // The default level is exact: no round trip through the curves, so a project without an analysis is untouched.
+    const Vec3 hlg{0.6f, 0.7f, 0.5f};
+    const Vec3 same = hlgScaleDisplay(hlg, 1.0f);
+    CHECK(same.r == hlg.r && same.g == hlg.g && same.b == hlg.b);
+    const Vec3 viaMode = convertToTarget(static_cast<int>(ColorMode::Hlg2020), hlg);
+    CHECK(viaMode.r == hlg.r && viaMode.g == hlg.g && viaMode.b == hlg.b);
+    const Vec3 sdrDefault = hlg2020ToSdr709(hlg);
+    const Vec3 sdrOne = hlg2020ToSdr709(hlg, 1.0f);
+    CHECK(sdrDefault.r == sdrOne.r && sdrDefault.g == sdrOne.g && sdrDefault.b == sdrOne.b);
+}
+
+void levelScalesHlgDisplayLight() {
+    // A gain g on display light: the nit value of a grey (and of a colour) is multiplied by g, which is what the shader
+    // promises for an HLG clip in an HLG project (scene light scaled by g^(1/1.2)).
+    for (float g : {0.9f, 0.7071f, 0.5f, 0.3535f}) {
+        for (float e : {0.3f, 0.5f, 0.75f, 0.9f}) {
+            const Vec3 in{e, e, e};
+            const Vec3 out = hlgScaleDisplay(in, g);
+            CHECK_NEAR(hlgNits(out) / hlgNits(in), g, 2e-3);
+        }
+        const Vec3 colour{0.8f, 0.6f, 0.4f};
+        CHECK_NEAR(hlgNits(hlgScaleDisplay(colour, g)) / hlgNits(colour), g, 2e-3);
+    }
+}
+
+void levelNeverBrightens() {
+    for (float e = 0.0f; e <= 1.0f; e += 0.05f) {
+        const Vec3 out = hlgScaleDisplay({e, e, e}, 0.6f);
+        CHECK(out.r <= e + 1e-6f);
+    }
+}
+
+void levelAppliesBeforeTheToneMapIntoSdr() {
+    // Dimming the HLG source first makes the SDR picture darker everywhere, never brighter.
+    for (float e : {0.4f, 0.6f, 0.75f, 0.9f}) {
+        const Vec3 plain = hlg2020ToSdr709({e, e, e});
+        const Vec3 dimmed = hlg2020ToSdr709({e, e, e}, 0.7f);
+        CHECK(dimmed.r <= plain.r + 1e-6f);
+    }
+    // 203 nit white dimmed to 70 % is 142 nit: below the knee the tone map is linear, so the result is the plain
+    // conversion of a source whose display light is 0.7 times as large.
+    const Vec3 a = hlg2020ToSdr709({0.75f, 0.75f, 0.75f}, 0.7f);
+    const Vec3 b = hlg2020ToSdr709(hlgScaleDisplay({0.75f, 0.75f, 0.75f}, 0.7f));
+    CHECK_NEAR(a.r, b.r, 3e-3);
+}
+
+void levelOnPqScalesDisplayLight() {
+    // PQ is display referred: the level multiplies the 203-relative light before the HLG or SDR conversion.
+    const Vec3 pq{0.5807f, 0.5807f, 0.5807f};  // 203 nit
+    const Vec3 half = pq2020ToHlg2020(pq, 0.5f);
+    CHECK_NEAR(hlgNits(half), 101.5, 1.5);
+    const Vec3 full = pq2020ToHlg2020(pq, 1.0f);
+    CHECK_NEAR(hlgNits(full), 203.0, 2.0);
+    CHECK(pq2020ToSdr709(pq, 0.5f).r < pq2020ToSdr709(pq, 1.0f).r);
+}
+
 }  // namespace
 
 int main() {
@@ -169,6 +232,11 @@ int main() {
     pqIntoSdrIsMonotonicAndInRange();
     hlgToSdrStillWorks();
     titlesStayAtReferenceWhiteInAnHdrTarget();
+    levelOfOneChangesNothing();
+    levelScalesHlgDisplayLight();
+    levelNeverBrightens();
+    levelAppliesBeforeTheToneMapIntoSdr();
+    levelOnPqScalesDisplayLight();
     if (failures == 0) std::printf("hdr host tests: all passed\n");
     return failures == 0 ? 0 : 1;
 }

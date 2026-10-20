@@ -275,6 +275,11 @@ data class Clip(
      * metadata that really is HLG, or the reverse). Null means the asset's own detected space.
      */
     val colorOverride: SourceColorSpace? = null,
+    /**
+     * Whether this clip's HDR level (see [HdrLevel]) applies: true forces it on, false off, null follows the project's
+     * [HdrBrightness]. Only an HLG or PQ source is affected.
+     */
+    val hdrAutoLevel: Boolean? = null,
     /** Pan, fade handles, EQ, noise suppression and loudness normalisation; neutral by default. */
     val audio: ClipAudio = ClipAudio.NONE,
     /** Camera-shake correction of a video clip; null is off. */

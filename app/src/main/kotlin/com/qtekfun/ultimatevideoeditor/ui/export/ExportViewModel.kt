@@ -21,6 +21,7 @@ import com.qtekfun.ultimatevideoeditor.engine.export.ExportTitle
 import com.qtekfun.ultimatevideoeditor.engine.export.HdrExportSupport
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRef
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRasterException
+import com.qtekfun.ultimatevideoeditor.domain.StillKind
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRasterizer
 import com.qtekfun.ultimatevideoeditor.engine.title.TitleRasterException
 import com.qtekfun.ultimatevideoeditor.engine.title.TitleRasterizer
@@ -324,7 +325,7 @@ class ExportViewModel(
         rate: FrameRate,
         current: ExportState,
     ): ExportRequest {
-        val plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight)
+        val plan = buildExportPlan(source.timeline, source.assets, source.fps, source.projectWidth, source.projectHeight, source.hdr)
             ?: throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "There is nothing to export yet. Add a clip to the timeline.", UiText.res(R.string.export_nothing))
         val titleImages = plan.titles.map { (key, content) ->
             val bitmap = try {
@@ -338,9 +339,10 @@ class ExportViewModel(
         // the preview, but one at a time as the render needs them: an animation of hundreds of frames is never held in
         // memory all at once. A picture that cannot be read at all is found now, not halfway through the export.
         val stillByKey = plan.stills
+        val hdrPictures = HashSet<Pair<StillKind, String>>()
         for (still in stillByKey.values.distinctBy { it.kind to it.id }) {
             try {
-                stillRasterizer.rasterize(still.copy(frame = 0), source.projectWidth, source.projectHeight)
+                if (stillRasterizer.rasterize(still.copy(frame = 0), source.projectWidth, source.projectHeight).hlg) hdrPictures += still.kind to still.id
             } catch (e: StillRasterException) {
                 throw ExportException(ExportErrorCode.INVALID_ARGUMENT, "A picture could not be drawn: ${e.message}", UiText.res(R.string.export_picture_not_drawn, e.message.orEmpty()))
             }
@@ -379,7 +381,7 @@ class ExportViewModel(
             canvasHeight = source.projectHeight,
             totalFrames = outputFrameCount(plan.projectFrames, source.fps, rate),
             assetFds = opened,
-            videoClips = plan.videoClips,
+            videoClips = plan.videoClips.withHdrPictures(stillByKey, hdrPictures),
             audioSnapshot = plan.audio?.encode(),
             outputFd = outputFd,
             titles = titleImages,

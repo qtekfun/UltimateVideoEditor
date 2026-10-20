@@ -865,6 +865,15 @@
     <string name="ed_2b_relink_and_realign">Vincular y realinear</string>
     <string name="ed_2b_restore_embedded_audio">Restaurar el audio incrustado</string>
     <string name="ed_2b_source_colour">Color de origen</string>
+    <string name="ed_2b_hdr_level_steps">Nivel HDR: %1$s pasos (auto)</string>
+    <string name="ed_2b_hdr_level_none">Nivel HDR: sin cambio (auto)</string>
+    <string name="ed_2b_hdr_level_measuring">Nivel HDR: midiendo…</string>
+    <string name="ed_2b_hdr_level_off">Nivel HDR: desactivado</string>
+    <string name="ed_2b_hdr_level_switch">Nivel HDR automático de este clip</string>
+    <string name="ed_2a_hdr_brightness">Brillo HDR</string>
+    <string name="ed_2a_hdr_brightness_comfortable">Cómodo</string>
+    <string name="ed_2a_hdr_brightness_original">Original</string>
+    <string name="ed_2a_hdr_brightness_note">Cómodo atenúa los clips HDR cuyo contenido normal (piel, paredes) es más brillante que el blanco de referencia, para que queden bien junto a fotos y vídeo SDR. Original los deja como se grabaron.</string>
     <string name="ed_2b_auto">Auto (%1$s)</string>
     <string name="ed_2b_reset_colour_grade">Restablecer corrección de color</string>
     <string name="ed_2b_looks">Estilos · %1$s</string>

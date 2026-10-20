@@ -86,6 +86,8 @@ struct SceneLayer {
     // Smooth slow motion: how far the shown moment is from `frame` towards its neighbour, in 0..1. Positive
     // blends with the frame after `frame`, negative with the one before it (a reversed clip); 0 shows `frame`.
     float mix = 0.0f;
+    // The clip's HDR level: a display-light gain of at most 1 (1 = none), see LayerDraw::level.
+    float level = 1.0f;
 };
 
 // Preview of a stack of layers: decode workers (one per open asset) fill the shared frame cache,
@@ -179,10 +181,11 @@ private:
         core::LayerFx fx = {};
         int32_t source = -1;
         float mix = 0.0f;           // the mix that was asked for
+        float level = 1.0f;         // the HDR level the layer was drawn with: a late analysis must redraw
         uint8_t neighbours = 0;     // bit 0: blend frame drawn, bit 1: previous frame, bit 2: next frame (as decoded then)
         bool operator==(const DrawnLayer& o) const {
             return asset == o.asset && frame == o.frame && title == o.title && fx == o.fx && source == o.source &&
-                   mix == o.mix && neighbours == o.neighbours &&
+                   mix == o.mix && level == o.level && neighbours == o.neighbours &&
                    transform.posX == o.transform.posX &&
                    transform.posY == o.transform.posY && transform.scaleX == o.transform.scaleX &&
                    transform.scaleY == o.transform.scaleY && transform.rotationDeg == o.transform.rotationDeg &&

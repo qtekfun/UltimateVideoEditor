@@ -5,6 +5,7 @@ import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.CubeLut
 import com.qtekfun.ultimatevideoeditor.domain.FrameRate
+import com.qtekfun.ultimatevideoeditor.domain.HdrLevels
 import com.qtekfun.ultimatevideoeditor.domain.TitleContent
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 import com.qtekfun.ultimatevideoeditor.domain.lutKeys
@@ -22,6 +23,7 @@ import com.qtekfun.ultimatevideoeditor.engine.export.ExportTitle
 import com.qtekfun.ultimatevideoeditor.engine.export.StillFrameTarget
 import com.qtekfun.ultimatevideoeditor.engine.export.VideoClipSpec
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRasterException
+import com.qtekfun.ultimatevideoeditor.domain.StillKind
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRasterizer
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRef
 import com.qtekfun.ultimatevideoeditor.engine.title.TitleRasterException
@@ -29,6 +31,7 @@ import com.qtekfun.ultimatevideoeditor.engine.title.TitleRasterizer
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportIO
 import com.qtekfun.ultimatevideoeditor.ui.export.StillPictureProvider
 import com.qtekfun.ultimatevideoeditor.ui.export.buildExportPlan
+import com.qtekfun.ultimatevideoeditor.ui.export.withHdrPictures
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -52,6 +55,7 @@ class FrameRenderJob(
     val width: Int,
     val height: Int,
     val missingAssetIds: Set<String>,
+    val hdr: HdrLevels = HdrLevels.NONE,
 )
 
 /** The drawn picture: RGBA8, top row first, [width] x [height], in a direct buffer. */
@@ -75,8 +79,8 @@ internal class FramePlan(
  * Plans the frame through [buildExportPlan], the function the exporter uses (so titles, transitions, retiming, effects and
  * keyframes are the exporter's), then keeps what covers [frame]. Null when the project has nothing to draw at all.
  */
-internal fun buildFramePlan(timeline: Timeline, assets: List<MediaAssetDto>, fps: FrameRate, width: Int, height: Int, frame: Long): FramePlan? {
-    val plan = buildExportPlan(timeline, assets, fps, width, height) ?: return null
+internal fun buildFramePlan(timeline: Timeline, assets: List<MediaAssetDto>, fps: FrameRate, width: Int, height: Int, frame: Long, hdr: HdrLevels = HdrLevels.NONE): FramePlan? {
+    val plan = buildExportPlan(timeline, assets, fps, width, height, hdr) ?: return null
     val covering = plan.videoClips.filter { frame >= it.startFrame && frame < it.startFrame + it.durationFrames }
     val keys = covering.filter { it.titleKey == 0 }.map { it.assetKey }.toSet()
     val pictures = covering.map { it.titleKey }.filter { it != 0 }.toSet()
@@ -144,7 +148,7 @@ class NativeFrameRenderer(
     }
 
     private fun prepare(job: FrameRenderJob): ExportRequest {
-        val plan = buildFramePlan(job.timeline, job.assets, job.fps, job.projectWidth, job.projectHeight, job.frame)
+        val plan = buildFramePlan(job.timeline, job.assets, job.fps, job.projectWidth, job.projectHeight, job.frame, job.hdr)
             ?: throw StillFrameException(UiText.res(R.string.ed_s3_frame_nothing), "There is nothing to save yet. Add a clip to the timeline.") // i18n-ok: log text
         log(
             "plan frame ${job.frame} project ${job.projectWidth}x${job.projectHeight} fps ${job.fps.num}/${job.fps.den} covering " +
@@ -162,9 +166,10 @@ class NativeFrameRenderer(
             }
             ExportTitle(key, bitmap.width, bitmap.height, bitmap.pixels)
         }
+        val hdrPictures = HashSet<Pair<StillKind, String>>()
         for (still in plan.stills.values.distinctBy { it.kind to it.id }) {
             try {
-                stillRasterizer.rasterize(still.copy(frame = 0), job.projectWidth, job.projectHeight)
+                if (stillRasterizer.rasterize(still.copy(frame = 0), job.projectWidth, job.projectHeight).hlg) hdrPictures += still.kind to still.id
             } catch (e: StillRasterException) {
                 throw StillFrameException(UiText.res(R.string.ed_s3_frame_picture_failed, e.message.orEmpty()), "A picture could not be drawn: ${e.message}") // i18n-ok: log text
             }
@@ -199,7 +204,7 @@ class NativeFrameRenderer(
             canvasHeight = job.projectHeight,
             totalFrames = 1,
             assetFds = opened,
-            videoClips = plan.clips,
+            videoClips = plan.clips.withHdrPictures(plan.stills, hdrPictures),
             audioSnapshot = null,
             outputFd = -1,
             titles = titleImages,

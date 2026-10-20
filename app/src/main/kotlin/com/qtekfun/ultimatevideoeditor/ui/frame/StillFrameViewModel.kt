@@ -82,6 +82,7 @@ class StillFrameViewModel(
                         width = target.size.width,
                         height = target.size.height,
                         missingAssetIds = input.missingAssetIds,
+                        hdr = input.hdr,
                     ),
                 )
                 val bytes = encoder.encodeJpeg(frame, JPEG_QUALITY)
