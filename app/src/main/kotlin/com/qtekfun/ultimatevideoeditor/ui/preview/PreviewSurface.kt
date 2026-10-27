@@ -4,6 +4,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -27,10 +28,12 @@ fun PreviewSurface(
     val currentWanted = rememberUpdatedState(wanted)
     val report = rememberUpdatedState(onOutputSpace)
     LaunchedEffect(engine, wanted) { report.value(engine.setOutputSpace(wanted)) }
+    val view = remember { arrayOfNulls<SurfaceView>(1) }
+    RecreateSurfaceAfterRotation { view[0] }
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            SurfaceView(context).apply {
+            SurfaceView(context).also { view[0] = it }.apply {
                 var lastWidth = 0
                 var lastHeight = 0
                 holder.addCallback(

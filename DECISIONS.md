@@ -2076,3 +2076,8 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 - **Limits.** Not seen on a device yet (PLAN.md): the maths, the plans and the view model are covered by host and JVM tests; the shader is checked
   against its CPU reference only through `color_math.h`. The measurement of a file read with a colour override is of that reading; a file that cannot be
   decoded keeps its HDR brightness as recorded. A project with HLG footage in an SDR project is dimmed too (the setting is shown only for HDR projects).
+
+## Surfaces rebuilt after a rotation (2026-10-27)
+**Context:** after turning to landscape and back, the preview and the timeline were drawn in a third of the width. The device log showed `BLASTBufferQueue: rejecting buffer: active_size=384x671, requested_size=1440x491, buffer{size=432x671}`: both `SurfaceView`s kept the size of a frame of the turn animation although the views themselves measured correctly (1440 x 491 and 1440 x 935). Re-attaching the EGL surface (1.3.1) did not help, because the stale size is the platform's, not the EGL surface's.
+**Chosen:** `RecreateSurfaceAfterRotation`: when the orientation changes and 450 ms have passed, the view is hidden for two frames and shown again, so the platform builds a fresh surface at the final size; the existing surface callbacks rebuild the engines' windows. **Alternatives:** shorter or longer redraw retries (the buffers were rejected, so drawing again changes nothing); recreating the views (the timeline host is deliberately never recreated, see EditorScreen); handling the turn by recreating the activity (loses state, slower).
+**Not verified on a device yet.**
