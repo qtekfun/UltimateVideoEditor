@@ -3,6 +3,11 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## 1.4.1
+
+- **Rotating back to portrait no longer leaves the preview and the timeline cropped.** The system could keep the size of a frame in the middle of the
+  turn animation for both surfaces. Once the turn settles they are now rebuilt at the final size. (1.3.1 did not fix it.)
+
 ## 1.4.0
 
 - **Zoom to detail (optional).** A switch in the layout sheet adds a button next to Fit, and a double tap on the time ruler, that zoom the
