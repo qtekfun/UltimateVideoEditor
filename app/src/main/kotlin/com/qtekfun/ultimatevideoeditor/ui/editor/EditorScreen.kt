@@ -1206,7 +1206,7 @@ private fun EditorMain(
                 val toolbarItem: @Composable (ToolbarItem, () -> Unit) -> Unit = { item, after ->
                     when (item) {
                         ToolbarItem.IMPORT -> ToolButton(EditorIcons.Add, stringResource(R.string.ed_2a_import_media), enabled = !state.isImporting) { onImport(); after() }
-                        ToolbarItem.SPLIT -> ToolButton(EditorIcons.Split, stringResource(R.string.ed_2a_split_at_playhead), enabled = hasSelection) {
+                        ToolbarItem.SPLIT -> ToolButton(EditorIcons.Split, stringResource(R.string.ed_2a_split_at_playhead)) { // always on: with nothing selected it cuts every lane
                             viewModel.onIntent(EditorIntent.SplitAtPlayhead); after()
                         }
                         ToolbarItem.DETACH_AUDIO -> ToolButton(

@@ -3,6 +3,12 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **Cut works with nothing selected.** The scissors button was greyed out until a clip was selected, so the "cut every lane under the
+  playhead" behaviour could not be reached from the toolbar. It is always enabled now. Cutting a selected base clip never touches the
+  lanes above it (covered by new tests).
+
 ## 1.4.2
 
 - **The cropped picture after a rotation goes away sooner.** The surfaces are rebuilt as soon as the view has kept its size for a few frames,
