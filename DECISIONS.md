@@ -2090,3 +2090,16 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 **Context:** the owner reported that Cut did nothing with no clip selected and that cutting the base clip seemed to affect the lanes above. The view model already cut every lane with nothing selected (2026-10-08), but the toolbar button was disabled without a selection, so that path was unreachable. A cut (`TimelineOps.split`) changes only its own lane: nothing ripples, and overlays are only cut when they are selected or when nothing is selected.
 **Chosen:** enable the button always (a cut with nothing under the playhead shows "Move the playhead inside a clip"). With a selection only the selected clips are cut and only their right-hand parts stay selected; the base clip's later neighbours and every overlay stay where they are. A linked audio clip is still cut with its video (link rule). Regression tests in `SplitPlayheadViewModelTest`.
 **Alternatives:** make a base-only cut ripple the base without overlays (rejected: a cut moves nothing, so there is nothing to ripple); cut the lane above when a base clip is cut (rejected: contradicts "only the selected clips").
+## 2026-10-28 · Still quality in the preview: mipmaps, decode size from the fit, oversampled stickers
+**Context:** the owner found photos, stickers and stills in the preview not good looking. By code reading: (1) title/still textures were sampled with
+plain `GL_LINEAR` and no mipmaps, so any minification of 2x or more (a 3840x2160 canvas on a phone surface, a clip scaled down) skipped texels and
+shimmered; (2) `StillFit.sampleSize` compared the picture's long side with the canvas' long side, so a portrait photo on a landscape canvas was decoded
+up to 3x larger than its fit and then reduced by one bilinear `createScaledBitmap` step; (3) stickers were drawn at exactly their display size, soft when
+the clip is scaled up.
+**Chosen:** `GlPipeline::uploadTitle` allocates a full mipmap chain (`glTexStorage2D` + `glGenerateMipmap`, `LINEAR_MIPMAP_LINEAR` minification); the
+chain is premultiplied so it averages correctly, and at scale 1 (export, a preview at canvas size) level 0 is selected, so export output is unchanged.
+`sampleSize` now keeps the decoded picture at least as large as its contain fit on both sides. Stickers are rasterised at 2x and displayed at the old size
+(`StillFit.STICKER_OVERSAMPLE`). The preview's texture-memory estimate counts the extra third of the chain.
+**Alternatives:** a CPU box-filter down to the display size (more Kotlin work, nothing for the clip-scale case); trilinear with anisotropy (extension not
+guaranteed); a native high-resolution photo path (still the answer for zooming a photo well past 100 %, see the 2026-10-04 entry).
+**Not changed:** photo texture stays at most the contain fit, so zooming a photo in is soft; colour handling (sRGB decode, titles as 709 graphics) is untouched.

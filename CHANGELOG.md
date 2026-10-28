@@ -11,6 +11,9 @@ and fields added later are optional in the project JSON). The detail behind each
 - **Cut works with nothing selected.** The scissors button was greyed out until a clip was selected, so the "cut every lane under the
   playhead" behaviour could not be reached from the toolbar. It is always enabled now. Cutting a selected base clip never touches the
   lanes above it (covered by new tests).
+- **Photos and stickers look cleaner in the preview.** Pictures are drawn with mipmaps, so a still shown smaller than its texture (a 4K project on
+  the phone screen, a scaled-down clip) no longer shimmers. A portrait photo on a landscape canvas (and the reverse) is now decoded close to the
+  size it is shown at, instead of up to three times larger. Stickers are drawn at twice their size, so they stay sharp when scaled up.
 
 ## 1.4.2
 

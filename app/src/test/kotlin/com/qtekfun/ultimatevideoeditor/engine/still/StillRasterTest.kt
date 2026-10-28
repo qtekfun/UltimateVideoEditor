@@ -53,6 +53,43 @@ class StillRasterTest {
         assertEquals(StillFit.sampleSize(8000, 6000, 1920, 1080), StillFit.sampleSize(6000, 8000, 1080, 1920))
     }
 
+    @Test
+    fun `sample size follows the contain fit so a portrait photo on a landscape canvas is not left too large`() {
+        // 4000x6000 on 1920x1080 is shown 720x1080; the old long-side rule decoded 2000x3000 (2.8x too large for one bilinear step).
+        assertEquals(4, StillFit.sampleSize(4000, 6000, 1920, 1080))
+        assertEquals(4, StillFit.sampleSize(6000, 4000, 1080, 1920))
+        // A panorama shown 1920x480 on 1920x1080 is limited by its width.
+        assertEquals(2, StillFit.sampleSize(4000, 1000, 1920, 1080))
+    }
+
+    @Test
+    fun `after the decode reduction less than a factor of two is left to remove, and never below the fit`() {
+        val canvases = listOf(1280 to 720, 1920 to 1080, 3840 to 2160, 1080 to 1920)
+        val sources = listOf(100 to 100, 480 to 270, 1000 to 4000, 4000 to 6000, 4096 to 2304, 8000 to 6000, 12000 to 9000, 6000 to 8000, 9000 to 1500)
+        for ((cw, ch) in canvases) for ((w, h) in sources) {
+            val (fw, fh) = StillFit.contain(w, h, cw, ch)
+            val s = StillFit.sampleSize(w, h, cw, ch)
+            if (s > 1) {
+                assertTrue("not below the fit: ${w}x$h on ${cw}x$ch", w / s >= fw && h / s >= fh)
+            }
+            assertTrue("under 2x left: ${w}x$h on ${cw}x$ch", w / (s * 2) < fw || h / (s * 2) < fh)
+        }
+    }
+
+    @Test
+    fun `stickers are drawn twice as large as they are shown, within the size cap`() {
+        assertEquals(756, StillFit.stickerTextureSide(StillFit.stickerSide(1920, 1080)))
+        assertEquals(StillFit.MAX_SIDE, StillFit.stickerTextureSide(StillFit.MAX_SIDE))
+        assertEquals(128, StillFit.stickerTextureSide(64))
+    }
+
+    @Test
+    fun `uploaded size counts the mipmap chain`() {
+        assertEquals(1920L * 1080 * 4 * 4 / 3, StillFit.uploadedBytes(1920, 1080))
+        assertTrue(StillFit.uploadedBytes(1000, 1000) > 1000L * 1000 * 4)
+        assertTrue(StillFit.uploadedBytes(1000, 1000) < 1000L * 1000 * 4 * 3 / 2)
+    }
+
     private val photoA = StillRef(StillKind.PHOTO, "content://a")
     private val photoB = StillRef(StillKind.PHOTO, "content://b")
 

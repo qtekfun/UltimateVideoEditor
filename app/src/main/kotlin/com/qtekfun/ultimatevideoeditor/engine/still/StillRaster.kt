@@ -78,16 +78,26 @@ object StillFit {
         (min(canvasWidth, canvasHeight) * STICKER_FRACTION).roundToInt().coerceAtLeast(MIN_STICKER_SIDE)
 
     /**
-     * Largest power-of-two decode reduction that still leaves the picture's long side at least as
-     * long as the canvas'. Keeps a 50 MP photo from being decoded at full size for a 1080p canvas.
+     * Largest power-of-two decode reduction that still leaves the picture at least as large as its contain fit on both sides.
+     * Keeps a 50 MP photo from being decoded at full size for a 1080p canvas, and leaves under 2x for [scaleTo] to remove, which one
+     * bilinear step does cleanly. (Measuring the canvas' long side instead left a portrait photo on a landscape canvas up to 3x too large,
+     * which one bilinear step turns into shimmering detail.)
      */
     fun sampleSize(srcWidth: Int, srcHeight: Int, canvasWidth: Int, canvasHeight: Int): Int {
-        val srcLong = max(srcWidth, srcHeight)
-        val target = max(canvasWidth, canvasHeight)
+        val (fitW, fitH) = contain(srcWidth, srcHeight, canvasWidth, canvasHeight)
         var sample = 1
-        while (srcLong / (sample * 2) >= target) sample *= 2
+        while (srcWidth / (sample * 2) >= fitW && srcHeight / (sample * 2) >= fitH) sample *= 2
         return sample
     }
+
+    /** A sticker's picture is drawn this many times larger than its display size, so a zoomed-in sticker stays sharp. */
+    const val STICKER_OVERSAMPLE = 2
+
+    /** Texture side of a sticker drawn for a display [side]; the GPU's mipmaps bring it back down without aliasing. */
+    fun stickerTextureSide(side: Int): Int = (side.toLong() * STICKER_OVERSAMPLE).coerceAtMost(MAX_SIDE.toLong()).toInt()
+
+    /** Bytes the GPU holds for a texture with its mipmap chain (a third more than the base level). */
+    fun uploadedBytes(width: Int, height: Int): Long = width.toLong() * height * 4 * 4 / 3
 
     private const val MIN_STICKER_SIDE = 64
 }
@@ -109,7 +119,10 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
                 val plan = StillFit.plan(picture.width, picture.height, canvasWidth, canvasHeight)
                 Stored(scaleTo(picture, plan.textureWidth, plan.textureHeight), plan.displayWidth, plan.displayHeight, hlg = hdr != null)
             }
-            StillKind.STICKER -> drawSticker(ref.id, canvasWidth, canvasHeight).let { Stored(it, it.width, it.height) }
+            StillKind.STICKER -> {
+                val side = StillFit.stickerSide(canvasWidth, canvasHeight)
+                Stored(drawSticker(ref.id, StillFit.stickerTextureSide(side)), side, side)
+            }
         }
         val bitmap = stored.bitmap
         var argb: Bitmap? = null
@@ -217,9 +230,8 @@ class AndroidStillRasterizer(private val context: Context) : StillRasterizer {
         }
     }
 
-    private fun drawSticker(id: String, canvasWidth: Int, canvasHeight: Int): Bitmap {
+    private fun drawSticker(id: String, side: Int): Bitmap {
         val art = StickerArt.find(id) ?: throw StillRasterException("A sticker is no longer available")
-        val side = StillFit.stickerSide(canvasWidth, canvasHeight)
         val bitmap = try {
             Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         } catch (e: OutOfMemoryError) {

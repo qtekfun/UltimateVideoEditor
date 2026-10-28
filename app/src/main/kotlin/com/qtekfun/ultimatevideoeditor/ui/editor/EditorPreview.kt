@@ -25,6 +25,7 @@ import com.qtekfun.ultimatevideoeditor.engine.title.TitleKeyCache
 import com.qtekfun.ultimatevideoeditor.engine.title.TitleRasterException
 import com.qtekfun.ultimatevideoeditor.engine.title.TitleRasterizer
 import com.qtekfun.ultimatevideoeditor.engine.still.AndroidStillRasterizer
+import com.qtekfun.ultimatevideoeditor.engine.still.StillFit
 import com.qtekfun.ultimatevideoeditor.engine.still.StillKeyCache
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRasterException
 import com.qtekfun.ultimatevideoeditor.engine.still.StillRasterizer
@@ -356,7 +357,7 @@ class EditorPreview(
                     onError(outcome.exceptionOrNull()?.message ?: context.getString(R.string.s5_picture_not_shown))
                 } else {
                     try {
-                        stillKeys.resize(key, bitmap.width.toLong() * bitmap.height * 4)
+                        stillKeys.resize(key, StillFit.uploadedBytes(bitmap.width, bitmap.height))
                         engine.uploadTitle(key, bitmap.width, bitmap.height, bitmap.pixels, bitmap.displayWidth, bitmap.displayHeight)
                         uploadedStills += key
                         if (bitmap.hlg) hlgStills += key else hlgStills -= key
