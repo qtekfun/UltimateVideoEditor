@@ -235,6 +235,30 @@ static void displaySizeAndLetterbox() {
     CHECK(v.w == 100 && v.h == 100);
 }
 
+// A still or title texture gets a full mipmap chain (immutable storage needs the level count up front).
+static void mipLevelCountMatchesTheChain() {
+    using uv::render::mipLevelCount;
+    CHECK(mipLevelCount(1, 1) == 1);
+    CHECK(mipLevelCount(2, 1) == 2);
+    CHECK(mipLevelCount(3, 3) == 2);
+    CHECK(mipLevelCount(1920, 1080) == 11);  // 1920 -> 960 -> ... -> 1
+    CHECK(mipLevelCount(1080, 1920) == 11);
+    CHECK(mipLevelCount(4096, 4096) == 13);
+    CHECK(mipLevelCount(8192, 16) == 14);
+    // The chain reaches exactly 1 x 1: halving (rounding down, minimum 1) the long side takes levels - 1 steps.
+    for (int w = 1; w < 300; w += 7) {
+        for (int h = 1; h < 300; h += 11) {
+            int cw = w, ch = h, steps = 0;
+            while (cw > 1 || ch > 1) {
+                cw = cw > 1 ? cw / 2 : 1;
+                ch = ch > 1 ? ch / 2 : 1;
+                ++steps;
+            }
+            CHECK(mipLevelCount(w, h) == steps + 1);
+        }
+    }
+}
+
 // Corners of the quad in canvas pixels (+y down), via the same map the shader uses.
 static uv::render::Uv canvasPoint(const uv::render::QuadMap& m, int cw, int ch, float px, float py) {
     const uv::render::Uv ndc = uv::render::applyQuadMap(m, {px, py});
@@ -406,6 +430,7 @@ int main() {
     layerDegenerateInputsGiveIdentity();
     layerMat3IsColumnMajor();
     opacityIsClamped();
+    mipLevelCountMatchesTheChain();
     lruEvictsLeastRecentlyUsed();
     lruNeverExceedsBudget();
     lruRejectsOversizedAndReplaces();

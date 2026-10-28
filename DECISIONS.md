@@ -2081,3 +2081,17 @@ a constant-quality mode (rejected: MediaCodec CQ is not reliable across devices,
 **Context:** after turning to landscape and back, the preview and the timeline were drawn in a third of the width. The device log showed `BLASTBufferQueue: rejecting buffer: active_size=384x671, requested_size=1440x491, buffer{size=432x671}`: both `SurfaceView`s kept the size of a frame of the turn animation although the views themselves measured correctly (1440 x 491 and 1440 x 935). Re-attaching the EGL surface (1.3.1) did not help, because the stale size is the platform's, not the EGL surface's.
 **Chosen:** `RecreateSurfaceAfterRotation`: when the orientation changes and 450 ms have passed, the view is hidden for two frames and shown again, so the platform builds a fresh surface at the final size; the existing surface callbacks rebuild the engines' windows. **Alternatives:** shorter or longer redraw retries (the buffers were rejected, so drawing again changes nothing); recreating the views (the timeline host is deliberately never recreated, see EditorScreen); handling the turn by recreating the activity (loses state, slower).
 **Not verified on a device yet.**
+
+## 2026-10-28 · Still quality in the preview: mipmaps, decode size from the fit, oversampled stickers
+**Context:** the owner found photos, stickers and stills in the preview not good looking. By code reading: (1) title/still textures were sampled with
+plain `GL_LINEAR` and no mipmaps, so any minification of 2x or more (a 3840x2160 canvas on a phone surface, a clip scaled down) skipped texels and
+shimmered; (2) `StillFit.sampleSize` compared the picture's long side with the canvas' long side, so a portrait photo on a landscape canvas was decoded
+up to 3x larger than its fit and then reduced by one bilinear `createScaledBitmap` step; (3) stickers were drawn at exactly their display size, soft when
+the clip is scaled up.
+**Chosen:** `GlPipeline::uploadTitle` allocates a full mipmap chain (`glTexStorage2D` + `glGenerateMipmap`, `LINEAR_MIPMAP_LINEAR` minification); the
+chain is premultiplied so it averages correctly, and at scale 1 (export, a preview at canvas size) level 0 is selected, so export output is unchanged.
+`sampleSize` now keeps the decoded picture at least as large as its contain fit on both sides. Stickers are rasterised at 2x and displayed at the old size
+(`StillFit.STICKER_OVERSAMPLE`). The preview's texture-memory estimate counts the extra third of the chain.
+**Alternatives:** a CPU box-filter down to the display size (more Kotlin work, nothing for the clip-scale case); trilinear with anisotropy (extension not
+guaranteed); a native high-resolution photo path (still the answer for zooming a photo well past 100 %, see the 2026-10-04 entry).
+**Not changed:** photo texture stays at most the contain fit, so zooming a photo in is soft; colour handling (sRGB decode, titles as 709 graphics) is untouched.

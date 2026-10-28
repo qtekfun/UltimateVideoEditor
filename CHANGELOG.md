@@ -3,6 +3,12 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **Photos and stickers look cleaner in the preview.** Pictures are drawn with mipmaps, so a still shown smaller than its texture (a 4K project on
+  the phone screen, a scaled-down clip) no longer shimmers. A portrait photo on a landscape canvas (and the reverse) is now decoded close to the
+  size it is shown at, instead of up to three times larger. Stickers are drawn at twice their size, so they stay sharp when scaled up.
+
 ## 1.4.2
 
 - **The cropped picture after a rotation goes away sooner.** The surfaces are rebuilt as soon as the view has kept its size for a few frames,
