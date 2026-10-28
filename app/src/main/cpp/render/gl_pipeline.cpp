@@ -168,8 +168,13 @@ Status GlPipeline::uploadTitle(uint32_t key, int width, int height, const uint8_
     glGenTextures(1, &entry.texture);
     glBindTexture(GL_TEXTURE_2D, entry.texture);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // A full mipmap chain: the picture is drawn smaller than its texture whenever the surface is below the canvas size or the clip is scaled
+    // down, and plain bilinear sampling skips texels from a 2x reduction on (shimmering edges). Premultiplied pixels average correctly.
+    // At scale 1 (the export, a preview at canvas size) level 0 is chosen, so nothing changes there.
+    glTexStorage2D(GL_TEXTURE_2D, mipLevelCount(width, height), GL_RGBA8, width, height);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);

@@ -3,11 +3,17 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.4.3
 
 - **The screen stays on while the preview plays.** It no longer turns off in the middle of a playback; paused or idle it times out as usual.
 - **Playing the preview stops other apps' music.** The preview takes audio focus when it starts and gives it back when it stops. If another app
   (a call, other media) takes focus, the preview pauses. A short duck is ignored.
+- **Cut works with nothing selected.** The scissors button was greyed out until a clip was selected, so the "cut every lane under the
+  playhead" behaviour could not be reached from the toolbar. It is always enabled now. Cutting a selected base clip never touches the
+  lanes above it (covered by new tests).
+- **Photos and stickers look cleaner in the preview.** Pictures are drawn with mipmaps, so a still shown smaller than its texture (a 4K project on
+  the phone screen, a scaled-down clip) no longer shimmers. A portrait photo on a landscape canvas (and the reverse) is now decoded close to the
+  size it is shown at, instead of up to three times larger. Stickers are drawn at twice their size, so they stay sharp when scaled up.
 
 ## 1.4.2
 

@@ -27,6 +27,17 @@ inline int quarterTurns(int degrees) {
     return (d % 90 == 0) ? d / 90 : 0;
 }
 
+// Levels of a full mipmap chain for a width x height texture (down to 1 x 1): floor(log2(max side)) + 1.
+inline int mipLevelCount(int width, int height) {
+    int side = width > height ? width : height;
+    int levels = 1;
+    while (side > 1) {
+        side >>= 1;
+        ++levels;
+    }
+    return levels;
+}
+
 // Size of the frame as shown, after the clockwise rotation.
 inline void displaySize(int width, int height, int turns, int* outW, int* outH) {
     const bool swap = (turns & 1) != 0;
