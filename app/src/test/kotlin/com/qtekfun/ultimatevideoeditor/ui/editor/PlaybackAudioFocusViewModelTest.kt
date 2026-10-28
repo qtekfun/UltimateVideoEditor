@@ -68,8 +68,18 @@ class PlaybackAudioFocusViewModelTest {
         }
     }
 
+    private val settings = ProjectSettingsDto(1920, 1080, 30, 1, "Rec709-SDR")
+
+    private fun project() = ProjectDto(
+        id = "p1",
+        name = "T",
+        settings = settings,
+        mediaLibrary = listOf(MediaAssetDto("a1", "content://m/a1", durationFrames = 300, nativeFpsNum = 30, nativeFpsDen = 1, colorSpace = "Rec709-SDR")),
+        tracks = listOf(TrackDto("v1", "video", 0, listOf(ClipDto("c1", "a1", 0, 0, 300)))),
+    )
+
     private fun TestScope.harness(focus: FakeFocus): EditorViewModel {
-        val vm = EditorViewModel("p1", FakeStore(project()), NoImporter(), audioFocus = focus)
+        val vm = EditorViewModel("p1", FakeStore(project()), NoImporter, audioFocus = focus, nanoClock = { testScheduler.currentTime * 1_000_000L })
         advanceUntilIdle()
         return vm
     }
@@ -121,7 +131,7 @@ class PlaybackAudioFocusViewModelTest {
     @Test
     fun `an empty timeline asks for no focus`() = runTest(dispatcher) {
         val focus = FakeFocus()
-        val vm = EditorViewModel("p1", FakeStore(ProjectDto(id = "p1", name = "T", settings = settings)), NoImporter(), audioFocus = focus)
+        val vm = EditorViewModel("p1", FakeStore(ProjectDto(id = "p1", name = "T", settings = settings)), NoImporter, audioFocus = focus)
         advanceUntilIdle()
         vm.onIntent(EditorIntent.TogglePlay)
         assertFalse(vm.state.value.isPlaying)
