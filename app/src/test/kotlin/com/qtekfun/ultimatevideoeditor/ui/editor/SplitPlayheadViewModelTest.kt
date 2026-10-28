@@ -370,4 +370,64 @@ class SplitPlayheadViewModelTest {
         assertEquals(3 + 1, h.clips("v1").size)
         assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
     }
+
+    @Test
+    fun `cutting only a base clip leaves the lane above uncut and in place, and nothing after the cut moves`() = runTest(dispatcher) {
+        val h = harness()
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(40)) // x (0..100) on v2 is over the cut
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
+        assertEquals(listOf(0L, 100L, 300L), h.clips("v2").map { it.timelineStart.value })
+        assertEquals(listOf(100L, 100L, 100L), h.clips("v2").map { it.durationFrames })
+        assertEquals(listOf(0L, 40L, 100L, 200L), h.clips("v1").map { it.timelineStart.value })
+        assertEquals(listOf(40L, 60L, 100L, 100L), h.clips("v1").map { it.durationFrames })
+        assertTrue(h.state.timeline.invariantViolations().isEmpty())
+        h.vm.onIntent(EditorIntent.Undo) // one step
+        assertFalse(h.state.canUndo)
+    }
+
+    @Test
+    fun `cutting a base clip with a linked audio clip cuts the audio but not the overlay lane`() = runTest(dispatcher) {
+        val h = harness(mixedProject())
+        h.select("c1")
+        h.vm.onIntent(EditorIntent.SetPlayhead(60))
+
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
+        assertEquals(2, h.audio().count { it.id.startsWith("au1") })
+        assertEquals(listOf("au2"), h.audio().map { it.id }.filter { it.startsWith("au2") })
+    }
+
+    @Test
+    fun `without a selection a cut on the first or last frame of a clip does nothing, one frame inside cuts every lane`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.SetPlayhead(0))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        h.vm.onIntent(EditorIntent.SetPlayhead(300)) // end of c3, start of nothing on v1; z starts here
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        assertFalse(h.state.canUndo)
+
+        h.vm.onIntent(EditorIntent.SetPlayhead(1))
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        assertEquals(2, h.clips("v2").count { it.id.startsWith("x") })
+        assertEquals(2, h.clips("v1").count { it.id.startsWith("c1") })
+        h.vm.onIntent(EditorIntent.SetPlayhead(399)) // last frame of z (300..400); the base ended at 300
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+        assertEquals(2, h.clips("v2").count { it.id.startsWith("z") })
+        assertEquals(3, h.clips("v1").count { it.id.startsWith("c") && !it.id.contains('~') })
+    }
+
+    @Test
+    fun `a lane with a gap at the playhead is skipped while the others are cut`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.SetPlayhead(250)) // y ends at 200 and z starts at 300: v2 has a gap here
+        h.vm.onIntent(EditorIntent.SplitAtPlayhead)
+
+        assertEquals(listOf("x", "y", "z"), h.clips("v2").map { it.id })
+        assertEquals(2, h.clips("v1").count { it.id.startsWith("c3") })
+    }
 }

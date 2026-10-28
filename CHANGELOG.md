@@ -8,6 +8,9 @@ and fields added later are optional in the project JSON). The detail behind each
 - **The screen stays on while the preview plays.** It no longer turns off in the middle of a playback; paused or idle it times out as usual.
 - **Playing the preview stops other apps' music.** The preview takes audio focus when it starts and gives it back when it stops. If another app
   (a call, other media) takes focus, the preview pauses. A short duck is ignored.
+- **Cut works with nothing selected.** The scissors button was greyed out until a clip was selected, so the "cut every lane under the
+  playhead" behaviour could not be reached from the toolbar. It is always enabled now. Cutting a selected base clip never touches the
+  lanes above it (covered by new tests).
 
 ## 1.4.2
 
