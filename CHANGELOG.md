@@ -3,7 +3,7 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.4.3
 
 - **The screen stays on while the preview plays.** It no longer turns off in the middle of a playback; paused or idle it times out as usual.
 - **Playing the preview stops other apps' music.** The preview takes audio focus when it starts and gives it back when it stops. If another app
