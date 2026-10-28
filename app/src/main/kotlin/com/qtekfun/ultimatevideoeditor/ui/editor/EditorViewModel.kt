@@ -245,6 +245,8 @@ class EditorViewModel(
     private val hdrLevelCache: HdrLevelCache = HdrLevelCache.None,
     /** Where the cache is read and the analysis waits; the decoding itself runs in the analyser. */
     private val hdrDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** The claim on the audio output while the preview plays (other apps' music stops, a call pauses us). */
+    private val audioFocus: PlaybackAudioFocus = NoPlaybackAudioFocus,
 ) : MviViewModel<EditorState, EditorIntent, EditorEffect>(EditorState()) {
 
     private enum class DragMode { MOVE, TRIM_START, TRIM_END, PLAYHEAD, MARKER }
@@ -1126,6 +1128,7 @@ class EditorViewModel(
         val from = state.value.playhead.value.takeIf { it < end } ?: 0
         val startedAt = nanoClock()
         reduce { copy(isPlaying = true, playhead = FrameIndex(from)) }
+        audioFocus.request(onLost = ::pausePlayback)
         playbackOutput?.play(from)
         playJob?.cancel()
         playJob = viewModelScope.launch {
@@ -1141,6 +1144,7 @@ class EditorViewModel(
                 if (frame >= currentEnd) {
                     reduce { copy(playhead = FrameIndex(currentEnd), isPlaying = false) }
                     playbackOutput?.pause()
+                    audioFocus.abandon()
                     return@launch
                 }
                 reduce { copy(playhead = FrameIndex(frame)) }
@@ -1201,6 +1205,12 @@ class EditorViewModel(
             reduce { copy(isPlaying = false) }
             playbackOutput?.pause()
         }
+        audioFocus.abandon()
+    }
+
+    override fun onCleared() {
+        audioFocus.abandon()
+        super.onCleared()
     }
 
     private fun undo() {

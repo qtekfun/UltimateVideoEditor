@@ -61,6 +61,7 @@ import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformBeatSource
 import com.qtekfun.ultimatevideoeditor.engine.timeline.CachedEnvelopeSource
 import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformCache
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorScreen
+import com.qtekfun.ultimatevideoeditor.ui.editor.AndroidPlaybackAudioFocus
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorViewModel
 import com.qtekfun.ultimatevideoeditor.ui.editor.hdrLevelCacheIn
 import com.qtekfun.ultimatevideoeditor.ui.editor.loudnessCacheIn
@@ -358,6 +359,7 @@ class MainActivity : ComponentActivity() {
                                     hdrAnalyzer = MediaCodecHdrLevelAnalyzer(applicationContext),
                                     hdrLevelCache = hdrLevelCacheIn(filesDir),
                                     videoAudioPlacement = PrefsLayoutStore(getSharedPreferences(PrefsLayoutStore.FILE, MODE_PRIVATE)),
+                                    audioFocus = AndroidPlaybackAudioFocus(applicationContext),
                                     motionTracker = FileMotionTracker(
                                         File(filesDir, "projects/$projectId/track"),
                                         ContentResolverFdOpener(contentResolver),

@@ -116,6 +116,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -761,6 +762,14 @@ fun EditorScreen(
             delay(FULLSCREEN_OVERLAY_MS)
             onFullscreen(FullscreenAction.Timeout(epoch))
         }
+    }
+    // The screen stays on while the preview plays (paused or idle times out as usual). Cleared when playback stops, when the
+    // editor leaves the composition and, through ON_STOP below pausing playback, when the app goes to the background.
+    val view = LocalView.current
+    val keepAwake = holder.value.isPlaying
+    DisposableEffect(view, keepAwake) {
+        view.keepScreenOn = keepAwake
+        onDispose { view.keepScreenOn = false }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         // Flush pauses playback; the audio device is then freed until the next play.
