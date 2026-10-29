@@ -524,9 +524,12 @@ class EditorViewModelTest {
         h.startDrag("x")
         h.vm.onIntent(EditorIntent.DragMove(frame = 10, trackIndex = -1, zone = DragZone.ABOVE_LANES))
 
-        // In the shown timeline the old overlay lane is now index 1.
+        // In the shown timeline the old overlay lane is now index 1: that is the layout shift of the new row, so the target holds...
         h.vm.onIntent(EditorIntent.DragMove(frame = 300, trackIndex = 1))
-        assertNull(h.state.dropHint)
+        assertEquals(DropKind.NEW_LANE, h.state.dropHint!!.kind)
+        // ...and a different lane is a real move back.
+        h.vm.onIntent(EditorIntent.DragMove(frame = 300, trackIndex = 2))
+        assertTrue(h.state.dropHint?.kind != DropKind.NEW_LANE)
         assertEquals(3, h.state.dragPreview!!.tracks.size)
     }
 

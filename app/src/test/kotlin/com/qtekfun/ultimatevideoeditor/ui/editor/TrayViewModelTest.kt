@@ -186,6 +186,28 @@ class TrayViewModelTest {
     }
 
     @Test
+    fun `the new lane stays open when the row it adds shifts the finger onto an existing lane`() = runTest(dispatcher) {
+        val h = harness()
+        h.vm.onIntent(EditorIntent.TrayDragStart("vid"))
+        h.move(40, lane = -1, zone = DragZone.ABOVE_LANES)
+        assertEquals(DropKind.NEW_LANE, h.state.dropHint?.kind)
+
+        // The shown timeline now has the provisional lane first, so the same spot hits v2 at index 1, then jitters.
+        repeat(3) {
+            h.move(40, lane = 1)
+            assertEquals(DropKind.NEW_LANE, h.state.dropHint?.kind)
+            h.move(42, lane = 0)
+            assertEquals(DropKind.NEW_LANE, h.state.dropHint?.kind)
+            h.move(40, lane = -1, zone = DragZone.ABOVE_LANES)
+            assertEquals(DropKind.NEW_LANE, h.state.dropHint?.kind)
+        }
+
+        h.vm.onIntent(EditorIntent.TrayDragEnd(commit = true))
+        assertEquals(4, h.state.timeline.tracks.size)
+        assertEquals(listOf("vid"), h.state.timeline.tracks.first().clips.map { it.assetId })
+    }
+
+    @Test
     fun `an audio asset cancels over a video lane and lands on an audio lane`() = runTest(dispatcher) {
         val h = harness()
         h.vm.onIntent(EditorIntent.TrayDragStart("snd"))

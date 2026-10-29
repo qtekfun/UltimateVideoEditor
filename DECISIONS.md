@@ -3,6 +3,12 @@
 Choices made autonomously while the owner was away. Append-only; each entry says what was chosen, why, and
 the alternative, so any of them can be reversed cheaply.
 
+## 2026-10-29 · The "new video track" drop target no longer flickers
+**Found:** opening the target adds a provisional lane to the timeline being shown, so the layout grows by a row and the lane stack (anchored to the bottom) shifts under a still finger. The next hit-test then returned an existing lane (or the provisional lane at another index) instead of the room above the lanes, the target closed, the layout returned and it opened again. The tray drag also indexed the committed lanes with an index taken from the shown ones (`trayTarget`), which is off by one once the provisional lane is on top.
+**Chosen:** one pure function, `resolveDropTarget` (`ui/editor/DropTargetLatch.kt`), used by the tray drag and the clip drag. Lane ids come from the shown timeline. Once the target is open it is latched: the room above the lanes, the provisional lane and the one existing lane the finger first lands on after the shift keep it open; it closes when the finger moves to a different lane or leaves the panel. Drags that cannot make a lane (audio) never latch.
+**Limit:** the intent carries a lane index, not a pixel position, so a finger that really moves from the room above onto the top existing lane is read like the layout shift and keeps the new-lane target until it moves to another lane (move down one lane and back up to choose the top lane). **Alternative:** send the pointer y with the hover and keep the layout at drag start; not done to keep the intent and the native hit-test unchanged.
+**Not verified on a device** (none allowed); covered by `DropTargetLatchTest` and `TrayViewModelTest`.
+
 ## 2026-10-08 · Relink a whole folder at once (owner: relinking "medio a medio" is too slow)
 **Before:** only one-file-at-a-time relink (picker per missing item); the bundle importer auto-relinks by name and size against the local projects only.
 **Chosen:** "Scan a folder..." in the Missing media dialog: `OpenDocumentTree` with a persistable read grant (like the media folder), a bounded, cancellable scan off the main thread, matching by name (case-insensitive) and kind, a folder-move fast path, then duration and picture size from the stored asset to settle duplicates, and a results list (relinked N of M, not found, ambiguous). SPECS 5.40.

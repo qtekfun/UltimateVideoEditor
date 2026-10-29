@@ -11,6 +11,8 @@ and fields added later are optional in the project JSON). The detail behind each
 - **The preview sizes itself to the device.** The decoded-frame cache was a fixed 1 GiB, meant for high-end phones. It is now 96 MB on phones
   with 3 GB or less (or flagged low-RAM), 256 MB up to 6 GB and 512 MB above, with two, three or four preview decoders at most. When free memory
   runs low the cache shrinks to a half or a quarter for a minute, and proxies step back too.
+- **The "new video track" drop target stays put.** While dragging a media item or a clip toward a new video track, the target no longer
+  opens and closes again on its own when the timeline grows by a row or the finger jitters.
 
 ## 1.4.3
 
