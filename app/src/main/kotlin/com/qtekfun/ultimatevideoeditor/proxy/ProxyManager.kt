@@ -4,12 +4,17 @@ import android.content.Context
 import android.os.Process
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.engine.export.NativeExportRunner
+import com.qtekfun.ultimatevideoeditor.ui.export.ExportCenter
+import com.qtekfun.ultimatevideoeditor.ui.export.ExportJobState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -49,6 +54,7 @@ class ProxyManager(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     @Volatile private var playing = false
+    @Volatile private var exporting = false
     @Volatile private var pressureUntil = 0L
 
     @Volatile private var protectedKeys: Set<String> = emptySet()
@@ -58,7 +64,7 @@ class ProxyManager(
     /** The value of [ProxyWorker.changes] the [resolved] answers were made at: a proxy finishing is a change too. */
     @Volatile private var resolvedAt = -1
 
-    val worker = ProxyWorker(index, transcoder, scope, workerDispatcher, budgetBytes = { prefs.budgetBytes }, protectedKeys = { protectedKeys }, holdOff = { playing || clock() < pressureUntil })
+    val worker = ProxyWorker(index, transcoder, scope, workerDispatcher, budgetBytes = { prefs.budgetBytes }, protectedKeys = { protectedKeys }, holdOff = { playing || exporting || clock() < pressureUntil })
     private val planner = ProxyPlanner(
         entryOf = { asset -> index.get(ProxyKeys.of(jobOf(asset), prefs.targetShortSide)) },
         fileUriOf = { entry -> index.fileOf(entry)?.let { "file://${it.absolutePath}" } },
@@ -79,6 +85,15 @@ class ProxyManager(
      */
     fun setPlaying(on: Boolean) {
         playing = on
+    }
+
+    /**
+     * A movie export is running: it needs every hardware decoder it can get (a 4K project opens one per clip on screen), so the running
+     * proxy is postponed and nothing starts until the export ends.
+     */
+    fun setExporting(on: Boolean) {
+        exporting = on
+        if (on) worker.yieldCurrent()
     }
 
     /** The system says memory is short: the running proxy is postponed and nothing starts for [PRESSURE_HOLD_MS]. */
@@ -246,14 +261,20 @@ class ProxyManager(
                     task.run()
                 }, "proxy-worker")
             }.asCoroutineDispatcher()
-            return ProxyManager(
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val manager = ProxyManager(
                 index = index,
                 prefs = SharedPreferencesProxyPrefs(context),
                 media = media,
                 transcoder = ProxyGenerator(NativeExportRunner(), media, index),
-                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+                scope = scope,
                 workerDispatcher = dispatcher,
             )
+            // Proxies are made with their own hardware decoder: they wait while a movie is exported (export code never sees proxies).
+            scope.launch {
+                ExportCenter.executor(context).state.map { it is ExportJobState.Running }.distinctUntilChanged().collect(manager::setExporting)
+            }
+            return manager
         }
     }
 }

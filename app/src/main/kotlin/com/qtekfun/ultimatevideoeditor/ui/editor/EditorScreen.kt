@@ -146,6 +146,7 @@ import com.qtekfun.ultimatevideoeditor.engine.timeline.ThumbnailCache
 import com.qtekfun.ultimatevideoeditor.engine.timeline.WaveformCache
 import com.qtekfun.ultimatevideoeditor.ui.export.ContentResolverExportIO
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportCenter
+import com.qtekfun.ultimatevideoeditor.ui.export.ExportJobState
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportHost
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportInput
 import com.qtekfun.ultimatevideoeditor.ui.export.ExportIntent
@@ -480,6 +481,10 @@ fun EditorScreen(
         }
     }
     DisposableEffect(preview) { onDispose { preview.close() } }
+    // A running export gets the hardware decoders: the preview lets go of its own until it ends (DECISIONS 2026-10-29).
+    val movieExport = remember(context) { ExportCenter.executor(context) }
+    val exportRunning by remember(movieExport) { movieExport.state.map { it is ExportJobState.Running } }.collectAsStateWithLifecycle(initialValue = false)
+    LaunchedEffect(preview, exportRunning) { preview.setDecodersSuspended(exportRunning) }
     // A font that was imported or removed changes how titles that name it are drawn: tell the editor which
     // fonts exist (for the missing-font notice) and draw the titles again.
     LaunchedEffect(titleLibraryState.fontIds) {

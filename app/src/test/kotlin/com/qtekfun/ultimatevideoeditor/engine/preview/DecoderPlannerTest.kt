@@ -73,4 +73,13 @@ class DecoderPlannerTest {
     fun `at least one decoder is required`() {
         assertThrows(IllegalArgumentException::class.java) { DecoderPlanner.plan(0, listOf(1), emptyList()) }
     }
+
+    @Test
+    fun `while an export runs every open decoder is closed and nothing is shown or reported`() {
+        val plan = DecoderPlanner.released(listOf(3, 1, 2))
+        assertEquals(listOf(3, 1, 2), plan.toClose)
+        assertEquals(emptyList<Int>(), plan.render)
+        assertEquals(emptyList<Int>(), plan.skipped)
+        assertEquals(emptyList<Int>(), DecoderPlanner.released(emptyList()).toClose)
+    }
 }

@@ -3,6 +3,12 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **4K exports no longer stall on phones with few video decoders.** While a video is exported the editor's preview lets go of its decoders
+  (titles and photos are still shown) and no proxy is made, so the export gets every hardware decoder. On a MediaTek phone the preview's
+  decoders left none for a 4K export with several clips, and it failed with "the decoder stalled". The preview comes back when the export ends.
+
 ## 1.4.5
 
 - **Deleting a clip from the base track no longer cuts the clips above it.** Clips on the other tracks are tied to the moment they start: one
