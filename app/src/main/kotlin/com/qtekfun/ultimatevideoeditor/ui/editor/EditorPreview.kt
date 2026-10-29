@@ -1,7 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import com.qtekfun.ultimatevideoeditor.R
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +19,10 @@ import com.qtekfun.ultimatevideoeditor.domain.TitleContent
 import com.qtekfun.ultimatevideoeditor.engine.preview.DecoderLimits
 import com.qtekfun.ultimatevideoeditor.engine.preview.DecoderPlanner
 import com.qtekfun.ultimatevideoeditor.engine.preview.LayerPlacement
+import com.qtekfun.ultimatevideoeditor.engine.preview.MemoryProfile
+import com.qtekfun.ultimatevideoeditor.engine.preview.MemoryProfiles
+import com.qtekfun.ultimatevideoeditor.engine.preview.Pressure
+import com.qtekfun.ultimatevideoeditor.proxy.ProxyManager
 import com.qtekfun.ultimatevideoeditor.engine.preview.PreviewEngine
 import com.qtekfun.ultimatevideoeditor.engine.preview.PreviewException
 import com.qtekfun.ultimatevideoeditor.engine.preview.PreviewLayer
@@ -93,7 +99,8 @@ internal fun ClipTransform.toPlacement() = LayerPlacement(
 class EditorPreview(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val maxDecoders: Int = DecoderLimits.maxPreviewDecoders(),
+    private val memory: MemoryProfile = MemoryProfiles.of(context),
+    private val maxDecoders: Int = minOf(DecoderLimits.maxPreviewDecoders(), memory.maxDecoders),
     private val rasterizer: TitleRasterizer = AndroidTitleRasterizer(),
     private val stillRasterizer: StillRasterizer = AndroidStillRasterizer(context),
     /** Reads a LUT of the library by key (off the main thread); null when it is missing or unreadable. */
@@ -111,7 +118,7 @@ class EditorPreview(
 
     /** Null if the native preview could not start; the screen then shows a placeholder. */
     val engine: PreviewEngine? = try {
-        PreviewEngine.create { e ->
+        PreviewEngine.create(cacheBudgetBytes = memory.cacheBudgetBytes) { e ->
             main.post {
                 val message = context.getString(R.string.s5_preview_error, e.message.orEmpty())
                 if (e.hasAsset && onAssetFailure != null) onAssetFailure.invoke(e.assetKey, message) else onError(message)
@@ -120,6 +127,41 @@ class EditorPreview(
     } catch (e: PreviewException) {
         onError(context.getString(R.string.s5_preview_start_failed, e.message.orEmpty()))
         null
+    }
+
+    /**
+     * Memory warnings shrink the frame cache for a while; the full budget returns after a quiet minute. The signal is the system's
+     * trim callback and, because recent Android versions no longer send the running-app levels, a look at free memory every few seconds.
+     */
+    private val restoreBudget = Runnable { engine?.setCacheBudget(memory.cacheBudgetBytes) }
+    private val pressureCheck = object : Runnable {
+        override fun run() {
+            applyPressure(MemoryProfiles.pressureNow(context))
+            main.postDelayed(this, PRESSURE_CHECK_MS)
+        }
+    }
+    private val trimCallbacks = object : ComponentCallbacks2 {
+        override fun onTrimMemory(level: Int) = applyPressure(MemoryProfiles.pressureOfTrim(level))
+
+        override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+        @Suppress("OVERRIDE_DEPRECATION")
+        override fun onLowMemory() = applyPressure(Pressure.SEVERE)
+    }
+
+    private fun applyPressure(pressure: Pressure) {
+        val reduced = MemoryProfiles.underPressure(memory, pressure)
+        if (reduced >= memory.cacheBudgetBytes) return
+        main.removeCallbacks(restoreBudget)
+        engine?.setCacheBudget(reduced)
+        main.postDelayed(restoreBudget, BUDGET_RESTORE_MS)
+        // Proxies are made on the side with their own 4K decoder: they step back too.
+        if (pressure == Pressure.SEVERE) ProxyManager.peek()?.onMemoryPressure()
+    }
+
+    init {
+        context.applicationContext.registerComponentCallbacks(trimCallbacks)
+        main.postDelayed(pressureCheck, PRESSURE_CHECK_MS)
     }
 
     /** Open assets, least recently shown first. */
@@ -467,6 +509,9 @@ class EditorPreview(
     }
 
     override fun close() {
+        context.applicationContext.unregisterComponentCallbacks(trimCallbacks)
+        main.removeCallbacks(restoreBudget)
+        main.removeCallbacks(pressureCheck)
         engine?.close()
     }
 
@@ -505,6 +550,8 @@ class EditorPreview(
 
         /** The native and audio clocks agree to well under this, so a re-anchor means a real discontinuity. */
         const val DRIFT_THRESHOLD_FRAMES = 2L
+        const val BUDGET_RESTORE_MS = 60_000L
+        const val PRESSURE_CHECK_MS = 3_000L
         const val SYNC_TAG = "UVSync"
         const val LOG_INTERVAL_NANOS = 5_000_000_000L
     }

@@ -4,6 +4,7 @@ import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,11 +23,15 @@ class ProxyWorker(
     dispatcher: CoroutineDispatcher,
     private val budgetBytes: () -> Long,
     private val protectedKeys: () -> Set<String>,
+    /** True while something the user is doing needs the codecs and the memory: no new job starts until it is false. */
+    private val holdOff: () -> Boolean = { false },
+    private val holdPollMs: Long = HOLD_POLL_MS,
 ) {
     private val queue = Channel<String>(Channel.UNLIMITED)
     private val changeCount = MutableStateFlow(0)
     private val progressByKey = MutableStateFlow<Map<String, Int>>(emptyMap())
     @Volatile private var currentKey: String? = null
+    @Volatile private var requeueCurrent = false
 
     /** Counts every change to the index: collectors re-read what they show. */
     val changes: StateFlow<Int> = changeCount.asStateFlow()
@@ -36,7 +41,10 @@ class ProxyWorker(
 
     init {
         scope.launch(dispatcher) {
-            for (key in queue) runOne(key)
+            for (key in queue) {
+                while (holdOff()) delay(holdPollMs)
+                runOne(key)
+            }
         }
     }
 
@@ -72,6 +80,17 @@ class ProxyWorker(
         }
     }
 
+    /**
+     * Stops the running job and puts it back at the end of the queue, to be made again from the start once [holdOff] allows.
+     * For when the device is short of memory: the job is not lost, only postponed.
+     */
+    @Synchronized
+    fun yieldCurrent() {
+        if (currentKey == null) return
+        requeueCurrent = true
+        transcoder.cancelCurrent()
+    }
+
     /** Drops everything queued and cancels the running job. */
     @Synchronized
     fun cancelAll() {
@@ -88,6 +107,7 @@ class ProxyWorker(
         val entry = index.get(key) ?: return
         if (entry.state != ProxyState.QUEUED) return
         currentKey = key
+        requeueCurrent = false
         var lastShown = -1
         try {
             transcoder.generate(entry) { permille ->
@@ -98,6 +118,10 @@ class ProxyWorker(
             }
         } catch (e: ProxyException) {
             // The transcoder recorded the outcome in the index (FAILED, or removed when cancelled or not needed).
+            if (e.code == ProxyErrorCode.CANCELLED && requeueCurrent) {
+                index.put(entry)
+                queue.trySend(key)
+            }
         } catch (e: InterruptedException) {
             // The thread is being shut down (the app is going away). The entry stays RUNNING in the index, so
             // the next start puts it back in the queue; the interrupt is passed on.
@@ -133,5 +157,6 @@ class ProxyWorker(
 
     private companion object {
         const val PROGRESS_STEP = 10 // publish every 1 %
+        const val HOLD_POLL_MS = 1_000L
     }
 }

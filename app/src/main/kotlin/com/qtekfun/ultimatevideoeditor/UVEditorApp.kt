@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Build
 import com.qtekfun.ultimatevideoeditor.crash.CrashContext
@@ -8,6 +9,7 @@ import com.qtekfun.ultimatevideoeditor.crash.CrashHandler
 import com.qtekfun.ultimatevideoeditor.crash.AndroidProcessExitSource
 import com.qtekfun.ultimatevideoeditor.crash.CrashReportStore
 import com.qtekfun.ultimatevideoeditor.crash.ProcessExitRecorder
+import com.qtekfun.ultimatevideoeditor.proxy.ProxyManager
 import com.qtekfun.ultimatevideoeditor.ui.about.AppVersion
 import com.qtekfun.ultimatevideoeditor.ui.language.AppLocale
 import java.io.File
@@ -43,5 +45,16 @@ class UVEditorApp : Application() {
                 ).recordNewExits()
             }
         }, "exit-info").start()
+    }
+
+    // Proxies are made in the background; when the system runs short of memory they yield to what the user is doing.
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+        ) {
+            ProxyManager.peek()?.onMemoryPressure()
+        }
     }
 }
