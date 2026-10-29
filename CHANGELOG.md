@@ -3,7 +3,7 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.4.6
 
 - **4K exports no longer stall on phones with few video decoders.** While a video is exported the editor's preview lets go of its decoders
   (titles and photos are still shown) and no proxy is made, so the export gets every hardware decoder. On some phones the preview's
