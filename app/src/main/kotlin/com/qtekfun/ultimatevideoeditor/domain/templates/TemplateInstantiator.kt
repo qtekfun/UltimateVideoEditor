@@ -61,7 +61,7 @@ object TemplateInstantiator {
             val fill = fills[placeholderId]
             if (fill == null) {
                 if (!placeholder.optional) return fail(UiText.res(R.string.ti_choose, slotName(template, placeholder)))
-                current = when (val removed = ClipDeletion.delete(current, clipId)) {
+                current = when (val removed = ClipDeletion.delete(current, clipId, otherLanesFollow = true)) {
                     is EditResult.Success -> removed.value
                     is EditResult.Failure -> return removed
                 }

@@ -125,13 +125,12 @@ class GroupOpsTest {
     }
 
     @Test
-    fun `deleting base clips closes the gaps from the last to the first and overlays follow`() {
+    fun `deleting base clips closes the gaps from the last to the first and leaves the overlays alone`() {
         val t = scene()
         val result = GroupOps.delete(t, listOf("a", "c")).getOrFail()
         assertLayout(result, "v1", at("b", 0, 60))
-        // Everything over a (p, q and s) goes with it; r, over b, follows the base 60 frames left.
-        assertLayout(result, "v2", at("r", 40, 50))
-        assertLayout(result, "v3")
+        assertEquals(t.track("v2"), result.track("v2"))
+        assertEquals(t.track("v3"), result.track("v3"))
     }
 
     @Test

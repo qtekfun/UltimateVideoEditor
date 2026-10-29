@@ -160,7 +160,7 @@ data class AutoCut(val spans: List<CutSpan>) : EditCommand {
             }
             middleId = id
         }
-        return ClipDeletion.delete(current, middleId)
+        return ClipDeletion.delete(current, middleId, otherLanesFollow = true)
     }
 
     private fun freshId(timeline: Timeline, base: String): String {

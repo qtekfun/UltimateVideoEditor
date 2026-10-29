@@ -65,6 +65,13 @@ class GroupClipboardTest {
     }
 
     @Test
+    fun `paste is refused before frame 0`() {
+        val t = scene()
+        val board = checkNotNull(Clipboard.capture(t, listOf("p")))
+        assertEquals(EditError.NegativeStart, GroupOps.paste(t, board, f(-3)).errorOrFail())
+    }
+
+    @Test
     fun `a pasted overlay uses the first lane of its kind when its lane is gone`() {
         val t = scene()
         val board = checkNotNull(Clipboard.capture(t, listOf("p")))

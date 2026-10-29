@@ -5,6 +5,9 @@ and fields added later are optional in the project JSON). The detail behind each
 
 ## Unreleased
 
+- **Deleting a clip from the base track leaves the tracks above alone.** Only the base closes up: a long clip on V2 over the deleted clip is no
+  longer cut in two, and nothing on the other video, audio or title tracks moves. The clip's own linked audio still goes with it. (1.4.3 only
+  fixed this for the scissors.) Auto cut and empty template slots still remove the range from every track.
 - **Proxies no longer compete with the preview.** No new proxy starts while the preview plays, and when the system warns it is short of memory the
   running proxy is put back in the queue and the queue waits two minutes. This avoids the app being closed by the system when a 4K preview and a
   proxy ran at once.

@@ -3,17 +3,21 @@ package com.qtekfun.ultimatevideoeditor.domain
 /**
  * Deleting a clip with a base track and overlays, as in LumaFusion.
  *
- * The base track is the lowest video track (the last video track in display order). It is the
- * guide: deleting from it closes the gap, and every other track follows that edit so overlays never
- * end up pointing at footage that no longer exists. Deleting from any other track simply removes
- * the clip and leaves its gap, so neighbours keep their place.
+ * The base track is the lowest video track (the last video track in display order). Deleting from
+ * it closes the gap on the base only: the lanes above and the audio lanes are neither cut nor moved
+ * (the owner's rule, DECISIONS 2026-10-29). A linked audio partner still goes with its video clip
+ * ([ClipLinks.settle]). Deleting from any other track removes the clip and leaves its gap.
  */
 object ClipDeletion {
 
     /** The track that guides the timeline: the lowest video track, or null when there is none. */
     fun baseTrack(timeline: Timeline): Track? = timeline.tracks.lastOrNull { it.type == TrackType.VIDEO }
 
-    fun delete(timeline: Timeline, clipId: String): EditResult<Timeline> {
+    /**
+     * With [otherLanesFollow] the frames of the deleted base clip are also removed from every other lane, which closes up
+     * behind it (used by [AutoCut], where a removed silence must leave no trace above it either).
+     */
+    fun delete(timeline: Timeline, clipId: String, otherLanesFollow: Boolean = false): EditResult<Timeline> {
         val track = timeline.trackOfClip(clipId) ?: return EditResult.Failure(EditError.ClipNotFound(clipId))
         val clip = checkNotNull(track.clip(clipId))
         if (track.id != baseTrack(timeline)?.id) {
@@ -25,6 +29,7 @@ object ClipDeletion {
             is EditResult.Success -> closed.value
             is EditResult.Failure -> return closed
         }
+        if (!otherLanesFollow) return EditResult.Success(current)
         for (overlay in timeline.tracks.filter { it.id != track.id }) {
             current = when (val cut = removeRange(current, overlay.id, start, end)) {
                 is EditResult.Success -> cut.value
