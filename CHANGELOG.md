@@ -6,8 +6,11 @@ and fields added later are optional in the project JSON). The detail behind each
 ## Unreleased
 
 - **4K exports no longer stall on phones with few video decoders.** While a video is exported the editor's preview lets go of its decoders
-  (titles and photos are still shown) and no proxy is made, so the export gets every hardware decoder. On a MediaTek phone the preview's
+  (titles and photos are still shown) and no proxy is made, so the export gets every hardware decoder. On some phones the preview's
   decoders left none for a 4K export with several clips, and it failed with "the decoder stalled". The preview comes back when the export ends.
+- **A video the phone's software decoder cannot read is no longer handed to it.** 10-bit, HDR or larger-than-1080p video used to fall
+  back to it and stall; the export now first frees the decoders the current frame does not use and tries again, and otherwise says plainly
+  that no decoder could be started.
 
 ## 1.4.5
 

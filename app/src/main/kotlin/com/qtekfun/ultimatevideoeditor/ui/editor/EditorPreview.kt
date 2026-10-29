@@ -215,7 +215,7 @@ class EditorPreview(
 
     /**
      * Lets go of every video decoder while a movie export runs, and takes them back after. A 4K export opens a hardware decoder per
-     * clip on screen next to its encoder, and on some chips (MediaTek) the preview's own decoders leave none for it: the export then
+     * clip on screen next to its encoder, and on some phones the preview's own decoders leave none for it: the export then
      * fell back to a software decoder that could not keep up (1.4.5, DECISIONS 2026-10-29). Titles and stills are still drawn.
      */
     fun setDecodersSuspended(on: Boolean) {
