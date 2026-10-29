@@ -3,6 +3,15 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **Proxies no longer compete with the preview.** No new proxy starts while the preview plays, and when the system warns it is short of memory the
+  running proxy is put back in the queue and the queue waits two minutes. This avoids the app being closed by the system when a 4K preview and a
+  proxy ran at once.
+- **The preview sizes itself to the device.** The decoded-frame cache was a fixed 1 GiB, meant for high-end phones. It is now 96 MB on phones
+  with 3 GB or less (or flagged low-RAM), 256 MB up to 6 GB and 512 MB above, with two, three or four preview decoders at most. When free memory
+  runs low the cache shrinks to a half or a quarter for a minute, and proxies step back too.
+
 ## 1.4.3
 
 - **The screen stays on while the preview plays.** It no longer turns off in the middle of a playback; paused or idle it times out as usual.

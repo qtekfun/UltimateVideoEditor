@@ -46,7 +46,11 @@ class ProxyManager(
     scope: CoroutineScope,
     workerDispatcher: CoroutineDispatcher,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    @Volatile private var playing = false
+    @Volatile private var pressureUntil = 0L
+
     @Volatile private var protectedKeys: Set<String> = emptySet()
     private val infos = ConcurrentHashMap<String, SourceInfo>()
     private val resolved = ConcurrentHashMap<String, ResolvedSource>()
@@ -54,7 +58,7 @@ class ProxyManager(
     /** The value of [ProxyWorker.changes] the [resolved] answers were made at: a proxy finishing is a change too. */
     @Volatile private var resolvedAt = -1
 
-    val worker = ProxyWorker(index, transcoder, scope, workerDispatcher, budgetBytes = { prefs.budgetBytes }, protectedKeys = { protectedKeys })
+    val worker = ProxyWorker(index, transcoder, scope, workerDispatcher, budgetBytes = { prefs.budgetBytes }, protectedKeys = { protectedKeys }, holdOff = { playing || clock() < pressureUntil })
     private val planner = ProxyPlanner(
         entryOf = { asset -> index.get(ProxyKeys.of(jobOf(asset), prefs.targetShortSide)) },
         fileUriOf = { entry -> index.fileOf(entry)?.let { "file://${it.absolutePath}" } },
@@ -67,6 +71,20 @@ class ProxyManager(
     /** Fixes the index after a restart and resumes the queue. Call once at startup. */
     fun start() {
         worker.resume()
+    }
+
+    /**
+     * The preview is playing: no new proxy starts until it stops, so a 4K decoder for the preview and one for the proxy do not
+     * compete for memory and codecs. A proxy already being made carries on.
+     */
+    fun setPlaying(on: Boolean) {
+        playing = on
+    }
+
+    /** The system says memory is short: the running proxy is postponed and nothing starts for [PRESSURE_HOLD_MS]. */
+    fun onMemoryPressure() {
+        pressureUntil = clock() + PRESSURE_HOLD_MS
+        worker.yieldCurrent()
     }
 
     fun isEnabled(projectId: String): Boolean = prefs.isEnabled(projectId)
@@ -202,7 +220,13 @@ class ProxyManager(
     }
 
     companion object {
+        /** How long proxies stay off after a low-memory warning. */
+        const val PRESSURE_HOLD_MS = 120_000L
+
         @Volatile private var instance: ProxyManager? = null
+
+        /** The manager if the app has made one; never creates it. */
+        fun peek(): ProxyManager? = instance
 
         /** The app's proxy manager, created on first use (and its queue resumed). */
         fun of(context: Context): ProxyManager = instance ?: synchronized(this) {

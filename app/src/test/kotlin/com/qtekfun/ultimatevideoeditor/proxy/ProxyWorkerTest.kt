@@ -26,8 +26,9 @@ class ProxyWorkerTest {
     private val transcoder by lazy { FakeTranscoder(index) }
     private var budget = Long.MAX_VALUE
     private var protectedKeys: Set<String> = emptySet()
+    @Volatile private var holdOff = false
     private val worker by lazy {
-        ProxyWorker(index, transcoder, scope, executor.asCoroutineDispatcher(), budgetBytes = { budget }, protectedKeys = { protectedKeys })
+        ProxyWorker(index, transcoder, scope, executor.asCoroutineDispatcher(), budgetBytes = { budget }, protectedKeys = { protectedKeys }, holdOff = { holdOff }, holdPollMs = 5)
     }
 
     @After
@@ -57,6 +58,37 @@ class ProxyWorkerTest {
         waitUntil { index.all().all { it.state == ProxyState.READY } && index.all().size == 3 }
 
         assertEquals(listOf(first.key, second.key, third.key), transcoder.order)
+    }
+
+    @Test
+    fun `no job starts while the hold is on and the queue goes on when it is off`() {
+        holdOff = true
+        val entry = worker.enqueue(job(1), 720)
+
+        Thread.sleep(100)
+        assertTrue(transcoder.order.isEmpty())
+        assertEquals(ProxyState.QUEUED, index.get(entry.key)!!.state)
+
+        holdOff = false
+        waitUntil { index.get(entry.key)?.state == ProxyState.READY }
+        assertEquals(listOf(entry.key), transcoder.order)
+    }
+
+    @Test
+    fun `yielding stops the running job and makes it again once the hold is off`() {
+        transcoder.hold = CountDownLatch(1)
+        val entry = worker.enqueue(job(1), 720)
+        waitUntil { transcoder.order.size == 1 }
+
+        holdOff = true
+        worker.yieldCurrent()
+        waitUntil { index.get(entry.key)?.state == ProxyState.QUEUED }
+        assertEquals(1, transcoder.order.size) // not started again while the hold is on
+
+        transcoder.hold = null
+        holdOff = false
+        waitUntil { index.get(entry.key)?.state == ProxyState.READY }
+        assertEquals(listOf(entry.key, entry.key), transcoder.order)
     }
 
     @Test

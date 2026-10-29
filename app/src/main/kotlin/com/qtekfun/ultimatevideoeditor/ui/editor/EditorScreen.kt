@@ -771,6 +771,11 @@ fun EditorScreen(
         view.keepScreenOn = keepAwake
         onDispose { view.keepScreenOn = false }
     }
+    // No new proxy starts while the preview plays (DECISIONS "Proxies yield to playback and to low memory").
+    DisposableEffect(proxyManager, keepAwake) {
+        proxyManager.setPlaying(keepAwake)
+        onDispose { proxyManager.setPlaying(false) }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         // Flush pauses playback; the audio device is then freed until the next play.
         viewModel.onIntent(EditorIntent.Flush)
