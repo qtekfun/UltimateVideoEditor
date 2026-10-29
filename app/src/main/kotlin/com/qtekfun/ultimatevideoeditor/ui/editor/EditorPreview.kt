@@ -210,6 +210,20 @@ class EditorPreview(
         if (!following) latest?.let(::show)
     }
 
+    /** An export is running: the preview has closed its decoders and opens none until [setDecodersSuspended] (false). */
+    private var decodersSuspended = false
+
+    /**
+     * Lets go of every video decoder while a movie export runs, and takes them back after. A 4K export opens a hardware decoder per
+     * clip on screen next to its encoder, and on some phones the preview's own decoders leave none for it: the export then
+     * fell back to a software decoder that could not keep up (1.4.5, DECISIONS 2026-10-29). Titles and stills are still drawn.
+     */
+    fun setDecodersSuspended(on: Boolean) {
+        if (decodersSuspended == on) return
+        decodersSuspended = on
+        if (!following) latest?.let(::show)
+    }
+
     /** Shows [scene] as a still frame (paused, scrubbing, editing). Stops any native playback. */
     fun show(scene: PreviewScene) {
         val engine = engine ?: return
@@ -291,7 +305,7 @@ class EditorPreview(
         latest = scene
         val media = scene.layers.filter { it.title == null && it.still == null }
         val neededTopFirst = media.asReversed().map { it.assetKey }.filter { it !in failed }
-        val plan = DecoderPlanner.plan(maxDecoders, neededTopFirst, open.toList())
+        val plan = if (decodersSuspended) DecoderPlanner.released(open.toList()) else DecoderPlanner.plan(maxDecoders, neededTopFirst, open.toList())
 
         for (key in plan.toClose) {
             open -= key

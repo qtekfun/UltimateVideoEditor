@@ -579,6 +579,7 @@ public:
             const VideoClip* clip = stack[i];
             if (clip->titleKey != 0) continue;
             AssetState& asset = assetFor(clip->assetKey, clip->layer * 2 + clip->lane);
+            asset.lastUsedFrame = frame;
             setDirection(asset, clip->reverse);
             asset.decoder->setTarget(sourceFrameFor(*clip, projectFrame, asset.info.durationFrames));
         }
@@ -791,7 +792,15 @@ private:
             }
             wake();
         };
-        auto opened = decode::openVideoDecoder(fd, decode::Rational{params_.projectFps.num, params_.projectFps.den}, std::move(callbacks));
+        const decode::Rational fps{params_.projectFps.num, params_.projectFps.den};
+        auto opened = decode::openVideoDecoder(fd, fps, callbacks);
+        // Hardware decoders are few (a phone refused a sixth 4K one with NO_MEMORY): close the ones the frame being
+        // drawn does not use and try once more before giving up.
+        if (!opened.ok() && releaseDecodersNotUsedBy(outputFrame_)) {
+            const int again = core::openIndependent(fdIt->second);
+            if (again < 0) fail(Status::IoError, "cannot duplicate a media file descriptor");
+            opened = decode::openVideoDecoder(again, fps, std::move(callbacks));
+        }
         if (!opened.ok()) failDecode(opened.error(), "cannot open a video clip");
         state->decoder = std::move(opened.value());
         state->info = state->decoder->info();
@@ -969,6 +978,22 @@ private:
             if (it->second.use_count() == 1 && pool_.size() < 8) pool_.push_back(std::move(it->second));
             it = asset.frames.erase(it);
         }
+    }
+
+    // Closes every decoder the output frame `frame` has not used; true when one was closed.
+    bool releaseDecodersNotUsedBy(int64_t frame) {
+        bool released = false;
+        for (auto it = assets_.begin(); it != assets_.end();) {
+            if (it->second->lastUsedFrame < frame) {
+                it->second->decoder->shutdown();
+                it = assets_.erase(it);
+                released = true;
+            } else {
+                ++it;
+            }
+        }
+        if (released) pipeline_->clearSourceCache();
+        return released;
     }
 
     // Hardware decoders are scarce: close the ones no clip has needed for a couple of seconds.

@@ -149,7 +149,10 @@ Result<std::unique_ptr<VideoDecoder>> VideoDecoder::open(int fd, Rational fpsOve
     // Opening walks the ladder in decode/decoder_ladder.h: the first configuration whose codec starts wins and every
     // failed rung is logged with its reason, so an unknown device degrades to a working decoder instead of showing a
     // black preview.
-    const std::vector<DecoderRung> ladder = buildDecoderLadder(mimeCopy);
+    int32_t profile = -1;
+    AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_PROFILE, &profile);
+    const std::vector<DecoderRung> ladder =
+        buildDecoderLadder(mimeCopy, StreamShape{width, height, isTenBitStream(mimeCopy, profile, transfer)});
     std::string failures;
     bool started = false;
     for (const DecoderRung& rung : ladder) {

@@ -54,6 +54,36 @@ int main() {
     CHECK(buildDecoderLadder("video/hevc").back().codecName == "c2.android.hevc.decoder");
     CHECK(buildDecoderLadder("video/hevc").size() == avc.size());
 
+    // The platform software decoders are 8-bit only and capped (often at 1920x1088): a stream they cannot decode gets no
+    // software rung, or the open "succeeds" and the decoder never outputs a picture (a 4K HLG export stalled on it).
+    const auto hasSoftware = [](const std::vector<DecoderRung>& ladder) {
+        for (const auto& rung : ladder) if (rung.software()) return true;
+        return false;
+    };
+    CHECK(hasSoftware(buildDecoderLadder("video/hevc", StreamShape{1920, 1080, false})));
+    CHECK(hasSoftware(buildDecoderLadder("video/avc", StreamShape{1080, 1920, false})));  // portrait 1080p
+    CHECK(hasSoftware(buildDecoderLadder("video/hevc", StreamShape{1920, 1088, false})));
+    CHECK(!hasSoftware(buildDecoderLadder("video/hevc", StreamShape{3840, 2160, false})));
+    CHECK(!hasSoftware(buildDecoderLadder("video/hevc", StreamShape{2560, 1440, false})));
+    CHECK(!hasSoftware(buildDecoderLadder("video/hevc", StreamShape{1920, 1080, true})));
+    CHECK(!hasSoftware(buildDecoderLadder("video/hevc", StreamShape{3840, 2160, true})));
+    CHECK(hasSoftware(buildDecoderLadder("video/hevc", StreamShape{})));  // unknown shape: keep the last resort
+    // The hardware rungs are the same whatever the stream.
+    CHECK(buildDecoderLadder("video/hevc", StreamShape{3840, 2160, true}).size() == buildDecoderLadder("video/hevc").size() - 1);
+    CHECK(!buildDecoderLadder("video/hevc", StreamShape{3840, 2160, true}).back().software());
+
+    // Ten bits: an HDR transfer, or a 10-bit profile.
+    CHECK(isTenBitStream("video/hevc", 1, 7));        // HLG recorded as Main by the container
+    CHECK(isTenBitStream("video/hevc", -1, 6));       // PQ, no profile key
+    CHECK(isTenBitStream("video/hevc", 0x2, 3));      // Main10, SDR
+    CHECK(isTenBitStream("video/hevc", 0x1000, 0));   // Main10 HDR10
+    CHECK(isTenBitStream("video/hevc", 0x2000, 0));   // Main10 HDR10+
+    CHECK(isTenBitStream("video/dolby-vision", 0x2, 0));
+    CHECK(isTenBitStream("video/avc", 0x10, 3));      // High 10
+    CHECK(!isTenBitStream("video/hevc", 1, 3));       // Main, SDR
+    CHECK(!isTenBitStream("video/avc", 0x8, 3));      // High
+    CHECK(!isTenBitStream("video/avc", -1, 0));
+
     if (g_failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

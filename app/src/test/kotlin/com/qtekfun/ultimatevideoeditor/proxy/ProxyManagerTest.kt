@@ -47,6 +47,25 @@ class ProxyManagerTest {
     }
 
     @Test
+    fun `an export postpones the running proxy and nothing is made until it ends`() {
+        val a = asset()
+        transcoder.hold = java.util.concurrent.CountDownLatch(1)
+        manager.generate(listOf(a))
+        waitUntil { manager.statusOf(a) is ProxyStatus.Making }
+
+        manager.setExporting(true)
+        waitUntil { manager.statusOf(a) is ProxyStatus.Queued }
+        Thread.sleep(1_200) // longer than the worker's hold poll
+        assertEquals(1, transcoder.order.size) // not started again while the export runs
+        assertTrue(manager.statusOf(a) is ProxyStatus.Queued)
+
+        transcoder.hold = null
+        manager.setExporting(false)
+        waitUntil { manager.statusOf(a) is ProxyStatus.Ready }
+        assertEquals(2, transcoder.order.size)
+    }
+
+    @Test
     fun `a ready proxy is used for preview only while the project switch is on`() {
         val a = asset()
         makeReady(a)

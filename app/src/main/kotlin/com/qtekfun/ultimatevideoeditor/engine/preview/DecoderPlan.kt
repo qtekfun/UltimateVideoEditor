@@ -36,6 +36,9 @@ object DecoderPlanner {
         val toClose = if (overflow > 0) openOldestFirst.filter { it !in render }.take(overflow) else emptyList()
         return DecoderPlan(render, skipped, toClose)
     }
+
+    /** While an export runs the preview holds no decoder: everything open is closed and nothing is shown or reported as skipped. */
+    fun released(openOldestFirst: List<Int>): DecoderPlan = DecoderPlan(emptyList(), emptyList(), openOldestFirst)
 }
 
 /** Asks the device how many hardware video decoders can run at the same time. */
