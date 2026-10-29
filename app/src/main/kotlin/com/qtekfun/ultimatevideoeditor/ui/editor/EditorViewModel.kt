@@ -255,6 +255,9 @@ class EditorViewModel(
         /** Last lane the finger was over, kept while it crosses a gap between lanes. */
         var target: DropTarget? = null
 
+        /** Holds the 'add a lane' target steady while its provisional row shifts the layout under the finger. */
+        var latch = NewLaneLatch()
+
         /** The last finger position, to decide again when the user flips the mode without moving. */
         var last: LastMove? = null
 
@@ -270,6 +273,7 @@ class EditorViewModel(
      */
     private class TrayDragSession(val assetId: String?, val clip: Clip, val type: TrackType) {
         var target: DropTarget? = null
+        var latch = NewLaneLatch()
         var command: EditCommand? = null
     }
 
@@ -1876,18 +1880,14 @@ class EditorViewModel(
      * drag may contain the provisional new lane; that lane (not in the committed timeline) keeps the
      * target on 'add a lane' so the preview does not flicker as it appears.
      */
-    private fun dropTarget(session: DragSession, committed: Timeline, trackIndex: Int, zone: DragZone): DropTarget? = when (zone) {
-        DragZone.OUTSIDE -> DropTarget.Outside
-        DragZone.ABOVE_LANES -> DropTarget.AboveLanes
-        DragZone.LANES -> {
-            val shown = state.value.dragPreview ?: committed
-            val id = shown.tracks.getOrNull(trackIndex)?.id
-            when {
-                id == null -> session.target
-                committed.track(id) == null -> DropTarget.AboveLanes
-                else -> DropTarget.Lane(id)
-            }
-        }
+    private fun dropTarget(session: DragSession, committed: Timeline, trackIndex: Int, zone: DragZone): DropTarget? {
+        val shown = state.value.dragPreview ?: committed
+        val canMakeLane = committed.trackOfClip(session.clipId)?.type == TrackType.VIDEO
+        val resolved = resolveDropTarget(
+            zone, trackIndex, shown.tracks.map { it.id }, committed.tracks.mapTo(HashSet()) { it.id }, session.target, session.latch, canMakeLane,
+        )
+        session.latch = resolved.latch
+        return resolved.target
     }
 
     private fun dragMove(frame: Long, trackIndex: Int, zone: DragZone, reachFrames: Long) {
@@ -3632,16 +3632,20 @@ class EditorViewModel(
     }
 
     /** The lane under the finger; across a gap between lanes the last one stays, and with none yet the drop cancels. */
-    private fun trayTarget(committed: Timeline, trackIndex: Int, zone: DragZone, previous: DropTarget?): DropTarget = when (zone) {
-        DragZone.OUTSIDE -> DropTarget.Outside
-        DragZone.ABOVE_LANES -> DropTarget.AboveLanes
-        DragZone.LANES -> committed.tracks.getOrNull(trackIndex)?.let { DropTarget.Lane(it.id) } ?: previous ?: DropTarget.Outside
+    private fun trayTarget(session: TrayDragSession, committed: Timeline, trackIndex: Int, zone: DragZone): DropTarget {
+        val shown = state.value.dragPreview ?: committed
+        val resolved = resolveDropTarget(
+            zone, trackIndex, shown.tracks.map { it.id }, committed.tracks.mapTo(HashSet()) { it.id }, session.target, session.latch,
+            session.type == TrackType.VIDEO,
+        )
+        session.latch = resolved.latch
+        return resolved.target ?: DropTarget.Outside
     }
 
     private fun trayDragMove(frame: Long, trackIndex: Int, zone: DragZone) {
         val session = trayDrag ?: return
         val base = history.timeline
-        val target = trayTarget(base, trackIndex, zone, session.target)
+        val target = trayTarget(session, base, trackIndex, zone)
         session.target = target
         val decision = DropPlan.decideNew(
             base, session.clip, session.type, FrameIndex(frame), target, snapWith(base, state.value.playhead),
@@ -3699,11 +3703,13 @@ class EditorViewModel(
 
     /** Files dropped from another app: imported first (their length is unknown until probed), then placed where they landed. */
     private fun externalDrop(uris: List<String>, frame: Long, trackIndex: Int, zone: DragZone) {
-        val previous = trayDrag?.target
+        val session = trayDrag
+        // Resolved before the preview is cleared: the lane index was hit on the timeline as it was shown.
+        val resolved = session?.let { trayTarget(it, history.timeline, trackIndex, zone) }
         trayDrag = null
         reduce { copy(dragPreview = null, dropHint = null, dragOverlay = null) }
         if (uris.isEmpty()) return
-        val target = trayTarget(history.timeline, trackIndex, zone, previous)
+        val target = resolved ?: trayTarget(TrayDragSession(null, Clip("clip-hover", null, FrameIndex.ZERO, FrameIndex.ZERO, FrameIndex(1)), TrackType.VIDEO), history.timeline, trackIndex, zone)
         viewModelScope.launch {
             reduce { copy(isImporting = true) }
             var cursor: FrameIndex? = null
