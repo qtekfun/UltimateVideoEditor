@@ -3,17 +3,22 @@ package com.qtekfun.ultimatevideoeditor.domain
 /**
  * Deleting a clip with a base track and overlays, as in LumaFusion.
  *
- * The base track is the lowest video track (the last video track in display order). It is the
- * guide: deleting from it closes the gap, and every other track follows that edit so overlays never
- * end up pointing at footage that no longer exists. Deleting from any other track simply removes
- * the clip and leaves its gap, so neighbours keep their place.
+ * The base track is the lowest video track (the last video track in display order). Deleting from
+ * it closes the gap, and clips on the other lanes are anchored at their start (DECISIONS 2026-10-29):
+ * a clip starting at or after the deleted range shifts left with the base, a clip starting earlier or
+ * inside the range stays where it is and is never cut. A linked audio partner still goes with its
+ * video clip ([ClipLinks.settle]). Deleting from any other track removes the clip and leaves its gap.
  */
 object ClipDeletion {
 
     /** The track that guides the timeline: the lowest video track, or null when there is none. */
     fun baseTrack(timeline: Timeline): Track? = timeline.tracks.lastOrNull { it.type == TrackType.VIDEO }
 
-    fun delete(timeline: Timeline, clipId: String): EditResult<Timeline> {
+    /**
+     * With [otherLanesFollow] the frames of the deleted base clip are also removed from every other lane, which closes up
+     * behind it (used by [AutoCut], where a removed silence must leave no trace above it either).
+     */
+    fun delete(timeline: Timeline, clipId: String, otherLanesFollow: Boolean = false): EditResult<Timeline> {
         val track = timeline.trackOfClip(clipId) ?: return EditResult.Failure(EditError.ClipNotFound(clipId))
         val clip = checkNotNull(track.clip(clipId))
         if (track.id != baseTrack(timeline)?.id) {
@@ -26,12 +31,39 @@ object ClipDeletion {
             is EditResult.Failure -> return closed
         }
         for (overlay in timeline.tracks.filter { it.id != track.id }) {
-            current = when (val cut = removeRange(current, overlay.id, start, end)) {
+            val next = if (otherLanesFollow) removeRange(current, overlay.id, start, end) else shiftAnchored(current, overlay.id, start, end)
+            current = when (val cut = next) {
                 is EditResult.Success -> cut.value
                 is EditResult.Failure -> return cut
             }
         }
         return EditResult.Success(current)
+    }
+
+    /**
+     * Moves the clips of [trackId] that start at or after [end] left by the length of [start, end); the others keep their
+     * place. A clip that stayed and now runs into a shifted clip is trimmed to end where that clip starts (the shifted
+     * clip keeps its sync with the base), and dropped when a shifted clip covers its start.
+     */
+    private fun shiftAnchored(timeline: Timeline, trackId: String, start: FrameIndex, end: FrameIndex): EditResult<Timeline> {
+        val track = checkNotNull(timeline.track(trackId))
+        val length = end - start
+        val shifted = track.clips.filter { it.timelineStart >= end }.map { it.copy(timelineStart = it.timelineStart - length) }
+        if (shifted.isEmpty()) return EditResult.Success(timeline)
+        val staying = track.clips.filter { it.timelineStart < end }
+        var current = timeline.withTrack(track.withClips(staying))
+        for (clip in staying) {
+            val hits = shifted.filter { it.overlaps(clip) }
+            if (hits.isEmpty()) continue
+            val limit = hits.minOf { it.timelineStart }
+            val next = if (limit <= clip.timelineStart) removeClip(current, trackId, clip.id) else TimelineOps.trim(current, clip.id, TrimEdge.END, limit)
+            current = when (next) {
+                is EditResult.Success -> next.value
+                is EditResult.Failure -> return next
+            }
+        }
+        val kept = checkNotNull(current.track(trackId))
+        return EditResult.Success(current.withTrack(kept.withClips(kept.clips + shifted)).pruned())
     }
 
     /**

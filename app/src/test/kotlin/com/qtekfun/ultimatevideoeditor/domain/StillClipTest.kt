@@ -124,7 +124,7 @@ class StillClipTest {
     }
 
     @Test
-    fun `deleting a photo from the base closes the gap and overlays follow`() {
+    fun `deleting a photo from the base closes the gap and later overlays follow`() {
         val t = timeline(
             track("v2", clip("over", 120, 30), clip("late", 260, 20)),
             track("v1", clip("a", 0, 100), still("p", 100, 150), clip("c", 250, 50)),

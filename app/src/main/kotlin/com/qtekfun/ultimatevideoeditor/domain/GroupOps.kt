@@ -387,7 +387,7 @@ object GroupOps {
 
     /**
      * Deletes the clips. Clips on other lanes go first (a gap is left), then base clips from the last
-     * to the first, each closing its gap with the overlays following, exactly like deleting one by one.
+     * to the first, each closing its gap on the base only, exactly like deleting one by one.
      */
     fun delete(timeline: Timeline, ids: Collection<String>): EditResult<Timeline> =
         members(timeline, ids).andThen { sel ->
@@ -453,6 +453,7 @@ object GroupOps {
             val id = freshId(entry.clip.id)
             newIds[entry.clip.id] = id
             val clip = entry.clip.copy(id = id, timelineStart = at + entry.relativeStart)
+            if (clip.timelineStart < FrameIndex.ZERO) return failure(EditError.NegativeStart)
             val track = checkNotNull(current.track(lane.id))
             track.clips.firstOrNull { it.overlaps(clip) }?.let { return failure(EditError.Overlap(it.id)) }
             current = current.withTrack(track.withClips(track.clips + clip))
