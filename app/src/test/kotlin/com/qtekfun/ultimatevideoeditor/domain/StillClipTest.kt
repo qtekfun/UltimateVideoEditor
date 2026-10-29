@@ -124,14 +124,14 @@ class StillClipTest {
     }
 
     @Test
-    fun `deleting a photo from the base closes the gap and leaves the overlays alone`() {
+    fun `deleting a photo from the base closes the gap and later overlays follow`() {
         val t = timeline(
             track("v2", clip("over", 120, 30), clip("late", 260, 20)),
             track("v1", clip("a", 0, 100), still("p", 100, 150), clip("c", 250, 50)),
         )
         val result = ClipDeletion.delete(t, "p").getOrFail()
         assertLayout(result, "v1", at("a", 0, 100), at("c", 100, 150))
-        assertLayout(result, "v2", at("over", 120, 150), at("late", 260, 280))
+        assertLayout(result, "v2", at("late", 110, 130))
         assertEquals(emptyList<String>(), MagneticBase.baseViolations(result))
     }
 

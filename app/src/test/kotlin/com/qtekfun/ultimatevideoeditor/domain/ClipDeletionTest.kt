@@ -33,53 +33,71 @@ class ClipDeletionTest {
     }
 
     @Test
-    fun `deleting from the base leaves every overlay uncut and in place`() {
-        val t = scene(clip("before", 10, 20), clip("in", 110, 20), clip("after", 160, 30))
+    fun `overlays are anchored at their start - later ones follow the base, earlier ones stay`() {
+        val t = scene(clip("before", 10, 20), clip("after", 160, 30), clip("touching", 150, 5).copy(id = "edge"))
         val result = ClipDeletion.delete(t, "b").getOrFail()
-        assertEquals(t.track("v2"), result.track("v2"))
         assertLayout(result, "v1", at("a", 0, 100), at("c", 100, 200))
+        // The deleted range is 100..150: whatever starts at 150 or later moves 50 frames left.
+        assertLayout(result, "v2", at("before", 10, 30), at("edge", 100, 105), at("after", 110, 140))
     }
 
     @Test
-    fun `an overlay spanning the deleted base clip is not cut`() {
+    fun `an overlay spanning the deleted base clip is not cut and does not move`() {
         // The owner's case: a long clip on V2 over a short base clip that is deleted.
         val t = scene(clip("x", 50, 150))
-        val result = ClipDeletion.delete(t, "b").getOrFail()
-        assertEquals(t.track("v2"), result.track("v2"))
+        assertEquals(t.track("v2"), ClipDeletion.delete(t, "b").getOrFail().track("v2"))
     }
 
     @Test
-    fun `overlays crossing either edge or touching the range stay as they were`() {
-        for (overlay in listOf(clip("x", 80, 40), clip("x", 120, 60), clip("x", 100, 50), clip("x", 50, 50), clip("x", 150, 20))) {
+    fun `overlays starting before or inside the range stay whole`() {
+        for (overlay in listOf(clip("x", 80, 40), clip("x", 120, 60), clip("x", 100, 50), clip("x", 50, 50), clip("x", 110, 10))) {
             val t = scene(overlay)
             assertEquals(t.track("v2"), ClipDeletion.delete(t, "b").getOrFail().track("v2"))
         }
     }
 
     @Test
-    fun `audio and title tracks stay put`() {
+    fun `a staying overlay is trimmed where a shifted one now starts`() {
+        // x stays at 50..200; y (200..230) moves to 150..180, so x ends at 150.
+        val t = scene(clip("x", 50, 150), clip("y", 200, 30))
+        val result = ClipDeletion.delete(t, "b").getOrFail()
+        assertLayout(result, "v2", at("x", 50, 150), at("y", 150, 180))
+        assertEquals(f(0), result.track("v2")!!.clips.first().sourceIn)
+    }
+
+    @Test
+    fun `a staying overlay whose start a shifted one covers is dropped`() {
+        // in (120..130) stays; after (160..190) moves to 110..140 and covers it.
+        val t = scene(clip("in", 120, 10), clip("after", 160, 30))
+        val result = ClipDeletion.delete(t, "b").getOrFail()
+        assertLayout(result, "v2", at("after", 110, 140))
+    }
+
+    @Test
+    fun `audio and title lanes are anchored the same way`() {
         val t = timeline(
             track("t1", clip("title", 160, 20, asset = null).copy(title = TitleContent("Hi")), type = TrackType.TITLE),
             track("a1", clip("music", 0, 250), type = TrackType.AUDIO),
             track("v1", clip("a", 0, 100), clip("b", 100, 50), clip("c", 150, 100)),
         )
         val result = ClipDeletion.delete(t, "b").getOrFail()
-        assertLayout(result, "t1", at("title", 160, 180))
+        assertLayout(result, "t1", at("title", 110, 130))
         assertLayout(result, "a1", at("music", 0, 250))
     }
 
     @Test
-    fun `deleting the first or last base clip leaves overlays alone`() {
+    fun `deleting the first base clip shifts every overlay after it`() {
         val t = scene(clip("x", 0, 40), clip("y", 200, 50))
-        for (victim in listOf("a", "c")) assertEquals(t.track("v2"), ClipDeletion.delete(t, victim).getOrFail().track("v2"))
+        val result = ClipDeletion.delete(t, "a").getOrFail()
+        assertLayout(result, "v2", at("x", 0, 40), at("y", 100, 150))
     }
 
     @Test
-    fun `deleting the only clip of the base keeps overlays where they are`() {
+    fun `deleting the only clip of the base shifts overlays after it`() {
         val t = timeline(track("v2", clip("x", 200, 20)), track("v1", clip("a", 0, 100)))
         val result = ClipDeletion.delete(t, "a").getOrFail()
         assertLayout(result, "v1")
-        assertLayout(result, "v2", at("x", 200, 220))
+        assertLayout(result, "v2", at("x", 100, 120))
     }
 
     // otherLanesFollow (auto cut, template slots): the frames go from every lane.

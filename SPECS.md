@@ -791,7 +791,7 @@ all-or-nothing and one undo step.
 | Operation | Rule |
 |---|---|
 | Move | Same delta and lane delta for all; no clip may land on one that stays or on one that moves with it; frame >= 0. A base selection must touch and be only base clips: the run is reordered like `MagneticBase.reorderBlock`. |
-| Delete | Other lanes first (gaps stay), then base clips last to first (each closes its gap on the base only); clips already removed by a base deletion are skipped. |
+| Delete | Other lanes first (gaps stay), then base clips last to first (each closes its gap, overlays anchored at their start follow); clips already removed by a base deletion are skipped. |
 | Copy / paste / duplicate | `Clipboard.capture` keeps clips, lane ids, relative offsets and transitions between copied clips. Paste puts the earliest clip at the playhead; overlay clips go to their lane (else the first lane of the kind) and fail on overlap; base clips are inserted as a run at the nearest cut. Fresh ids (`<id>~cN`). Duplicate pastes at the end of the last selected clip. |
 | Paste attributes | Transform and effects on picture clips, gain on clips with sound, speed and reverse on clips with media; fails when nothing can take any. Keyframes and ramps are not copied. |
 | Speed / gain / opacity | Per clip through the single-clip rules (`MagneticBase.setSpeed` ripples as for one clip); opacity also sets the keyframes of an animated clip. |
@@ -1992,7 +1992,7 @@ track (overlay video, audio, titles) is free-form and follows the base's time. O
 
 | Edit on the base | Base | Overlays |
 |---|---|---|
-| Delete a clip | Gap closes, later clips shift left | Nothing is cut or moved (a linked audio partner goes with its video clip). Auto cut and template slots still remove the range from every lane (`otherLanesFollow`) |
+| Delete a clip | Gap closes, later clips shift left | Anchored at their start: clips starting at or after the deleted range shift left with the base; clips starting before or inside it stay and are never cut (one that now runs into a shifted clip is trimmed to its start, or dropped when its start is covered). A linked audio partner goes with its video clip. Auto cut and template slots remove the range from every lane instead (`otherLanesFollow`) |
 | Insert / import at a frame | New clip goes at the nearest clip boundary (ties go to the end; past the end appends); later clips shift right | Overlays starting at or after that boundary shift right; overlays crossing it stay |
 | Reorder (drag within the base) | The clip takes the slot its centre is over; the base is repacked from 0 | Overlays follow the footage they sit over: they are cut where the footage under them moves by different amounts and each piece travels with its footage |
 | Trim an edge (shorten) | Clip keeps its start, followers shift left | Removed frames are removed from overlays like a deletion; later overlays shift by the same delta |
