@@ -189,7 +189,10 @@ import androidx.compose.foundation.gestures.Orientation
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedBottomBar
 import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarItem
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedStrip
+import com.qtekfun.ultimatevideoeditor.ui.editor.layout.BandSlots
+import com.qtekfun.ultimatevideoeditor.ui.editor.layout.rememberFoldPosture
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.DockLayout
+import com.qtekfun.ultimatevideoeditor.ui.editor.layout.Workspace
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.DragHandle
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.EditorLayoutController
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.LayoutAction
@@ -822,7 +825,8 @@ fun EditorScreen(
             }
 
             else -> BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
-                val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat())
+                val posture by rememberFoldPosture()
+                val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat(), posture)
                 val layout = remember {
                     val prefs = PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE))
                     EditorLayoutController(prefs, window, prefs, prefs, detailZoomStore = prefs)
@@ -904,22 +908,35 @@ fun EditorScreen(
                 // One layout for every window: EditorMain is composed at the same place whatever the docks are,
                 // so changing them never recreates the native timeline view (a late surfaceDestroyed of an old
                 // view would tear down the surface of the new one).
-                DockLayout(
+                // In the workbench the side panels sit in a band beside the preview instead of in full-height columns:
+                // the dock layout then has none, and the same columns are handed to the editor's middle block.
+                val inBand = layout.workspace == Workspace.WORKBENCH
+                val noColumn = SideRequest(false, 0f, false)
+                val band = BandSlots(
                     left = { SideRequest(leftPanels.isNotEmpty(), layout.state.leftWidthDp, leftCollapsed) },
                     right = { SideRequest(rightPanels.isNotEmpty(), layout.state.rightWidthDp, rightCollapsed) },
+                    leftPanel = { if (inBand) sideColumn(Side.LEFT, leftPanels, leftCollapsed) },
+                    leftHandle = { if (inBand) sideHandle(Side.LEFT) },
+                    rightPanel = { if (inBand) sideColumn(Side.RIGHT, rightPanels, rightCollapsed) },
+                    rightHandle = { if (inBand) sideHandle(Side.RIGHT) },
+                )
+                DockLayout(
+                    left = { if (inBand) noColumn else SideRequest(leftPanels.isNotEmpty(), layout.state.leftWidthDp, leftCollapsed) },
+                    right = { if (inBand) noColumn else SideRequest(rightPanels.isNotEmpty(), layout.state.rightWidthDp, rightCollapsed) },
                     handleThickness = { handleThickness(layout.state.customising) },
                     fullscreen = fullscreen.active,
                     modifier = Modifier.fillMaxSize(),
-                    leftPanel = { sideColumn(Side.LEFT, leftPanels, leftCollapsed) },
-                    leftHandle = { sideHandle(Side.LEFT) },
-                    rightPanel = { sideColumn(Side.RIGHT, rightPanels, rightCollapsed) },
-                    rightHandle = { sideHandle(Side.RIGHT) },
+                    leftPanel = { if (!inBand) sideColumn(Side.LEFT, leftPanels, leftCollapsed) },
+                    leftHandle = { if (!inBand) sideHandle(Side.LEFT) },
+                    rightPanel = { if (!inBand) sideColumn(Side.RIGHT, rightPanels, rightCollapsed) },
+                    rightHandle = { if (!inBand) sideHandle(Side.RIGHT) },
                 ) {
                     EditorMain(
                         state, chrome.selectedClipVisible, holder, viewModel, engine, preview, editing, dropTarget, launchImport, openExport, openCaptions,
                         onSaveFrame = openStillFrame,
                         exportBlockedBy = exportBlockedBy,
                         layout = layout,
+                        band = band,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
                         onOpenLayout = { layoutSheetOpen = true },
                         titleTools = titleTools,
@@ -964,6 +981,7 @@ private fun EditorMain(
     onSaveFrame: () -> Unit,
     onOpenTray: (TrayTab) -> Unit,
     layout: EditorLayoutController,
+    band: BandSlots,
     inspectorOverlay: Boolean,
     onOpenLayout: () -> Unit,
     bottomTray: @Composable () -> Unit,
@@ -1057,11 +1075,34 @@ private fun EditorMain(
         // The preview and the timeline share what the controls leave; the share is read while measuring, so
         // dragging the handle between them re-measures the block instead of recomposing the editor.
         PreviewTimelineLayout(
+            workspace = { layout.state.workspace },
             fraction = { layout.state.previewFraction },
+            widthFraction = { layout.state.previewWidthFraction },
             metrics = splitMetrics,
             handleThickness = { handleThickness(layout.state.customising) },
             fullscreen = fullscreen.active,
             modifier = Modifier.fillMaxWidth().weight(1f),
+            band = band,
+            sideHandle = {
+                // Beside the picture (side by side): a vertical bar that moves the share of the width.
+                DragHandle(
+                    orientation = Orientation.Horizontal,
+                    customising = layout.customising,
+                    description = stringResource(R.string.ed_ws_resize_preview_width),
+                    onDelta = { dx ->
+                        val total = splitMetrics.sideRoomPx
+                        if (total > 0) {
+                            val current = layout.state.previewWidthFraction
+                            val next = current + dx / total
+                            ticker(current, next, LayoutState.DEFAULT_PREVIEW_WIDTH_FRACTION, 0.01f)
+                            layout.dispatch(LayoutAction.SetPreviewWidthFraction(next), persist = false)
+                        }
+                    },
+                    onEnd = layout::commit,
+                    onReset = { layout.dispatch(LayoutAction.ResetPreviewWidthDivider) },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            },
             preview = {
                 // Where the fullscreen controls sit, so a tap on them is not taken for a tap on the picture.
                 var controlsBounds by remember { mutableStateOf<Rect?>(null) }
@@ -1182,7 +1223,7 @@ private fun EditorMain(
                         if (total > 0) {
                             val current = layout.state.previewFraction
                             val next = current + dy / total
-                            ticker(current, next, LayoutState.DEFAULT_PREVIEW_FRACTION, 0.01f)
+                            ticker(current, next, LayoutState.defaultPreviewFraction(layout.state.workspace), 0.01f)
                             layout.dispatch(LayoutAction.SetPreviewFraction(next), persist = false)
                         }
                     },

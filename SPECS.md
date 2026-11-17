@@ -253,6 +253,19 @@ role (`HubTopBar`, `HubCards` with `ContinueCard` and `StorageCard`, `HubList` w
 - The timeline state (tracks, clips, selection, playhead, zoom) lives in the ViewModel and is decoupled
   from rendering. Each state change publishes an immutable snapshot to the engine.
 - Adaptive layout through window size classes. Compose never draws timeline clips.
+- **Workspaces** (`ui/editor/layout`, pure state in `LayoutState.kt`, geometry in `LayoutGeometry.kt` and `SplitLayouts.kt`). How the
+  preview, timeline and side panels share the window is a `Workspace`: `STACKED` (preview above the timeline, panels in full-height
+  columns: phone, tall windows), `WORKBENCH` (a band on top holding the left panel, the preview and the right panel, the timeline
+  across the whole width under it: tablet, open foldable) and `SIDE_BY_SIDE` (preview in its own column at full height, controls and
+  timeline beside it: wide short windows such as a phone sideways). `WindowMetrics.allows()` says what has room (workbench: at least
+  720 x 480 dp and not taller than 1/0.9 of its width; side by side: at least 600 dp and wider than tall) and `defaultWorkspace` picks one
+  for a layout never saved. `LayoutState.clamped` drops a workspace the window cannot hold back to stacked. The preview and the timeline are
+  the same two children of `PreviewTimelineLayout` in every workspace, only placed differently, so changing it never recreates a
+  native surface; the band's panels are composed in the band only, the dock layout around the editor then has no columns.
+  Fold posture (`FoldPosture`, from `androidx.window` `FoldingFeature`, read in `FoldPostureState.kt`): a half-open fold with a horizontal
+  hinge (`TABLETOP`) is stacked with the divider at the middle; a vertical hinge (`BOOK`) is side by side split at the middle. The posture is
+  part of the `LayoutKey` (id suffix `-tabletop` / `-book`; every other id is unchanged), and a layout saved before workspaces existed reads as
+  stacked (`ws` missing in `LayoutCodec`). Covered by `WorkspaceTest` (rules, defaults, reducer, codec, column maths).
 
 ### 5.2 Engine boundary (JNI)
 - Kotlin facade `EngineClient` is the only caller of native methods. JNI calls are cheap and non-blocking;

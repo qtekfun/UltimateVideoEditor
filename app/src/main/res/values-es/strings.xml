@@ -2474,4 +2474,13 @@
         <item quantity="other">%1$s (y %2$d sitios más)</item>
     </plurals>
     <string name="ge_video_only">Solo los clips de vídeo y de foto se pueden mover juntos a otra pista de vídeo</string>
+    <string name="ed_ws_arrangement">Disposición</string>
+    <string name="ed_ws_stacked">Apilada</string>
+    <string name="ed_ws_stacked_desc">Vista previa sobre la línea de tiempo</string>
+    <string name="ed_ws_workbench">Mesa de trabajo</string>
+    <string name="ed_ws_workbench_desc">Paneles junto a la vista previa y línea de tiempo a todo el ancho</string>
+    <string name="ed_ws_side_by_side">Lado a lado</string>
+    <string name="ed_ws_side_by_side_desc">Vista previa a la izquierda, controles y línea de tiempo a la derecha</string>
+    <string name="ed_ws_needs_room">La mesa de trabajo necesita una ventana amplia (al menos 720 dp de ancho y 480 dp de alto, no alta y estrecha); lado a lado, una de al menos 600 dp de ancho y más ancha que alta.</string>
+    <string name="ed_ws_resize_preview_width">Cambia el tamaño de la vista previa y la línea de tiempo lado a lado. Toca dos veces para restablecer.</string>
 </resources>

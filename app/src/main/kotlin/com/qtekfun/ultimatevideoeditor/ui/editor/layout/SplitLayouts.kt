@@ -41,35 +41,52 @@ private const val DRAG_STEP_MS = 40L
 private val HANDLE_THICKNESS = 18.dp
 private val HANDLE_THICKNESS_CUSTOMISING = 28.dp
 
-/** What the preview/timeline layout measured last, read by the divider to turn a drag in pixels into a share. */
+/** What the preview/timeline layout measured last, read by the dividers to turn a drag in pixels into a share. */
 class SplitMetrics {
-    /** Room shared by the preview and the timeline, in px (the block minus the controls and the handle). */
+    /** Height shared by the preview (or the band) and the timeline, in px (the block minus the controls and the handle). */
     var flexiblePx: Int = 0
+
+    /** Width shared by the preview and the controls/timeline beside it in [Workspace.SIDE_BY_SIDE], in px. */
+    var sideRoomPx: Int = 0
 }
 
 private const val PREVIEW = "preview"
 private const val HANDLE = "handle"
+private const val SIDE_HANDLE = "sidehandle"
 private const val CHROME = "chrome"
 private const val TIMELINE = "timeline"
+private const val BAND_LEFT = "bandleft"
+private const val BAND_LEFT_HANDLE = "bandlhandle"
+private const val BAND_RIGHT_HANDLE = "bandrhandle"
+private const val BAND_RIGHT = "bandright"
 
 /**
- * The editor's middle block, top to bottom: the preview, the divider handle, the controls (transport and
- * toolbar, at their natural height) and the timeline. The preview and the timeline split what is left by
- * [fraction], which is read while measuring: a drag changes the layout without recomposing anything.
+ * The editor's middle block. What goes where depends on [workspace]:
  *
- * With [fullscreen] the preview takes the whole block. The other three are still composed and measured as
- * before, but placed below the block (outside the window) instead of being removed: the native timeline view
- * keeps its surface, so playback and the timeline renderer are never torn down by the toggle.
+ * - STACKED, top to bottom: the preview, the divider [handle], the controls ([chrome]: transport and toolbar) and the timeline.
+ * - WORKBENCH: a band on top (the left panel, the preview, the right panel, with their dividers) and under it the same
+ *   handle, controls and timeline across the whole width. The panels are drawn only in the band.
+ * - SIDE_BY_SIDE: the preview on the left at the full height, then [sideHandle], and on the right the controls over the timeline.
+ *
+ * The preview and the timeline are the same two children in every workspace, only placed differently, so changing it never
+ * recreates their native surfaces. The shares are read while measuring: a drag changes the layout without recomposing anything.
+ *
+ * With [fullscreen] the preview takes the whole block. The rest is still composed and measured as before, but placed below the
+ * block (outside the window) instead of being removed, so playback and the timeline renderer are never torn down by the toggle.
  */
 @Composable
 internal fun PreviewTimelineLayout(
+    workspace: () -> Workspace,
     fraction: () -> Float,
+    widthFraction: () -> Float,
     metrics: SplitMetrics,
     handleThickness: () -> Dp,
     fullscreen: Boolean,
     modifier: Modifier = Modifier,
+    band: BandSlots,
     preview: @Composable () -> Unit,
     handle: @Composable () -> Unit,
+    sideHandle: @Composable () -> Unit,
     chrome: @Composable () -> Unit,
     timeline: @Composable () -> Unit,
 ) {
@@ -77,34 +94,118 @@ internal fun PreviewTimelineLayout(
         content = {
             Box(Modifier.layoutId(PREVIEW)) { preview() }
             Box(Modifier.layoutId(HANDLE)) { handle() }
+            Box(Modifier.layoutId(SIDE_HANDLE)) { sideHandle() }
             Box(Modifier.layoutId(CHROME)) { chrome() }
             Box(Modifier.layoutId(TIMELINE)) { timeline() }
+            Box(Modifier.layoutId(BAND_LEFT)) { band.leftPanel() }
+            Box(Modifier.layoutId(BAND_LEFT_HANDLE)) { band.leftHandle() }
+            Box(Modifier.layoutId(BAND_RIGHT_HANDLE)) { band.rightHandle() }
+            Box(Modifier.layoutId(BAND_RIGHT)) { band.rightPanel() }
         },
         modifier = modifier,
     ) { measurables, constraints ->
         val width = constraints.maxWidth
         val height = if (constraints.hasBoundedHeight) constraints.maxHeight else constraints.minHeight
         val handlePx = handleThickness().roundToPx()
+        val stripPx = COLLAPSED_STRIP.roundToPx()
         val byId = measurables.associateBy { it.layoutId }
-        val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = width, maxWidth = width, maxHeight = height))
-        val handlePlaceable = byId.getValue(HANDLE).measure(Constraints.fixed(width, handlePx))
-        val flexible = (height - chromePlaceable.height - handlePx).coerceAtLeast(0)
-        metrics.flexiblePx = flexible
-        val previewHeight = (flexible * fraction()).roundToInt().coerceIn(0, flexible)
-        val timelineHeight = flexible - previewHeight
-        val shownHeight = if (fullscreen) height else previewHeight
-        val previewPlaceable = byId.getValue(PREVIEW).measure(Constraints.fixed(width, shownHeight))
-        val timelinePlaceable = byId.getValue(TIMELINE).measure(Constraints.fixed(width, timelineHeight))
-        // Fullscreen: everything but the preview sits one block below, where nothing is drawn or touched.
-        val shift = if (fullscreen) height else 0
-        layout(width, height) {
-            previewPlaceable.place(0, 0)
-            handlePlaceable.place(0, previewHeight + shift)
-            chromePlaceable.place(0, previewHeight + handlePx + shift)
-            timelinePlaceable.place(0, previewHeight + handlePx + chromePlaceable.height + shift)
+        val mode = workspace()
+        // Nothing here is drawn or touched when it is not part of the current workspace: it is measured to zero.
+        val none = Constraints.fixed(0, 0)
+
+        fun columnPx(request: SideRequest): Int = when {
+            !request.present -> 0
+            request.collapsed -> stripPx
+            else -> request.widthDp.dp.roundToPx()
+        }
+
+        when (mode) {
+            Workspace.SIDE_BY_SIDE -> {
+                val split = resolveSideBySide(width, handlePx, widthFraction())
+                metrics.sideRoomPx = (width - handlePx).coerceAtLeast(0)
+                val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = split.rest, maxWidth = split.rest, maxHeight = height))
+                val timelineHeight = (height - chromePlaceable.height).coerceAtLeast(0)
+                metrics.flexiblePx = timelineHeight
+                val previewPlaceable = byId.getValue(PREVIEW).measure(
+                    if (fullscreen) Constraints.fixed(width, height) else Constraints.fixed(split.preview, height),
+                )
+                val sideHandlePlaceable = byId.getValue(SIDE_HANDLE).measure(Constraints.fixed(handlePx, height))
+                val timelinePlaceable = byId.getValue(TIMELINE).measure(Constraints.fixed(split.rest, timelineHeight))
+                val hidden = byId.getValue(HANDLE).measure(none)
+                val bandHidden = listOf(BAND_LEFT, BAND_LEFT_HANDLE, BAND_RIGHT_HANDLE, BAND_RIGHT).map { byId.getValue(it).measure(none) }
+                val shift = if (fullscreen) height else 0
+                layout(width, height) {
+                    previewPlaceable.place(0, 0)
+                    sideHandlePlaceable.place(split.preview + shift, 0)
+                    chromePlaceable.place(split.preview + handlePx + shift, 0)
+                    timelinePlaceable.place(split.preview + handlePx + shift, chromePlaceable.height)
+                    hidden.place(0, 0)
+                    bandHidden.forEach { it.place(0, 0) }
+                }
+            }
+
+            Workspace.STACKED, Workspace.WORKBENCH -> {
+                val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = width, maxWidth = width, maxHeight = height))
+                val handlePlaceable = byId.getValue(HANDLE).measure(Constraints.fixed(width, handlePx))
+                val flexible = (height - chromePlaceable.height - handlePx).coerceAtLeast(0)
+                metrics.flexiblePx = flexible
+                val topHeight = (flexible * fraction()).roundToInt().coerceIn(0, flexible)
+                val timelineHeight = flexible - topHeight
+                val shownHeight = if (fullscreen) height else topHeight
+
+                // The band's columns exist only in the workbench; stacked, the dock layout around the editor carries them.
+                val banded = mode == Workspace.WORKBENCH
+                val left = if (banded) band.left() else SideRequest(false, 0f, false)
+                val right = if (banded) band.right() else SideRequest(false, 0f, false)
+                val cols = resolveColumns(
+                    width = width,
+                    leftWanted = columnPx(left),
+                    rightWanted = columnPx(right),
+                    leftOpen = left.present && !left.collapsed,
+                    rightOpen = right.present && !right.collapsed,
+                    handlePx = handlePx,
+                    fullscreen = fullscreen,
+                )
+                val bandHeight = shownHeight
+                fun column(id: String, px: Int) = byId.getValue(id).measure(Constraints.fixed(px, if (px > 0) bandHeight else 0))
+                val leftPlaceable = column(BAND_LEFT, cols.left)
+                val leftHandlePlaceable = column(BAND_LEFT_HANDLE, cols.leftHandle)
+                val rightHandlePlaceable = column(BAND_RIGHT_HANDLE, cols.rightHandle)
+                val rightPlaceable = column(BAND_RIGHT, cols.right)
+                val previewPlaceable = byId.getValue(PREVIEW).measure(Constraints.fixed(cols.main, shownHeight))
+                val timelinePlaceable = byId.getValue(TIMELINE).measure(Constraints.fixed(width, timelineHeight))
+                val hidden = byId.getValue(SIDE_HANDLE).measure(none)
+                val shift = if (fullscreen) height else 0
+                layout(width, height) {
+                    var x = 0
+                    leftPlaceable.place(x, 0)
+                    x += cols.left
+                    leftHandlePlaceable.place(x, 0)
+                    x += cols.leftHandle
+                    previewPlaceable.place(x, 0)
+                    x += cols.main
+                    rightHandlePlaceable.place(x, 0)
+                    x += cols.rightHandle
+                    rightPlaceable.place(x, 0)
+                    handlePlaceable.place(0, topHeight + shift)
+                    chromePlaceable.place(0, topHeight + handlePx + shift)
+                    timelinePlaceable.place(0, topHeight + handlePx + chromePlaceable.height + shift)
+                    hidden.place(0, 0)
+                }
+            }
         }
     }
 }
+
+/** What the band of [Workspace.WORKBENCH] holds besides the preview: the two side columns and their dividers. */
+internal class BandSlots(
+    val left: () -> SideRequest,
+    val right: () -> SideRequest,
+    val leftPanel: @Composable () -> Unit,
+    val leftHandle: @Composable () -> Unit,
+    val rightPanel: @Composable () -> Unit,
+    val rightHandle: @Composable () -> Unit,
+)
 
 private const val LEFT_PANEL = "left"
 private const val LEFT_HANDLE = "lhandle"
@@ -154,19 +255,22 @@ internal fun DockLayout(
             request.collapsed -> stripPx
             else -> request.widthDp.dp.roundToPx()
         }
-        // Fullscreen preview: the side columns keep their place in the tree but get no room.
-        var leftPx = if (fullscreen) 0 else columnPx(left())
-        var rightPx = if (fullscreen) 0 else columnPx(right())
-        val leftHandlePx = if (!fullscreen && left().present && !left().collapsed) handlePx else 0
-        val rightHandlePx = if (!fullscreen && right().present && !right().collapsed) handlePx else 0
-        // Whatever the saved widths say, the editor keeps at least 30 % of the window.
-        val room = (width * 0.7f).roundToInt() - leftHandlePx - rightHandlePx
-        if (leftPx + rightPx > room && leftPx + rightPx > 0) {
-            val scale = room.toFloat() / (leftPx + rightPx)
-            if (!left().collapsed) leftPx = (leftPx * scale).roundToInt()
-            if (!right().collapsed) rightPx = (rightPx * scale).roundToInt()
-        }
-        val mainWidth = (width - leftPx - rightPx - leftHandlePx - rightHandlePx).coerceAtLeast(0)
+        val l = left()
+        val r = right()
+        val cols = resolveColumns(
+            width = width,
+            leftWanted = columnPx(l),
+            rightWanted = columnPx(r),
+            leftOpen = l.present && !l.collapsed,
+            rightOpen = r.present && !r.collapsed,
+            handlePx = handlePx,
+            fullscreen = fullscreen,
+        )
+        val leftPx = cols.left
+        val rightPx = cols.right
+        val leftHandlePx = cols.leftHandle
+        val rightHandlePx = cols.rightHandle
+        val mainWidth = cols.main
 
         val leftPlaceable = byId.getValue(LEFT_PANEL).measure(Constraints.fixed(leftPx, if (leftPx > 0) height else 0))
         val leftHandlePlaceable = byId.getValue(LEFT_HANDLE).measure(Constraints.fixed(leftHandlePx, if (leftHandlePx > 0) height else 0))

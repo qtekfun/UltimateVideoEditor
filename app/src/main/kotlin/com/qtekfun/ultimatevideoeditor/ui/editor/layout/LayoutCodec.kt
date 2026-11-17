@@ -20,7 +20,9 @@ object NoLayoutStore : LayoutStore {
  */
 object LayoutCodec {
     fun encode(state: LayoutState): String = listOf(
+        "ws=${state.workspace.name}",
         "pf=${state.previewFraction}",
+        "pw=${state.previewWidthFraction}",
         "lw=${state.leftWidthDp}",
         "rw=${state.rightWidthDp}",
         "tray=${state.tray.dock.name},${if (state.tray.collapsed) 1 else 0}",
@@ -39,7 +41,10 @@ object LayoutCodec {
         // A saved layout without the field predates the setting, when every lane had one height: keep that (Same) for it.
         // Only a layout that was never saved starts at the new default.
         var state = LayoutState(audioLaneHeight = AudioLaneHeight.SAME)
+        // A layout saved before workspaces existed was the stacked one.
+        pairs["ws"]?.let { name -> Workspace.entries.firstOrNull { it.name == name } }?.let { state = state.copy(workspace = it) }
         pairs["pf"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(previewFraction = it) }
+        pairs["pw"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(previewWidthFraction = it) }
         pairs["lw"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(leftWidthDp = it) }
         pairs["rw"]?.toFloatOrNull()?.takeIf { it.isFinite() }?.let { state = state.copy(rightWidthDp = it) }
         panel(pairs["tray"], Panel.TRAY)?.let { state = state.copy(tray = it) }

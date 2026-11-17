@@ -125,6 +125,7 @@ class EditorLayoutController(
     // Pieces of the layout for composition. Reading [state] there would recompose the editor on every step of
     // a divider drag; these only change when their own value does.
     val customising: Boolean by derivedStateOf { state.customising }
+    val workspace: Workspace by derivedStateOf { state.workspace }
     val laneHeight: LaneHeight by derivedStateOf { state.laneHeight }
     val audioLaneHeight: AudioLaneHeight by derivedStateOf { state.audioLaneHeight }
     val tray: PanelState by derivedStateOf { state.tray }
