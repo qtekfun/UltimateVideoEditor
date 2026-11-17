@@ -3,7 +3,7 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.5.0
 
 - **The editor uses the room of a tablet or an open foldable.** There are now three arrangements, chosen for each window shape the first time
   you open it and changeable in the Layout sheet (*Arrangement*). *Stacked* is the old one: the picture above the timeline. *Workbench* puts the
