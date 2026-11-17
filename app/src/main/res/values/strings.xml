@@ -2408,4 +2408,13 @@
         <item quantity="other">%1$s (and %2$d more places)</item>
     </plurals>
     <string name="ge_video_only">Only video and photo clips can move to another video lane together</string>
+    <string name="ed_ws_arrangement">Arrangement</string>
+    <string name="ed_ws_stacked">Stacked</string>
+    <string name="ed_ws_stacked_desc">Preview above the timeline</string>
+    <string name="ed_ws_workbench">Workbench</string>
+    <string name="ed_ws_workbench_desc">Panels beside the preview, timeline across the whole width</string>
+    <string name="ed_ws_side_by_side">Side by side</string>
+    <string name="ed_ws_side_by_side_desc">Preview on the left, controls and timeline on the right</string>
+    <string name="ed_ws_needs_room">Workbench needs a roomy window (at least 720 dp wide and 480 dp tall, not a tall narrow one); side by side needs one at least 600 dp wide and wider than it is tall.</string>
+    <string name="ed_ws_resize_preview_width">Resize the preview and the timeline side by side. Double tap to reset.</string>
 </resources>

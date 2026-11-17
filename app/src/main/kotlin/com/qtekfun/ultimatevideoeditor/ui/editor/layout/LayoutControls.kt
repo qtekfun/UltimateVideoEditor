@@ -145,6 +145,22 @@ internal fun LayoutSheet(controller: EditorLayoutController, onDismiss: () -> Un
                 }
             }
 
+            Text(stringResource(R.string.ed_ws_arrangement), style = MaterialTheme.typography.labelLarge)
+            ChipRow {
+                for (workspace in Workspace.entries) {
+                    FilterChip(
+                        selected = state.workspace == workspace,
+                        enabled = window.allows(workspace),
+                        onClick = { onAction(LayoutAction.SetWorkspace(workspace)) },
+                        label = { Text(stringResource(workspace.labelRes)) },
+                        modifier = Modifier.described(stringResource(workspace.descriptionRes)),
+                    )
+                }
+            }
+            if (Workspace.entries.any { !window.allows(it) }) {
+                Text(stringResource(R.string.ed_ws_needs_room), style = MaterialTheme.typography.bodySmall)
+            }
+
             Text(stringResource(R.string.ed_2a_track_height), style = MaterialTheme.typography.labelLarge)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ToolButton(

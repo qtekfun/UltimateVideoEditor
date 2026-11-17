@@ -3,6 +3,15 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **The editor uses the room of a tablet or an open foldable.** There are now three arrangements, chosen for each window shape the first time
+  you open it and changeable in the Layout sheet (*Arrangement*). *Stacked* is the old one: the picture above the timeline. *Workbench* puts the
+  media tray and the inspector in a band beside the picture and the timeline under it across the whole width. *Side by side* puts the picture on
+  the left at full height with the controls and the timeline on the right, for a wide, short window such as a phone sideways (the tray starts folded
+  there). A foldable standing half open follows its hinge: stacked with the divider at the middle when the hinge lies across, side by side split
+  at the middle when it stands upright. Each window shape and posture keeps its own layout; layouts you saved before stay stacked.
+
 ## 1.4.6
 
 - **4K exports no longer stall on phones with few video decoders.** While a video is exported the editor's preview lets go of its decoders

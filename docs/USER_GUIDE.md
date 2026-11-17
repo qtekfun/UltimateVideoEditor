@@ -145,6 +145,12 @@ sideways and a tablet each keep theirs).
   more room. On wide windows a vertical bar separates a side panel from the editor: drag it sideways. A short
   vibration marks the default position, and a **double tap** on a divider resets it.
 - **Layout button** (top bar) opens the layout sheet:
+  - **Arrangement**: how the picture, the timeline and the panels share the window. *Stacked* puts the picture above the timeline
+    (the phone layout). *Workbench* puts the panels beside the picture in a band on top and the timeline under it across the whole
+    width (tablet, open foldable). *Side by side* puts the picture on the left at full height and the controls and the timeline on
+    the right (a wide, short window, such as a phone sideways). A choice the window has no room for is greyed out. The editor picks
+    one when you first open it in a window shape, and a foldable standing half open uses *Stacked* with the hinge between the picture
+    and the controls (hinge across) or *Side by side* split at the hinge (hinge upright). Each window shape and fold posture remembers its own.
   - **Presets**: *Default*, *Timeline focus* (big timeline, small preview, tray folded), *Preview focus* and
     *Two panels* (tray on the left, inspector on the right; needs a window at least 600 dp wide).
   - **Track height**: Small, Medium or Large lanes, or the **-** and **+** buttons. Waveforms, thumbnails and
