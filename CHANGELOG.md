@@ -3,7 +3,7 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.6.0
 
 - **Record a voice-over.** In the Audio tab of the media tray, **Record a voice-over** counts in three seconds, records the microphone while the video plays from the
   playhead and, on Stop, adds the take on an audio lane that is free for its whole length (or a new one), so it never overwrites your music; one undo removes it.
