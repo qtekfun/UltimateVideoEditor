@@ -5,6 +5,8 @@ import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverButton
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverController
 import androidx.compose.ui.res.stringResource
 import android.content.Context
 import androidx.compose.foundation.Image
@@ -133,6 +135,7 @@ internal fun MediaTray(
     onAddFiles: (List<String>) -> Unit,
     onPreview: (SourceItem) -> Unit,
     tapPreviews: Boolean,
+    voice: VoiceOverController,
     modifier: Modifier = Modifier,
     userPresets: List<TextTemplate> = emptyList(),
     onApplyPreset: (TextTemplate, text: String) -> Unit = { _, _ -> },
@@ -165,6 +168,7 @@ internal fun MediaTray(
                         TrayTab.MEDIA, TrayTab.AUDIO -> AssetBody(
                             state, onState, items, isImporting, onImport, onAdd, onAddMany, drag,
                             onPreview = { item: TrayItem -> onPreview(SourceItem(item.asset.uri, item.name, item.kind)) }.takeIf { tapPreviews },
+                            voice = voice,
                         )
                         TrayTab.FOLDERS -> FoldersTab(folders, inProject, state.layout, drag, onLinkFolder, onAddFiles, onPreview.takeIf { tapPreviews })
                         TrayTab.STICKERS -> Column(Modifier.verticalScroll(rememberScrollState())) { StickerChooser(onPickSticker) }
@@ -254,8 +258,13 @@ private fun AssetBody(
     onAddMany: (List<String>) -> Unit,
     drag: TrayDragController,
     onPreview: ((TrayItem) -> Unit)?,
+    voice: VoiceOverController,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
+        // The sound tab is where a voice-over starts: the take lands on a lane of its own and shows up in this list.
+        if (state.tab == TrayTab.AUDIO) {
+            VoiceOverButton(voice, Modifier.fillMaxWidth())
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = state.query,

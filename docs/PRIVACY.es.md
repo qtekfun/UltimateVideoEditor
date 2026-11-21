@@ -38,8 +38,8 @@ Las exportaciones se escriben solo donde elijas con el selector de archivos del 
 
 ## Permisos
 
-La app declara exactamente cuatro permisos y ninguno tiene que ver con datos ni con la red. Existen para que una exportación pueda
-seguir en marcha cuando sales de la app, cambias a otra o se apaga la pantalla:
+La app declara exactamente cinco permisos y ninguno tiene que ver con la red. Cuatro existen para que una exportación pueda
+seguir en marcha cuando sales de la app, cambias a otra o se apaga la pantalla; el quinto es el micrófono, solo para la voz en off:
 
 | Permiso | Para qué sirve |
 |---|---|
@@ -47,8 +47,14 @@ seguir en marcha cuando sales de la app, cambias a otra o se apaga la pantalla:
 | `FOREGROUND_SERVICE_MEDIA_PROCESSING` | El tipo de servicio de Android 15 y posteriores: «este servicio está procesando medios» |
 | `FOREGROUND_SERVICE_DATA_SYNC` | El tipo de servicio que Android 12 a 14 ofrece para una tarea larga. No se sincroniza nada ni se envía nada a ninguna parte; es solo la etiqueta más cercana que existe antes de Android 15 |
 | `POST_NOTIFICATIONS` | Mostrar la notificación de progreso de la exportación (Android 13 y posteriores). Se pide al empezar una exportación y es opcional: si dices que no, la exportación sigue funcionando, solo que sin notificación |
+| `RECORD_AUDIO` | Grabar una voz en off. Se pide la primera vez que pulsas **Grabar una voz en off** en la pestaña Audio de la bandeja de medios, nunca al arrancar, y es opcional: si dices que no, nada más cambia y puedes usar la grabadora del propio sistema |
 
-La app sigue **sin** permisos de red, ubicación, contactos, cámara, micrófono ni almacenamiento y sin analíticas: la lectura de medios
+El micrófono se usa solo entre el momento en que el botón de grabar inicia la cuenta atrás y el momento en que paras la toma (o la app
+sale de la pantalla). La toma se escribe como un archivo de sonido en la carpeta propia del proyecto dentro del teléfono, pasa a ser un clip
+de audio normal en la línea de tiempo y se borra junto con el proyecto; no se analiza, no se transcribe y no se envía a ninguna parte, y la
+app nunca escucha en segundo plano. Android muestra su indicador de micrófono mientras la app graba.
+
+La app sigue **sin** permisos de red, ubicación, contactos, cámara ni almacenamiento y sin analíticas: la lectura de medios
 pasa por el selector de archivos del sistema Android (Storage Access Framework), que solo le da acceso a los archivos que eliges. La
 notificación de exportación muestra el nombre del proyecto y un porcentaje en tu propio dispositivo, y nada más. Cuando eliges un
 archivo, Android puede conceder a la app un permiso de lectura persistente para ese archivo, de modo que un proyecto pueda volver a
@@ -59,14 +65,14 @@ quita de la lista.
 
 ## Cómo comprobarlo tú mismo
 
-1. Mira el manifiesto: `app/src/main/AndroidManifest.xml` declara solo las cuatro entradas `uses-permission` de arriba. En el APK
-   compilado, `aapt2 dump permissions app-debug.apk` lista esas cuatro y `com.qtekfun.ultimatevideoeditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
+1. Mira el manifiesto: `app/src/main/AndroidManifest.xml` declara solo las cinco entradas `uses-permission` de arriba. En el APK
+   compilado, `aapt2 dump permissions app-debug.apk` lista esas cinco y `com.qtekfun.ultimatevideoeditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
    un permiso privado que AndroidX añade para que los receptores de difusión de la propia app no puedan ser llamados desde otras apps;
    no da acceso a nada.
-2. En el teléfono: Ajustes > Apps > ultimateVE > Permisos muestra como mucho Notificaciones; en una app cortafuegos o con
+2. En el teléfono: Ajustes > Apps > ultimateVE > Permisos muestra como mucho Notificaciones y Micrófono (este último solo si has usado la voz en off); en una app cortafuegos o con
    «Restringir datos móviles y Wi-Fi», la app no tiene tráfico porque nunca abre una conexión.
 3. En el repositorio: `./gradlew :app:testDebugUnitTest --tests '*OfflineGuaranteeTest*'` falla si aparece cualquier permiso distinto de
-   esos cuatro, un permiso de red, una API de red (HTTP, sockets, WebView, gestores de descargas), una dependencia de analíticas, de
+   esos cinco, un permiso de red, una API de red (HTTP, sockets, WebView, gestores de descargas), una dependencia de analíticas, de
    informes de fallos o de publicidad, o si alguna vez se introduce tráfico sin cifrar. La integración continua lo ejecuta en cada pull
    request.
 4. El código es abierto (GPL-3.0): léelo.

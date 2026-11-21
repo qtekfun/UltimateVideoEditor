@@ -3,6 +3,17 @@
 Choices made autonomously while the owner was away. Append-only; each entry says what was chosen, why, and
 the alternative, so any of them can be reversed cheaply.
 
+## 2026-11-21 · Voice-over, and the microphone permission (owner: "can we add a voice-over to a project?")
+**Before:** the app recorded nothing (the `UserMedia` row of the media-folder table said "no voice-over"), and `docs/PRIVACY.md` promised no microphone permission. This entry **supersedes** that row and that promise for the voice-over only.
+**Owner's decision:** a microphone permission is acceptable for the voice-over if it is asked for only when the record button is first pressed (the owner chose the in-app recording over the system recorder alone).
+**Chosen:** `RECORD_AUDIO` is declared (with the microphone feature marked not required, so the app installs on devices without one) and asked for at runtime from the record button only. `OfflineGuaranteeTest` now allows exactly five permissions and has a test that fails if anything but the editor screen refers to the microphone or if `MainActivity` asks for it at start. `PRIVACY.md` and `PRIVACY.es.md` say what it is for, when it is on, where the take goes and that nothing leaves the phone. No network, no analysis, no transcription.
+**Take:** a WAV in `files/projects/<id>/voice/` (no encoder, sample-exact, read by every existing step); referenced by `file://`, for which the importer keeps no permission. It goes with the project when the project is deleted.
+**Placement:** a voice never overwrites the sound under it: first free audio lane for the whole take, else a new lane; lane and clip are one undo step.
+**Alignment:** the time the microphone ran before the timeline started is cut from the take; the phone's input latency is a constant that is **0 until measured on a device**, and the output delay is not compensated.
+**Fallback:** with the permission refused, the system recorder (`RECORD_SOUND_ACTION`) is offered; the result is imported at the playhead.
+**Alternatives not taken:** the system recorder only (no permission, but no sync with the video and not on every phone); recording into the user's Media folder (a later step: it needs the tree and its permissions at record time); Oboe for input (one clock with the playback, more native code; the Java `AudioRecord` is enough until the latency is measured).
+**Not verified on a device** (none connected): the microphone, the permission dialog, the sync with the playing timeline, the file written and read back by the importer, and the system-recorder fallback are only compiled; the flow, the placement, the WAV header, the meter, the manifest guard and the view-model step are covered by `VoiceOverControllerTest`, `VoicePlacementTest`, `WavFileTest`, `OfflineGuaranteeTest` and `TrayViewModelTest`.
+
 ## 2026-11-21 · Preview a file before adding it (owner: "press a resource to preview it and see if it is the right one")
 **Before:** a tap on a tile added the clip at the playhead; nothing showed a file before it was used, and a file of a linked folder was not an asset yet.
 **Chosen:** a preview sheet opened by a tap, with the system `MediaPlayer` on its own surface (SPECS 9.13b). It plays any URI, in the project or not, with its sound and a quick seek, and needs no change to the native engine. The "+" keeps the instant add; a Layout switch (on by default) restores "tap adds".

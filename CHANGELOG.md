@@ -5,6 +5,11 @@ and fields added later are optional in the project JSON). The detail behind each
 
 ## Unreleased
 
+- **Record a voice-over.** In the Audio tab of the media tray, **Record a voice-over** counts in three seconds, records the microphone while the video plays from the
+  playhead and, on Stop, adds the take on an audio lane that is free for its whole length (or a new one), so it never overwrites your music; one undo removes it.
+  The microphone permission is asked for the first time you press the button, never at start, and if you refuse, the phone's own recorder can be used instead.
+  The recording is a sound file in the project's folder on your phone; nothing is sent anywhere. Use headphones.
+
 - **Preview a clip before adding it.** A tap on a tile of the media tray (Media, Audio and Folders) opens a preview: play it, jump to any moment, mute or repeat it
   and read its details, then add it at the playhead or to the end. It also works for a file of a linked folder that is not in the project yet. The **+** on a
   tile still adds at once, and a switch in the Layout sheet (**Tap on a clip previews it**) brings back the old tap that adds. The preview is not available

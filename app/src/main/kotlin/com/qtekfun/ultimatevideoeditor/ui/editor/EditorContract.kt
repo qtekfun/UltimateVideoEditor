@@ -688,6 +688,12 @@ sealed interface EditorIntent : UiIntent {
     data class ImportMedia(val uris: List<String>, val atEnd: Boolean = false) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent
 
+    /**
+     * A voice-over take recorded in the app: the file at [uri] goes on the first audio lane that is free for its whole length (or a new
+     * one), starting at [startFrame], with its first [trimMs] milliseconds cut off.
+     */
+    data class PlaceVoiceOver(val uri: String, val startFrame: Long, val trimMs: Long) : EditorIntent
+
     /** Adds the assets one after the other at the playhead, in this order, as one undo step (the tray's numbered selection). */
     data class AddAssets(val assetIds: List<String>) : EditorIntent
 

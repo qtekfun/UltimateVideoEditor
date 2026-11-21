@@ -18,8 +18,12 @@ class OfflineGuaranteeTest {
             .filter { it.isFile && it.extension in extensions && !it.path.contains("/third_party/") }
             .toList()
 
-    /** The only permissions the app may declare: running an export in the foreground and showing its notification (docs/PRIVACY.md). */
+    /**
+     * The only permissions the app may declare: running an export in the foreground, showing its notification and, for the voice-over only,
+     * the microphone (docs/PRIVACY.md; asked for when the record button is first pressed).
+     */
     private val allowedPermissions = setOf(
+        "android.permission.RECORD_AUDIO",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING",
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
@@ -45,9 +49,21 @@ class OfflineGuaranteeTest {
     }
 
     @Test
-    fun `the manifest declares exactly the foreground service and notification permissions`() {
+    fun `the manifest declares exactly the allowed permissions`() {
         val manifest = File(appDir, "src/main/AndroidManifest.xml").readText()
         assertEquals(allowedPermissions, declaredPermissions(manifest))
+    }
+
+    @Test
+    fun `the microphone is only asked for where the voice-over starts, and only at the press of its button`() {
+        val sources = File(appDir, "src/main/kotlin").walkTopDown().filter { it.extension == "kt" }.toList()
+        val users = sources.filter { it.readText().contains("RECORD_AUDIO") }.map { it.name }.toSet()
+        assertEquals("Only the editor screen asks for the microphone", setOf("EditorScreen.kt"), users)
+        val screen = File(appDir, "src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor/EditorScreen.kt").readText()
+        // It is requested inside the controller's requestPermission callback, which only the record button reaches.
+        assertTrue(screen.contains("requestPermission = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }"))
+        val activity = File(appDir, "src/main/kotlin/com/qtekfun/ultimatevideoeditor/MainActivity.kt").readText()
+        assertTrue("The microphone must never be asked for at start", !activity.contains("RECORD_AUDIO"))
     }
 
     @Test

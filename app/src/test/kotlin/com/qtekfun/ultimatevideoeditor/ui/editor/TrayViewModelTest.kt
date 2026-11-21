@@ -527,6 +527,64 @@ class TrayViewModelTest {
         assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
     }
 
+    private val voiceTake = ProbedMedia(4_000_000, 0, 0, "Rec709-SDR", hasVideo = false, hasAudio = true)
+
+    @Test
+    fun `a voice-over take goes on its own new audio lane when the existing one has sound under it, in one undo step`() = runTest(dispatcher) {
+        val take = "file:///voice/take1.wav"
+        val h = harness(known(take to voiceTake))
+        // The project's a1 lane is empty; put sound on it where the voice will go.
+        h.vm.onIntent(EditorIntent.TrayDragStart("snd"))
+        h.vm.onIntent(EditorIntent.TrayDragMove(10, 2))
+        h.vm.onIntent(EditorIntent.TrayDragEnd(commit = true))
+        val music = h.clips("a1").single()
+        val lanes = h.state.timeline.tracks.size
+
+        h.vm.onIntent(EditorIntent.PlaceVoiceOver(take, startFrame = 20, trimMs = 0))
+        advanceUntilIdle()
+
+        assertEquals(lanes + 1, h.state.timeline.tracks.size)
+        // The music is untouched.
+        assertEquals(listOf(music), h.clips("a1"))
+        val placed = h.state.timeline.tracks.last().clips.single()
+        assertEquals(20L, placed.timelineStart.value)
+        assertEquals(0L, placed.sourceIn.value)
+        assertEquals(h.state.assets.single { it.uri == take }.id, placed.assetId)
+        assertEquals(placed.id, h.state.selectedClipId)
+        assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+
+        h.vm.onIntent(EditorIntent.Undo)
+        assertEquals(lanes, h.state.timeline.tracks.size)
+    }
+
+    @Test
+    fun `a voice-over take uses the free audio lane and cuts the lead off its start`() = runTest(dispatcher) {
+        val take = "file:///voice/take2.wav"
+        val h = harness(known(take to voiceTake))
+        val lanes = h.state.timeline.tracks.size
+
+        h.vm.onIntent(EditorIntent.PlaceVoiceOver(take, startFrame = 50, trimMs = 200))
+        advanceUntilIdle()
+
+        assertEquals(lanes, h.state.timeline.tracks.size)
+        val placed = h.clips("a1").single()
+        assertEquals(50L, placed.timelineStart.value)
+        // 200 ms at 30 fps.
+        assertEquals(6L, placed.sourceIn.value)
+        assertEquals(placed.sourceOut.value - 6, placed.durationFrames)
+    }
+
+    @Test
+    fun `a voice-over take that cannot be read adds nothing and says so`() = runTest(dispatcher) {
+        val h = harness()
+        val before = h.state.timeline
+        val messages = h.effects.size
+        h.vm.onIntent(EditorIntent.PlaceVoiceOver("file:///voice/missing.wav", 0, 0))
+        advanceUntilIdle()
+        assertEquals(before, h.state.timeline)
+        assertEquals(messages + 1, h.effects.size)
+    }
+
     @Test
     fun `adding at the playhead is unchanged`() = runTest(dispatcher) {
         val inFolder = "content://m/tree/root/document/here"

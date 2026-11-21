@@ -37,8 +37,8 @@ Exports are written only where you choose with the system file picker.
 
 ## Permissions
 
-The app declares exactly four permissions, and none of them is about data or the network. They exist so that an export
-can keep running when you leave the app, switch to another app or the screen turns off:
+The app declares exactly five permissions, and none of them is about the network. Four exist so that an export
+can keep running when you leave the app, switch to another app or the screen turns off; the fifth is the microphone, for the voice-over only:
 
 | Permission | What it is for |
 |---|---|
@@ -46,8 +46,14 @@ can keep running when you leave the app, switch to another app or the screen tur
 | `FOREGROUND_SERVICE_MEDIA_PROCESSING` | The service type for Android 15 and later: "this service is processing media" |
 | `FOREGROUND_SERVICE_DATA_SYNC` | The service type Android 12 to 14 offers for a long task. Nothing is synchronised and nothing is sent anywhere; it is only the closest label that exists before Android 15 |
 | `POST_NOTIFICATIONS` | Show the export's progress notification (Android 13 and later). It is asked for when you start an export, and it is optional: if you say no, the export still runs, you just see no notification |
+| `RECORD_AUDIO` | Record a voice-over. It is asked for the first time you press **Record a voice-over** in the Audio tab of the media tray, never at start, and it is optional: if you say no, nothing else changes and the system's own recorder app can be used instead |
 
-The app still has **no** network, location, contacts, camera, microphone or storage permission and no analytics: reading media
+The microphone is used only between the moment the record button starts the count-in and the moment you stop the take (or the app leaves the
+screen). The take is written as a sound file in the project's own folder on the phone, becomes an ordinary audio clip on the timeline and is
+deleted with the project; nothing is analysed, transcribed or sent anywhere, and the app never listens in the background. Android shows its
+microphone indicator while the app records.
+
+The app still has **no** network, location, contacts, camera or storage permission and no analytics: reading media
 goes through the Android system file picker (Storage Access Framework), which
 gives it access only to the files you pick. The export notification shows the project name and a percentage on your own
 device, and nothing else. When you choose a file, Android may grant the app a persistent read
@@ -58,13 +64,13 @@ it) and unlinking a folder removes it from the list.
 
 ## How to verify it yourself
 
-1. Look at the manifest: `app/src/main/AndroidManifest.xml` declares only the four `uses-permission` entries above. In the built APK,
-   `aapt2 dump permissions app-debug.apk` lists those four and `com.qtekfun.ultimatevideoeditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
+1. Look at the manifest: `app/src/main/AndroidManifest.xml` declares only the five `uses-permission` entries above. In the built APK,
+   `aapt2 dump permissions app-debug.apk` lists those five and `com.qtekfun.ultimatevideoeditor.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
    a private permission that AndroidX adds so the app's own broadcast receivers cannot be called from other apps; it
    grants access to nothing.
-2. On the phone: Settings > Apps > ultimateVE > Permissions shows at most Notifications; in a firewall app or with
+2. On the phone: Settings > Apps > ultimateVE > Permissions shows at most Notifications and Microphone (the latter only once you have used the voice-over); in a firewall app or with
    "Restrict mobile data and Wi-Fi", the app has no traffic because it never opens a connection.
-3. In the repository: `./gradlew :app:testDebugUnitTest --tests '*OfflineGuaranteeTest*'` fails if any permission other than those four appears, or a network permission,
+3. In the repository: `./gradlew :app:testDebugUnitTest --tests '*OfflineGuaranteeTest*'` fails if any permission other than those five appears, or a network permission,
    a networking API (HTTP, sockets, WebView, download managers), an analytics, crash-reporting or advertising
    dependency, or cleartext traffic is ever introduced. CI runs it on every pull request.
 4. The source is open (GPL-3.0): read it.
