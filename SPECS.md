@@ -2366,6 +2366,30 @@ checklist in the PR.
 
 **Owns:** `ui/hub/`, `data/` settings store. Avoid: editor, render, audio.
 
+### 9.13c Voice-over
+
+**Behaviour.** The Audio tab of the media tray has **Record a voice-over**. The first press asks for the microphone (runtime permission `RECORD_AUDIO`, never at
+start; `docs/PRIVACY.md`). Then a strip above the preview counts in three seconds (with the tip to use headphones), the microphone starts, the timeline plays from
+the playhead and the strip shows the time, a level meter and **Stop** / **Discard**. A take ends when it is stopped, when the timeline stops by itself (its end, or the
+play button), when the app leaves the screen (what was recorded is kept; a count-in is dropped) or at 20 minutes. The take becomes an ordinary audio asset and a clip
+on **the first audio lane that is free for its whole length, else a new audio lane at the end**: it never overwrites the music under it (`domain/voice/VoicePlacement`).
+The lane (if new) and the clip are one undo step (`EditorIntent.PlaceVoiceOver`). A refused permission offers the system's recorder (`MediaStore.Audio.Media.RECORD_SOUND_ACTION`),
+whose result is imported at the playhead.
+
+**Parts.** `VoiceOverController` (`ui/editor/voice`, Compose state; count-in, recording, finishing, failures; tested with a fake `VoiceRecorder` and `VoicePlayback`).
+`AndroidVoiceRecorder` (`data/voice`): `AudioRecord` (MIC, mono, 48 kHz, 16-bit) on its own thread, written as a WAV (`WavHeader`, header patched at the end) to
+`files/projects/<id>/voice/voice-<time>.wav`, level by `PeakMeter`; `start()` returns once the first sound arrives. A WAV needs no encoder, so a take is sample-exact and
+the importer, proxies and export read it like any audio. The asset's URI is `file://` (`AndroidMediaImporter.import` takes no permission for it).
+
+**Alignment.** The microphone starts before the timeline, so the time between the two (`leadMs`) is cut from the start of the take (`VoicePlacement.trimFrames`, the clip's
+`sourceIn`), plus `latencyMs`, the phone's delay between voice and file, which is **0 until it is measured on a device**. The output delay of the speaker or headphones is not
+compensated: a person speaking to what they hear is naturally late by it.
+
+**Privacy.** The microphone is open only between the end of the count-in and the stop; the file stays on the phone, in the project's folder, and goes with the project; nothing is
+analysed or sent. Android's own microphone indicator shows while it records.
+
+**Not done.** Calibrating the latency, punch-in over a range, recording into the user's Media folder (the take is in the project's folder), a level-input choice, a take list.
+
 ### 9.13b Preview a file before using it
 
 **Problem.** A tap on a tile added the clip at once, so there was no way to check it was the right one first, and a file of a linked folder (not yet in the project) could not be looked at at all.

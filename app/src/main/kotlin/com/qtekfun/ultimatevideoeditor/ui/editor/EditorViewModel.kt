@@ -2,6 +2,7 @@ package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.domain.voice.VoicePlacement
 import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
@@ -487,6 +488,7 @@ class EditorViewModel(
             is EditorIntent.ChangeCanvas -> changeCanvas(intent.width, intent.height)
             is EditorIntent.ChangeColorSpace -> changeColorSpace(intent.space)
             is EditorIntent.ImportMedia -> importMedia(intent.uris, intent.atEnd)
+            is EditorIntent.PlaceVoiceOver -> placeVoiceOver(intent.uri, intent.startFrame, intent.trimMs)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
             is EditorIntent.AddAssets -> addAssetsById(intent.assetIds)
             is EditorIntent.TrayDragStart -> trayDragStart(intent.assetId)
@@ -3604,6 +3606,29 @@ class EditorViewModel(
                 }
             }
             reduce { copy(isImporting = false) }
+        }
+    }
+
+    /** Puts a voice-over take on an audio lane where it overwrites nothing; one undo step (the lane, if new, and the clip together). */
+    private fun placeVoiceOver(uri: String, startFrame: Long, trimMs: Long) {
+        viewModelScope.launch {
+            val asset = try {
+                assetFor(uri)
+            } catch (e: MediaImportException) {
+                emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vo_could_not_add))))
+                return@launch
+            }
+            val length = assetLengthFrames(asset.id) ?: return@launch
+            val fps = state.value.fps
+            val trim = VoicePlacement.trimFrames(trimMs, 0, fps.num.toDouble() / fps.den, length)
+            val start = FrameIndex(startFrame.coerceAtLeast(0))
+            val plan = VoicePlacement.plan(history.timeline, start, length - trim, uniqueTrackId(history.timeline.tracks, "track-a"))
+            val clip = Clip("clip-${idGenerator()}", asset.id, start, FrameIndex(trim), FrameIndex(length))
+            val place = EditCommand.Overwrite(plan.trackId, clip)
+            val command = plan.newTrack?.let { EditCommand.Batch(listOf(EditCommand.AddTrack(it, history.timeline.tracks.size), place)) } ?: place
+            if (!execute(command)) return@launch
+            reduce { copy(selectedClipId = clip.id, selectedTrackId = plan.trackId) }
+            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vo_added)))
         }
     }
 

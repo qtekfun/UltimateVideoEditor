@@ -190,6 +190,10 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedBottomBar
 import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarItem
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedStrip
 import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
+import com.qtekfun.ultimatevideoeditor.data.voice.AndroidVoiceRecorder
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverBar
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverController
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoicePlayback
 import com.qtekfun.ultimatevideoeditor.data.folders.PrefsBrowsePositionStore
 import com.qtekfun.ultimatevideoeditor.data.folders.PrefsLinkedFoldersStore
 import com.qtekfun.ultimatevideoeditor.data.folders.TreeFolderBrowser
@@ -224,6 +228,13 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.layout.bottomTrayShown
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.visiblePanels
 import kotlin.math.roundToInt
 import android.content.Context
+import android.Manifest
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileNotFoundException
 
@@ -633,6 +644,47 @@ fun EditorScreen(
         onAddAtPlayhead = { viewModel.onIntent(EditorIntent.ImportMedia(listOf(it.uri))) },
         onAddAtEnd = { viewModel.onIntent(EditorIntent.ImportMedia(listOf(it.uri), atEnd = true)) },
     )
+    // The voice-over: the microphone permission is asked for the first time the button is pressed, never at start. The take is recorded
+    // to the project's own folder, and a permission that is refused leaves the system's recorder as a way to the same result.
+    val voiceHolder = remember { arrayOfNulls<VoiceOverController>(1) }
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> voiceHolder[0]?.onPermissionResult(granted) }
+    val voice = remember(projectId) {
+        VoiceOverController(
+            scope = folderScope,
+            recorder = AndroidVoiceRecorder(directory = { File(context.filesDir, "projects/$projectId/voice") }),
+            playback = object : VoicePlayback {
+                override val isPlaying: Boolean get() = holder.value.isPlaying
+
+                override fun playheadFrame(): Long = holder.value.playhead.value
+
+                override fun play() {
+                    if (!holder.value.isPlaying) viewModel.onIntent(EditorIntent.TogglePlay)
+                }
+
+                override fun pause() {
+                    if (holder.value.isPlaying) viewModel.onIntent(EditorIntent.TogglePlay)
+                }
+            },
+            hasPermission = { ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED },
+            requestPermission = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+            onTake = { viewModel.onIntent(EditorIntent.PlaceVoiceOver(it.uri, it.startFrame, it.trimMs)) },
+            now = android.os.SystemClock::elapsedRealtime,
+        ).also { voiceHolder[0] = it }
+    }
+    LaunchedEffect(voice) { snapshotFlow { holder.value.isPlaying }.collect { voice.onPlaybackChanged(it) } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { voice.onLeaving() }
+    DisposableEffect(voice) { onDispose { voice.onLeaving() } }
+    val systemRecorder = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) viewModel.onIntent(EditorIntent.ImportMedia(listOf(uri.toString())))
+    }
+    val useSystemRecorder = {
+        try {
+            systemRecorder.launch(Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION))
+        } catch (e: ActivityNotFoundException) {
+            viewModel.onIntent(EditorIntent.ReportText(UiText.res(R.string.ed_vo_no_recorder)))
+        }
+    }
     val inProject = remember(state.assets) { state.assets.mapNotNullTo(HashSet()) { DocumentKey.of(it.uri) } }
     val dropTarget = remember(viewModel) {
         object : TimelineDropTarget {
@@ -678,6 +730,7 @@ fun EditorScreen(
                 sourcePreview.open(item)
             },
             tapPreviews = tapPreviews,
+            voice = voice,
             modifier = panelModifier,
             userPresets = titleLibraryState.presets,
             onApplyPreset = { template, text -> viewModel.onIntent(EditorIntent.ApplyPreset(template, text)) },
@@ -989,6 +1042,7 @@ fun EditorScreen(
                         onSaveFrame = openStillFrame,
                         exportBlockedBy = exportBlockedBy,
                         layout = layout,
+                        voiceBar = { VoiceOverBar(voice, onUseOtherApp = useSystemRecorder) },
                         linkedTrees = linkedTrees,
                         band = band,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
@@ -1035,6 +1089,7 @@ private fun EditorMain(
     onSaveFrame: () -> Unit,
     onOpenTray: (TrayTab) -> Unit,
     layout: EditorLayoutController,
+    voiceBar: @Composable () -> Unit,
     linkedTrees: List<String>,
     band: BandSlots,
     inspectorOverlay: Boolean,
@@ -1121,6 +1176,7 @@ private fun EditorMain(
             )
         }
         if (!fullscreen.active) {
+            voiceBar()
             MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }
             ProxyBannerHost()
         }

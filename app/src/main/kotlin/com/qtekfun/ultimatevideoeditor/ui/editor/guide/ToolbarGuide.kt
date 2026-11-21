@@ -123,6 +123,7 @@ internal object ToolbarGuide {
         GuideGesture("double-tap-preview", R.string.gg_double_tap_preview_title, R.string.gg_double_tap_preview_help),
         GuideGesture("preview-transform", R.string.gg_preview_transform_title, R.string.gg_preview_transform_help),
         GuideGesture("divider", R.string.gg_divider_title, R.string.gg_divider_help),
+        GuideGesture("voice-over", R.string.gg_voice_over_title, R.string.gg_voice_over_help),
         GuideGesture("tray-preview", R.string.gg_tray_preview_title, R.string.gg_tray_preview_help),
         GuideGesture("tray-drag", R.string.gg_tray_drag_title, R.string.gg_tray_drag_help),
         GuideGesture("tray-select", R.string.gg_tray_select_title, R.string.gg_tray_select_help),
