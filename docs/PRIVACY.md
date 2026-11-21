@@ -51,7 +51,10 @@ The app still has **no** network, location, contacts, camera, microphone or stor
 goes through the Android system file picker (Storage Access Framework), which
 gives it access only to the files you pick. The export notification shows the project name and a percentage on your own
 device, and nothing else. When you choose a file, Android may grant the app a persistent read
-permission for that file so a project can reopen it; the app releases permissions that no project uses any more.
+permission for that file so a project can reopen it; the app releases permissions that no project uses any more. When you link a
+folder in the media tray, Android grants the app a persistent read permission for that folder and everything inside it. The list of
+linked folders is kept in the app's private preferences, the app only reads the folder (it never writes, moves or copies anything in
+it) and unlinking a folder removes it from the list.
 
 ## How to verify it yourself
 

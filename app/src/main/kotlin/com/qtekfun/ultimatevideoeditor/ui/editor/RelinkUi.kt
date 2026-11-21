@@ -101,7 +101,13 @@ internal fun MediaBanners(state: EditorState, onImportFont: () -> Unit = {}, onI
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun RelinkDialog(missing: List<MissingAsset>, folderRelink: FolderRelinkUi, onIntent: (EditorIntent) -> Unit) {
+internal fun RelinkDialog(
+    missing: List<MissingAsset>,
+    folderRelink: FolderRelinkUi,
+    onIntent: (EditorIntent) -> Unit,
+    /** The folders the user linked: when there are any, one button looks in all of them. */
+    linkedTrees: List<String> = emptyList(),
+) {
     // One session from the first scan until Close: the scan action is "Scan a folder…" before it and "Scan another folder…" after it,
     // once per screen, and it is not offered when nothing is missing any more.
     val results = folderRelink is FolderRelinkUi.Done && !(folderRelink.showList && missing.isNotEmpty())
@@ -122,11 +128,14 @@ internal fun RelinkDialog(missing: List<MissingAsset>, folderRelink: FolderRelin
         },
         confirmButton = {
             if (results) {
-                ResultsButtons(missing.isNotEmpty(), onIntent)
+                ResultsButtons(missing.isNotEmpty(), onIntent, linkedTrees)
             } else if (folderRelink is FolderRelinkUi.Running) {
                 TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text(stringResource(R.string.common_close)) }
             } else {
                 FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (linkedTrees.isNotEmpty()) {
+                        TextButton(onClick = { onIntent(EditorIntent.RelinkFromFolders(linkedTrees)) }) { Text(stringResource(R.string.ed_fl_relink_linked)) }
+                    }
                     TextButton(onClick = { onIntent(EditorIntent.RecheckMissingMedia) }) { Text(stringResource(R.string.ed_2b_check_again)) }
                     TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text(stringResource(R.string.common_close)) }
                 }
@@ -145,9 +154,12 @@ internal fun scanActionLabel(folderRelink: FolderRelinkUi): UiText =
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ResultsButtons(somethingMissing: Boolean, onIntent: (EditorIntent) -> Unit) {
+private fun ResultsButtons(somethingMissing: Boolean, onIntent: (EditorIntent) -> Unit, linkedTrees: List<String> = emptyList()) {
     FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = { onIntent(EditorIntent.HideRelink) }) { Text(stringResource(R.string.common_close)) }
+        if (somethingMissing && linkedTrees.isNotEmpty()) {
+            TextButton(onClick = { onIntent(EditorIntent.RelinkFromFolders(linkedTrees)) }) { Text(stringResource(R.string.ed_fl_relink_linked)) }
+        }
         if (somethingMissing) {
             TextButton(onClick = { onIntent(EditorIntent.RequestFolderRelink) }) { Text(stringResource(R.string.ed_2b_scan_another_folder)) }
             TextButton(onClick = { onIntent(EditorIntent.DismissFolderRelink) }) { Text(stringResource(R.string.ed_2b_back_to_the_list)) }

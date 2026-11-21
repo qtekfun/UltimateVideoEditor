@@ -3,6 +3,7 @@ package com.qtekfun.ultimatevideoeditor.data
 import com.qtekfun.ultimatevideoeditor.ui.text.UserFacing
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
 import android.content.Context
 import android.content.Intent
 import android.media.MediaCodecInfo
@@ -141,6 +142,9 @@ class AndroidMediaImporter(
 
     override suspend fun import(uri: String): ProbedMedia = withContext(ioDispatcher) {
         val parsed = Uri.parse(uri)
+        // A file inside a linked folder is readable through the permission held on that folder: it has no grant of its own to keep
+        // (asking for one is refused), and it costs none of the app's persisted permissions.
+        if (DocumentKey.isTreeDocument(uri)) return@withContext probe(parsed)
         try {
             context.contentResolver.takePersistableUriPermission(parsed, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (e: IllegalArgumentException) {

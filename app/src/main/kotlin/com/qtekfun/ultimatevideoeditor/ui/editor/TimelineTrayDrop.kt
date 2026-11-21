@@ -1,6 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import com.qtekfun.ultimatevideoeditor.engine.timeline.TimelineHit
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.AssetKind
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.RootBounds
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.TrayAutoScroll
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.TrayDragSink
@@ -27,10 +28,23 @@ internal class TimelineTrayDrop(
     private var lastY = 0f
     private var over = false
 
+    /** The file of a linked folder being carried, or null while an asset of the library is. */
+    private var fileUri: String? = null
+    private var lastHit: TimelineHit? = null
+
     override fun begin(assetId: String) {
         autoScroll.reset()
         over = false
+        fileUri = null
         onIntent(EditorIntent.TrayDragStart(assetId))
+    }
+
+    override fun beginFile(uri: String, kind: AssetKind) {
+        autoScroll.reset()
+        over = false
+        fileUri = uri
+        // Only its kind is known until it is added, so the indicator uses a stand-in clip, as for a file dragged in from another app.
+        onIntent(EditorIntent.ExternalDragStart(listOf(kind)))
     }
 
     override fun move(x: Float, y: Float) {
@@ -44,13 +58,23 @@ internal class TimelineTrayDrop(
         lastY = y
         hover()
         val placed = over
+        val file = fileUri
+        val hit = lastHit
         over = false
+        fileUri = null
+        if (file != null) {
+            // Released over the timeline the file is added where it was dropped; anywhere else nothing happens.
+            if (placed && hit != null) onIntent(EditorIntent.ExternalDrop(listOf(file), hit.frame, hit.trackIndex, dragZoneOf(hit)))
+            else onIntent(EditorIntent.TrayDragEnd(commit = false))
+            return placed && hit != null
+        }
         onIntent(EditorIntent.TrayDragEnd(commit = placed))
         return placed
     }
 
     override fun cancel() {
         over = false
+        fileUri = null
         onIntent(EditorIntent.TrayDragEnd(commit = false))
     }
 
@@ -81,6 +105,7 @@ internal class TimelineTrayDrop(
             return
         }
         over = true
+        lastHit = sample.hit
         onIntent(EditorIntent.TrayDragMove(sample.hit.frame, sample.hit.trackIndex, dragZoneOf(sample.hit)))
     }
 }

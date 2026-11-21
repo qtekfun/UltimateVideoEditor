@@ -2366,6 +2366,48 @@ checklist in the PR.
 
 **Owns:** `ui/hub/`, `data/` settings store. Avoid: editor, render, audio.
 
+### 9.13a Linked folders (tray tab "Folders")
+
+**Problem.** Importing returns a flat list: the folder tree the footage lives in is lost, and everything lands in one tab.
+
+**Behaviour.** The tray has a fifth tab, **Folders**. The user links a folder with `OpenDocumentTree` (once, for the whole app) and browses
+its tree there: a path bar with one piece per folder, the subfolders first, then the media files, as a grid or a list, with the tray's
+filters (all, video, photos, audio), a search box that applies to the folder on show, and the numbered choice of several files. A file joins the
+project only when it is used (a tap, the "+", or the numbered choice add it at the playhead through `EditorIntent.ImportMedia`): it becomes an
+ordinary `MediaAssetDto` whose `uri` is the tree document URI, so `project.json`, bundles, proxies, relink and missing-media handling are
+unchanged. A file already in the project, however it was reached, is marked "In project" and is never added twice: `EditorViewModel.assetFor`
+compares `DocumentKey` (authority + document id) as well as the URI string.
+
+**Parts** (`data/folders`, `ui/editor/tray`). `LinkedFolder` and `LinkedFoldersStore` (one line per folder in the preferences file `linked_folders`;
+a bad line is skipped); `FolderBrowser` lists **one level** of a tree lazily (`TreeFolderBrowser`, built on `data/relink/TreeChildren`, the same
+`DocumentsContract` query the relink scan uses) and `FolderPages` sorts it (folders first, natural order, hidden entries and non-media files
+left out); `FolderBrowseState` is the pure navigation (trail, filter, search, choice) and `LinkedFoldersController` holds it with the list of
+linked folders and the folder on show (`FolderLoad`), reading each folder once until Refresh. The file tiles use `AssetThumbnails` with a key that is
+not an asset id. No folder is scanned as a whole.
+
+**Permissions.** Each linked folder keeps one persisted read permission (of the 512 Android allows); the files inside cost none, so
+`AndroidMediaImporter.import` does not ask for one on a tree document URI (it is refused). `MainActivity` adds the linked trees to the permissions
+the startup trim keeps (`PermissionTrim`), whether or not a project uses a file in them yet. Unlinking only forgets the folder; the permission is left to
+that housekeeping, which keeps it while a project still refers to a file inside. A folder whose permission was removed, or whose drive is gone,
+shows "access removed" with Try again, Choose the folder again and Unlink; the other folders keep working. The links are not part of a bundle (a tree
+URI means nothing on another phone); the clips there are missing and the relink-by-folder flow applies.
+
+**Android limit.** From Android 11 the folder picker refuses the root of a storage and the Downloads folder: the user links a subfolder (the tab says so).
+
+**Dragging.** Holding a file tile for a third of a second lifts it like a tile of the library (`TrayCarry.fileUri`); `TrayDragSink.beginFile` makes
+`TimelineTrayDrop` use the path of a file dragged in from another app: `ExternalDragStart` while it travels (a stand-in clip shows the insert or
+overwrite indicator) and `ExternalDrop` with the frame and lane under the finger on release, which adds the file to the project and places it in one step.
+Released anywhere else, nothing is added. A file is never reordered in the tray (it is not in the library).
+
+**Details.** A tile's length is read only for the tiles on screen (`FolderFacts`, an in-memory cache, never a whole folder); a picture has none. Files can be sorted by
+name, newest or largest (the sort button cycles; folders stay by name; a file with no date or size goes last). The last place is kept (`BrowsePosition`, the preferences
+file `linked_folders`) and the tab opens there if that folder is still linked; going back to the list or unlinking forgets it.
+
+**Relinking.** The missing-media dialog has **Search linked folders** when any are linked: `EditorIntent.RelinkFromFolders` reads each linked folder in turn with
+`FolderRelinkRunner`, each looking only for what the earlier ones did not find (it stops when nothing is missing), folds the results into one report
+(`FolderRelinkOutcome.mergedInto`) and changes the library in one update and one save. A folder that cannot be read is skipped; only if none can is the user told.
+`RelinkFromFolder` (one picked folder) is the same code with a list of one.
+
 ### 9.13 WP-U2 Media tray with drag and drop
 
 **Problem.** Adding media today means the + button and a system picker, then guessing where it lands.

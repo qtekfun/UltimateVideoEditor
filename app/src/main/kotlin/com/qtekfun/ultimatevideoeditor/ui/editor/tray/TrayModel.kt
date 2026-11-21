@@ -6,12 +6,13 @@ import com.qtekfun.ultimatevideoeditor.data.MissingMedia
 import com.qtekfun.ultimatevideoeditor.data.model.MediaAssetDto
 import com.qtekfun.ultimatevideoeditor.domain.Timeline
 
-/** Tabs of the media tray. Only [MEDIA] and [AUDIO] list project assets. */
+/** Tabs of the media tray. Only [MEDIA] and [AUDIO] list project assets; [FOLDERS] browses the folders the user linked. */
 enum class TrayTab(@StringRes val labelRes: Int) {
     MEDIA(R.string.ed_s3_tray_media),
     STICKERS(R.string.ed_s3_tray_stickers),
     TEMPLATES(R.string.ed_s3_tray_titles),
     AUDIO(R.string.ed_s3_tray_audio),
+    FOLDERS(R.string.ed_fl_tab),
 }
 
 /** What the media tab shows. [UNUSED] lists assets that no clip on the timeline refers to. */

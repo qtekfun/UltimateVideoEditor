@@ -52,7 +52,10 @@ La app sigue **sin** permisos de red, ubicación, contactos, cámara, micrófono
 pasa por el selector de archivos del sistema Android (Storage Access Framework), que solo le da acceso a los archivos que eliges. La
 notificación de exportación muestra el nombre del proyecto y un porcentaje en tu propio dispositivo, y nada más. Cuando eliges un
 archivo, Android puede conceder a la app un permiso de lectura persistente para ese archivo, de modo que un proyecto pueda volver a
-abrirlo; la app libera los permisos que ya no usa ningún proyecto.
+abrirlo; la app libera los permisos que ya no usa ningún proyecto. Cuando enlazas una carpeta en la bandeja de medios, Android concede
+a la app un permiso de lectura persistente para esa carpeta y todo lo que contiene. La lista de carpetas enlazadas se guarda en las
+preferencias privadas de la app, la app solo lee la carpeta (nunca escribe, mueve ni copia nada en ella) y desenlazar una carpeta la
+quita de la lista.
 
 ## Cómo comprobarlo tú mismo
 
