@@ -88,6 +88,9 @@ class FolderRelinkViewModelTest {
     private class FakeScanner(var files: List<FolderFile> = emptyList()) : FolderScanner {
         var retained = true
         var fail: FolderScanException? = null
+
+        /** Folders that cannot be read; any other folder is read. */
+        val failTrees = mutableSetOf<String>()
         var gate: CompletableDeferred<Unit>? = null
         val scanned = mutableListOf<String>()
 
@@ -99,6 +102,7 @@ class FolderRelinkViewModelTest {
         override suspend fun scan(treeUri: String, limits: ScanLimits, onProgress: (ScanProgress) -> Unit): FolderListing {
             scanned += treeUri
             fail?.let { throw it }
+            if (treeUri in failTrees) throw FolderScanException("gone")
             val here = byTree[treeUri] ?: files
             onProgress(ScanProgress(here.size, 2))
             gate?.await()
@@ -195,6 +199,81 @@ class FolderRelinkViewModelTest {
         advanceTimeBy(600)
         assertEquals(1, h.store.saved.size)
         assertEquals("content://tree/trip/beach.mp4", h.store.saved.single().mediaLibrary.first { it.id == "a2" }.uri)
+    }
+
+    private fun inTree(tree: String, path: String) = FolderFile("$tree/$path", path.split('/'), RelinkKind.VIDEO, null)
+
+    @Test
+    fun `several folders are read in turn, each looking only for what the last did not find, with one report and one save`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        scanner.byTree["content://a"] = listOf(inTree("content://a", "intro.mp4"))
+        scanner.byTree["content://b"] = listOf(inTree("content://b", "beach.mp4"))
+        val h = harness(scanner, known = mapOf("content://a/intro.mp4" to video(), "content://b/beach.mp4" to video(20)))
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolders(listOf("content://a", "content://b")))
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://a", "content://b"), scanner.scanned)
+        assertEquals("content://a/intro.mp4", h.state.assets.first { it.id == "a1" }.uri)
+        assertEquals("content://b/beach.mp4", h.state.assets.first { it.id == "a2" }.uri)
+        assertEquals(setOf("a3"), h.state.missingMedia.keys)
+        assertEquals("Relinked 2 of 3", h.messages.last())
+        assertEquals(listOf("a3"), h.report.notFound.map { it.assetId })
+        advanceTimeBy(600)
+        assertEquals(1, h.store.saved.size)
+    }
+
+    @Test
+    fun `once everything is found the remaining folders are not read`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        scanner.byTree["content://a"] = listOf(inTree("content://a", "intro.mp4"), inTree("content://a", "beach.mp4"), inTree("content://a", "lost.mp4"))
+        val h = harness(scanner, known = mapOf("content://a/intro.mp4" to video(), "content://a/beach.mp4" to video(20), "content://a/lost.mp4" to video()))
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolders(listOf("content://a", "content://b", "content://c")))
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://a"), scanner.scanned)
+        assertEquals("Relinked 3 of 3", h.messages.last())
+        assertTrue(h.state.missingMedia.isEmpty())
+    }
+
+    @Test
+    fun `a folder that cannot be read is skipped and the others still count`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        scanner.failTrees += "content://a"
+        scanner.byTree["content://b"] = listOf(inTree("content://b", "intro.mp4"))
+        val h = harness(scanner, known = mapOf("content://b/intro.mp4" to video()))
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolders(listOf("content://a", "content://b")))
+        advanceUntilIdle()
+
+        assertEquals("content://b/intro.mp4", h.state.assets.first { it.id == "a1" }.uri)
+        assertEquals("Relinked 1 of 3", h.messages.last())
+    }
+
+    @Test
+    fun `when no folder can be read the dialog goes back to where it was and says so`() = runTest(dispatcher) {
+        val scanner = FakeScanner()
+        scanner.failTrees += listOf("content://a", "content://b")
+        val h = harness(scanner)
+
+        h.vm.onIntent(EditorIntent.RelinkFromFolders(listOf("content://a", "content://b")))
+        advanceUntilIdle()
+
+        assertEquals(FolderRelinkUi.Idle, h.state.folderRelink)
+        assertEquals(setOf("a1", "a2", "a3"), h.state.missingMedia.keys)
+        assertTrue(h.messages.isNotEmpty())
+        advanceTimeBy(600)
+        assertTrue(h.store.saved.isEmpty())
+    }
+
+    @Test
+    fun `an empty list of folders does nothing`() = runTest(dispatcher) {
+        val h = harness(FakeScanner())
+        h.vm.onIntent(EditorIntent.RelinkFromFolders(emptyList()))
+        advanceUntilIdle()
+        assertEquals(FolderRelinkUi.Idle, h.state.folderRelink)
+        assertTrue(h.scanner.scanned.isEmpty())
     }
 
     @Test

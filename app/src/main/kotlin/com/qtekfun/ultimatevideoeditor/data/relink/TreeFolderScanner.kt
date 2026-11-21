@@ -45,7 +45,7 @@ class TreeFolderScanner(
                 currentCoroutineContext().ensureActive()
                 val (id, trail) = queue.removeFirst()
                 folders++
-                for (child in children(tree, id)) {
+                for (child in TreeChildren.list(context, tree, id)) {
                     if (child.isDirectory) {
                         if (trail.size + 1 >= limits.maxDepth || folders + queue.size >= limits.maxFolders) truncated = true
                         else queue.addLast(child.documentId to trail + child.name)
@@ -67,36 +67,6 @@ class TreeFolderScanner(
             }
             FolderListing(files, folders, truncated)
         }
-
-    private class Child(val documentId: String, val name: String, val mime: String?, val size: Long?) {
-        val isDirectory: Boolean get() = mime == DocumentsContract.Document.MIME_TYPE_DIR
-    }
-
-    private fun children(tree: Uri, parentId: String): List<Child> {
-        val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
-        val columns = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE,
-            DocumentsContract.Document.COLUMN_SIZE,
-        )
-        val cursor = try {
-            context.contentResolver.query(uri, columns, null, null, null)
-        } catch (e: SecurityException) {
-            throw FolderScanException("Access to the folder was removed", e)
-        } catch (e: IllegalArgumentException) {
-            throw FolderScanException("The folder is not available", e)
-        } ?: throw FolderScanException("The folder is not available")
-        return cursor.use {
-            val out = ArrayList<Child>()
-            while (it.moveToNext()) {
-                val id = it.getString(0) ?: continue
-                val name = it.getString(1) ?: continue
-                out += Child(id, name, it.getString(2), if (it.isNull(3)) null else it.getLong(3))
-            }
-            out
-        }
-    }
 
     private companion object {
         const val TAG = "FolderScanner"

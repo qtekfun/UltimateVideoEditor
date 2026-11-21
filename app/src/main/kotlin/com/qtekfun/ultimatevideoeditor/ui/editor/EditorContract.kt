@@ -706,6 +706,9 @@ sealed interface EditorIntent : UiIntent {
     /** The folder picker returned [treeUri]: look in it for every missing file and relink what is found. */
     data class RelinkFromFolder(val treeUri: String) : EditorIntent
 
+    /** Looks in each of these folders, one after the other, for what is still missing (the folders the user linked), and reports once. */
+    data class RelinkFromFolders(val treeUris: List<String>) : EditorIntent
+
     /** Stop a running folder scan; nothing is changed. */
     data object CancelFolderRelink : EditorIntent
 

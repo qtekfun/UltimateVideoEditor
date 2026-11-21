@@ -189,6 +189,12 @@ import androidx.compose.foundation.gestures.Orientation
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedBottomBar
 import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarItem
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedStrip
+import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
+import com.qtekfun.ultimatevideoeditor.data.folders.PrefsBrowsePositionStore
+import com.qtekfun.ultimatevideoeditor.data.folders.PrefsLinkedFoldersStore
+import com.qtekfun.ultimatevideoeditor.data.folders.TreeFolderBrowser
+import com.qtekfun.ultimatevideoeditor.data.relink.TreeFolderScanner
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.LinkedFoldersController
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.BandSlots
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.rememberFoldPosture
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.DockLayout
@@ -591,6 +597,23 @@ fun EditorScreen(
         viewModel.onIntent(EditorIntent.ImportToTray(uris.map(Uri::toString)))
     }
     val launchTrayImport = { trayImportPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }
+    // The folders the user linked: one list for the whole app, read lazily from the document tree.
+    val folderScope = rememberCoroutineScope()
+    val linkedFolders = remember {
+        LinkedFoldersController(
+            store = PrefsLinkedFoldersStore(context.getSharedPreferences(PrefsLinkedFoldersStore.FILE, Context.MODE_PRIVATE)),
+            browser = TreeFolderBrowser(context.applicationContext),
+            scope = folderScope,
+            newId = { "lf-" + java.util.UUID.randomUUID().toString().take(8) },
+            retainAccess = TreeFolderScanner(context.applicationContext)::retainAccess,
+            positions = PrefsBrowsePositionStore(context.getSharedPreferences(PrefsBrowsePositionStore.FILE, Context.MODE_PRIVATE)),
+        )
+    }
+    val linkedTrees = linkedFolders.folders.map { it.treeUri }
+    val linkFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) linkedFolders.link(uri.toString())
+    }
+    val inProject = remember(state.assets) { state.assets.mapNotNullTo(HashSet()) { DocumentKey.of(it.uri) } }
     val dropTarget = remember(viewModel) {
         object : TimelineDropTarget {
             override fun onExternalEnter(kinds: List<AssetKind>) = viewModel.onIntent(EditorIntent.ExternalDragStart(kinds))
@@ -625,6 +648,10 @@ fun EditorScreen(
             onExternalFiles = { viewModel.onIntent(EditorIntent.ImportToTray(it)) },
             onPickSticker = { viewModel.onIntent(EditorIntent.AddSticker(it)) },
             onApplyTemplate = { id, text -> viewModel.onIntent(EditorIntent.ApplyTextTemplate(id, text)) },
+            folders = linkedFolders,
+            inProject = inProject,
+            onLinkFolder = { linkFolderPicker.launch(null) },
+            onAddFiles = { viewModel.onIntent(EditorIntent.ImportMedia(it)) },
             modifier = panelModifier,
             userPresets = titleLibraryState.presets,
             onApplyPreset = { template, text -> viewModel.onIntent(EditorIntent.ApplyPreset(template, text)) },
@@ -936,6 +963,7 @@ fun EditorScreen(
                         onSaveFrame = openStillFrame,
                         exportBlockedBy = exportBlockedBy,
                         layout = layout,
+                        linkedTrees = linkedTrees,
                         band = band,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
                         onOpenLayout = { layoutSheetOpen = true },
@@ -981,6 +1009,7 @@ private fun EditorMain(
     onSaveFrame: () -> Unit,
     onOpenTray: (TrayTab) -> Unit,
     layout: EditorLayoutController,
+    linkedTrees: List<String>,
     band: BandSlots,
     inspectorOverlay: Boolean,
     onOpenLayout: () -> Unit,
@@ -1038,7 +1067,7 @@ private fun EditorMain(
         }
     }
     if (state.relinkOpen && (state.missingAssets.isNotEmpty() || state.folderRelink !is FolderRelinkUi.Idle)) {
-        RelinkDialog(state.missingAssets, state.folderRelink) { viewModel.onIntent(it) }
+        RelinkDialog(state.missingAssets, state.folderRelink, { viewModel.onIntent(it) }, linkedTrees)
     }
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {

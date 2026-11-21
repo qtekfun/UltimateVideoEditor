@@ -66,4 +66,12 @@ class PermissionTrimTest {
         assertEquals(0, trimPersistedUris(uris, referenced = setOf("a", "b", "c", "d")))
         assertEquals(4, uris.current.size)
     }
+
+    @Test
+    fun `a linked folder keeps its permission although no project uses a file in it yet`() {
+        val tree = "content://docs/tree/primary%3ARushes"
+        val other = "content://docs/document/primary%3AOld.mp4"
+        val referenced = setOf("content://docs/document/primary%3AKept.mp4") + setOf(tree)
+        assertEquals(listOf(other), PermissionTrim.unused(listOf(tree, other, "content://docs/document/primary%3AKept.mp4"), referenced))
+    }
 }

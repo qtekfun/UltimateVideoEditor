@@ -4,6 +4,7 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
 import androidx.compose.ui.res.stringResource
 import android.content.Context
 import androidx.compose.foundation.Image
@@ -126,6 +127,10 @@ internal fun MediaTray(
     onExternalFiles: (List<String>) -> Unit,
     onPickSticker: (String) -> Unit,
     onApplyTemplate: (templateId: String, text: String) -> Unit,
+    folders: LinkedFoldersController,
+    inProject: Set<DocumentKey>,
+    onLinkFolder: () -> Unit,
+    onAddFiles: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
     userPresets: List<TextTemplate> = emptyList(),
     onApplyPreset: (TextTemplate, text: String) -> Unit = { _, _ -> },
@@ -158,6 +163,7 @@ internal fun MediaTray(
                         TrayTab.MEDIA, TrayTab.AUDIO -> AssetBody(
                             state, onState, items, isImporting, onImport, onAdd, onAddMany, drag,
                         )
+                        TrayTab.FOLDERS -> FoldersTab(folders, inProject, state.layout, drag, onLinkFolder, onAddFiles)
                         TrayTab.STICKERS -> Column(Modifier.verticalScroll(rememberScrollState())) { StickerChooser(onPickSticker) }
                         TrayTab.TEMPLATES -> Column(Modifier.verticalScroll(rememberScrollState())) { TextTemplateChooser(onApplyTemplate, userPresets = userPresets, onApplyPreset = onApplyPreset) }
                     }

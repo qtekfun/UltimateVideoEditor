@@ -2,6 +2,7 @@ package com.qtekfun.ultimatevideoeditor.ui.editor
 
 import com.qtekfun.ultimatevideoeditor.ui.text.reasonOf
 import com.qtekfun.ultimatevideoeditor.R
+import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
 import com.qtekfun.ultimatevideoeditor.ui.text.rawOr
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import androidx.lifecycle.viewModelScope
@@ -499,6 +500,7 @@ class EditorViewModel(
             EditorIntent.ShowRelink -> reduce { copy(relinkOpen = true) }
             EditorIntent.HideRelink -> reduce { copy(relinkOpen = false, folderRelink = if (folderRelink is FolderRelinkUi.Running) folderRelink else FolderRelinkUi.Idle) }
             EditorIntent.RequestFolderRelink -> emit(EditorEffect.LaunchFolderPicker)
+            is EditorIntent.RelinkFromFolders -> relinkFromFolders(intent.treeUris)
             is EditorIntent.RelinkFromFolder -> relinkFromFolder(intent.treeUri)
             EditorIntent.CancelFolderRelink -> cancelFolderRelink()
             EditorIntent.DismissFolderRelink -> reduce {
@@ -903,8 +905,15 @@ class EditorViewModel(
      * (SPECS 5.40). The scan and the checks run off the main thread and can be cancelled; nothing changes until they finish,
      * and then the whole library change is one state update and one save. Like a single relink it is not an undo step.
      */
-    private fun relinkFromFolder(treeUri: String) {
-        if (folderRelinkJob?.isActive == true) return
+    private fun relinkFromFolder(treeUri: String) = relinkFromFolders(listOf(treeUri))
+
+    /**
+     * [relinkFromFolder] for several folders in a row: each one only looks for what the earlier ones did not find, the results are
+     * folded into one report and the library changes in one update and one save. A folder that cannot be read is skipped; only if none
+     * could be is the user told so.
+     */
+    private fun relinkFromFolders(treeUris: List<String>) {
+        if (treeUris.isEmpty() || folderRelinkJob?.isActive == true) return
         val snapshot = state.value
         val missing = snapshot.assets.filter { snapshot.missingMedia[it.id].let { p -> p == MediaProblem.UNREADABLE || p == MediaProblem.PERMISSION_LOST } }
         if (missing.isEmpty()) {
@@ -919,33 +928,48 @@ class EditorViewModel(
         folderRelinkBeforeScan = resting
         reduce { copy(folderRelink = FolderRelinkUi.Running(), relinkOpen = true) }
         folderRelinkJob = viewModelScope.launch {
-            val outcome = try {
-                runner.run(
-                    treeUri = treeUri,
-                    missing = missing,
-                    library = snapshot.assets,
-                    fps = fps,
-                    neededMicros = { MissingMedia.requiredSourceMicros(history.timeline, it, fps) },
-                ) { progress ->
-                    reduce {
-                        if (folderRelink !is FolderRelinkUi.Running) this
-                        else copy(
-                            folderRelink = when (progress) {
-                                is FolderRelinkProgress.Scanning -> FolderRelinkUi.Running(files = progress.files, folders = progress.folders)
-                                is FolderRelinkProgress.Checking -> folderRelink.copy(checked = progress.done, total = progress.total)
-                            },
-                        )
+            var combined: FolderRelinkOutcome? = null
+            var failure: FolderScanException? = null
+            try {
+                for (treeUri in treeUris) {
+                    val relinkedSoFar = combined?.relinked?.mapTo(HashSet()) { it.old.id }.orEmpty()
+                    val wanted = missing.filter { it.id !in relinkedSoFar }
+                    if (wanted.isEmpty()) break
+                    val outcome = try {
+                        runner.run(
+                            treeUri = treeUri,
+                            missing = wanted,
+                            library = snapshot.assets,
+                            fps = fps,
+                            neededMicros = { MissingMedia.requiredSourceMicros(history.timeline, it, fps) },
+                        ) { progress ->
+                            reduce {
+                                if (folderRelink !is FolderRelinkUi.Running) this
+                                else copy(
+                                    folderRelink = when (progress) {
+                                        is FolderRelinkProgress.Scanning -> FolderRelinkUi.Running(files = progress.files, folders = progress.folders)
+                                        is FolderRelinkProgress.Checking -> folderRelink.copy(checked = progress.done, total = progress.total)
+                                    },
+                                )
+                            }
+                        }
+                    } catch (e: FolderScanException) {
+                        failure = e
+                        continue
                     }
+                    combined = combined?.let { outcome.mergedInto(it) } ?: outcome
                 }
-            } catch (e: FolderScanException) {
-                reduce { copy(folderRelink = resting) }
-                emit(EditorEffect.ShowMessage(reasonOf(e, UiText.res(R.string.ed_vm_could_not_read_the_folder))))
-                return@launch
             } catch (e: CancellationException) {
                 reduce { copy(folderRelink = resting) }
                 throw e
             }
-            applyFolderRelink(outcome, previous)
+            val result = combined
+            if (result == null) {
+                reduce { copy(folderRelink = resting) }
+                emit(EditorEffect.ShowMessage(failure?.let { reasonOf(it, UiText.res(R.string.ed_vm_could_not_read_the_folder)) } ?: UiText.res(R.string.ed_vm_could_not_read_the_folder)))
+                return@launch
+            }
+            applyFolderRelink(result, previous)
         }
     }
 
@@ -3815,7 +3839,9 @@ class EditorViewModel(
 
     /** Returns the library entry for [uri], importing and registering it first if it is new. */
     private suspend fun assetFor(uri: String): MediaAssetDto {
-        state.value.assets.firstOrNull { it.uri == uri }?.let { return it }
+        // The same file reached another way (the picker, or a linked folder) is the same asset: compare what the provider calls it.
+        val key = DocumentKey.of(uri)
+        state.value.assets.firstOrNull { it.uri == uri || (key != null && DocumentKey.of(it.uri) == key) }?.let { return it }
         val probed = importer.import(uri)
         val project = state.value.fps
         if (probed.isImage) {

@@ -59,6 +59,12 @@ interface TrayDragSink {
     /** A tile was picked up. */
     fun begin(assetId: String)
 
+    /**
+     * A file of a linked folder was picked up: it is not in the project yet, so it is known by its [uri] and its [kind]. It is added
+     * when it is released over the timeline, the way a file dragged in from another app is.
+     */
+    fun beginFile(uri: String, kind: AssetKind) = Unit
+
     /** The finger moved (also called when the timeline scrolled under a still finger). */
     fun move(x: Float, y: Float)
 
@@ -85,6 +91,8 @@ class TrayCarry(
     /** Root position of the tile's centre, where the ghost flies back to on a cancel. */
     val home: Offset,
     val returning: Boolean = false,
+    /** Set when the tile is a file of a linked folder (then [assetId] is the same URI): it is not in the library, so it cannot be reordered. */
+    val fileUri: String? = null,
 )
 
 /** One pointer of an event as the root observer sees it, in root coordinates. [newDown] is true on the event it landed. */
@@ -134,13 +142,16 @@ class TrayDragController {
     internal fun pickUp(carry: TrayCarry, pointer: Long) {
         pointerId = pointer
         this.carry = carry
-        guarded("begin") { sink?.begin(carry.assetId) }
+        guarded("begin") {
+            val file = carry.fileUri
+            if (file == null) sink?.begin(carry.assetId) else sink?.beginFile(file, carry.kind)
+        }
     }
 
     internal fun move(x: Float, y: Float) {
         val current = carry ?: return
         if (current.returning) return
-        carry = TrayCarry(current.assetId, current.name, current.duration, current.kind, current.thumbnail, Offset(x, y), current.home)
+        carry = TrayCarry(current.assetId, current.name, current.duration, current.kind, current.thumbnail, Offset(x, y), current.home, fileUri = current.fileUri)
         guarded("move") { sink?.move(x, y) }
     }
 
@@ -155,7 +166,8 @@ class TrayDragController {
             carry = null
             return
         }
-        val target = tileAt(x, y)?.takeIf { it != current.assetId }
+        // A file of a linked folder is not in the library, so there is nowhere in the tray to move it to.
+        val target = tileAt(x, y)?.takeIf { it != current.assetId && current.fileUri == null }
         if (target != null) {
             guarded("reorder") { onReorder(current.assetId, indexOf(target)) }
             carry = null
@@ -215,7 +227,7 @@ class TrayDragController {
 
     private fun flyBack(current: TrayCarry, notifySink: Boolean) {
         returningSince = System.nanoTime() / 1_000_000
-        carry = TrayCarry(current.assetId, current.name, current.duration, current.kind, current.thumbnail, current.position, current.home, returning = true)
+        carry = TrayCarry(current.assetId, current.name, current.duration, current.kind, current.thumbnail, current.position, current.home, returning = true, fileUri = current.fileUri)
         if (notifySink) guarded("cancel") { sink?.cancel() }
     }
 

@@ -229,13 +229,27 @@ The tray keeps everything you can add in one place. On a phone it sits under the
 up or down, or use the arrow button, to switch between collapsed, half and full height. On a tablet it is a
 panel on the left.
 
-- **Tabs**: **Media** (videos and photos of the project), **Stickers**, **Titles** (text templates) and
-  **Audio** (audio files of the project).
+- **Tabs**: **Media** (videos and photos of the project), **Stickers**, **Titles** (text templates),
+  **Audio** (audio files of the project) and **Folders** (see below).
 - **Media and Audio tabs**: a grid or a list (the Grid/List button), a search box, and on the Media tab the
   filters All, Video, Photos and Unused. Each tile shows a thumbnail, the duration, an **HLG** or **PQ** badge
   for HDR files, **×N** when the file is used N times on the timeline, and a red **Missing** cover when the
   file cannot be read (relink it from the banner).
 - **Import** (the first tile): adds files to the tray without putting them on the timeline.
+- **Folders** (the last tab): link a folder once and browse it with its subfolders, without importing everything into one list.
+  Press **Link folder** and choose it (Android does not allow a whole storage or the Downloads folder: choose a subfolder, for
+  example *Movies/Footage*). The folder stays linked for every project, until you choose **Unlink** in its options. Open a linked
+  folder to see its subfolders first and then its videos, photos and audio; the path bar at the top takes you back to any
+  folder above, **Up one folder** goes one step back and **Refresh** reads the folder again after you add files to it
+  from outside the app. The search box looks only in the folder on show, and the All / Video / Photos / Audio chips limit the files (never the
+  folders). A file joins the project **only when you use it**: tap it, or its **+**, to put it at the playhead, or press **Select**,
+  number several files (also across folders) and press **Add**. A file that is already in the project says **In project**.
+  You can also **hold** a file for a third of a second and drag it onto the timeline, where it lands like a file from the library (release outside the
+  timeline to change your mind). The tile shows the length of a video or audio file once it comes on screen; the **By name / Newest first /
+  Largest first** button orders the files; the tab opens in the folder you left. When a project's files are missing, **Search linked folders**
+  in the missing-media window looks in every linked folder for them. The app only reads
+  the folder: it never copies, moves or changes anything in it. If a folder is no longer reachable (access removed, or the memory
+  card is out) the tab says so and offers **Try again**, **Choose the folder again** and **Unlink**.
 - **Add at the playhead**: tap a tile, or tap the **+** on it (screen readers: the tile's "Add to timeline"
   action). Stickers and templates are also added with a tap.
 - **Drag onto the timeline**: press and hold a tile for a third of a second (you feel a tick) and it lifts: a

@@ -51,6 +51,8 @@ class TrayModelTest {
         assertEquals(listOf("s"), items(tab = TrayTab.AUDIO))
         assertEquals(emptyList<String>(), items(tab = TrayTab.STICKERS))
         assertEquals(emptyList<String>(), items(tab = TrayTab.TEMPLATES))
+        // The folders tab browses linked folders, not the project's assets.
+        assertEquals(emptyList<String>(), items(tab = TrayTab.FOLDERS))
     }
 
     @Test

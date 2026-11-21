@@ -19,6 +19,7 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.tray.AssetKind
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.RootBounds
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.TrayCarry
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.TrayDragController
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.TrayDragSink
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.TrayPointer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -306,6 +307,66 @@ class TrayViewModelTest {
 
     private val timelineBounds = RootBounds(0f, 100f, 1000f, 700f)
 
+    /** The same chain for a file of a linked folder, which is not in the library until it is released over the timeline. */
+    private fun Harness.carryFileTo(uri: String, hit: (Float, Float) -> TimelineHit, bounds: RootBounds?, path: List<Pair<Float, Float>>): TrayDragController {
+        val drop = TimelineTrayDrop(hit, { _, _ -> }, vm::onIntent, density = 1f)
+        drop.bounds = bounds
+        val controller = TrayDragController()
+        controller.sink = drop
+        controller.logger = { _, e -> throw e }
+        controller.pickUp(TrayCarry(uri, "clip", "0:10", AssetKind.VIDEO, null, Offset(path.first().first, path.first().second), Offset.Zero, fileUri = uri), 7L)
+        for ((x, y) in path) assertTrue(controller.onPointerEvent(listOf(TrayPointer(7L, x, y, pressed = true, newDown = false))))
+        controller.onPointerEvent(listOf(TrayPointer(7L, path.last().first, path.last().second, pressed = false, newDown = false)))
+        return controller
+    }
+
+    @Test
+    fun `a file of a linked folder released over the timeline joins the project and lands where it was dropped`() = runTest(dispatcher) {
+        val inFolder = "content://m/tree/root/document/shot"
+        val h = harness(known(inFolder to newVideo))
+        val c = h.carryFileTo(inFolder, { x, _ -> TimelineHit(HitKind.CLIP, 1, 0L, x.toLong()) }, timelineBounds, listOf(50f to 400f, 104f to 400f))
+        advanceUntilIdle()
+
+        assertNull(c.carry)
+        val asset = h.state.assets.single { it.uri == inFolder }
+        assertEquals(3, h.clips("v1").size)
+        assertTrue(h.clips("v1").any { it.assetId == asset.id })
+        assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+        assertNull(h.state.dropHint)
+    }
+
+    @Test
+    fun `a file of a linked folder released outside the timeline adds nothing and the ghost ends`() = runTest(dispatcher) {
+        val inFolder = "content://m/tree/root/document/shot"
+        val h = harness(known(inFolder to newVideo))
+        val before = h.state.timeline
+        val c = h.carryFileTo(inFolder, { x, _ -> TimelineHit(HitKind.CLIP, 1, 0L, x.toLong()) }, timelineBounds, listOf(50f to 50f))
+        advanceUntilIdle()
+
+        assertTrue(c.carry?.returning == true)
+        assertEquals(2, h.state.assets.size)
+        assertEquals(before, h.state.timeline)
+        assertNull(h.state.dropHint)
+    }
+
+    @Test
+    fun `a file of a linked folder is never reordered in the tray`() {
+        val controller = TrayDragController()
+        var reordered = false
+        controller.onReorder = { _, _ -> reordered = true }
+        controller.sink = object : TrayDragSink {
+            override fun begin(assetId: String) = Unit
+            override fun move(x: Float, y: Float) = Unit
+            override fun drop(x: Float, y: Float) = false
+            override fun cancel() = Unit
+            override fun frame(nowMs: Long) = Unit
+        }
+        controller.pickUp(TrayCarry("u", "u", "", AssetKind.VIDEO, null, Offset(1f, 1f), Offset(5f, 5f), fileUri = "u"), 7L)
+        controller.onPointerEvent(listOf(TrayPointer(7L, 1f, 1f, pressed = false, newDown = false)))
+        assertEquals(false, reordered)
+        assertTrue(controller.carry?.returning == true)
+    }
+
     @Test
     fun `lifting the finger over the base cut inserts the carried asset and clears the ghost`() = runTest(dispatcher) {
         val h = harness()
@@ -419,6 +480,37 @@ class TrayViewModelTest {
         assertEquals(3, h.state.assets.size)
         assertEquals(before, h.state.timeline)
         assertEquals(false, h.state.isImporting)
+    }
+
+    @Test
+    fun `a file reached through a linked folder is the asset the project already has`() = runTest(dispatcher) {
+        // The importer knows only the picker's URI of the file, so a second asset would fail: the file is found by what the provider calls it.
+        val h = harness(known("content://m/document/ext" to newVideo))
+        h.vm.onIntent(EditorIntent.ImportToTray(listOf("content://m/document/ext")))
+        advanceUntilIdle()
+        val messagesBefore = h.effects.size
+        val ids = h.state.assets.map { it.id }
+
+        h.vm.onIntent(EditorIntent.ImportToTray(listOf("content://m/tree/root/document/ext")))
+        advanceUntilIdle()
+
+        assertEquals(ids, h.state.assets.map { it.id })
+        assertEquals(3, h.state.assets.size)
+        assertEquals(messagesBefore, h.effects.size)
+    }
+
+    @Test
+    fun `a new file from a linked folder joins the project once, however many times it is added`() = runTest(dispatcher) {
+        val inFolder = "content://m/tree/root/document/new"
+        val h = harness(known(inFolder to newVideo))
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf(inFolder)))
+        advanceUntilIdle()
+        // The same file by the picker's URI is not known to the importer: it must be found as the asset already there.
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf("content://m/document/new", inFolder)))
+        advanceUntilIdle()
+
+        assertEquals(1, h.state.assets.count { it.uri == inFolder })
+        assertEquals(3, h.state.assets.size)
     }
 
     @Test

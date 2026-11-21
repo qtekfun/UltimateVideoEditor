@@ -39,6 +39,8 @@ import com.qtekfun.ultimatevideoeditor.ui.onboarding.OnboardingTips
 import com.qtekfun.ultimatevideoeditor.ui.onboarding.PreferencesOnboardingStore
 import com.qtekfun.ultimatevideoeditor.data.AndroidClipPeeker
 import com.qtekfun.ultimatevideoeditor.data.AndroidMediaImporter
+import com.qtekfun.ultimatevideoeditor.data.folders.LinkedFolders
+import com.qtekfun.ultimatevideoeditor.data.folders.PrefsLinkedFoldersStore
 import com.qtekfun.ultimatevideoeditor.data.AndroidProjectThumbnails
 import com.qtekfun.ultimatevideoeditor.data.PreferencesNewProjectDefaults
 import com.qtekfun.ultimatevideoeditor.data.AndroidPersistedUris
@@ -203,9 +205,12 @@ class MainActivity : ComponentActivity() {
         )
         // Android drops the oldest persisted file permissions past its limit, which would leave old projects
         // with missing media: give back the ones no project uses before that can happen.
+        // The folders the user linked keep their permission whether or not a project uses a file in them yet.
+        val linkedFolders = PrefsLinkedFoldersStore(getSharedPreferences(PrefsLinkedFoldersStore.FILE, MODE_PRIVATE))
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                trimPersistedUris(AndroidPersistedUris(applicationContext), repository.referencedMediaUris() + listOfNotNull(mediaFolderSettings.treeUri())) { Log.i("MediaPermissions", it) }
+                val keep = repository.referencedMediaUris() + listOfNotNull(mediaFolderSettings.treeUri()) + LinkedFolders.treeUris(linkedFolders.load())
+                trimPersistedUris(AndroidPersistedUris(applicationContext), keep) { Log.i("MediaPermissions", it) }
             }
         }
         // A killed import leaves its scratch folder (gigabytes) behind: remove the ones nothing has touched for two minutes, unless an import runs now.

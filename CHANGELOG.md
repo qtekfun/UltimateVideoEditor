@@ -3,6 +3,15 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **Link a folder and pick your footage from its own tree.** The media tray has a new **Folders** tab: link a folder once (for every project) and
+  browse it with its subfolders, a path bar, search, filters and numbered choice, adding clips straight from it. A clip joins the project only when you
+  use it, referenced where it is, never copied; one already in the project is marked and not added twice, even if it was imported another way. The
+  app only reads the folder. Importing separate files still works as before. You can hold a file and drag it onto the timeline, see its length in the tile, order the
+  files by name, date or size, and the tab opens in the folder you left. In the missing-media window **Search linked folders** looks for the missing
+  files in all of them at once. Android does not let an app use a whole storage or the Downloads folder, so link a subfolder.
+
 ## 1.5.0
 
 - **The editor uses the room of a tablet or an open foldable.** There are now three arrangements, chosen for each window shape the first time

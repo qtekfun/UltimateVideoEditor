@@ -26,26 +26,32 @@ internal object AssetThumbnails {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
-    suspend fun load(context: Context, asset: MediaAssetDto, sizePx: Int): Bitmap? {
-        if (asset.kind == AssetKind.AUDIO) return null
-        val key = "${asset.id}|${asset.uri}|$sizePx"
+    suspend fun load(context: Context, asset: MediaAssetDto, sizePx: Int): Bitmap? =
+        loadFrom(context, "${asset.id}|${asset.uri}|$sizePx", asset.uri, asset.kind, sizePx)
+
+    /** The picture for a file that is not in the project (a file in a linked folder); [uri] is its URI and [kind] says how to read it. */
+    suspend fun load(context: Context, uri: String, kind: AssetKind, sizePx: Int): Bitmap? =
+        loadFrom(context, "folder|$uri|$sizePx", uri, kind, sizePx)
+
+    private suspend fun loadFrom(context: Context, key: String, uri: String, kind: AssetKind, sizePx: Int): Bitmap? {
+        if (kind == AssetKind.AUDIO) return null
         cache.get(key)?.let { return it }
         val bitmap = withContext(Dispatchers.IO) {
             try {
-                when (asset.kind) {
-                    AssetKind.VIDEO -> videoFrame(context, Uri.parse(asset.uri), sizePx)
-                    AssetKind.PHOTO -> photo(context, Uri.parse(asset.uri), sizePx)
+                when (kind) {
+                    AssetKind.VIDEO -> videoFrame(context, Uri.parse(uri), sizePx)
+                    AssetKind.PHOTO -> photo(context, Uri.parse(uri), sizePx)
                     AssetKind.AUDIO -> null
                 }
             } catch (e: IOException) {
-                Log.w(TAG, "No thumbnail for ${asset.id}: ${e.message}")
+                Log.w(TAG, "No thumbnail for ${uri.substringAfterLast('/')}: ${e.message}")
                 null
             } catch (e: SecurityException) {
-                Log.w(TAG, "No access to ${asset.id}: ${e.message}")
+                Log.w(TAG, "No access to ${uri.substringAfterLast('/')}: ${e.message}")
                 null
             } catch (e: RuntimeException) {
                 // MediaMetadataRetriever and ImageDecoder report unreadable files as runtime exceptions.
-                Log.w(TAG, "Could not decode a thumbnail for ${asset.id}: ${e.message}")
+                Log.w(TAG, "Could not decode a thumbnail for ${uri.substringAfterLast('/')}: ${e.message}")
                 null
             }
         }
