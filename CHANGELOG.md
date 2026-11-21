@@ -5,6 +5,11 @@ and fields added later are optional in the project JSON). The detail behind each
 
 ## Unreleased
 
+- **Preview a clip before adding it.** A tap on a tile of the media tray (Media, Audio and Folders) opens a preview: play it, jump to any moment, mute or repeat it
+  and read its details, then add it at the playhead or to the end. It also works for a file of a linked folder that is not in the project yet. The **+** on a
+  tile still adds at once, and a switch in the Layout sheet (**Tap on a clip previews it**) brings back the old tap that adds. The preview is not available
+  while a movie is being exported, because the export needs the phone's video decoders.
+
 - **Link a folder and pick your footage from its own tree.** The media tray has a new **Folders** tab: link a folder once (for every project) and
   browse it with its subfolders, a path bar, search, filters and numbered choice, adding clips straight from it. A clip joins the project only when you
   use it, referenced where it is, never copied; one already in the project is marked and not added twice, even if it was imported another way. The

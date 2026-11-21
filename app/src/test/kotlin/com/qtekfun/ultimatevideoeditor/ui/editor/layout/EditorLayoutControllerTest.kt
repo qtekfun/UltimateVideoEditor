@@ -163,6 +163,34 @@ class EditorLayoutControllerTest {
     }
 
     @Test
+    fun `a tap previews a clip by default, the choice is remembered and survives presets and other windows`() {
+        val store = object : TapPreviewStore {
+            var on = true
+            var writes = 0
+            override fun tapPreviews() = on
+            override fun setTapPreviews(on: Boolean) {
+                this.on = on
+                writes++
+            }
+        }
+        val controller = EditorLayoutController(MemoryStore(), phone, tapPreviewStore = store)
+        assertTrue(controller.tapPreviews)
+
+        controller.chooseTapPreviews(true)
+        assertEquals(0, store.writes)
+        controller.chooseTapPreviews(false)
+        controller.chooseTapPreviews(false)
+        assertEquals(1, store.writes)
+        assertFalse(controller.tapPreviews)
+
+        controller.dispatch(LayoutAction.Reset)
+        controller.onWindow(phoneSideways)
+        assertFalse(controller.tapPreviews)
+        assertFalse(EditorLayoutController(MemoryStore(), phone, tapPreviewStore = store).tapPreviews)
+        assertTrue(NoTapPreviewStore.tapPreviews())
+    }
+
+    @Test
     fun `video audio on a track is off by default, remembered, and survives presets and other windows`() {
         val placement = MemoryPlacement()
         val controller = EditorLayoutController(MemoryStore(), phone, placementStore = placement)

@@ -12,7 +12,13 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrder
 import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarOrderStore
 
 /** Layouts kept in local preferences, one entry per window size class and orientation. */
-class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore, ToolbarOrderStore, DetailZoomStore {
+class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, WaveformScaleStore, VideoAudioPlacementStore, ToolbarOrderStore, DetailZoomStore, TapPreviewStore {
+    override fun tapPreviews(): Boolean = prefs.getBoolean(TAP_PREVIEW_KEY, true)
+
+    override fun setTapPreviews(on: Boolean) {
+        prefs.edit().putBoolean(TAP_PREVIEW_KEY, on).apply()
+    }
+
     override fun detailZoomOn(): Boolean = prefs.getBoolean(DETAIL_ZOOM_KEY, false)
 
     override fun setDetailZoom(on: Boolean) {
@@ -52,6 +58,7 @@ class PrefsLayoutStore(private val prefs: SharedPreferences) : LayoutStore, Wave
         private const val TOOLBAR_KEY = "toolbar_order"
         private const val VIDEO_AUDIO_KEY = "video_audio_on_track"
         private const val DETAIL_ZOOM_KEY = "detail_zoom"
+        private const val TAP_PREVIEW_KEY = "tap_previews"
     }
 }
 
@@ -69,6 +76,7 @@ class EditorLayoutController(
     private val placementStore: VideoAudioPlacementStore = NoVideoAudioPlacementStore,
     private val toolbarStore: ToolbarOrderStore = NoToolbarOrderStore,
     private val detailZoomStore: DetailZoomStore = NoDetailZoomStore,
+    private val tapPreviewStore: TapPreviewStore = NoTapPreviewStore,
 ) {
     var window by mutableStateOf(initialWindow)
         private set
@@ -101,6 +109,16 @@ class EditorLayoutController(
         if (on == detailZoom) return
         detailZoom = on
         detailZoomStore.setDetailZoom(on)
+    }
+
+    /** True when a tap on a tile of the media tray opens a preview of the clip instead of adding it. One choice everywhere. */
+    var tapPreviews by mutableStateOf(tapPreviewStore.tapPreviews())
+        private set
+
+    fun chooseTapPreviews(on: Boolean) {
+        if (on == tapPreviews) return
+        tapPreviews = on
+        tapPreviewStore.setTapPreviews(on)
     }
 
     /** The order and visibility of the main tool row. One choice for every layout and project; the presets leave it alone. */

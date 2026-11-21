@@ -131,6 +131,8 @@ internal fun MediaTray(
     inProject: Set<DocumentKey>,
     onLinkFolder: () -> Unit,
     onAddFiles: (List<String>) -> Unit,
+    onPreview: (SourceItem) -> Unit,
+    tapPreviews: Boolean,
     modifier: Modifier = Modifier,
     userPresets: List<TextTemplate> = emptyList(),
     onApplyPreset: (TextTemplate, text: String) -> Unit = { _, _ -> },
@@ -162,8 +164,9 @@ internal fun MediaTray(
                     when (state.tab) {
                         TrayTab.MEDIA, TrayTab.AUDIO -> AssetBody(
                             state, onState, items, isImporting, onImport, onAdd, onAddMany, drag,
+                            onPreview = { item: TrayItem -> onPreview(SourceItem(item.asset.uri, item.name, item.kind)) }.takeIf { tapPreviews },
                         )
-                        TrayTab.FOLDERS -> FoldersTab(folders, inProject, state.layout, drag, onLinkFolder, onAddFiles)
+                        TrayTab.FOLDERS -> FoldersTab(folders, inProject, state.layout, drag, onLinkFolder, onAddFiles, onPreview.takeIf { tapPreviews })
                         TrayTab.STICKERS -> Column(Modifier.verticalScroll(rememberScrollState())) { StickerChooser(onPickSticker) }
                         TrayTab.TEMPLATES -> Column(Modifier.verticalScroll(rememberScrollState())) { TextTemplateChooser(onApplyTemplate, userPresets = userPresets, onApplyPreset = onApplyPreset) }
                     }
@@ -250,6 +253,7 @@ private fun AssetBody(
     onAdd: (String) -> Unit,
     onAddMany: (List<String>) -> Unit,
     drag: TrayDragController,
+    onPreview: ((TrayItem) -> Unit)?,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -308,14 +312,14 @@ private fun AssetBody(
             ) {
                 item(key = "import") { ImportTile(importLabel, !isImporting, onImport) }
                 items(items, key = { it.asset.id }) { item ->
-                    AssetTile(item, onAdd, drag, grid = true, pickNumber = if (state.picking) state.pickNumber(item.asset.id) else null) { onState(state.togglePicked(item.asset.id)) }
+                    AssetTile(item, onAdd, drag, grid = true, pickNumber = if (state.picking) state.pickNumber(item.asset.id) else null, onPreview = onPreview) { onState(state.togglePicked(item.asset.id)) }
                 }
             }
         } else {
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item(key = "import") { ImportTile(importLabel, !isImporting, onImport, row = true) }
                 items(items, key = { it.asset.id }) { item ->
-                    AssetTile(item, onAdd, drag, grid = false, pickNumber = if (state.picking) state.pickNumber(item.asset.id) else null) { onState(state.togglePicked(item.asset.id)) }
+                    AssetTile(item, onAdd, drag, grid = false, pickNumber = if (state.picking) state.pickNumber(item.asset.id) else null, onPreview = onPreview) { onState(state.togglePicked(item.asset.id)) }
                 }
             }
         }
@@ -344,6 +348,8 @@ internal fun AssetTile(
     grid: Boolean,
     /** Null when the tray is not choosing; otherwise this tile's number (0 when it is not chosen yet). */
     pickNumber: Int? = null,
+    /** When set, a tap on the tile opens a preview of the clip instead of adding it (the "+" still adds at once). */
+    onPreview: ((TrayItem) -> Unit)? = null,
     onTogglePick: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -357,20 +363,36 @@ internal fun AssetTile(
     val dragShape = RoundedCornerShape(8.dp)
     val description = describe(item)
     val addToTimeline = stringResource(R.string.ed_s3_add_to_timeline)
+    val previewAction = stringResource(R.string.ed_sp_preview, item.name)
     val body = Modifier
         .graphicsLayer { alpha = if (drag.carry?.assetId == asset.id) 0.35f else 1f }
         .clip(dragShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
         .semantics {
             contentDescription = description
-            customActions = listOf(CustomAccessibilityAction(addToTimeline) { onAdd(asset.id); true })
+            customActions = buildList {
+                add(CustomAccessibilityAction(addToTimeline) { onAdd(asset.id); true })
+                if (onPreview != null) add(CustomAccessibilityAction(previewAction) { onPreview(item); true })
+            }
         }
         .onGloballyPositioned {
             coordinates = it
             drag.registerTile(asset.id, it)
         }
-        .clickable(role = Role.Button, onClickLabel = if (pickNumber != null) stringResource(R.string.tray_pick_toggle) else stringResource(R.string.ed_s3_add_at_the_playhead)) {
-            if (pickNumber != null) { if (!item.missing) onTogglePick() } else onAdd(asset.id)
+        .clickable(
+            role = Role.Button,
+            onClickLabel = when {
+                pickNumber != null -> stringResource(R.string.tray_pick_toggle)
+                onPreview != null -> previewAction
+                else -> stringResource(R.string.ed_s3_add_at_the_playhead)
+            },
+        ) {
+            when {
+                pickNumber != null -> if (!item.missing) onTogglePick()
+                // A missing file has nothing to preview; the tile already says so.
+                onPreview != null -> if (!item.missing) onPreview(item) else onAdd(asset.id)
+                else -> onAdd(asset.id)
+            }
         }
         // After clickable, so it is the inner one and sees the finger first: once a tile is picked up it consumes the lift,
         // which keeps the click from also adding the clip. Before the hold ends it consumes nothing.

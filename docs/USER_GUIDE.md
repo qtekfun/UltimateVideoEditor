@@ -250,7 +250,12 @@ panel on the left.
   in the missing-media window looks in every linked folder for them. The app only reads
   the folder: it never copies, moves or changes anything in it. If a folder is no longer reachable (access removed, or the memory
   card is out) the tab says so and offers **Try again**, **Choose the folder again** and **Unlink**.
-- **Add at the playhead**: tap a tile, or tap the **+** on it (screen readers: the tile's "Add to timeline"
+- **Preview before adding**: **tap** a tile (in Media, Audio or Folders) to open its preview. You see the picture of a video or a photo, play and
+  pause it, drag the slider to any moment, mute it or repeat it, and read its details (picture size, frames per second, format, bit rate and file size). Then
+  press **Add at the playhead** or **Add to the end**, or close it to change your mind. This works for a file of a linked folder before it is in the
+  project. While a movie is being exported the preview is not available (the export needs the phone's video decoders). If you prefer a tap to add the clip
+  at once, turn off **Tap on a clip previews it** in the Layout sheet; the **+** on a tile always adds at once.
+- **Add at the playhead**: tap the **+** on a tile (or tap the tile if previewing is off) (screen readers: the tile's "Add to timeline"
   action). Stickers and templates are also added with a tap.
 - **Drag onto the timeline**: press and hold a tile for a third of a second (you feel a tick) and it lifts: a
   small copy of it (picture, name, length) follows your finger anywhere on the screen, and on a phone the tray

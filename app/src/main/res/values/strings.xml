@@ -2446,4 +2446,16 @@
     <string name="ed_fl_sort_newest">Newest first</string>
     <string name="ed_fl_sort_largest">Largest first</string>
     <string name="ed_fl_relink_linked">Search linked folders</string>
+    <string name="ed_sp_add_playhead">Add at the playhead</string>
+    <string name="ed_sp_add_end">Add to the end</string>
+    <string name="ed_sp_mute">Mute</string>
+    <string name="ed_sp_repeat">Repeat</string>
+    <string name="ed_sp_unreadable">This file cannot be opened. It may have been moved or the access was removed.</string>
+    <string name="ed_sp_unsupported">This phone cannot play this format. You can still add it; the editor may read it differently.</string>
+    <string name="ed_sp_busy">A movie is being exported and is using the video decoders. The preview works again when it finishes.</string>
+    <string name="ed_sp_preview">Preview %1$s</string>
+    <string name="ed_sp_tap_title">Tap on a clip previews it</string>
+    <string name="ed_sp_tap_hint">In the media tray a tap opens a preview to check the clip before adding it; the + adds at once. Off: a tap adds it at the playhead.</string>
+    <string name="gg_tray_preview_title">Tap a tile in the media tray</string>
+    <string name="gg_tray_preview_help">Opens a preview of the clip: play it, jump to any moment and see its details, then add it at the playhead or to the end. The + on the tile adds it at once. A setting in Layout turns this off.</string>
 </resources>
