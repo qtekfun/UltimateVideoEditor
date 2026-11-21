@@ -194,7 +194,11 @@ import com.qtekfun.ultimatevideoeditor.data.folders.PrefsBrowsePositionStore
 import com.qtekfun.ultimatevideoeditor.data.folders.PrefsLinkedFoldersStore
 import com.qtekfun.ultimatevideoeditor.data.folders.TreeFolderBrowser
 import com.qtekfun.ultimatevideoeditor.data.relink.TreeFolderScanner
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.AndroidAuditionPlayer
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.AndroidSourceInfoReader
 import com.qtekfun.ultimatevideoeditor.ui.editor.tray.LinkedFoldersController
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.SourcePreviewController
+import com.qtekfun.ultimatevideoeditor.ui.editor.tray.SourcePreviewSheet
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.BandSlots
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.rememberFoldPosture
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.DockLayout
@@ -613,6 +617,22 @@ fun EditorScreen(
     val linkFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) linkedFolders.link(uri.toString())
     }
+    // Looking at a file before using it: its own player, never the timeline's. It lets go of its decoder when closed, and does not start while a movie is exported.
+    val sourcePreview = remember {
+        SourcePreviewController(
+            scope = folderScope,
+            newPlayer = { listener -> AndroidAuditionPlayer(context.applicationContext, listener) },
+            infoReader = AndroidSourceInfoReader(context.applicationContext),
+        )
+    }
+    sourcePreview.busy = exportRunning
+    LaunchedEffect(exportRunning) { if (exportRunning) sourcePreview.close() }
+    DisposableEffect(sourcePreview) { onDispose { sourcePreview.close() } }
+    SourcePreviewSheet(
+        controller = sourcePreview,
+        onAddAtPlayhead = { viewModel.onIntent(EditorIntent.ImportMedia(listOf(it.uri))) },
+        onAddAtEnd = { viewModel.onIntent(EditorIntent.ImportMedia(listOf(it.uri), atEnd = true)) },
+    )
     val inProject = remember(state.assets) { state.assets.mapNotNullTo(HashSet()) { DocumentKey.of(it.uri) } }
     val dropTarget = remember(viewModel) {
         object : TimelineDropTarget {
@@ -633,7 +653,7 @@ fun EditorScreen(
             controller.indexOf = { id -> holder.value.assets.indexOfFirst { it.id == id } }
         }
     }
-    val trayPanel: @Composable (Boolean, Modifier) -> Unit = { bottom, panelModifier ->
+    val trayPanel: @Composable (Boolean, Modifier, Boolean) -> Unit = { bottom, panelModifier, tapPreviews ->
         MediaTray(
             state = tray,
             onState = { tray = it },
@@ -652,6 +672,12 @@ fun EditorScreen(
             inProject = inProject,
             onLinkFolder = { linkFolderPicker.launch(null) },
             onAddFiles = { viewModel.onIntent(EditorIntent.ImportMedia(it)) },
+            onPreview = { item ->
+                // The timeline stops while a file is looked at, so two sounds never play at once.
+                if (holder.value.isPlaying) viewModel.onIntent(EditorIntent.TogglePlay)
+                sourcePreview.open(item)
+            },
+            tapPreviews = tapPreviews,
             modifier = panelModifier,
             userPresets = titleLibraryState.presets,
             onApplyPreset = { template, text -> viewModel.onIntent(EditorIntent.ApplyPreset(template, text)) },
@@ -856,7 +882,7 @@ fun EditorScreen(
                 val window = WindowMetrics(maxWidth.value.roundToInt().toFloat(), maxHeight.value.roundToInt().toFloat(), posture)
                 val layout = remember {
                     val prefs = PrefsLayoutStore(context.getSharedPreferences(PrefsLayoutStore.FILE, Context.MODE_PRIVATE))
-                    EditorLayoutController(prefs, window, prefs, prefs, detailZoomStore = prefs)
+                    EditorLayoutController(prefs, window, prefs, prefs, detailZoomStore = prefs, tapPreviewStore = prefs)
                 }
                 // Hiding the system bars changes the window by a few dp: that must not re-pick the layout, so it waits.
                 LaunchedEffect(window, fullscreen.active) { if (!fullscreen.active) layout.onWindow(window) }
@@ -897,7 +923,7 @@ fun EditorScreen(
                                         modifier = Modifier.weight(1f),
                                     ) {
                                         if (panel == Panel.TRAY) {
-                                            trayPanel(false, Modifier.fillMaxSize())
+                                            trayPanel(false, Modifier.fillMaxSize(), layout.tapPreviews)
                                         } else {
                                             Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
                                                 InspectorPanel(
@@ -977,7 +1003,7 @@ fun EditorScreen(
                                 if (trayDock.collapsed) {
                                     CollapsedBottomBar(stringResource(Panel.TRAY.labelRes()).lowercase(), onExpand = { layout.dispatch(LayoutAction.SetCollapsed(Panel.TRAY, false)) })
                                 } else {
-                                    trayPanel(true, Modifier.fillMaxWidth().wrapContentHeight())
+                                    trayPanel(true, Modifier.fillMaxWidth().wrapContentHeight(), layout.tapPreviews)
                                 }
                             }
                         },

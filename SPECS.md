@@ -2366,6 +2366,18 @@ checklist in the PR.
 
 **Owns:** `ui/hub/`, `data/` settings store. Avoid: editor, render, audio.
 
+### 9.13b Preview a file before using it
+
+**Problem.** A tap on a tile added the clip at once, so there was no way to check it was the right one first, and a file of a linked folder (not yet in the project) could not be looked at at all.
+
+**Behaviour.** A tap on a tile of the media tray (Media, Audio and Folders tabs) opens a preview sheet (`SourcePreviewSheet`): the picture of a video or a photo (the sound has a bar), play and pause, a position slider with the time, Mute and Repeat, the file's facts (picture size, frame rate, format, bit rate, file size) and two buttons, **Add at the playhead** and **Add to the end** (`EditorIntent.ImportMedia(uris, atEnd)`; a file already in the project is found by `DocumentKey` and not added twice). The "+" on a tile still adds at once. The Layout sheet has a switch ("Tap on a clip previews it", `TapPreviewStore`, on by default, one value for every project) that brings the old behaviour back. A missing file is not previewed (the tile's own message applies).
+
+**Parts** (`ui/editor/tray`). `SourcePreviewController` (Compose state: item, phase, playing, position, length, mute, repeat, picture size, facts) is tested on the JVM with a fake `AuditionPlayer`; `SourcePreviewMath` holds the pure parts (slider and position, the line of facts). `AndroidAuditionPlayer` is the system `MediaPlayer` on a `SurfaceView` of the sheet: it keeps its own decoder and never touches the timeline's, plays any file the person can reach with its sound, and shows the first picture with a seek after `prepareAsync`. `AndroidSourceInfoReader` reads the facts with `MediaMetadataRetriever` (a photo with its bounds), nothing is stored. Opening a preview stops the timeline playback so two sounds never play at once; closing it (or leaving the editor) pauses and releases the player; a late answer from a player that was replaced is ignored (generation counter).
+
+**Exports.** While a movie is exported nothing is opened and an open sheet is closed: the export needs every hardware decoder (see DECISIONS "give a running export every hardware decoder"), and the sheet says so (`SourceProblem.BUSY`).
+
+**Not done.** Marking an in and out point to add only a part, a preview from the library sheet and of a clip already on the timeline, and the HDR tone mapping of a preview (the system player decides).
+
 ### 9.13a Linked folders (tray tab "Folders")
 
 **Problem.** Importing returns a flat list: the folder tree the footage lives in is lost, and everything lands in one tab.

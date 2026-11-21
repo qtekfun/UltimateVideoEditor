@@ -514,6 +514,32 @@ class TrayViewModelTest {
     }
 
     @Test
+    fun `adding to the end puts the files after everything already on the timeline`() = runTest(dispatcher) {
+        val inFolder = "content://m/tree/root/document/tail"
+        val h = harness(known(inFolder to newVideo))
+        val end = h.state.timeline.tracks.maxOf { it.end }.value
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf(inFolder), atEnd = true))
+        advanceUntilIdle()
+
+        val asset = h.state.assets.single { it.uri == inFolder }
+        val placed = h.state.timeline.tracks.flatMap { it.clips }.single { it.assetId == asset.id }
+        assertEquals(end, placed.timelineStart.value)
+        assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+    }
+
+    @Test
+    fun `adding at the playhead is unchanged`() = runTest(dispatcher) {
+        val inFolder = "content://m/tree/root/document/here"
+        val h = harness(known(inFolder to newVideo))
+        h.vm.onIntent(EditorIntent.SetPlayhead(40))
+        h.vm.onIntent(EditorIntent.ImportMedia(listOf(inFolder)))
+        advanceUntilIdle()
+        val asset = h.state.assets.single { it.uri == inFolder }
+        val placed = h.state.timeline.tracks.flatMap { it.clips }.single { it.assetId == asset.id }
+        assertEquals(40L, placed.timelineStart.value)
+    }
+
+    @Test
     fun `reordering moves an asset within the library and saves the new order`() = runTest(dispatcher) {
         val h = harness()
         h.vm.onIntent(EditorIntent.ReorderAsset("snd", 0))

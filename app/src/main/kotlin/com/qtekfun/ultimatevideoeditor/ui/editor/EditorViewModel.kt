@@ -486,7 +486,7 @@ class EditorViewModel(
             EditorIntent.DismissCanvasDialog -> reduce { copy(canvasDialogOpen = false) }
             is EditorIntent.ChangeCanvas -> changeCanvas(intent.width, intent.height)
             is EditorIntent.ChangeColorSpace -> changeColorSpace(intent.space)
-            is EditorIntent.ImportMedia -> importMedia(intent.uris)
+            is EditorIntent.ImportMedia -> importMedia(intent.uris, intent.atEnd)
             is EditorIntent.AddAsset -> addAssetById(intent.assetId)
             is EditorIntent.AddAssets -> addAssetsById(intent.assetIds)
             is EditorIntent.TrayDragStart -> trayDragStart(intent.assetId)
@@ -3590,11 +3590,11 @@ class EditorViewModel(
 
     // region media
 
-    private fun importMedia(uris: List<String>) {
+    private fun importMedia(uris: List<String>, atEnd: Boolean = false) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             reduce { copy(isImporting = true) }
-            var cursor = state.value.playhead
+            var cursor = if (atEnd) history.timeline.tracks.maxOfOrNull { it.end } ?: FrameIndex.ZERO else state.value.playhead
             for (uri in uris) {
                 try {
                     val asset = assetFor(uri)

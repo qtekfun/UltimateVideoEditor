@@ -98,6 +98,7 @@ internal fun FoldersTab(
     drag: TrayDragController,
     onLinkFolder: () -> Unit,
     onAdd: (List<String>) -> Unit,
+    onPreview: ((SourceItem) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val browse = controller.browse
@@ -105,7 +106,7 @@ internal fun FoldersTab(
         if (browse.atTop) {
             LinkedList(controller, onLinkFolder)
         } else {
-            FolderView(controller, inProject, layout, drag, onLinkFolder, onAdd)
+            FolderView(controller, inProject, layout, drag, onLinkFolder, onAdd, onPreview)
         }
     }
 }
@@ -181,6 +182,7 @@ private fun FolderView(
     drag: TrayDragController,
     onLinkFolder: () -> Unit,
     onAdd: (List<String>) -> Unit,
+    onPreview: ((SourceItem) -> Unit)?,
 ) {
     val browse = controller.browse
     // The path: one piece per folder from the top of the linked folder; a piece jumps back to that folder.
@@ -265,14 +267,14 @@ private fun FolderView(
                         FolderRow(entry) { controller.enter(entry) }
                     }
                     items(page.files, key = { "f:" + it.documentId }) { entry ->
-                        FileTile(entry, inProject, drag, browse.picking, browse.pickNumber(entry.uri), grid = true, onAdd = { onAdd(listOf(entry.uri)) }) { controller.togglePicked(entry.uri) }
+                        FileTile(entry, inProject, drag, browse.picking, browse.pickNumber(entry.uri), grid = true, onAdd = { onAdd(listOf(entry.uri)) }, onPreview = onPreview?.let { open -> { open(SourceItem(entry.uri, entry.name, entry.kind?.assetKind() ?: AssetKind.VIDEO, entry.sizeBytes)) } }) { controller.togglePicked(entry.uri) }
                     }
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(page.folders, key = { "d:" + it.documentId }) { entry -> FolderRow(entry) { controller.enter(entry) } }
                     items(page.files, key = { "f:" + it.documentId }) { entry ->
-                        FileTile(entry, inProject, drag, browse.picking, browse.pickNumber(entry.uri), grid = false, onAdd = { onAdd(listOf(entry.uri)) }) { controller.togglePicked(entry.uri) }
+                        FileTile(entry, inProject, drag, browse.picking, browse.pickNumber(entry.uri), grid = false, onAdd = { onAdd(listOf(entry.uri)) }, onPreview = onPreview?.let { open -> { open(SourceItem(entry.uri, entry.name, entry.kind?.assetKind() ?: AssetKind.VIDEO, entry.sizeBytes)) } }) { controller.togglePicked(entry.uri) }
                     }
                 }
             }
@@ -338,6 +340,7 @@ private fun FileTile(
     pickNumber: Int,
     grid: Boolean,
     onAdd: () -> Unit,
+    onPreview: (() -> Unit)?,
     onTogglePick: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -362,8 +365,12 @@ private fun FileTile(
         .onGloballyPositioned { coordinates = it }
         .clickable(
             role = Role.Button,
-            onClickLabel = stringResource(if (picking) R.string.tray_pick_toggle else R.string.ed_s3_add_at_the_playhead),
-        ) { if (picking) onTogglePick() else onAdd() }
+            onClickLabel = when {
+                picking -> stringResource(R.string.tray_pick_toggle)
+                onPreview != null -> stringResource(R.string.ed_sp_preview, entry.name)
+                else -> stringResource(R.string.ed_s3_add_at_the_playhead)
+            },
+        ) { if (picking) onTogglePick() else if (onPreview != null) onPreview() else onAdd() }
         // Held for a third of a second, the tile lifts and follows the finger onto the timeline, like a tile of the library.
         .pointerInput(entry.uri) {
             detectTrayDrag(

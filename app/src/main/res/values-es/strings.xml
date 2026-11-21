@@ -2512,4 +2512,16 @@
     <string name="ed_fl_sort_newest">Más nuevos primero</string>
     <string name="ed_fl_sort_largest">Más grandes primero</string>
     <string name="ed_fl_relink_linked">Buscar en las carpetas enlazadas</string>
+    <string name="ed_sp_add_playhead">Añadir en el cursor</string>
+    <string name="ed_sp_add_end">Añadir al final</string>
+    <string name="ed_sp_mute">Silenciar</string>
+    <string name="ed_sp_repeat">Repetir</string>
+    <string name="ed_sp_unreadable">No se puede abrir este archivo. Puede que se haya movido o que se haya quitado el acceso.</string>
+    <string name="ed_sp_unsupported">Este teléfono no puede reproducir este formato. Aun así puedes añadirlo; el editor puede leerlo de otra forma.</string>
+    <string name="ed_sp_busy">Se está exportando una película y usa los decodificadores de vídeo. La vista previa vuelve a funcionar cuando termine.</string>
+    <string name="ed_sp_preview">Previsualizar %1$s</string>
+    <string name="ed_sp_tap_title">Tocar un clip lo previsualiza</string>
+    <string name="ed_sp_tap_hint">En la bandeja de medios, un toque abre una vista previa para comprobar el clip antes de añadirlo; el + lo añade al instante. Desactivado: un toque lo añade en el cursor.</string>
+    <string name="gg_tray_preview_title">Tocar un elemento de la bandeja de medios</string>
+    <string name="gg_tray_preview_help">Abre una vista previa del clip: reprodúcelo, salta a cualquier momento y mira sus detalles; luego añádelo en el cursor o al final. El + del elemento lo añade al instante. Un ajuste en Diseño lo desactiva.</string>
 </resources>

@@ -3,6 +3,15 @@
 Choices made autonomously while the owner was away. Append-only; each entry says what was chosen, why, and
 the alternative, so any of them can be reversed cheaply.
 
+## 2026-11-21 · Preview a file before adding it (owner: "press a resource to preview it and see if it is the right one")
+**Before:** a tap on a tile added the clip at the playhead; nothing showed a file before it was used, and a file of a linked folder was not an asset yet.
+**Chosen:** a preview sheet opened by a tap, with the system `MediaPlayer` on its own surface (SPECS 9.13b). It plays any URI, in the project or not, with its sound and a quick seek, and needs no change to the native engine. The "+" keeps the instant add; a Layout switch (on by default) restores "tap adds".
+**Why `MediaPlayer` and not the native preview:** the native preview is built from a timeline snapshot (layers, sources, the audio core's clock); making it play a file that is not in the project would need a fake timeline and a second audio path. The system player is enough to recognise a clip; the cost is that it does not show HDR the way the editor's preview does.
+**Decoders:** a preview uses one hardware decoder. It is released on close, the timeline is paused when it opens, and it is refused (and an open one closed) while a movie is exported, so it can never take a decoder from an export (see "give a running export every hardware decoder").
+**Default:** previewing is on, which changes what a tap does for everyone; the owner asked for it, and the switch and the "+" keep the old speed available.
+**Alternatives not taken:** a preview that opens on a long press (it already lifts the tile to drag it); a small player inside the tile (no room, and a decoder per visible tile); marking an in and out point at once (a later step).
+**Not verified on a device** (none connected): playback, the first picture after the seek, the surface hand-over and the decoder release are only compiled; the controller, the maths, the layout switch and "add to the end" are covered by `SourcePreviewControllerTest`, `SourcePreviewMathTest`, `EditorLayoutControllerTest` and `TrayViewModelTest`.
+
 ## 2026-11-21 · Linked folders instead of importing (owner: "select my parent folder and keep the tree")
 **Asked:** pick a parent folder, keep its tree and choose items from it, like LumaFusion's linked folders; importing puts everything in one tab.
 **Chosen:** a **Folders** tab in the media tray (SPECS 9.13a). The links are **app-wide** (owner's answer), kept in preferences; the file picker import stays as a secondary way; a file becomes a project asset **when it is used**, referenced by its tree document URI (owner's answer). Because the project model is unchanged, bundles, proxies, relink and missing media need no change.

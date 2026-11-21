@@ -684,7 +684,8 @@ sealed interface EditorIntent : UiIntent {
      */
     data class ChangeColorSpace(val space: ProjectColorSpace) : EditorIntent
 
-    data class ImportMedia(val uris: List<String>) : EditorIntent
+    /** Adds the files, each starting where the last ended: from the playhead, or with [atEnd] from the end of the timeline. */
+    data class ImportMedia(val uris: List<String>, val atEnd: Boolean = false) : EditorIntent
     data class AddAsset(val assetId: String) : EditorIntent
 
     /** Adds the assets one after the other at the playhead, in this order, as one undo step (the tray's numbered selection). */
