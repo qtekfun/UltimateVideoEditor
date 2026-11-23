@@ -173,6 +173,8 @@ internal object EditorIcons {
     /** Two vertical faders: the track mixer. */
     val Multicam = icon("Multicam", "M3,5h12v9H3zM9,10h12v9H9z")
     val Mixer = icon("Mixer", "M7,4v7H5v2h2v7h2v-7h2v-2H9V4H7zM15,4v3h-2v2h2v11h2V9h2V7h-2V4h-2z")
+    /** A microphone: the voice-over. */
+    val Mic = icon("Mic", "M12,14c1.66,0 3,-1.34 3,-3V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11H5c0,3.41 2.72,6.23 6,6.72V21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z")
     /** Four bars of different heights: the video scopes. */
     val Scopes = icon("Scopes", "M4,14h3v6H4zM9,8h3v12H9zM14,11h3v9h-3zM19,4h3v16h-3z")
 

@@ -195,7 +195,7 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.toolbar.ToolbarItem
 import com.qtekfun.ultimatevideoeditor.ui.editor.layout.CollapsedStrip
 import com.qtekfun.ultimatevideoeditor.data.folders.DocumentKey
 import com.qtekfun.ultimatevideoeditor.data.voice.AndroidVoiceRecorder
-import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverBar
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverPanel
 import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverController
 import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoicePlayback
 import com.qtekfun.ultimatevideoeditor.data.folders.PrefsBrowsePositionStore
@@ -661,6 +661,10 @@ fun EditorScreen(
 
                 override fun playheadFrame(): Long = holder.value.playhead.value
 
+                override fun endFrame(): Long = holder.value.timeline.tracks.maxOfOrNull { it.end.value } ?: 0
+
+                override fun seek(frame: Long) = viewModel.onIntent(EditorIntent.SetPlayhead(frame))
+
                 override fun play() {
                     if (!holder.value.isPlaying) viewModel.onIntent(EditorIntent.TogglePlay)
                 }
@@ -734,7 +738,6 @@ fun EditorScreen(
                 sourcePreview.open(item)
             },
             tapPreviews = tapPreviews,
-            voice = voice,
             modifier = panelModifier,
             userPresets = titleLibraryState.presets,
             onApplyPreset = { template, text -> viewModel.onIntent(EditorIntent.ApplyPreset(template, text)) },
@@ -773,6 +776,7 @@ fun EditorScreen(
                     scope.launch { snackbar.showSnackbar(text) }
                 }
                 EditorEffect.Close -> onClose()
+                EditorEffect.VoiceOverPlaced -> voice.onPlaced()
                 is EditorEffect.AssetUnavailable -> preview.release(effect.assetKey)
                 is EditorEffect.LaunchRelinkPicker -> {
                     relinkTarget = effect.assetId
@@ -1046,7 +1050,8 @@ fun EditorScreen(
                         onSaveFrame = openStillFrame,
                         exportBlockedBy = exportBlockedBy,
                         layout = layout,
-                        voiceBar = { VoiceOverBar(voice, onUseOtherApp = useSystemRecorder) },
+                        voice = voice,
+                        onUseOtherApp = useSystemRecorder,
                         linkedTrees = linkedTrees,
                         band = band,
                         inspectorOverlay = layout.inspector.dock == Dock.OVERLAY,
@@ -1093,7 +1098,8 @@ private fun EditorMain(
     onSaveFrame: () -> Unit,
     onOpenTray: (TrayTab) -> Unit,
     layout: EditorLayoutController,
-    voiceBar: @Composable () -> Unit,
+    voice: VoiceOverController,
+    onUseOtherApp: () -> Unit,
     linkedTrees: List<String>,
     band: BandSlots,
     inspectorOverlay: Boolean,
@@ -1171,7 +1177,6 @@ private fun EditorMain(
             onExport = onExport,
         )
         if (!fullscreen.active) {
-            voiceBar()
             MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }
             ProxyBannerHost()
         }
@@ -1341,6 +1346,8 @@ private fun EditorMain(
             chrome = {
                 // Scrolls when the window is too short to show every row without starving the preview and the timeline.
                 Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                // The voice-over recorder sits right above the transport it shares the play button with, in every workspace.
+                VoiceOverPanel(voice, onUseOtherApp = onUseOtherApp, onUndo = { viewModel.onIntent(EditorIntent.Undo) })
                 EditorTransportRow(
                     holder = holder,
                     isPlaying = state.isPlaying,
@@ -1363,6 +1370,7 @@ private fun EditorMain(
                 val toolbarItem: @Composable (ToolbarItem, () -> Unit) -> Unit = { item, after ->
                     when (item) {
                         ToolbarItem.IMPORT -> ToolButton(EditorIcons.Add, stringResource(R.string.ed_2a_import_media), enabled = !state.isImporting) { onImport(); after() }
+                        ToolbarItem.VOICE_OVER -> ToolButton(EditorIcons.Mic, stringResource(R.string.ed_vo_record), enabled = !voice.active) { voice.start(); after() }
                         ToolbarItem.SPLIT -> ToolButton(EditorIcons.Split, stringResource(R.string.ed_2a_split_at_playhead)) { // always on: with nothing selected it cuts every lane
                             viewModel.onIntent(EditorIntent.SplitAtPlayhead); after()
                         }

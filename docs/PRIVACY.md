@@ -46,7 +46,7 @@ can keep running when you leave the app, switch to another app or the screen tur
 | `FOREGROUND_SERVICE_MEDIA_PROCESSING` | The service type for Android 15 and later: "this service is processing media" |
 | `FOREGROUND_SERVICE_DATA_SYNC` | The service type Android 12 to 14 offers for a long task. Nothing is synchronised and nothing is sent anywhere; it is only the closest label that exists before Android 15 |
 | `POST_NOTIFICATIONS` | Show the export's progress notification (Android 13 and later). It is asked for when you start an export, and it is optional: if you say no, the export still runs, you just see no notification |
-| `RECORD_AUDIO` | Record a voice-over. It is asked for the first time you press **Record a voice-over** in the Audio tab of the media tray, never at start, and it is optional: if you say no, nothing else changes and the system's own recorder app can be used instead |
+| `RECORD_AUDIO` | Record a voice-over. It is asked for the first time you press the microphone button (**Voice-over**) in the tool row of the editor, never at start, and it is optional: if you say no, nothing else changes and the system's own recorder app can be used instead |
 
 The microphone is used only between the moment the record button starts the count-in and the moment you stop the take (or the app leaves the
 screen). The take is written as a sound file in the project's own folder on the phone, becomes an ordinary audio clip on the timeline and is

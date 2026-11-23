@@ -552,6 +552,8 @@ class TrayViewModelTest {
         assertEquals(h.state.assets.single { it.uri == take }.id, placed.assetId)
         assertEquals(placed.id, h.state.selectedClipId)
         assertEquals(emptyList<String>(), h.state.timeline.invariantViolations())
+        // The recorder panel is told, so it can offer Undo and Record again.
+        assertTrue(h.effects.contains(EditorEffect.VoiceOverPlaced))
 
         h.vm.onIntent(EditorIntent.Undo)
         assertEquals(lanes, h.state.timeline.tracks.size)

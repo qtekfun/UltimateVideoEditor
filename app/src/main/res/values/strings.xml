@@ -2465,10 +2465,24 @@
         <item quantity="other">Recording starts in %1$d seconds</item>
     </plurals>
     <string name="ed_vo_headphones">Use headphones, so the voice does not pick up the sound of the video.</string>
-    <string name="ed_vo_stop">Stop</string>
+    <string name="ed_vo_stop">Stop and keep</string>
     <string name="ed_vo_discard">Discard</string>
+    <string name="ed_vo_pause">Pause</string>
+    <string name="ed_vo_resume">Resume</string>
+    <string name="ed_vo_recording">Recording</string>
+    <string name="ed_vo_paused">Paused</string>
+    <string name="ed_vo_level">Microphone level</string>
+    <string name="ed_vo_leave_hint">Leaving this screen keeps what you have recorded.</string>
+    <string name="ed_vo_asking">Allow the microphone to record your voice.</string>
+    <string name="ed_vo_mic_why">The microphone is used only for this recording, which stays on this phone.</string>
+    <string name="ed_vo_discard_title">Discard this recording?</string>
+    <string name="ed_vo_discard_body">What you have recorded so far will be lost.</string>
+    <string name="ed_vo_keep_recording">Keep recording</string>
     <string name="ed_vo_finishing">Saving the take…</string>
-    <string name="ed_vo_added">Voice-over added on its own audio lane.</string>
+    <string name="ed_vo_added">Voice-over added</string>
+    <string name="ed_vo_undo">Undo</string>
+    <string name="ed_vo_again">Record again</string>
+    <string name="ed_vo_done">Done</string>
     <string name="ed_vo_could_not_add">Could not add the voice-over.</string>
     <string name="ed_vo_no_permission">The microphone is not allowed. Allow it in the phone\'s settings for this app, or record with another app.</string>
     <string name="ed_vo_mic_busy">The microphone is in use by another app or a call. Try again when it is free.</string>
@@ -2476,6 +2490,9 @@
     <string name="ed_vo_failed">The recording could not be made.</string>
     <string name="ed_vo_other_app">Record with another app</string>
     <string name="ed_vo_no_recorder">This phone has no app that records sound.</string>
-    <string name="gg_voice_over_title">Record a voice-over (Audio tab of the media tray)</string>
-    <string name="gg_voice_over_help">After a three-second count-in it records the microphone while the video plays from the playhead. Stop it, or let the video end, and the take is added on its own audio lane without touching the sound under it. Use headphones.</string>
+    <string name="gg_voice_over_title">Record a voice-over (microphone button in the tool row)</string>
+    <string name="gg_voice_over_help">After a three-second count-in it records the microphone while the video plays from the playhead. Pause stops the video and the microphone together, and Resume goes on from the same moment; the play button of the transport does the same. Stop and keep, or let the video end, and the take is added on its own audio lane without touching the sound under it. Leaving the screen keeps what you recorded. Use headphones.</string>
+    <string name="g_voice_over_name">Voice-over</string>
+    <string name="g_voice_over_help">Records your voice from the microphone while the video plays from the playhead, after a three-second count-in. The take is added on its own audio lane.</string>
+    <string name="ed_2a_tool_voice_over">Voice-over</string>
 </resources>

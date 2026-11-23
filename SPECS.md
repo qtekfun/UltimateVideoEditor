@@ -2404,17 +2404,37 @@ checklist in the PR.
 
 ### 9.13c Voice-over
 
-**Behaviour.** The Audio tab of the media tray has **Record a voice-over**. The first press asks for the microphone (runtime permission `RECORD_AUDIO`, never at
-start; `docs/PRIVACY.md`). Then a strip above the preview counts in three seconds (with the tip to use headphones), the microphone starts, the timeline plays from
-the playhead and the strip shows the time, a level meter and **Stop** / **Discard**. A take ends when it is stopped, when the timeline stops by itself (its end, or the
-play button), when the app leaves the screen (what was recorded is kept; a count-in is dropped) or at 20 minutes. The take becomes an ordinary audio asset and a clip
+**Entry point.** A microphone button in the editor's tool row (`ToolbarItem.VOICE_OVER`, id `voice-over`, by default right after Clip volume; it can be moved or hidden like any
+tool). There is no button in the media tray. The first press asks for the microphone (runtime permission `RECORD_AUDIO`, never at start; `docs/PRIVACY.md`); while the
+question is open the panel says why the microphone is needed (only for this recording, which stays on the phone).
+
+**Recorder panel.** `VoiceOverPanel` (`ui/editor/voice/VoiceOverUi.kt`) is drawn at the top of the `chrome` slot of `PreviewTimelineLayout`, right above the transport row and the
+tool row, so it is in the same place in the stacked, workbench and side-by-side workspaces and never covers the preview. One state at a time:
+- **Counting**: the big number, the tip to use headphones, **Cancel**.
+- **Recording**: a red dot, "Recording", the recorded time, a level meter and three labelled buttons: **Pause**, **Stop and keep** (primary), **Discard**. Discarding a take longer than
+  3 s asks first.
+- **Paused**: "Paused", the time, **Resume** (primary), **Stop and keep**, **Discard**.
+- **Finishing**: progress. **Failed**: the message and what to do next (the system recorder for a refused permission). **Added**: "Voice-over added" with **Undo** (the placement is one
+  undo step), **Record again** and **Done**; it goes away by itself after 10 s (`EditorEffect.VoiceOverPlaced`, sent by the view model once the clip is on the timeline).
+The buttons are at least 48 dp tall and wrap into rows by `RecorderLayout.columns(width, fontScale, count)` (pure, unit tested), so nothing is clipped at 320 dp or at font scale 2.0. Only the
+status words are a live region (not the clock, which would be read out on every tick). The screen is kept on while counting, recording or paused, and a haptic tick marks the start and
+the end of the microphone.
+
+**Pause and what ends a take.** Pausing (the panel's **Pause**, or the transport's pause button) stops the timeline **and** the microphone together, and the take file only
+receives recorded sound, so timeline time and take time stay contiguous across any number of pauses. **Resume** (or the transport's play button) goes on from the playhead position
+it paused at: if the playhead was moved meanwhile it is first put back (`VoicePlayback.seek`), and the sound is appended to the same take file. The 20-minute limit counts recorded
+time only. A take ends, and what was recorded is kept, when **Stop and keep** is pressed, when the timeline reaches its end, when the app leaves the screen (also while paused; a
+count-in is dropped; the panel says so) or at 20 minutes. **Discard** drops the take. A timeline stop that is not its end (the transport's pause button, or audio focus lost) is a pause,
+not the end of the take. The take becomes an ordinary audio asset and a clip
 on **the first audio lane that is free for its whole length, else a new audio lane at the end**: it never overwrites the music under it (`domain/voice/VoicePlacement`).
 The lane (if new) and the clip are one undo step (`EditorIntent.PlaceVoiceOver`). A refused permission offers the system's recorder (`MediaStore.Audio.Media.RECORD_SOUND_ACTION`),
 whose result is imported at the playhead.
 
-**Parts.** `VoiceOverController` (`ui/editor/voice`, Compose state; count-in, recording, finishing, failures; tested with a fake `VoiceRecorder` and `VoicePlayback`).
+**Parts.** `VoiceOverController` (`ui/editor/voice`, Compose state; count-in, recording, paused, finishing, added, failures; tested with a fake `VoiceRecorder` and `VoicePlayback`).
 `AndroidVoiceRecorder` (`data/voice`): `AudioRecord` (MIC, mono, 48 kHz, 16-bit) on its own thread, written as a WAV (`WavHeader`, header patched at the end) to
-`files/projects/<id>/voice/voice-<time>.wav`, level by `PeakMeter`; `start()` returns once the first sound arrives. A WAV needs no encoder, so a take is sample-exact and
+`files/projects/<id>/voice/voice-<time>.wav`, level by `PeakMeter`; `start()` returns once the first sound arrives. `TakeWriter` (pure, unit tested) turns the samples into bytes,
+counts the recorded time and drops the sound while paused: the microphone stays open while paused (so resuming loses no sound and needs no reopening) and Android's microphone
+indicator stays on until the take ends. A WAV needs no encoder, so a take is sample-exact and
 the importer, proxies and export read it like any audio. The asset's URI is `file://` (`AndroidMediaImporter.import` takes no permission for it).
 
 **Alignment.** The microphone starts before the timeline, so the time between the two (`leadMs`) is cut from the start of the take (`VoicePlacement.trimFrames`, the clip's

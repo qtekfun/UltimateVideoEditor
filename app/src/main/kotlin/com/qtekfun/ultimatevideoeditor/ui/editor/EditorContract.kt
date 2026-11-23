@@ -760,6 +760,9 @@ sealed interface EditorEffect : UiEffect {
     }
     data object Close : EditorEffect
 
+    /** A voice-over take is on the timeline: the recorder panel offers undo and another take. */
+    data object VoiceOverPlaced : EditorEffect
+
     /** Open the document picker to choose a replacement for [assetId]. */
     data class LaunchRelinkPicker(val assetId: String) : EditorEffect
 
