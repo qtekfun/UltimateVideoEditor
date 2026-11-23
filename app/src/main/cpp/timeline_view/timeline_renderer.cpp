@@ -1138,7 +1138,7 @@ bool TimelineRenderer::isAutoFit() const {
 void TimelineRenderer::fling(float velocityX) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_->flingVelocity = velocityX;
+        state_->flingVelocity = static_cast<float>(Viewport::flingVelocity(velocityX, std::max(1, state_->width)));
         state_->flingStarted = true;
         state_->dirty = true;
     }
@@ -1281,7 +1281,7 @@ void TimelineRenderer::frame(int64_t frameTimeNanos) {
             const double before = s.vp.scrollX;
             s.vp.scrollX += static_cast<double>(s.flingVelocity) * dt;
             s.clampViewport();
-            s.flingVelocity = static_cast<float>(s.flingVelocity * std::exp(-4.0 * dt));
+            s.flingVelocity = static_cast<float>(s.flingVelocity * std::exp(-Viewport::kFlingDecayPerSecond * dt));
             if (std::fabs(s.flingVelocity) < 30.0f || s.vp.scrollX == before) s.flingVelocity = 0.0f;
             keepAnimating = s.flingVelocity != 0.0f;
         }

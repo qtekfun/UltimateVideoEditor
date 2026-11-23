@@ -1003,6 +1003,21 @@ static void testViewport() {
     CHECK(vp.scrollX == 0.0);
 }
 
+static void testFlingIsBounded() {
+    using timeline::Viewport;
+    const double width = 1080.0;
+    // A gentle flick is left alone, a hard one is cut so that it carries the content one screen at most.
+    CHECK(Viewport::flingVelocity(900.0, width) == 900.0);
+    CHECK(Viewport::flingVelocity(-900.0, width) == -900.0);
+    const double hard = Viewport::flingVelocity(20000.0, width);
+    CHECK(hard == width * Viewport::kFlingMaxViews * Viewport::kFlingDecayPerSecond);
+    CHECK(hard / Viewport::kFlingDecayPerSecond <= width);
+    CHECK(Viewport::flingVelocity(-20000.0, width) == -hard);
+    // Wider views allow more speed; a view of no width does not divide by anything.
+    CHECK(Viewport::flingVelocity(20000.0, 2400.0) > hard);
+    CHECK(Viewport::flingVelocity(20000.0, 0.0) > 0.0);
+}
+
 static void testLaneScale() {
     const auto base = timeline::Layout::forDensity(2.0f);
     CHECK(base.trackHeight == 128.0f);
@@ -1822,6 +1837,7 @@ static void testPeaksFile() {
 }
 
 int main() {
+    testFlingIsBounded();
     testSnapshotRoundTrip();
     testSnapshotFxFlag();
     testSnapshotMissingFlag();
