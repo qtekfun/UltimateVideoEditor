@@ -2213,3 +2213,14 @@ matrix: phone microphone with the speaker, a headset, a USB microphone, each pul
 **Not solved, said plainly:** the cut was not reproduced, and the audio priority and buffer are the likely fix, not a measured one; a Bluetooth microphone is limited
 by Android to a low sample rate; the first seam after a pause starts the microphone slightly before the timeline's sound is heard.
 
+## Raw PCM played out of order: the codec shares its buffers (1.7.2)
+
+**What the owner heard:** the start of every voice-over take repeated and scrambled ("edge 70 fusion motorola edge fusion"). **Cause:** WAV files (so every take) are decoded by Android's raw PCM codec, which does
+not copy: the output buffer is the memory of the input buffer. `AndroidPcmDecoder::pump` queued every input buffer the codec handed back before reading any output, so the second block of the file was written over
+the memory the first output still pointed at. The audio came out as blocks 4, 5, 6, 3, 7, 8, 9, 7, 8, 9... (found by logging the first sample of every block going in and coming out). AAC copies while decoding, which is why
+every earlier audio test, all AAC, passed. **Chosen:** for the raw codec only, one input in flight at a time (`rawPassthrough_`, `inFlight_`), with a fall-back that feeds again if an output never comes; other codecs are fed
+as before. **Guard:** `VoiceTakePlaybackInstrumentedTest` renders a WAV with a pitch that changes every 100 ms and checks which part of the file is heard when; it failed on the Pixel before the change and passes after.
+**Why it took so long:** the recorder, the placement and the clip were checked first and were fine; the take's WAV had no repeated data (checked sample by sample), and only rendering the clip through the mixer showed
+the fault. The first useful step was an export analysis, not a recording analysis. **Not covered:** this check is not in `qa-smoke.sh` (no instrumentation there); 24-bit and float WAV also go through the raw codec and
+take the same path, but were not tested.
+
