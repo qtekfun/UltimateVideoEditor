@@ -545,6 +545,7 @@
     <string name="ed_2a_adjust_clip_text_position_scale">Adjust clip: text, position, scale, rotation, opacity, volume, crossfade</string>
     <string name="ed_2a_change_the_canvas_format_and">Change the canvas format and resolution</string>
     <string name="ed_2a_more_tools">More tools: %1$s</string>
+    <string name="ed_chrome_more_actions">More actions</string>
     <string name="ed_2a_add_track">Add track</string>
     <string name="ed_2a_video_track">Video track</string>
     <string name="ed_2a_audio_track">Audio track</string>

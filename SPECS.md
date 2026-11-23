@@ -266,6 +266,18 @@ role (`HubTopBar`, `HubCards` with `ContinueCard` and `StorageCard`, `HubList` w
   hinge (`TABLETOP`) is stacked with the divider at the middle; a vertical hinge (`BOOK`) is side by side split at the middle. The posture is
   part of the `LayoutKey` (id suffix `-tabletop` / `-book`; every other id is unchanged), and a layout saved before workspaces existed reads as
   stacked (`ws` missing in `LayoutCodec`). Covered by `WorkspaceTest` (rules, defaults, reducer, codec, column maths).
+- **Editor chrome in small or scaled windows** (`layout/ChromeLayout.kt`, pure; applied by `EditorChromeBars.kt` and `PreviewTimelineLayout`).
+  Nothing in the editor's own controls is cut off or overlaps; what does not fit goes into a "More actions" menu (`SelectionIcons.More`).
+  *Top bar* (`resolveTopBar(width, fontScale)`): the name keeps 56 dp x font scale and ends in an ellipsis; actions leave in the order Help,
+  Layout, Redo (Back, Undo and Export always stay). *Transport row* (`resolveTransport`): previous / play / next stay centred, the timecode
+  and the actions each get half of what the three buttons leave; when that is short, frame save, zoom and finally Fit move to the menu, then
+  the timecode turns compact (`formatTimecodeCompact`, `MMM:SS:FF`), then the row splits in two lines. The timecode follows the system
+  font up to 1.3x only. *Vertical budget* (`chromeMaxHeight`, `resolveStacked`): the controls are measured with a maximum height that leaves
+  the preview 72 dp and the timeline 96 dp, and scroll vertically when taller (they keep at least 48 dp); the divider share is clamped to
+  those minimums, and a block shorter than all three shares what it has in proportion. Side by side keeps 96 dp for the picture and 240 dp
+  for the controls and the timeline (`resolveSideSplit`) and the controls leave the timeline 96 dp. The drop-mode and marker chips sit side by
+  side only in a wide timeline and stack otherwise (`overlayChipLayout`); the marker popup scrolls in what is left under the ruler.
+  `resolveColumns` never returns negative widths. Covered by `ChromeLayoutTest` over a matrix of window sizes and font scales 1, 1.3 and 2.
 
 ### 5.2 Engine boundary (JNI)
 - Kotlin facade `EngineClient` is the only caller of native methods. JNI calls are cheap and non-blocking;

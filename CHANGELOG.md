@@ -3,6 +3,13 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **The editor no longer comes out cut off in small windows.** In split-screen, sideways on a phone, on a folded phone or with a large font or display size,
+  the top bar, the play controls and the toolbar rows fit: what does not fit moves into a **More actions** menu (Help, Layout and Redo first; frame save, zoom
+  and Fit in the play row), the project name is shortened, the timecode gets a compact form, and the controls scroll instead of squeezing the picture and the
+  timeline below a usable height. The chips that appear over the timeline no longer overlap, and the marker card scrolls in a short timeline.
+
 ## 1.6.0
 
 - **Record a voice-over.** In the Audio tab of the media tray, **Record a voice-over** counts in three seconds, records the microphone while the video plays from the
