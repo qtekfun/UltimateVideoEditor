@@ -24,7 +24,7 @@ internal fun resolveColumns(
     var right = if (fullscreen) 0 else rightWanted
     val leftHandle = if (!fullscreen && leftOpen) handlePx else 0
     val rightHandle = if (!fullscreen && rightOpen) handlePx else 0
-    val room = (width * 0.7f).roundToInt() - leftHandle - rightHandle
+    val room = ((width * 0.7f).roundToInt() - leftHandle - rightHandle).coerceAtLeast(0)
     if (left + right > room && left + right > 0) {
         val scale = room.toFloat() / (left + right)
         if (leftOpen) left = (left * scale).roundToInt()
@@ -38,7 +38,5 @@ internal data class SidePx(val preview: Int, val rest: Int)
 
 /** Splits [width] around a divider of [handlePx]: the preview takes [fraction] of what the divider leaves. */
 internal fun resolveSideBySide(width: Int, handlePx: Int, fraction: Float): SidePx {
-    val room = (width - handlePx).coerceAtLeast(0)
-    val preview = (room * fraction).roundToInt().coerceIn(0, room)
-    return SidePx(preview, room - preview)
+    return resolveSideSplit((width - handlePx).coerceAtLeast(0), fraction, 0, 0)
 }

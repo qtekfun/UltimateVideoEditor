@@ -32,7 +32,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
 
 /** How long a divider drag is held back between layout updates; the native surfaces resize each time. */
 private const val DRAG_STEP_MS = 40L
@@ -121,9 +120,12 @@ internal fun PreviewTimelineLayout(
 
         when (mode) {
             Workspace.SIDE_BY_SIDE -> {
-                val split = resolveSideBySide(width, handlePx, widthFraction())
-                metrics.sideRoomPx = (width - handlePx).coerceAtLeast(0)
-                val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = split.rest, maxWidth = split.rest, maxHeight = height))
+                val room = (width - handlePx).coerceAtLeast(0)
+                val split = resolveSideSplit(room, widthFraction(), MIN_SIDE_PREVIEW_DP.dp.roundToPx(), MIN_SIDE_REST_DP.dp.roundToPx())
+                metrics.sideRoomPx = room
+                // The controls scroll instead of taking the timeline's last rows.
+                val chromeCap = (height - MIN_TIMELINE_DP.dp.roundToPx()).coerceAtLeast(MIN_CHROME_DP.dp.roundToPx()).coerceAtMost(height)
+                val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = split.rest, maxWidth = split.rest, maxHeight = chromeCap))
                 val timelineHeight = (height - chromePlaceable.height).coerceAtLeast(0)
                 metrics.flexiblePx = timelineHeight
                 val previewPlaceable = byId.getValue(PREVIEW).measure(
@@ -145,12 +147,17 @@ internal fun PreviewTimelineLayout(
             }
 
             Workspace.STACKED, Workspace.WORKBENCH -> {
-                val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = width, maxWidth = width, maxHeight = height))
-                val handlePlaceable = byId.getValue(HANDLE).measure(Constraints.fixed(width, handlePx))
-                val flexible = (height - chromePlaceable.height - handlePx).coerceAtLeast(0)
+                // The controls scroll rather than starve the preview and the timeline of their minimum heights.
+                val minPreview = MIN_PREVIEW_DP.dp.roundToPx()
+                val minTimeline = MIN_TIMELINE_DP.dp.roundToPx()
+                val chromeCap = chromeMaxHeight(height, handlePx, minPreview, minTimeline, MIN_CHROME_DP.dp.roundToPx())
+                val chromePlaceable = byId.getValue(CHROME).measure(Constraints(minWidth = width, maxWidth = width, maxHeight = chromeCap))
+                val heights = resolveStacked(height, handlePx, chromePlaceable.height, fraction(), minPreview, minTimeline)
+                val handlePlaceable = byId.getValue(HANDLE).measure(Constraints.fixed(width, minOf(handlePx, height)))
+                val flexible = heights.preview + heights.timeline
                 metrics.flexiblePx = flexible
-                val topHeight = (flexible * fraction()).roundToInt().coerceIn(0, flexible)
-                val timelineHeight = flexible - topHeight
+                val topHeight = heights.preview
+                val timelineHeight = heights.timeline
                 val shownHeight = if (fullscreen) height else topHeight
 
                 // The band's columns exist only in the workbench; stacked, the dock layout around the editor carries them.
