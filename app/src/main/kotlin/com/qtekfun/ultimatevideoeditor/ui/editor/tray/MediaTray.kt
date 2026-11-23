@@ -19,7 +19,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.DisposableEffect
@@ -55,7 +62,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -80,6 +87,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -100,9 +108,6 @@ import com.qtekfun.ultimatevideoeditor.ui.editor.TextTemplateChooser
 import com.qtekfun.ultimatevideoeditor.ui.editor.ToolButton
 import com.qtekfun.ultimatevideoeditor.ui.editor.formatTimecode
 
-private val BottomHalfHeight = 250.dp
-private val BottomFullHeight = 420.dp
-private val TileMinWidth = 96.dp
 private const val THUMBNAIL_PX = 256
 private const val CARRY_ALPHA = 0.45f
 private const val HINT_PREFS = "uveditor_tray"
@@ -155,14 +160,15 @@ internal fun MediaTray(
         // A bottom panel is mounted with wrapContentHeight: filling the height here would make it take
         // everything the editor column has left and squeeze the preview and the timeline to nothing.
         Column(if (bottomPanel) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
-            TrayHeader(state, onState, bottomPanel)
-            val collapsed = bottomPanel && state.height == TrayHeight.COLLAPSED
+            // The bottom body is a fraction of the window with a floor for the picture and the timeline (TraySizing); a window
+            // too short for it shows the header only.
+            val windowHeightDp = LocalConfiguration.current.screenHeightDp.toFloat()
+            val fontScale = LocalDensity.current.fontScale
+            TrayHeader(state, onState, bottomPanel, canExpand = !bottomPanel || TraySizing.canExpand(windowHeightDp, fontScale))
+            val bodyDp = if (bottomPanel) TraySizing.bodyHeightDp(windowHeightDp, fontScale, state.height) else 0f
+            val collapsed = bottomPanel && (state.height == TrayHeight.COLLAPSED || bodyDp <= 0f)
             if (!collapsed) {
-                val bodyModifier = when {
-                    !bottomPanel -> Modifier.weight(1f)
-                    state.height == TrayHeight.FULL -> Modifier.height(BottomFullHeight)
-                    else -> Modifier.height(BottomHalfHeight)
-                }
+                val bodyModifier = if (bottomPanel) Modifier.height(bodyDp.dp) else Modifier.weight(1f)
                 Box(bodyModifier.fillMaxWidth()) {
                     when (state.tab) {
                         TrayTab.MEDIA, TrayTab.AUDIO -> AssetBody(
@@ -195,7 +201,7 @@ private fun externalFilesTarget(context: Context, onFiles: (List<String>) -> Uni
 }
 
 @Composable
-private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPanel: Boolean) {
+private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPanel: Boolean, canExpand: Boolean) {
     val threshold = with(LocalDensity.current) { 40.dp.toPx() }
     var dragged by remember { mutableFloatStateOf(0f) }
     Row(
@@ -221,10 +227,12 @@ private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPan
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SecondaryTabRow(
+        // Scrolls when the five tabs do not fit (a narrow window or large text) instead of cutting their names.
+        SecondaryScrollableTabRow(
             selectedTabIndex = state.tab.ordinal,
             modifier = Modifier.weight(1f),
             containerColor = Color.Transparent,
+            edgePadding = 0.dp,
         ) {
             for (tab in TrayTab.entries) {
                 Tab(
@@ -235,7 +243,7 @@ private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPan
                 )
             }
         }
-        if (bottomPanel) {
+        if (bottomPanel && (canExpand || state.height != TrayHeight.COLLAPSED)) {
             val expanded = state.height != TrayHeight.COLLAPSED
             ToolButton(
                 if (expanded) EditorIcons.LaneDown else EditorIcons.LaneUp,
@@ -247,6 +255,7 @@ private fun TrayHeader(state: TrayState, onState: (TrayState) -> Unit, bottomPan
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AssetBody(
     state: TrayState,
@@ -265,56 +274,65 @@ private fun AssetBody(
         if (state.tab == TrayTab.AUDIO) {
             VoiceOverButton(voice, Modifier.fillMaxWidth())
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = { onState(state.copy(query = it)) },
-                placeholder = { Text(stringResource(R.string.ed_s3_search), fontSize = 13.sp) },
-                singleLine = true,
-                modifier = Modifier.weight(1f).height(52.dp),
-            )
-            if (state.tab == TrayTab.MEDIA) {
-                TextButton(onClick = { onState(state.withPicking(!state.picking)) }) {
-                    Text(if (state.picking) stringResource(R.string.tray_pick_done) else stringResource(R.string.tray_pick))
-                }
-            }
-            TextButton(onClick = { onState(state.copy(layout = if (state.layout == TrayLayout.GRID) TrayLayout.LIST else TrayLayout.GRID)) }) {
-                Text(if (state.layout == TrayLayout.GRID) stringResource(R.string.ed_s3_list) else stringResource(R.string.ed_s3_grid))
-            }
-        }
-        if (state.tab == TrayTab.MEDIA) {
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // The controls scroll on their own (at most half of the body) so a short panel or large text never pushes the list out
+        // or cuts a control off.
+        CappedControls {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.Center,
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
-                for (filter in AssetFilter.entries) {
-                    FilterChip(
-                        selected = state.filter == filter,
-                        onClick = { onState(state.copy(filter = filter)) },
-                        label = { Text(stringResource(filter.labelRes), fontSize = 12.sp) },
-                    )
-                }
-            }
-        }
-        if (state.picking) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    pluralStringResource(R.plurals.tray_picked_count, state.picked.size, state.picked.size),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
+                OutlinedTextField(
+                    value = state.query,
+                    onValueChange = { onState(state.copy(query = it)) },
+                    placeholder = { Text(stringResource(R.string.ed_s3_search), fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).widthIn(min = 160.dp).defaultMinSize(minHeight = 52.dp),
                 )
-                TextButton(enabled = state.picked.isNotEmpty(), onClick = { onState(state.copy(picked = emptyList())) }) {
-                    Text(stringResource(R.string.tray_pick_clear))
+                if (state.tab == TrayTab.MEDIA) {
+                    TextButton(onClick = { onState(state.withPicking(!state.picking)) }) {
+                        Text(if (state.picking) stringResource(R.string.tray_pick_done) else stringResource(R.string.tray_pick))
+                    }
                 }
-                Button(enabled = state.picked.isNotEmpty(), onClick = { onAddMany(state.picked); onState(state.afterAdding()) }) {
-                    Text(stringResource(R.string.tray_pick_add, state.picked.size))
+                TextButton(onClick = { onState(state.copy(layout = if (state.layout == TrayLayout.GRID) TrayLayout.LIST else TrayLayout.GRID)) }) {
+                    Text(if (state.layout == TrayLayout.GRID) stringResource(R.string.ed_s3_list) else stringResource(R.string.ed_s3_grid))
                 }
             }
-        } else if (state.tab == TrayTab.MEDIA && items.isNotEmpty()) DragHint(drag)
+            if (state.tab == TrayTab.MEDIA) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (filter in AssetFilter.entries) {
+                        FilterChip(
+                            selected = state.filter == filter,
+                            onClick = { onState(state.copy(filter = filter)) },
+                            label = { Text(stringResource(filter.labelRes), fontSize = 12.sp) },
+                        )
+                    }
+                }
+            }
+            if (state.picking) {
+                FlowRow(Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        pluralStringResource(R.plurals.tray_picked_count, state.picked.size, state.picked.size),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f).widthIn(min = 96.dp),
+                    )
+                    TextButton(enabled = state.picked.isNotEmpty(), onClick = { onState(state.copy(picked = emptyList())) }) {
+                        Text(stringResource(R.string.tray_pick_clear))
+                    }
+                    Button(enabled = state.picked.isNotEmpty(), onClick = { onAddMany(state.picked); onState(state.afterAdding()) }) {
+                        Text(stringResource(R.string.tray_pick_add, state.picked.size))
+                    }
+                }
+            } else if (state.tab == TrayTab.MEDIA && items.isNotEmpty()) DragHint(drag)
+        }
         val importLabel = stringResource(if (isImporting) R.string.ed_s3_importing else R.string.ed_s3_import)
         if (state.layout == TrayLayout.GRID) {
+            val tileMin = TraySizing.tileMinWidthDp(LocalConfiguration.current.screenWidthDp.toFloat(), LocalDensity.current.fontScale).dp
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(TileMinWidth),
+                columns = GridCells.Adaptive(tileMin),
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -339,7 +357,7 @@ private fun AssetBody(
 private fun ImportTile(label: String, enabled: Boolean, onImport: () -> Unit, row: Boolean = false) {
     Box(
         modifier = Modifier
-            .then(if (row) Modifier.fillMaxWidth().height(48.dp) else Modifier.aspectRatio(1f))
+            .then(if (row) Modifier.fillMaxWidth().heightIn(min = 48.dp) else Modifier.aspectRatio(1f))
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .clickable(enabled = enabled, role = Role.Button, onClickLabel = stringResource(R.string.ed_s3_import_files_into_the_media), onClick = onImport),
@@ -424,7 +442,7 @@ internal fun AssetTile(
             if (pickNumber == null) AddButton(item, onAdd, Modifier.align(Alignment.TopEnd)) else PickBadge(pickNumber, Modifier.align(Alignment.TopEnd))
         }
     } else {
-        Row(body.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(body.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(56.dp)) { TileContent(item, thumbnail, showName = false) }
             Column(Modifier.padding(horizontal = 8.dp).weight(1f)) {
                 Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
@@ -582,3 +600,14 @@ private fun metaLine(item: TrayItem): String {
 /** What a screen reader says for a tile, including how to use it. */
 @Composable
 internal fun describe(item: TrayItem): String = stringResource(R.string.ed_s3_tile_description, item.name, metaLine(item))
+
+/**
+ * A block of controls above a list. It takes the height it needs, but scrolls inside half of the body, so in a short panel
+ * (a landscape window, large text) the list below keeps room and no control is cut off.
+ */
+@Composable
+internal fun CappedControls(content: @Composable ColumnScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Column(Modifier.heightIn(max = maxHeight * TraySizing.CONTROLS_MAX_FRACTION).verticalScroll(rememberScrollState()), content = content)
+    }
+}
