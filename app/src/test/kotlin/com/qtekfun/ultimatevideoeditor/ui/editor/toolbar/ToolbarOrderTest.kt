@@ -82,7 +82,8 @@ class ToolbarOrderTest {
         assertEquals(ToolbarItem.IMPORT, o.order[0])
         assertEquals(o.order.indexOf(ToolbarItem.SPLIT) + 1, o.order.indexOf(ToolbarItem.DETACH_AUDIO))
         assertEquals(o.order.indexOf(ToolbarItem.DETACH_AUDIO) + 1, o.order.indexOf(ToolbarItem.CLIP_VOLUME))
-        val placed = setOf(ToolbarItem.IMPORT, ToolbarItem.DELETE, ToolbarItem.SPLIT, ToolbarItem.DETACH_AUDIO, ToolbarItem.CLIP_VOLUME)
+        val placed = setOf(ToolbarItem.IMPORT, ToolbarItem.DELETE, ToolbarItem.SPLIT, ToolbarItem.DETACH_AUDIO, ToolbarItem.CLIP_VOLUME, ToolbarItem.VOICE_OVER)
+        assertEquals(o.order.indexOf(ToolbarItem.CLIP_VOLUME) + 1, o.order.indexOf(ToolbarItem.VOICE_OVER))
         val rest = o.order.filter { it !in placed }
         assertEquals(all.filter { it !in placed }, rest)
     }
@@ -118,7 +119,7 @@ class ToolbarOrderTest {
     fun `move shifts within the whole order and stops at the ends`() {
         val up = ToolbarOrder.DEFAULT.move(ToolbarItem.DELETE, -1)
         assertEquals(ToolbarItem.DELETE, up.order[ToolbarItem.DELETE.ordinal - 1])
-        assertEquals(ToolbarItem.CLIP_VOLUME, up.order[ToolbarItem.DELETE.ordinal]) // the item that was just before Delete
+        assertEquals(ToolbarItem.VOICE_OVER, up.order[ToolbarItem.DELETE.ordinal]) // the item that was just before Delete
         assertSame(ToolbarOrder.DEFAULT, ToolbarOrder.DEFAULT.move(ToolbarItem.IMPORT, -1))
         assertSame(ToolbarOrder.DEFAULT, ToolbarOrder.DEFAULT.move(all.last(), 1))
         assertEquals(ToolbarItem.IMPORT, ToolbarOrder.DEFAULT.move(ToolbarItem.IMPORT, 100).order.last())
@@ -130,6 +131,24 @@ class ToolbarOrderTest {
         val o = ToolbarOrder.DEFAULT.withHidden(ToolbarItem.MIXER, true).move(ToolbarItem.MIXER, -2).withHidden(ToolbarItem.MIXER, false)
         assertFalse(o.isHidden(ToolbarItem.MIXER))
         assertEquals(ToolbarItem.MIXER.ordinal - 2, o.order.indexOf(ToolbarItem.MIXER))
+    }
+
+    @Test
+    fun `the voice-over button sits with the audio tools by default and is optional`() {
+        val order = ToolbarOrder.DEFAULT.order
+        assertEquals("voice-over", ToolbarItem.VOICE_OVER.id)
+        assertEquals(ToolbarItem.VOICE_OVER, order[order.indexOf(ToolbarItem.CLIP_VOLUME) + 1])
+        assertFalse(ToolbarItem.VOICE_OVER.mandatory)
+        assertTrue(ToolbarOrder.DEFAULT.withHidden(ToolbarItem.VOICE_OVER, true).isHidden(ToolbarItem.VOICE_OVER))
+    }
+
+    @Test
+    fun `a saved order from before the voice-over button gets it back after the clip volume, visible`() {
+        val old = all.filter { it != ToolbarItem.VOICE_OVER }.joinToString(",") { if (it == ToolbarItem.PROXY) "-proxy" else it.id }
+        val o = ToolbarOrder.parse(old)
+        assertEquals(ToolbarOrder.DEFAULT.order, o.order)
+        assertFalse(o.isHidden(ToolbarItem.VOICE_OVER))
+        assertTrue(o.isHidden(ToolbarItem.PROXY))
     }
 
     @Test

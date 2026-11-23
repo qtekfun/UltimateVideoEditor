@@ -3628,7 +3628,7 @@ class EditorViewModel(
             val command = plan.newTrack?.let { EditCommand.Batch(listOf(EditCommand.AddTrack(it, history.timeline.tracks.size), place)) } ?: place
             if (!execute(command)) return@launch
             reduce { copy(selectedClipId = clip.id, selectedTrackId = plan.trackId) }
-            emit(EditorEffect.ShowMessage(UiText.res(R.string.ed_vo_added)))
+            emit(EditorEffect.VoiceOverPlaced)
         }
     }
 
