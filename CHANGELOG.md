@@ -3,10 +3,15 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.7.2
 
+- **Voice-overs and WAV files played their first seconds in the wrong order.** The start of a take was heard repeated and out of order ("edge 70 fusion motorola edge fusion"), in
+  the preview and in the export; the recording itself was always fine. The decoder for raw PCM fed the next block of the file before the previous one had been read out, and the codec
+  reuses that memory. It now feeds one block at a time for raw PCM. Takes already recorded play correctly with no action needed.
 - **A fast swipe on the timeline no longer runs to the end of the project.** A flick carried the content `velocity / 4` pixels, with no limit, so a quick flick while
   looking for a spot crossed many screens and stopped at the end. A swipe now carries the timeline at most one screen; swipe again to go further. Slow swipes are unchanged.
+- **"Record again" now replaces the take.** It used to leave the previous take on the timeline and put the new one on another audio lane, so both voices played at once
+  and sounded doubled and out of step. Record again now takes the last take back and starts from the frame it started on.
 
 ## 1.7.1
 

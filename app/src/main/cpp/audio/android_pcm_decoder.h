@@ -49,6 +49,12 @@ private:
     bool inputDone_ = false;
     bool outputDone_ = false;
 
+    // The raw PCM codec (WAV files, so every voice-over take) does not copy: its output buffer is the memory of the input buffer it came
+    // from. Queuing the next input before the previous output was read overwrote that memory, and the audio came out in the wrong order
+    // with stretches repeated. For it, one input is in flight at a time; other codecs copy and are fed as fast as they take input.
+    bool rawPassthrough_ = false;
+    int32_t inFlight_ = 0;  // inputs queued whose output has not been read (raw PCM only)
+
     // Exact positioning after a seek: the codec restarts at a sync point before the target.
     bool awaitFirstOutput_ = false;
     int64_t targetSample_ = 0;

@@ -89,6 +89,7 @@ Status AndroidPcmDecoder::init(int fd) {
         return Status::UnsupportedFormat;
     }
 
+    rawPassthrough_ = std::strcmp(mime, "audio/raw") == 0;
     AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sampleRate_);
     AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &channels_);
     Status result = Status::Ok;
@@ -124,6 +125,7 @@ Status AndroidPcmDecoder::seekToMicros(int64_t micros) {
     }
     pending_.clear();
     pendingPos_ = 0;
+    inFlight_ = 0;
     inputDone_ = false;
     outputDone_ = false;
     awaitFirstOutput_ = true;
@@ -161,7 +163,7 @@ Status AndroidPcmDecoder::pump() {
     // Keep the codec's input queue full: one buffer per step would leave the decoder mostly idle
     // and cap throughput at a few times real time.
     bool queued = false;
-    while (!inputDone_) {
+    while (!inputDone_ && (!rawPassthrough_ || inFlight_ < 1)) {
         const ssize_t idx = AMediaCodec_dequeueInputBuffer(codec_, 0);
         if (idx < 0) break;
         size_t cap = 0;
@@ -183,6 +185,7 @@ Status AndroidPcmDecoder::pump() {
         } else {
             AMediaCodec_queueInputBuffer(codec_, static_cast<size_t>(idx), 0, static_cast<size_t>(n),
                                          static_cast<uint64_t>(sampleTime), 0);
+            ++inFlight_;
         }
         queued = true;
     }
@@ -208,6 +211,7 @@ Status AndroidPcmDecoder::pump() {
             }
             if (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) outputDone_ = true;
             AMediaCodec_releaseOutputBuffer(codec_, static_cast<size_t>(oidx), false);
+            if (info.size > 0 && inFlight_ > 0) --inFlight_;
             if (st != Status::Ok) return st;
             if (outputDone_ || pendingFrames() >= kMaxPendingFrames) return Status::Ok;
             continue;
@@ -231,6 +235,12 @@ Status AndroidPcmDecoder::pump() {
         }
         if (oidx == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED) continue;
         if (oidx == AMEDIACODEC_INFO_TRY_AGAIN_LATER) {
+            if (rawPassthrough_ && inFlight_ > 0 && Clock::now() - lastProgress_ > kStallTimeout) {
+                // An output that never came (the codec merged two inputs): feed it again rather than wait for ever.
+                LOGE("raw pcm codec returned nothing for %d queued input(s); feeding it again", inFlight_);
+                inFlight_ = 0;
+                lastProgress_ = Clock::now();
+            }
             if (inputDone_ && Clock::now() - lastProgress_ > kStallTimeout) {
                 LOGE("decoder produced no output after end of input");
                 return Status::CodecError;

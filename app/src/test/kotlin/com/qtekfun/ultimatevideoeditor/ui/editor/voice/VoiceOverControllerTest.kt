@@ -534,4 +534,32 @@ class VoiceOverControllerTest {
         headset.controller.stop()
         advanceTimeBy(2_000)
     }
+
+    @Test
+    fun `record again takes the take back and records from the frame it started on, so two voices never stack`() = runTest {
+        val r = rig()
+        r.controller.start()
+        advanceTimeBy(3_100)
+        r.controller.stop()
+        advanceTimeBy(1)
+        r.controller.onPlaced()
+        assertEquals(VoiceState.Added, r.controller.state)
+        r.playback.frame = 900 // the playhead is wherever the take ended
+        var undone = 0
+        r.controller.recordAgain { undone++ }
+        advanceTimeBy(1)
+        assertEquals(1, undone)
+        assertEquals(120L, r.playback.seeks.last())
+        assertEquals(VoiceState.Counting(3), r.controller.state)
+        r.controller.cancel()
+    }
+
+    @Test
+    fun `record again does nothing when no take was just added`() = runTest {
+        val r = rig()
+        var undone = 0
+        r.controller.recordAgain { undone++ }
+        assertEquals(0, undone)
+        assertEquals(VoiceState.Idle, r.controller.state)
+    }
 }

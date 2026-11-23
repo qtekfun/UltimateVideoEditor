@@ -200,7 +200,7 @@ internal fun VoiceOverPanel(controller: VoiceOverController, onUseOtherApp: () -
                                 onClick = { controller.dismissAdded(); onUndo() },
                                 modifier = Modifier.heightIn(min = RecorderBarLayout.ACTION_DP.dp),
                             ) { Text(stringResource(R.string.ed_vo_undo)) }
-                            OutlinedButton(onClick = controller::start, modifier = Modifier.heightIn(min = RecorderBarLayout.ACTION_DP.dp)) {
+                            OutlinedButton(onClick = { controller.recordAgain(onUndo) }, modifier = Modifier.heightIn(min = RecorderBarLayout.ACTION_DP.dp)) {
                                 Icon(EditorIcons.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Text(stringResource(R.string.ed_vo_again), modifier = Modifier.padding(start = 6.dp))
                             }
