@@ -24,7 +24,7 @@ class VoiceOverEntryPointTest {
         assertTrue(editor.contains("ToolbarItem.VOICE_OVER ->"))
         val chrome = editor.indexOf("chrome = {")
         val panel = editor.indexOf("VoiceOverPanel(voice")
-        val transport = editor.indexOf("// Transport: timecode", chrome)
+        val transport = editor.indexOf("EditorTransportRow(", chrome)
         assertTrue(chrome in 0 until panel && panel < transport)
         assertFalse(editor.contains("VoiceOverBar"))
     }
