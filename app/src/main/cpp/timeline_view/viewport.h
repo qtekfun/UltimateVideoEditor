@@ -53,6 +53,19 @@ struct Viewport {
         return true;
     }
 
+    // A fling slows down by this factor per second, so it travels velocity / kFlingDecayPerSecond pixels in all.
+    static constexpr double kFlingDecayPerSecond = 4.0;
+
+    // A fling never carries the content further than this many view widths: a quick flick looking for a spot moves about a screen, it
+    // does not run past a dozen of them and stop at the end of the project.
+    static constexpr double kFlingMaxViews = 1.0;
+
+    // The velocity (px/s, signed) a fling of `velocity` actually starts with in a view `viewWidth` px wide.
+    static double flingVelocity(double velocity, double viewWidth) {
+        const double most = std::max(1.0, viewWidth) * kFlingMaxViews * kFlingDecayPerSecond;
+        return std::clamp(velocity, -most, most);
+    }
+
     void clamp(int64_t endFrame, double contentHeight, double viewHeight) {
         // Allow scrolling half a screen past the last clip so the end can be edited.
         const double maxX = std::max(0.0, static_cast<double>(endFrame) * pxPerFrame - viewWidth * 0.5);

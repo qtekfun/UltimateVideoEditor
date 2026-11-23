@@ -3,6 +3,11 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **A fast swipe on the timeline no longer runs to the end of the project.** A flick carried the content `velocity / 4` pixels, with no limit, so a quick flick while
+  looking for a spot crossed many screens and stopped at the end. A swipe now carries the timeline at most one screen; swipe again to go further. Slow swipes are unchanged.
+
 ## 1.7.1
 
 - **Voice-over takes no longer pick up the video's sound.** Without headphones, a headset or a Bluetooth output the timeline is silent from the count-in to the end of the
