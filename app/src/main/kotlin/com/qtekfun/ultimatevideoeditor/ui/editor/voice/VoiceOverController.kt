@@ -220,6 +220,20 @@ class VoiceOverController(
         }
     }
 
+    /**
+     * "Record again" after a take was added: the take just made is taken back with [undo] and a new one starts from the frame it started
+     * on, so a retake replaces the take instead of stacking a second voice on another lane that would play at the same time.
+     */
+    fun recordAgain(undo: () -> Unit) {
+        if (state != VoiceState.Added) return
+        val from = startFrame
+        addedJob?.cancel()
+        state = VoiceState.Idle
+        undo()
+        playback.seek(from)
+        start()
+    }
+
     /** The person is done with the confirmation, or acted on it. */
     fun dismissAdded() {
         addedJob?.cancel()

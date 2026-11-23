@@ -3,6 +3,11 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **"Record again" now replaces the take.** It used to leave the previous take on the timeline and put the new one on another audio lane, so both voices played at once
+  and sounded doubled and out of step. Record again now takes the last take back and starts from the frame it started on.
+
 ## 1.7.1
 
 - **Voice-over takes no longer pick up the video's sound.** Without headphones, a headset or a Bluetooth output the timeline is silent from the count-in to the end of the
