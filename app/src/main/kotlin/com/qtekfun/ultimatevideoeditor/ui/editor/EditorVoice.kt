@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.qtekfun.ultimatevideoeditor.R
 import com.qtekfun.ultimatevideoeditor.data.voice.AndroidVoiceRecorder
 import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoiceOverController
+import com.qtekfun.ultimatevideoeditor.ui.editor.voice.MonitorOutput
 import com.qtekfun.ultimatevideoeditor.ui.editor.voice.VoicePlayback
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import java.io.File
@@ -67,6 +68,7 @@ internal fun rememberVoiceSupport(
             requestPermission = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) },
             onTake = { onIntent(EditorIntent.PlaceVoiceOver(it.uri, it.startFrame, it.trimMs)) },
             now = android.os.SystemClock::elapsedRealtime,
+            privateOutput = { MonitorOutput.isPrivate(context) },
         ).also { voiceHolder[0] = it }
     }
     LaunchedEffect(voice) { snapshotFlow { holder.value.isPlaying }.collect { voice.onPlaybackChanged(it) } }

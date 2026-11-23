@@ -68,7 +68,7 @@ class VoiceOverControllerTest {
         }
     }
 
-    private class Rig(scope: TestScope, granted: Boolean = true) {
+    private class Rig(scope: TestScope, granted: Boolean = true, headphones: Boolean = true) {
         val recorder = FakeRecorder()
         val playback = FakePlayback()
         val takes = mutableListOf<VoiceTake>()
@@ -85,10 +85,11 @@ class VoiceOverControllerTest {
             countInSeconds = 3,
             tickMs = 50,
             latencyMs = 0,
+            privateOutput = { headphones },
         )
     }
 
-    private fun TestScope.rig(granted: Boolean = true) = Rig(this, granted)
+    private fun TestScope.rig(granted: Boolean = true, headphones: Boolean = true) = Rig(this, granted, headphones)
 
     @Test
     fun `it counts in, records while the timeline plays from the playhead, and a stop hands over the take`() = runTest {
@@ -509,5 +510,28 @@ class VoiceOverControllerTest {
         assertTrue(r.controller.active)
         r.controller.cancel()
         assertFalse(r.controller.active)
+    }
+
+    @Test
+    fun `without headphones the timeline is silent from the count-in to the end of the take, with them it is not`() = runTest {
+        val speaker = rig(headphones = false)
+        assertFalse(speaker.controller.timelineSilenced)
+        speaker.controller.start()
+        advanceTimeBy(1)
+        assertTrue(speaker.controller.timelineSilenced)
+        advanceTimeBy(3_000)
+        assertTrue(speaker.controller.state is VoiceState.Recording)
+        assertTrue(speaker.controller.timelineSilenced)
+        speaker.controller.stop()
+        advanceTimeBy(2_000)
+        assertFalse(speaker.controller.timelineSilenced)
+
+        val headset = rig(headphones = true)
+        headset.controller.start()
+        advanceTimeBy(3_100)
+        assertTrue(headset.controller.state is VoiceState.Recording)
+        assertFalse(headset.controller.timelineSilenced)
+        headset.controller.stop()
+        advanceTimeBy(2_000)
     }
 }

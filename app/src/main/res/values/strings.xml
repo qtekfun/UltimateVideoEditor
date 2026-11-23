@@ -2465,6 +2465,7 @@
         <item quantity="other">Recording starts in %1$d seconds</item>
     </plurals>
     <string name="ed_vo_headphones">Use headphones, so the voice does not pick up the sound of the video.</string>
+    <string name="ed_vo_silent">The video is silent while you record, so the microphone hears only you. Plug in headphones to hear it.</string>
     <string name="ed_vo_stop">Stop and keep</string>
     <string name="ed_vo_stop_short">Stop</string>
     <string name="ed_vo_discard">Discard</string>

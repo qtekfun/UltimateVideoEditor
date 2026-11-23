@@ -2532,6 +2532,7 @@
         <item quantity="other">La grabación empieza en %1$d segundos</item>
     </plurals>
     <string name="ed_vo_headphones">Usa auriculares para que la voz no recoja el sonido del vídeo.</string>
+    <string name="ed_vo_silent">El vídeo queda en silencio mientras grabas, así el micrófono solo te oye a ti. Conecta auriculares para oírlo.</string>
     <string name="ed_vo_stop">Parar y conservar</string>
     <string name="ed_vo_stop_short">Parar</string>
     <string name="ed_vo_discard">Descartar</string>

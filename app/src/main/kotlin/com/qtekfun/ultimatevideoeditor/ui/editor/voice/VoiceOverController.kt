@@ -82,6 +82,8 @@ class VoiceOverController(
     private val tickMs: Long = 50,
     /** What the phone adds between the voice and the file, in milliseconds; 0 until it is measured on a device. */
     private val latencyMs: Long = 0,
+    /** True when the timeline's sound reaches only the person (headphones); otherwise it is silent for the take, or the microphone would record it. */
+    private val privateOutput: () -> Boolean = { true },
 ) {
     var state: VoiceState by mutableStateOf(VoiceState.Idle)
         private set
@@ -96,6 +98,10 @@ class VoiceOverController(
 
     /** True while anything is going on, so the editor knows the button is busy. */
     val active: Boolean get() = state !is VoiceState.Idle && state !is VoiceState.Failed && state !is VoiceState.Added
+
+    /** True while a take is on and the timeline's sound must not play: from the count-in to the end, without headphones. */
+    val timelineSilenced: Boolean
+        get() = (state is VoiceState.Counting || state is VoiceState.Recording || state is VoiceState.Paused) && !privateOutput()
 
     /** True when throwing the take away should ask first: it is longer than [CONFIRM_DISCARD_MS]. */
     val discardNeedsConfirmation: Boolean
