@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import android.net.Uri
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalPreviewProxyNote
 import com.qtekfun.ultimatevideoeditor.ui.editor.proxy.LocalProxyIntent
@@ -94,6 +96,7 @@ fun EditorScreen(
     val folderScope = rememberCoroutineScope()
     val voiceSupport = rememberVoiceSupport(context, projectId, folderScope, holder, viewModel::onIntent)
     val voice = voiceSupport.voice
+    LaunchedEffect(voice, audio) { snapshotFlow { voice.timelineSilenced }.collect { audio.setSilenced(it) } }
     val useSystemRecorder = voiceSupport.useSystemRecorder
     val tray = rememberEditorTray(context, state, holder, viewModel, engine, density, folderScope, exportRunning, titleLibraryState.presets)
     val dropTarget = rememberTimelineDropTarget(viewModel)

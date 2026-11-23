@@ -164,7 +164,7 @@ internal fun VoiceOverPanel(controller: VoiceOverController, onUseOtherApp: () -
                         }
                         Column(Modifier.weight(1f)) {
                             Text(spoken, style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                            Text(stringResource(R.string.ed_vo_headphones), style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(if (controller.timelineSilenced) R.string.ed_vo_silent else R.string.ed_vo_headphones), style = MaterialTheme.typography.bodySmall)
                         }
                         TextButton(onClick = controller::cancel, modifier = Modifier.heightIn(min = RecorderBarLayout.ACTION_DP.dp)) {
                             Text(stringResource(R.string.common_cancel))

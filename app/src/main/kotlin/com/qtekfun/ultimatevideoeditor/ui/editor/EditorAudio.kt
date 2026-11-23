@@ -125,6 +125,9 @@ internal fun audioSnapshotOf(
     return AudioSnapshot(fps.num, fps.den, specs, tracks, ducking)
 }
 
+/** The same mix with every track muted: what the mixer is given while a voice-over take is recorded without headphones. */
+internal fun AudioSnapshot.withAllTracksMuted(): AudioSnapshot = copy(tracks = tracks.map { it.copy(muted = true) })
+
 /**
  * The keyframed volume, pan and EQ band gains of [clip] as mixer lanes. Keys are measured from the clip's own
  * start, the snapshot from the start of its render window (a transition can begin earlier), so frames are
@@ -276,6 +279,16 @@ class EditorAudio(
     private var latest: AudioSnapshot? = null
     private var closed = false
 
+    /** While true every track is sent muted (a voice-over take without headphones); the timeline itself is untouched. */
+    private var silenced = false
+
+    fun setSilenced(value: Boolean) {
+        if (silenced == value) return
+        silenced = value
+        val engine = engine ?: return
+        latest?.let { apply(engine, it) }
+    }
+
     init {
         if (engine != null) {
             scope.launch {
@@ -329,6 +342,7 @@ class EditorAudio(
         // A clip whose media is not registered yet would fail to decode ("never registered") and
         // raise a fault. Send only playable clips; registration re-applies the latest snapshot.
         val playable = snapshot.copy(clips = snapshot.clips.filter { it.assetKey in registered })
+            .let { if (silenced) it.withAllTracksMuted() else it }
         try {
             engine.setSnapshot(playable)
         } catch (e: AudioException) {

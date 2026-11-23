@@ -94,5 +94,29 @@ expect fail "a damaged file that passed is the worst outcome" verification --res
 expect fail "a damaged file with the check skipped" verification --result 'OK frames=180 verification=skipped damage=truncate' --expect warning
 expect fail "a damaged file with no verification at all" verification --result 'OK frames=180 damage=truncate' --expect warning
 
+# A voice-over take (check-take.py): a clean one passes; a burst at the start (the timeline's sound in the microphone) and a gap fail.
+take="$here/check-take.py"
+python3 - "$work" <<'PY'
+import math, random, struct, sys, wave
+d = sys.argv[1]
+def wav(name, f):
+    w = wave.open(f"{d}/{name}.wav", "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+    w.writeframes(struct.pack("<%dh" % (48000 * 4), *[f(i / 48000, i) for i in range(48000 * 4)])); w.close()
+random.seed(1)
+room = lambda t, i: int(random.gauss(0, 60))
+wav("take-clean", room)
+wav("take-burst", lambda t, i: room(t, i) + (int(9000 * math.sin(2 * math.pi * 440 * t)) if 0.25 < t < 0.5 else 0))
+wav("take-gap", lambda t, i: 0 if 2.0 < t < 2.1 else room(t, i))
+PY
+expect_take() { # <pass|fail> <name> <wav>
+    local want="$1" name="$2" out code
+    out="$(python3 "$take" "$3" 2>&1 | tail -1)"
+    case "$out" in OK*) code=pass ;; *) code=fail ;; esac
+    if [ "$code" = "$want" ]; then echo "ok    $name ($out)"; else echo "WRONG $name: wanted $want, got: $out"; fails=$((fails + 1)); fi
+}
+expect_take pass "a clean take" "$work/take-clean.wav"
+expect_take fail "a burst at the start of the take is caught" "$work/take-burst.wav"
+expect_take fail "a gap in the take is caught" "$work/take-gap.wav"
+
 if [ "$fails" -eq 0 ]; then echo "selftest passed: every assertion passes the good input and fails the broken one"; else echo "selftest FAILED: $fails wrong verdict(s)"; fi
 [ "$fails" -eq 0 ]

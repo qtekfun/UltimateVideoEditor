@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Process
 import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -68,7 +69,7 @@ class AndroidVoiceRecorder(
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                minBuffer * 4,
+                recordBufferBytes(minBuffer),
             )
         } catch (e: SecurityException) {
             throw VoiceException(VoiceProblem.NO_PERMISSION, e)
@@ -98,9 +99,15 @@ class AndroidVoiceRecorder(
             cleanup(delete = true, out)
             throw VoiceException(VoiceProblem.MIC_BUSY, e)
         }
-        thread = Thread({ pump(audio, out, take, minBuffer, first) }, "uv-voice").also { it.start() }
+        thread = Thread({
+            // The preview decodes video and the mixer plays while this runs: at normal priority the thread can be starved long enough for
+            // the microphone's buffer to overrun, which leaves a gap in the take.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+            pump(audio, out, take, minBuffer, first)
+        }, "uv-voice").also { it.start() }
         // Back only once the first sound arrived: from here the take is really running.
         val problem = first.await()
+        Log.i(TAG, "Recording from input type ${audio.routedDevice?.type} at ${audio.sampleRate} Hz, buffer ${recordBufferBytes(minBuffer)} bytes")
         if (problem != null) {
             cleanup(delete = true, out)
             throw VoiceException(problem)
@@ -200,5 +207,8 @@ class AndroidVoiceRecorder(
 
     private companion object {
         const val JOIN_MS = 1500L
+
+        /** At least one second of sound, so a short stall of the reading thread (or a slow external input) does not lose any of it. */
+        fun recordBufferBytes(minBuffer: Int): Int = maxOf(minBuffer * 4, SAMPLE_RATE * 2 * CHANNELS)
     }
 }
