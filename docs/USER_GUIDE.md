@@ -255,11 +255,14 @@ panel on the left.
   press **Add at the playhead** or **Add to the end**, or close it to change your mind. This works for a file of a linked folder before it is in the
   project. While a movie is being exported the preview is not available (the export needs the phone's video decoders). If you prefer a tap to add the clip
   at once, turn off **Tap on a clip previews it** in the Layout sheet; the **+** on a tile always adds at once.
-- **Voice-over** (the Audio tab): press **Record a voice-over**. The first time, Android asks to allow the microphone; if you say no, you can record with the
+- **Voice-over** (the microphone button in the tool row): the first time, Android asks to allow the microphone; if you say no, you can record with the
   phone's own recorder app instead and the file is added at the playhead. After a three-second count-in (use headphones, so the voice does not pick up the
-  sound of the video) the video plays from the playhead while the microphone records; a strip shows the time and a level meter. Press **Stop** (or let the
-  video end) and the take is added on an audio lane that is free for its whole length, or on a new one, so it never covers your music; **Discard** throws it away.
-  Undo removes the take and its lane in one step. The recording stays on your phone, in the project, and is not sent anywhere.
+  sound of the video) the video plays from the playhead while the microphone records, and a panel above the play button shows the time and a level meter.
+  **Pause** stops the video and the microphone together (the play button of the transport does the same); **Resume** goes on from the same moment, even if you moved
+  the playhead in between. **Stop and keep** (or letting the video end) adds the take on an audio lane that is free for its whole length, or on a new one, so it never covers
+  your music; **Discard** throws it away (it asks first when the take is longer than three seconds). Leaving the editor while recording or paused keeps what you recorded.
+  When the take is on the timeline the panel offers **Undo** (removes the take and its lane in one step) and **Record again**. The recording stays on your phone, in the project,
+  and is not sent anywhere. The screen stays on while you record.
 - **Add at the playhead**: tap the **+** on a tile (or tap the tile if previewing is off) (screen readers: the tile's "Add to timeline"
   action). Stickers and templates are also added with a tap.
 - **Drag onto the timeline**: press and hold a tile for a third of a second (you feel a tick) and it lifts: a

@@ -3,6 +3,15 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **A clearer voice-over.** The record button is now a microphone in the tool row (it left the Audio tab of the media tray), and recording has its own panel right above
+  the play button, in every layout, instead of a bar above the preview. It shows the count-in, the time and a level meter with **Pause**, **Stop and keep** and **Discard**
+  (which asks first for a take longer than three seconds). Pause stops the video and the microphone together and **Resume** goes on from the same moment; the play button
+  of the transport now pauses and resumes the take instead of ending it, and the take still ends when the video reaches its end. Once the take is on the timeline the panel
+  offers **Undo** and **Record again**. The panel says why the microphone is needed before Android asks, keeps the screen on while recording and wraps its buttons for large
+  fonts and narrow windows. Leaving the editor while recording or paused keeps what you recorded.
+
 ## 1.6.0
 
 - **Record a voice-over.** In the Audio tab of the media tray, **Record a voice-over** counts in three seconds, records the microphone while the video plays from the
