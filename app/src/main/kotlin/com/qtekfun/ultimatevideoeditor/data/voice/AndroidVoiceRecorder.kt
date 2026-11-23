@@ -33,17 +33,23 @@ class AndroidVoiceRecorder(
     private val running = AtomicBoolean(false)
 
     @Volatile
-    private var peak = 0f
-
-    @Volatile
-    private var bytes = 0L
+    private var writer: TakeWriter? = null
 
     @Volatile
     private var failure: VoiceProblem? = null
 
-    override val level: Float get() = peak
+    override val level: Float get() = writer?.peak ?: 0f
 
-    override val elapsedMs: Long get() = WavHeader.durationMs(bytes, SAMPLE_RATE, CHANNELS)
+    override val elapsedMs: Long get() = writer?.elapsedMs ?: 0
+
+    // While paused the microphone keeps running and its sound is dropped (see TakeWriter): resuming is instant and loses nothing.
+    override fun pause() {
+        writer?.paused = true
+    }
+
+    override fun resume() {
+        writer?.paused = false
+    }
 
     @SuppressLint("MissingPermission") // The permission is checked by the caller; a SecurityException is reported as NO_PERMISSION.
     override suspend fun start() = withContext(ioDispatcher) {
@@ -83,8 +89,8 @@ class AndroidVoiceRecorder(
         record = audio
         file = target
         failure = null
-        peak = 0f
-        bytes = 0
+        val take = TakeWriter(SAMPLE_RATE, CHANNELS) { data, length -> out.write(data, 0, length) }
+        writer = take
         running.set(true)
         try {
             audio.startRecording()
@@ -92,7 +98,7 @@ class AndroidVoiceRecorder(
             cleanup(delete = true, out)
             throw VoiceException(VoiceProblem.MIC_BUSY, e)
         }
-        thread = Thread({ pump(audio, out, minBuffer, first) }, "uv-voice").also { it.start() }
+        thread = Thread({ pump(audio, out, take, minBuffer, first) }, "uv-voice").also { it.start() }
         // Back only once the first sound arrived: from here the take is really running.
         val problem = first.await()
         if (problem != null) {
@@ -101,9 +107,8 @@ class AndroidVoiceRecorder(
         }
     }
 
-    private fun pump(audio: AudioRecord, out: RandomAccessFile, minBuffer: Int, first: CompletableDeferred<VoiceProblem?>) {
+    private fun pump(audio: AudioRecord, out: RandomAccessFile, take: TakeWriter, minBuffer: Int, first: CompletableDeferred<VoiceProblem?>) {
         val samples = ShortArray(minBuffer / 2)
-        val raw = ByteArray(samples.size * 2)
         var announced = false
         try {
             while (running.get()) {
@@ -114,21 +119,14 @@ class AndroidVoiceRecorder(
                     break
                 }
                 if (read == 0) continue
-                peak = PeakMeter.peakOf(samples, read)
-                var i = 0
-                for (s in 0 until read) {
-                    raw[i++] = (samples[s].toInt() and 0xFF).toByte()
-                    raw[i++] = ((samples[s].toInt() shr 8) and 0xFF).toByte()
-                }
                 try {
-                    out.write(raw, 0, read * 2)
+                    take.write(samples, read)
                 } catch (e: IOException) {
                     Log.w(TAG, "Cannot write the take: ${e.message}")
                     failure = VoiceProblem.DISK
                     if (!announced) first.complete(VoiceProblem.DISK)
                     break
                 }
-                bytes += read * 2L
                 if (!announced) {
                     announced = true
                     first.complete(null)
@@ -139,7 +137,7 @@ class AndroidVoiceRecorder(
             failure = VoiceProblem.MIC_BUSY
         } finally {
             if (!announced && !first.isCompleted) first.complete(failure ?: VoiceProblem.FAILED)
-            peak = 0f
+            take.silence()
             // The take is complete on disk when the loop ends; stop() reopens it to say how long it is.
             runCatching { out.close() }
         }
@@ -150,7 +148,8 @@ class AndroidVoiceRecorder(
         val problem = failure
         running.set(false)
         thread?.join(JOIN_MS)
-        val size = bytes
+        val size = writer?.bytes ?: 0
+        writer = null
         val audio = record
         record = null
         thread = null
@@ -196,7 +195,7 @@ class AndroidVoiceRecorder(
         thread = null
         if (delete) file?.delete()
         file = null
-        peak = 0f
+        writer = null
     }
 
     private companion object {
