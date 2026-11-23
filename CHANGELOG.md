@@ -3,7 +3,7 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
-## Unreleased
+## 1.7.0
 
 - **Internal: guards against code drift.** `ArchitectureGuardTest` fails the build when a Kotlin file passes 800 lines or a C++ file 1500, when `domain/`
   imports Android, Compose, `ui`, `engine` or `data` types, when JNI appears outside `engine/`, or when a new `ui/` file reaches into `data/`. Current exceptions are
