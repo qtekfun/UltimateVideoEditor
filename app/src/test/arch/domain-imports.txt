@@ -1,0 +1,7 @@
+# Files in domain/ that still import android, androidx, ui, engine or data (path relative to the package folder).
+# One path per line. ArchitectureGuardTest fails for a violation not listed here and for a listed file that no longer violates.
+# The list only ever shrinks: do not add to it.
+domain/ClipLinks.kt
+domain/GroupOps.kt
+domain/templates/TemplateBuilder.kt
+domain/templates/TemplateInstantiator.kt

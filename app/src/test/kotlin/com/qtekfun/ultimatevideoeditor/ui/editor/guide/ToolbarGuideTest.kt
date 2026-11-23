@@ -76,7 +76,7 @@ class ToolbarGuideTest {
     @Test
     fun `the guide is reachable from the editor and from About, and the online guide is only handed to the browser`() {
         assertTrue(ToolbarGuide.entries.any { it.id == "help" })
-        val editor = File(sourceRoot, "ui/editor/EditorScreen.kt").readText()
+        val editor = File(sourceRoot, "ui/editor/EditorDialogs.kt").readText()
         assertTrue(editor.contains("ToolbarGuideScreen"))
         val about = File(sourceRoot, "ui/about/AboutScreen.kt").readText()
         assertTrue(about.contains("ToolbarGuideScreen"))

@@ -110,27 +110,101 @@ Whenever a native structure changes, bump its version, keep the old reader, and 
 
 ## 6. How to add a feature safely
 
-1. **Write the domain part first**, pure Kotlin: a model change with optional JSON fields, an operation returning
-   `EditResult`, an `EditCommand` (one undo step), and tests for collisions, gaps, boundary frames, undo exactness and, if it
-   touches the base track, the randomized invariant test.
-2. **Persist it**: DTO field with a default, `TimelineMapper` both ways, a JSON test with an old project.
-3. **Make preview and export agree**: extend `RenderPlan` (and the mixer snapshot for sound) and let both read it. If a shader is needed,
-   write the CPU reference first and a host test that compares it with documented vectors.
-4. **Add the UI** as MVI: state field, intent, effect, composable; read frequently changing state (playhead) in its own scope so a tick
-   does not recompose the screen; give every control a content description and, for toolbar buttons, a tooltip.
-5. **Respect the boundaries**: no JNI outside `engine/`, no Android imports in `domain/`, no blocking work on the UI or render thread.
-6. **Respect privacy**: no network, no analytics, no ML, no third-party service. `OfflineGuaranteeTest` fails the build otherwise.
-7. **Update the docs**: the toolbar guide registry (`ui/editor/guide/ToolbarGuide.kt`; a test fails without it), the SPECS section, `docs/USER_GUIDE.md` (and its icon table), the PLAN box and a `DECISIONS.md` entry
-   with the alternative you rejected.
-8. **Verify**: JVM tests, host native tests (`scripts/run-native-tests.sh`), `./gradlew :app:assembleDebug`; then run it on a phone and
-   say in the pull request what you did and did not see (the *Verification debt* table in `PLAN.md` is the place to record it).
-   Never run `connectedAndroidTest` on a device whose app data matters: it clears it.
+A feature is a vertical slice with six parts. Each lives in its own file(s), so adding one never means growing a shared giant.
+
+| Part | Where | Rule |
+|---|---|---|
+| 1. Domain | `domain/<feature>/` | Pure Kotlin, JVM tests, no `android.*`, no Compose, no `ui`/`engine`/`data` imports. |
+| 2. Persistence | `data/model` DTO + `TimelineMapper` | New JSON fields are optional with a default; test with an old project file. |
+| 3. Preview and export | `domain/RenderPlan.kt`, the mixer snapshot | Both read the same plan; no special case in native code. |
+| 4. Intents and handler | `ui/editor/<feature>/<Feature>Handler.kt`; intents in `EditorContract.kt` | The ViewModel stays a router. |
+| 5. UI region | `ui/editor/<feature>/<Feature>Panel.kt` | One composable per region, state in, callbacks out. |
+| 6. Text, guide, tests | `res/values*/strings.xml`, `ToolbarGuide.kt`, `src/test` | English and Spanish together. |
+
+### The recipe
+
+1. **Write the domain part first.** A model change with optional JSON fields, an operation returning `EditResult`, an `EditCommand`
+   (one undo step), and tests for collisions, gaps, boundary frames, undo exactness and, when it touches the base track, the randomized
+   invariant test. Time is integer `FrameIndex`; never seconds or floats for positions.
+2. **Persist it.** DTO field with a default, `TimelineMapper` both ways, a JSON test that loads an old project.
+3. **Make preview and export agree.** Extend `RenderPlan` (and the mixer snapshot for sound) and let both read it. If a shader is
+   needed, write the CPU reference first and a host test that compares it with documented vectors.
+4. **Add an intent group and its handler.** The feature's intents are cases of `EditorIntent` in `EditorContract.kt`; its
+   behaviour is `internal class <Feature>Handler(host: EditorHost, ...) : EditorHost by host`, which reaches state, effects and
+   scope only through the small `EditorHost` interface (a `FakeEditorHost` makes it testable), with the business logic in
+   `domain/`. `EditorViewModel` only maps an intent to its handler and holds no feature logic. A handler is plain Kotlin and is unit tested without Compose or a device. State that changes often
+   (the playhead) is read in its own scope so a tick does not recompose the screen.
+5. **Add one UI region.** A composable in `ui/editor/<feature>/` that receives immutable state and callbacks; `EditorScreen` only
+   places it. Give every control a content description and, for toolbar buttons, a tooltip. Layout decisions (what wraps, scrolls or
+   goes into a menu at 320 dp or font scale 2.0) are pure functions with a window x font-scale test, like `ChromeLayout`.
+6. **Text.** Every string is in `res/values/strings.xml` and `res/values-es/strings.xml`: `stringResource` in a composable, a `UiText`
+   anywhere else; positional arguments and plurals, never text built from fragments (SPECS 5.43, `docs/TRANSLATING.md`).
+   `TranslationsGuardTest` and `HardCodedTextRatchetTest` fail otherwise.
+7. **Toolbar guide.** A feature with an icon needs its entry in `ui/editor/guide/ToolbarGuide.kt`; `ToolbarGuideTest` fails without it.
+   Add the row to `docs/USER_GUIDE.md` (and its icon table).
+8. **Respect the boundaries and privacy.** No JNI outside `engine/`, no blocking work on the UI or render thread, no network, no
+   analytics, no ML, no third-party service (`OfflineGuaranteeTest`).
+9. **Update the docs.** The SPECS section, the PLAN box, a `DECISIONS.md` entry with the alternative you rejected, and the `CHANGELOG.md`
+   line.
+10. **Verify.** `./gradlew :app:testDebugUnitTest :app:assembleDebug`, `scripts/run-native-tests.sh` for native changes, then a phone
+    (record what you did and did not see in the pull request and in the *Verification debt* table of `PLAN.md`). Never run
+    `connectedAndroidTest` on a device whose app data matters: it clears it.
+
+### Size limits and ratchets
+
+These are enforced by tests, not by convention (`ArchitectureGuardTest`, `DECISIONS.md` "Guards, not prose"):
+
+| Rule | Limit or check |
+|---|---|
+| Kotlin source file | at most **800** lines |
+| C++ source or header | at most **1500** lines (host tests: 2000) |
+| Kotlin test file | at most 1500 lines |
+| `domain/` | imports nothing from `android.*`, `androidx.*`, `ui`, `engine`, `data` |
+| JNI (`external fun`, `System.loadLibrary`) | only in `engine/` |
+| Compose imports | only in `ui/` (never `domain/` or `data/`) |
+| `ui/` importing `data/` classes | only files on the allow-list |
+| User-visible text | only through resources or `UiText` (`HardCodedTextRatchetTest`) |
+| Debug properties | only the allow-listed ones, none may switch a fix off (`DebugPropertyGuardTest`) |
+| Network | none (`OfflineGuaranteeTest`) |
+
+The existing exceptions are listed in `app/src/test/arch/` (`oversized.txt`, `domain-imports.txt`, `ui-data-imports.txt`). Each list is a
+**ratchet**: a new violation fails, and so does a listed file that no longer violates, so the list can only shrink. When the test tells
+you a file is fixed, delete its line. Never add a line to make a build pass; split the file or move the type instead. If a file is on a
+list because it is being split, the split removes the line in the same change.
+
+### Screenshot tests
+
+Layout regressions (cut-off controls at 320 dp or font scale 2.0) are caught on the JVM with Robolectric and Roborazzi: a test renders a
+composable and compares it with a small PNG in `app/src/test/screenshots/` (see `TransportRowScreenshotTest`). They run with the normal
+`./gradlew :app:testDebugUnitTest` (verify mode). After an intended visual change, re-record and commit the changed PNGs with the change:
+
+```
+./gradlew :app:testDebugUnitTest --tests '*ScreenshotTest' -Puveditor.recordScreenshots
+```
+
+Keep each shot small (1 px = 1 dp, `mdpi`, a single component) so goldens stay a few kilobytes. These libraries are test-only and run
+fully offline (`THIRD_PARTY_NOTICES.md`).
 
 ### Text and languages
 
 New user-visible text goes in `res/values/strings.xml` and its Spanish in `values-es/strings.xml`, never in code: `stringResource` in a
 composable, a `UiText` anywhere else (view model state, effects, notification models, pure builders). See SPECS 5.43 and
 `docs/TRANSLATING.md`; `HardCodedTextRatchetTest` fails for a new literal outside the allow-list.
+
+### Where things live
+
+| Kind of code | Place |
+|---|---|
+| Pure rules, edit operations, models, render plan, parsers | `domain/` (and its feature subpackages) |
+| Files, stores, DTOs, import, relink, interchange | `data/` |
+| Everything that crosses JNI, and the Kotlin facades of native services | `engine/` only |
+| Screens, sheets, panels, their ViewModels, intents and handlers | `ui/<screen>/` and `ui/editor/<feature>/` |
+| Pure layout decisions (what fits, what wraps) | `ui/editor/layout/` |
+| Text for the user | `res/values*/strings.xml`, `UiText` |
+| Toolbar icon documentation | `ui/editor/guide/ToolbarGuide.kt` |
+| Native logic with no Android dependency | `cpp/<area>/` plus a host test in `cpp/tests/` |
+| JNI glue | `cpp/jni/` (bindings only) |
+| Guards | `app/src/test/.../qa/`, allow-lists in `app/src/test/arch/` and `app/src/test/i18n/` |
 
 ## 7. Where to look
 

@@ -14,6 +14,14 @@ licensed under the Apache License 2.0.
 The app is built with the Android Jetpack libraries, Kotlin, kotlinx.coroutines and kotlinx.serialization, all
 licensed under the Apache License 2.0.
 
+## Test-only libraries (not part of the app)
+
+The JVM screenshot tests (`docs/ARCHITECTURE.md`, "Screenshot tests") use [Robolectric](https://robolectric.org) 4.17 (MIT), its
+Android framework jar `org.robolectric:android-all-instrumented` (Apache-2.0, built from the Android Open Source Project) and
+[Roborazzi](https://github.com/takahirom/roborazzi) 1.76.0 (Apache-2.0), plus Compose's `ui-test-junit4` (Apache-2.0). They are
+`testImplementation` dependencies only: they are not in the APK or the app bundle and run offline (`OfflineGuaranteeTest` checks the
+app's dependencies and permissions).
+
 ## Translations
 
 The Spanish (and any later) translations of the app's texts are written by the project's contributors, are part of the source tree

@@ -54,7 +54,15 @@ abstract class CopyLegalAssets : DefaultTask() {
     }
 }
 
-val copyLegalAssets = tasks.register<CopyLegalAssets>("copyLegalAssets") {
+// The Android framework jar Robolectric runs the screenshot tests against (test-only, never in the app).
+val robolectricAndroidAll = configurations.create("robolectricAndroidAll") { isCanBeConsumed = false }
+val robolectricAndroidAllDir = layout.buildDirectory.dir("robolectric-android-all")
+val syncRobolectricAndroidAll = tasks.register<Sync>("syncRobolectricAndroidAll") {
+    from(robolectricAndroidAll)
+    into(robolectricAndroidAllDir)
+}
+
+val copyLegalAssets =tasks.register<CopyLegalAssets>("copyLegalAssets") {
     notices.set(rootProject.file("THIRD_PARTY_NOTICES.md"))
     privacy.set(rootProject.file("docs/PRIVACY.md"))
     privacyTranslations.from(rootProject.fileTree("docs") { include("PRIVACY.*.md") })
@@ -144,11 +152,26 @@ android {
     }
 
     testOptions {
+        unitTests.isIncludeAndroidResources = true
         unitTests.all {
             // Numbers, dates and sizes are formatted with the language in use; the tests assert on English text, so the JVM
             // must not pick up the language of the machine that runs them.
             it.systemProperty("user.language", "en")
             it.systemProperty("user.country", "US")
+            // Screenshot goldens (src/test/screenshots) are verified by default; -Puveditor.recordScreenshots rewrites them.
+            // Robolectric's file-descriptor shadow reaches into the JDK on 17+.
+            it.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+            val record = providers.gradleProperty("uveditor.recordScreenshots").isPresent
+            it.systemProperty(if (record) "roborazzi.test.record" else "roborazzi.test.verify", "true")
+            // Robolectric must never fetch its Android jar by itself while the tests run: Gradle resolves it (and caches it) as a
+            // test-only dependency and Robolectric is told to stay offline and read it from this folder.
+            it.dependsOn(syncRobolectricAndroidAll)
+            it.systemProperty("robolectric.offline", "true")
+            it.systemProperty("robolectric.dependency.dir", robolectricAndroidAllDir.get().asFile.absolutePath)
+            // ArchitectureGuardTest reads these as text and the screenshot goldens are compared by the tests; declare them so Gradle
+            // re-runs the tests when one changes.
+            it.inputs.files(fileTree("src/test/arch"), fileTree("src/main/cpp"), fileTree("src/androidTest"), fileTree("src/test/screenshots"))
+                .withPropertyName("architectureGuardSources").withPathSensitivity(PathSensitivity.RELATIVE)
         }
     }
 
@@ -199,6 +222,13 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    robolectricAndroidAll(libs.robolectric.android.all)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

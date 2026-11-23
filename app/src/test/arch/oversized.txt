@@ -1,0 +1,5 @@
+# Hand-written files over their size limit (path relative to the repository root). Limits: Kotlin 800, C++ 1500, C++ tests 2000, Kotlin tests 1500 lines.
+# One path per line. ArchitectureGuardTest fails for a violation not listed here and for a listed file that no longer violates.
+# The list only ever shrinks: do not add to it.
+app/src/main/cpp/tests/audio_host_tests.cpp
+app/src/main/cpp/timeline_view/timeline_renderer.cpp

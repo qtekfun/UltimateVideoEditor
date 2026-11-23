@@ -69,6 +69,17 @@ app/                        Android app module (Compose UI, MVI, navigation)
   src/main/kotlin/com/qtekfun/ultimatevideoeditor/
     ui/hub/        Project hub (library: continue card, storage card, list/grid, multi-select, new project dialog, clone/rename/delete/import/export)
     ui/editor/     Editor: EditorViewModel (MVI), timeline host, inspector, transport, EditorPreview/EditorAudio
+      EditorViewModel is a thin router: it owns the state, the undo history and the effect channel, and sends each intent to the
+      feature handler that owns it (`EditorHost` is all a handler sees of it; see DECISIONS.md, "Editor features are handlers").
+      EditorState / EditorContract (intents, effects) / EditorUiState are the contract; EditorSnapshot encodes the native canvas.
+      playback/      PlaybackController: transport, playhead, audio-clock sync
+      project/       ProjectPersistence (autosave), HistorySync (state after undo/redo)
+      media/ relink/ MediaHealthHandler (missing files), RelinkHandler (one file, or folders)
+      timeline/      Selection, TimelineDrag, Split, Lane, Marker, Beat, Retime, Transition handlers
+      appearance/    Appearance, Fx, Keyframe, ParamKey, Qualifier, HdrLevel, Stabilise, MotionTrack handlers
+      audio/         AudioEdit (sliders, shaping), AudioAnalysis (loudness, noise), AudioLink (detach/relink)
+      title/ quickedit/  TitleHandler (titles, stickers, captions, templates), QuickEditHandler (auto cut, reframe)
+      tray/ library/ interchange/ voice/  PlacementHandler, MediaImportHandler, TrayDragHandler, LibraryHandler, InterchangeHandler, VoiceOverPlacementHandler
     ui/preview/    Preview SurfaceView host
     ui/export/     Export dialog and ViewModel
     mvi/           Contracts: State, Intent, Effect, base ViewModel
@@ -1521,7 +1532,7 @@ black theme), draws the system bars transparent with light icons (`SystemBarStyl
 window background, light-icon bars and a dark splash background.
 **One source of truth.** The native renderers do not keep a second palette: `Palette.nativeColours()` is a flat list of
 `NATIVE_COLOUR_COUNT` (22) ARGB values in a fixed order (background, lane A/B, ruler, tick, ruler text, six block colours, on-block text,
-playhead, selection, keyframe, marker, header tab, on-surface, on-surface-variant, primary, error) that `EditorScreen` pushes through
+playhead, selection, keyframe, marker, header tab, on-surface, on-surface-variant, primary, error) that the editor (`EditorEngines`) pushes through
 `TimelineEngine.setPalette` (JNI `nativeSetPalette`) whenever the palette changes; `timeline_theme.h` reads them in the same order and
 ignores a list of another length (the defaults, which equal `Palette.Dark`, stay). Colours that carry their own meaning on any theme
 (drop-target amber / orange / green / red, the missing-media red veil, transition bands) stay constants in the renderer.
@@ -2579,7 +2590,7 @@ for what was left out (drag of stickers/templates, a native "place" indicator).
   `editor_layout` SharedPreferences, e.g. `import,split,-proxy,...`, `-` = hidden) held by `EditorLayoutController.toolbarOrder`, edited
   from the layout sheet's "Edit toolbar" dialog (`ToolbarEditorDialog`). `parse` ignores unknown ids and repeated ids, forces mandatory
   items visible, and puts an id missing from the saved text (a button added later) back, visible, right after its predecessor in the
-  default order. A new button therefore needs a `ToolbarItem` entry, a `when` branch in `EditorScreen` and a `ToolbarGuide` entry.
+  default order. A new button therefore needs a `ToolbarItem` entry, a `when` branch in `EditorToolRow` and a `ToolbarGuide` entry.
 - **Panels:** the tray, inspector and scopes are dockable panels that can sit at the bottom, left or right
   (on wide windows), collapsed to an edge handle, or floating on tablets (stretch goal); full-screen preview
   toggle already exists.
