@@ -2196,3 +2196,20 @@ The decoded-frame cache budget was a constant 1 GiB ("the reference for high-end
 **New feature:** add `ui/editor/<feature>/XHandler.kt` (extend `EditorHost by host`, list collaborators as constructor parameters), one line in the ViewModel's handler block, and one line in `onIntent` that forwards the intent; do not add logic to the ViewModel. An intent family may be its own sealed interface (`SelectionIntent`, `MarkerIntent`...) so one line routes all of it. Public intents, effects and state classes keep their names and package, so the UI did not change.
 **Alternatives:** a `handle(intent)` method per handler with a registry (loses the compile-time exhaustiveness of the `when`); splitting `EditorIntent` into top-level feature interfaces (every `EditorIntent.X` call site in the UI would change); extension functions on one session object (the code moves but the coupling does not). `changeCanvas`, `changeColorSpace`, `load`, undo and redo stay in the ViewModel because they replace the history itself.
 
+## Voice-over capture: why the take had the video's sound over its start, and what now prevents it (1.7.1)
+
+**What the owner saw (1.7.0, a USB microphone):** every take began with another sound over it, and parts of it were cut. **Cause:** the timeline played through the
+phone's speaker from the first frame of the take and the microphone, external or not, recorded it. The only protection was a line of text asking for headphones.
+The capture thread also ran at normal priority with the system's minimum buffer while the editor decoded video, so a busy moment could overrun the microphone.
+**Why it got out:** (1) the controller was tested with a fake recorder, which cannot hear; (2) the device pass in 1.6.1 checked the states and the layout of the
+bar and never listened to or measured a take, although the takes were on the phone and show the defect plainly (a peak of 7000 about 250 ms in, over a take level
+of about 100); (3) one input and one output were tried, the phone's microphone and speaker, never an external microphone, headphones or a headset; (4) the
+design leaned on the person to do the right thing instead of making the wrong thing impossible.
+**Chosen:** without a headset, headphones or Bluetooth output the timeline is silent from the count-in to the end of the take (`MonitorOutput`, `timelineSilenced`,
+`EditorAudio.setSilenced`); the capture thread has audio priority and a buffer of at least a second. **Guards:** `VoiceOverControllerTest`, `MonitorOutputTest`,
+`MutedSnapshotTest` and `VoiceCaptureGuardTest` keep the logic and its wiring; `scripts/qa/check-take.py` measures a real take for a burst at the start and for
+gaps (its selftest proves it fails on both, and it fails on the old takes of the Pixel and passes on a new one); `docs/RELEASE.md` step 7 now has a capture
+matrix: phone microphone with the speaker, a headset, a USB microphone, each pulled and checked, and an untested setup is written down as untested.
+**Not solved, said plainly:** the cut was not reproduced, and the audio priority and buffer are the likely fix, not a measured one; a Bluetooth microphone is limited
+by Android to a low sample rate; the first seam after a pause starts the microphone slightly before the timeline's sound is heard.
+

@@ -120,6 +120,11 @@ To publish: set `versionName` in `gradle/version.properties`, merge, then `git t
    `flock /tmp/gradle-build.lock ./gradlew :app:assembleDebug -Puveditor.appIdSuffix=qa && scripts/qa-smoke.sh <serial> --install`
    (no `--quick`). Every row must be PASS (a SKIP needs a written reason); paste the RESULT line and the date in the log below.
    Any FAIL blocks the release until it is fixed or the check is shown to be wrong (and then the check is fixed).
+   **Capture matrix (any change to the voice-over, the microphone or playback routing):** record a take of at least 5 s on a device, with the
+   timeline playing a loud clip, in each of these setups the change could affect: the phone's own microphone through its speaker, a wired or
+   Bluetooth headset, and a USB microphone with the speaker. Stay quiet for the first second. Pull each take
+   (`run-as <qa package> cat files/projects/<id>/voice/<take>.wav`) and run `python3 scripts/qa/check-take.py <take>`; every take must be OK, and
+   listen to the start and to a pause/resume seam. A setup that cannot be tested is written down as untested in the release log, not skipped.
 8. Tag `v<versionName>`, run the release workflow, download the artifacts, check the checksums, keep `mapping.txt.gz`.
 9. Store listing updated (below).
 10. **Languages:** `lintRelease` and `TranslationsGuardTest` are green (every language has every string, same format arguments); on the

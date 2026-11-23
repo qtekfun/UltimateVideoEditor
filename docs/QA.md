@@ -144,6 +144,7 @@ and the project did not jump to the top of the list unless you edited it.
 - Audio quality, A/V sync (`scripts/av-drift-test.sh`), slow motion, repair and stabiliser (their own scripts), titles, transitions,
   4K, long GOP at 4K (`scripts/run-export-throughput.sh`), thermal behaviour, other Android versions than the one on the phone.
 - The unsuffixed app on the phone: by design, nothing here touches it.
+| D15 | A voice-over take recorded with a USB microphone had the video's sound over its start (the speaker's sound entered the microphone as soon as the timeline started) and could lose stretches when the editor was busy | `VoiceOverControllerTest` (the timeline is silent from the count-in to the end of a take without headphones), `MonitorOutputTest`, `MutedSnapshotTest`, `VoiceCaptureGuardTest` (audio priority, one-second buffer, the silencing wiring) | `scripts/qa/check-take.py <take.wav>` on a take pulled from the device; `selftest.sh` proves it fails on a burst at the start and on a gap. By hand, see RELEASE step 7 |
 
 ## Release gate
 
