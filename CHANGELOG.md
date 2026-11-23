@@ -3,6 +3,12 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **Voice-overs and WAV files played their first seconds in the wrong order.** The start of a take was heard repeated and out of order ("edge 70 fusion motorola edge fusion"), in
+  the preview and in the export; the recording itself was always fine. The decoder for raw PCM fed the next block of the file before the previous one had been read out, and the codec
+  reuses that memory. It now feeds one block at a time for raw PCM. Takes already recorded play correctly with no action needed.
+
 ## 1.7.1
 
 - **Voice-over takes no longer pick up the video's sound.** Without headphones, a headset or a Bluetooth output the timeline is silent from the count-in to the end of the
