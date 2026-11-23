@@ -10,6 +10,7 @@ import com.qtekfun.ultimatevideoeditor.data.voice.VoiceRecorder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -27,8 +28,14 @@ sealed interface VoiceState {
     /** Recording: how long, and how loud (0..1). */
     data class Recording(val elapsedMs: Long, val level: Float) : VoiceState
 
+    /** Paused after [elapsedMs] of recording: the timeline and the microphone are both stopped, so the take holds only what was recorded. */
+    data class Paused(val elapsedMs: Long) : VoiceState
+
     /** The take is being closed and put on the timeline. */
     data object Finishing : VoiceState
+
+    /** The take is on the timeline; the person can undo it or record again. Goes to [Idle] by itself after a while. */
+    data object Added : VoiceState
 
     /** The last attempt failed; [Idle] again after the person acknowledges it. */
     data class Failed(val problem: VoiceProblem) : VoiceState
@@ -44,15 +51,23 @@ interface VoicePlayback {
     /** The playhead in project frames. */
     fun playheadFrame(): Long
 
+    /** The end of the timeline in project frames; playback stopping there ends a take. */
+    fun endFrame(): Long
+
     fun play()
 
     fun pause()
+
+    /** Moves the playhead to [frame]. */
+    fun seek(frame: Long)
 }
 
 /**
  * The voice-over: asks for the microphone once, counts in, records while the timeline plays, and hands the take to the editor when it
- * ends. Compose state, tested on the JVM with a fake [VoiceRecorder]. A recording ends when the person stops it, when the timeline
- * stops by itself (its end, or the play button), when the app leaves the screen, or at [MAX_TAKE_MS]; what was recorded is then kept.
+ * ends. Compose state, tested on the JVM with a fake [VoiceRecorder]. A take can be paused: the timeline and the microphone stop
+ * together, so timeline time and take time stay contiguous, and resuming goes on from the playhead position it paused at. The play
+ * button of the transport pauses and resumes the take too. A recording ends, and what was recorded is kept, when the person stops it,
+ * when the timeline reaches its end, when the app leaves the screen, or at [MAX_TAKE_MS] of recorded (not paused) time.
  */
 @Stable
 class VoiceOverController(
@@ -72,17 +87,29 @@ class VoiceOverController(
         private set
 
     private var job: Job? = null
+    private var addedJob: Job? = null
     private var startFrame = 0L
+    private var pausedFrame = 0L
     private var leadMs = 0L
     private var startedPlayback = false
     private var seenPlaying = false
 
     /** True while anything is going on, so the editor knows the button is busy. */
-    val active: Boolean get() = state !is VoiceState.Idle && state !is VoiceState.Failed
+    val active: Boolean get() = state !is VoiceState.Idle && state !is VoiceState.Failed && state !is VoiceState.Added
+
+    /** True when throwing the take away should ask first: it is longer than [CONFIRM_DISCARD_MS]. */
+    val discardNeedsConfirmation: Boolean
+        get() = when (val s = state) {
+            is VoiceState.Recording -> s.elapsedMs > CONFIRM_DISCARD_MS
+            is VoiceState.Paused -> s.elapsedMs > CONFIRM_DISCARD_MS
+            else -> false
+        }
 
     /** The record button. Asks for the microphone first if it is not allowed yet. */
     fun start() {
         if (active) return
+        addedJob?.cancel()
+        if (state is VoiceState.Added) state = VoiceState.Idle
         if (!hasPermission()) {
             state = VoiceState.AskingPermission
             requestPermission()
@@ -100,12 +127,36 @@ class VoiceOverController(
     /** Stops and keeps the take. */
     fun stop() {
         val current = state
-        if (current !is VoiceState.Recording) {
+        if (current !is VoiceState.Recording && current !is VoiceState.Paused) {
             // Still counting in: nothing was recorded, so this is a cancel.
             if (current is VoiceState.Counting) cancel()
             return
         }
         finish()
+    }
+
+    /** Stops the timeline and the microphone together; [resume] goes on from the same frame and appends to the same take. */
+    fun pause() {
+        if (state !is VoiceState.Recording) return
+        job?.cancel()
+        pausedFrame = playback.playheadFrame()
+        recorder.pause()
+        state = VoiceState.Paused(recorder.elapsedMs)
+        if (playback.isPlaying) playback.pause()
+    }
+
+    /** Continues a paused take from the playhead position it paused at, even if the playhead was moved meanwhile. */
+    fun resume() {
+        if (state !is VoiceState.Paused) return
+        if (playback.playheadFrame() != pausedFrame) {
+            if (playback.isPlaying) playback.pause()
+            playback.seek(pausedFrame)
+        }
+        recorder.resume()
+        seenPlaying = playback.isPlaying
+        state = VoiceState.Recording(recorder.elapsedMs, 0f)
+        if (!playback.isPlaying) playback.play()
+        job = scope.launch { tickLoop() }
     }
 
     /** Stops and throws the take away. */
@@ -118,18 +169,30 @@ class VoiceOverController(
     }
 
     /**
-     * The timeline started or stopped playing. While recording, once it has been seen playing, a stop (its end, or the play button) ends
-     * the take there; the start itself, which the controller asked for, is not mistaken for a stop.
+     * The timeline started or stopped playing. While recording, once it has been seen playing, a stop at the end of the timeline ends
+     * the take there and any other stop (the transport's pause button) pauses it; the start itself, which the controller asked for, is
+     * not mistaken for a stop, and neither is a notification that lags behind the playback it describes. While paused, the transport's
+     * play button resumes the take.
      */
     fun onPlaybackChanged(playing: Boolean) {
-        if (state !is VoiceState.Recording) return
-        if (playing) seenPlaying = true else if (seenPlaying) finish()
+        when (state) {
+            is VoiceState.Recording -> {
+                if (playing) {
+                    seenPlaying = true
+                } else if (seenPlaying && !playback.isPlaying) {
+                    val end = playback.endFrame()
+                    if (end > 0 && playback.playheadFrame() >= end) finish() else pause()
+                }
+            }
+            is VoiceState.Paused -> if (playing) resume()
+            else -> Unit
+        }
     }
 
-    /** The screen is going away: what was recorded is kept, a count-in is dropped. */
+    /** The screen is going away: what was recorded is kept, even when paused; a count-in is dropped. */
     fun onLeaving() {
         when (state) {
-            is VoiceState.Recording -> finish()
+            is VoiceState.Recording, is VoiceState.Paused -> finish()
             is VoiceState.Counting, VoiceState.AskingPermission -> cancel()
             else -> Unit
         }
@@ -138,6 +201,23 @@ class VoiceOverController(
     /** The person saw the failure. */
     fun dismissFailure() {
         if (state is VoiceState.Failed) state = VoiceState.Idle
+    }
+
+    /** The editor put the take on the timeline: undo and another take are offered for a while. */
+    fun onPlaced() {
+        if (state != VoiceState.Idle) return
+        state = VoiceState.Added
+        addedJob?.cancel()
+        addedJob = scope.launch {
+            delay(ADDED_SHOWN_MS)
+            if (state == VoiceState.Added) state = VoiceState.Idle
+        }
+    }
+
+    /** The person is done with the confirmation, or acted on it. */
+    fun dismissAdded() {
+        addedJob?.cancel()
+        if (state == VoiceState.Added) state = VoiceState.Idle
     }
 
     private fun begin() {
@@ -157,15 +237,7 @@ class VoiceOverController(
                 playback.play()
                 startedPlayback = true
                 state = VoiceState.Recording(0, 0f)
-                while (isActive) {
-                    delay(tickMs)
-                    val elapsed = recorder.elapsedMs
-                    if (elapsed >= MAX_TAKE_MS) {
-                        finish()
-                        return@launch
-                    }
-                    state = VoiceState.Recording(elapsed, recorder.level)
-                }
+                tickLoop()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: VoiceException) {
@@ -177,8 +249,22 @@ class VoiceOverController(
         }
     }
 
+    /** Keeps the clock and the meter current while recording; ends the take at [MAX_TAKE_MS] of recorded time. */
+    private suspend fun tickLoop() {
+        while (currentCoroutineContext().isActive) {
+            delay(tickMs)
+            if (playback.isPlaying) seenPlaying = true
+            val elapsed = recorder.elapsedMs
+            if (elapsed >= MAX_TAKE_MS) {
+                finish()
+                return
+            }
+            state = VoiceState.Recording(elapsed, recorder.level)
+        }
+    }
+
     private fun finish() {
-        if (state !is VoiceState.Recording) return
+        if (state !is VoiceState.Recording && state !is VoiceState.Paused) return
         job?.cancel()
         state = VoiceState.Finishing
         playback.pause()
@@ -199,5 +285,11 @@ class VoiceOverController(
     companion object {
         /** A take ends by itself after this long: a safeguard for the phone's storage and for a take someone forgot. */
         const val MAX_TAKE_MS = 20L * 60 * 1000
+
+        /** Discarding a take longer than this asks first. */
+        const val CONFIRM_DISCARD_MS = 3_000L
+
+        /** How long the "added" confirmation stays offered. */
+        const val ADDED_SHOWN_MS = 10_000L
     }
 }

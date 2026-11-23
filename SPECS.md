@@ -266,6 +266,18 @@ role (`HubTopBar`, `HubCards` with `ContinueCard` and `StorageCard`, `HubList` w
   hinge (`TABLETOP`) is stacked with the divider at the middle; a vertical hinge (`BOOK`) is side by side split at the middle. The posture is
   part of the `LayoutKey` (id suffix `-tabletop` / `-book`; every other id is unchanged), and a layout saved before workspaces existed reads as
   stacked (`ws` missing in `LayoutCodec`). Covered by `WorkspaceTest` (rules, defaults, reducer, codec, column maths).
+- **Editor chrome in small or scaled windows** (`layout/ChromeLayout.kt`, pure; applied by `EditorChromeBars.kt` and `PreviewTimelineLayout`).
+  Nothing in the editor's own controls is cut off or overlaps; what does not fit goes into a "More actions" menu (`SelectionIcons.More`).
+  *Top bar* (`resolveTopBar(width, fontScale)`): the name keeps 56 dp x font scale and ends in an ellipsis; actions leave in the order Help,
+  Layout, Redo (Back, Undo and Export always stay). *Transport row* (`resolveTransport`): previous / play / next stay centred, the timecode
+  and the actions each get half of what the three buttons leave; when that is short, frame save, zoom and finally Fit move to the menu, then
+  the timecode turns compact (`formatTimecodeCompact`, `MMM:SS:FF`), then the row splits in two lines. The timecode follows the system
+  font up to 1.3x only. *Vertical budget* (`chromeMaxHeight`, `resolveStacked`): the controls are measured with a maximum height that leaves
+  the preview 72 dp and the timeline 96 dp, and scroll vertically when taller (they keep at least 48 dp); the divider share is clamped to
+  those minimums, and a block shorter than all three shares what it has in proportion. Side by side keeps 96 dp for the picture and 240 dp
+  for the controls and the timeline (`resolveSideSplit`) and the controls leave the timeline 96 dp. The drop-mode and marker chips sit side by
+  side only in a wide timeline and stack otherwise (`overlayChipLayout`); the marker popup scrolls in what is left under the ruler.
+  `resolveColumns` never returns negative widths. Covered by `ChromeLayoutTest` over a matrix of window sizes and font scales 1, 1.3 and 2.
 
 ### 5.2 Engine boundary (JNI)
 - Kotlin facade `EngineClient` is the only caller of native methods. JNI calls are cheap and non-blocking;
@@ -1973,6 +1985,30 @@ of the domain, a message of the encoder or the system), names and sample text th
 of the built-in templates, "Track 1" is worded when shown), the text of a crash report (addressed to the developer), the `<note>` written inside an
 FCPXML file, the online user guide and the website. Every such line says why with `// i18n-ok: reason`.
 
+### 5.45 Panels that fit the window
+
+Every panel, sheet and dialog below the editor's own rows has to stay usable when the window is short or narrow (a phone sideways,
+split screen, a folded or unfolded device) and when the system font is enlarged. The sizes are decided by pure functions, with a
+table-driven test over the window and font-scale matrix (320x568, 360x640, 411x891, 640x360, 600x960, 840x1200, 1280x800; font 0.85 to 2.0).
+
+- **Bottom tray** (`ui/editor/tray/TraySizing.kt`). The body height is a fraction of the window height: half is 32 % (160 to 280 dp), full is
+  55 % (240 to 520 dp), always at most what is left after the editor rows (150 dp times the font scale), a minimum picture (120 dp), a minimum
+  timeline (140 dp) and the tray header (48 dp times the font scale). A body that would be under 96 dp is not shown: the tray shows its header
+  only, and the header keeps its fold button while the tray is open so it can be closed. The window height is the one the activity reports
+  (`LocalConfiguration.screenHeightDp`), which follows split screen. The side-panel tray fills its column and scrolls its own content.
+- **Tray controls.** Search, Pick and List/Grid sit in a flow row (they wrap), the field has a minimum height instead of a fixed one, and the
+  whole block (controls, chips, pick row, drag hint) scrolls inside at most half of the body (`CappedControls`), so the list below keeps room.
+  The five tabs scroll sideways when they do not fit. The grid's tile minimum is 96 dp times the font scale (at most 1.6), never wider than the
+  panel. List rows have a minimum height, not a fixed one. The same applies to the Folders tab and to the clip preview sheet, whose picture is
+  at most 40 % of the window height and whose two add buttons wrap.
+- **Sheets and dialogs** (`ui/SheetSizing.kt`). A list inside a sheet or dialog is at most its usual height but no more than the window minus
+  180 dp times the font scale (never under 96 dp), and the sheet around it scrolls (cut silences, library, flag list, templates, reframe).
+  Rows of buttons and chips use `FlowRow`; a dialog's text that can be long scrolls (looks list, tips). Fixed label columns next to sliders grow
+  with the font scale (`labelWidth`, at most 1.6). The marker card over the timeline is at most 60 % of the window height and scrolls.
+- **Left as they were** (judged fine): the Layout sheet, the mixer and the title tools (already scroll, chips scroll sideways), the export
+  dialog (its settings scroll under a fixed size line), the relink dialog, the toolbar guide (full-screen dialog with a Scaffold that applies
+  the insets and a 640 dp column), the project list and its dialogs, About, the New project form.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
@@ -2368,17 +2404,37 @@ checklist in the PR.
 
 ### 9.13c Voice-over
 
-**Behaviour.** The Audio tab of the media tray has **Record a voice-over**. The first press asks for the microphone (runtime permission `RECORD_AUDIO`, never at
-start; `docs/PRIVACY.md`). Then a strip above the preview counts in three seconds (with the tip to use headphones), the microphone starts, the timeline plays from
-the playhead and the strip shows the time, a level meter and **Stop** / **Discard**. A take ends when it is stopped, when the timeline stops by itself (its end, or the
-play button), when the app leaves the screen (what was recorded is kept; a count-in is dropped) or at 20 minutes. The take becomes an ordinary audio asset and a clip
+**Entry point.** A microphone button in the editor's tool row (`ToolbarItem.VOICE_OVER`, id `voice-over`, by default right after Clip volume; it can be moved or hidden like any
+tool). There is no button in the media tray. The first press asks for the microphone (runtime permission `RECORD_AUDIO`, never at start; `docs/PRIVACY.md`); while the
+question is open the panel says why the microphone is needed (only for this recording, which stays on the phone).
+
+**Recorder panel.** `VoiceOverPanel` (`ui/editor/voice/VoiceOverUi.kt`) is drawn at the top of the `chrome` slot of `PreviewTimelineLayout`, right above the transport row and the
+tool row, so it is in the same place in the stacked, workbench and side-by-side workspaces and never covers the preview. One state at a time:
+- **Counting**: the big number, the tip to use headphones, **Cancel**.
+- **Recording**: a red dot, "Recording", the recorded time, a level meter and three labelled buttons: **Pause**, **Stop and keep** (primary), **Discard**. Discarding a take longer than
+  3 s asks first.
+- **Paused**: "Paused", the time, **Resume** (primary), **Stop and keep**, **Discard**.
+- **Finishing**: progress. **Failed**: the message and what to do next (the system recorder for a refused permission). **Added**: "Voice-over added" with **Undo** (the placement is one
+  undo step), **Record again** and **Done**; it goes away by itself after 10 s (`EditorEffect.VoiceOverPlaced`, sent by the view model once the clip is on the timeline).
+The buttons are at least 48 dp tall and wrap into rows by `RecorderLayout.columns(width, fontScale, count)` (pure, unit tested), so nothing is clipped at 320 dp or at font scale 2.0. Only the
+status words are a live region (not the clock, which would be read out on every tick). The screen is kept on while counting, recording or paused, and a haptic tick marks the start and
+the end of the microphone.
+
+**Pause and what ends a take.** Pausing (the panel's **Pause**, or the transport's pause button) stops the timeline **and** the microphone together, and the take file only
+receives recorded sound, so timeline time and take time stay contiguous across any number of pauses. **Resume** (or the transport's play button) goes on from the playhead position
+it paused at: if the playhead was moved meanwhile it is first put back (`VoicePlayback.seek`), and the sound is appended to the same take file. The 20-minute limit counts recorded
+time only. A take ends, and what was recorded is kept, when **Stop and keep** is pressed, when the timeline reaches its end, when the app leaves the screen (also while paused; a
+count-in is dropped; the panel says so) or at 20 minutes. **Discard** drops the take. A timeline stop that is not its end (the transport's pause button, or audio focus lost) is a pause,
+not the end of the take. The take becomes an ordinary audio asset and a clip
 on **the first audio lane that is free for its whole length, else a new audio lane at the end**: it never overwrites the music under it (`domain/voice/VoicePlacement`).
 The lane (if new) and the clip are one undo step (`EditorIntent.PlaceVoiceOver`). A refused permission offers the system's recorder (`MediaStore.Audio.Media.RECORD_SOUND_ACTION`),
 whose result is imported at the playhead.
 
-**Parts.** `VoiceOverController` (`ui/editor/voice`, Compose state; count-in, recording, finishing, failures; tested with a fake `VoiceRecorder` and `VoicePlayback`).
+**Parts.** `VoiceOverController` (`ui/editor/voice`, Compose state; count-in, recording, paused, finishing, added, failures; tested with a fake `VoiceRecorder` and `VoicePlayback`).
 `AndroidVoiceRecorder` (`data/voice`): `AudioRecord` (MIC, mono, 48 kHz, 16-bit) on its own thread, written as a WAV (`WavHeader`, header patched at the end) to
-`files/projects/<id>/voice/voice-<time>.wav`, level by `PeakMeter`; `start()` returns once the first sound arrives. A WAV needs no encoder, so a take is sample-exact and
+`files/projects/<id>/voice/voice-<time>.wav`, level by `PeakMeter`; `start()` returns once the first sound arrives. `TakeWriter` (pure, unit tested) turns the samples into bytes,
+counts the recorded time and drops the sound while paused: the microphone stays open while paused (so resuming loses no sound and needs no reopening) and Android's microphone
+indicator stays on until the take ends. A WAV needs no encoder, so a take is sample-exact and
 the importer, proxies and export read it like any audio. The asset's URI is `file://` (`AndroidMediaImporter.import` takes no permission for it).
 
 **Alignment.** The microphone starts before the timeline, so the time between the two (`leadMs`) is cut from the start of the take (`VoicePlacement.trimFrames`, the clip's

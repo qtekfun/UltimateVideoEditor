@@ -62,10 +62,17 @@ internal fun DropModeChip(effective: DropKind?, choice: DropChoice, onFlip: () -
             .clickable(role = Role.Button, onClick = onFlip),
     ) {
         Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Segment(stringResource(R.string.ed_2a_insert), lit = inserting)
-            Segment(stringResource(R.string.ed_2a_overwrite), lit = !inserting)
+            // In a narrow window the labels shrink to an ellipsis instead of running out of the chip.
+            Box(Modifier.weight(1f, fill = false)) { Segment(stringResource(R.string.ed_2a_insert), lit = inserting) }
+            Box(Modifier.weight(1f, fill = false)) { Segment(stringResource(R.string.ed_2a_overwrite), lit = !inserting) }
             if (choice == DropChoice.AUTO) {
-                Text(stringResource(R.string.ed_2a_auto), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp, end = 8.dp))
+                Text(
+                    stringResource(R.string.ed_2a_auto),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                )
             }
         }
     }
@@ -78,6 +85,12 @@ private fun Segment(label: String, lit: Boolean) {
         color = if (lit) MaterialTheme.colorScheme.inversePrimary else MaterialTheme.colorScheme.inverseSurface,
         contentColor = if (lit) MaterialTheme.colorScheme.inverseSurface else MaterialTheme.colorScheme.inverseOnSurface,
     ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }

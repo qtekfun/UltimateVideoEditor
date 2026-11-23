@@ -1,5 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.rememberListMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.FlowRow
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.R
@@ -132,7 +139,7 @@ private fun AutoCutSheet(auto: AutoCutUiState, fps: FrameRate, onIntent: (Editor
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(stringResource(R.string.ed_2a_cut_silences), style = MaterialTheme.typography.titleMedium)
@@ -152,7 +159,7 @@ private fun AutoCutSheet(auto: AutoCutUiState, fps: FrameRate, onIntent: (Editor
                 onIntent(QuickEditIntent.SetSilenceSettings(s.copy(paddingSeconds = it.toDouble())))
             }
             if (auto.analyzing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { onIntent(QuickEditIntent.FindSilences) }, enabled = !auto.analyzing) {
                     Text(if (auto.analyzing) stringResource(R.string.ed_2a_looking) else stringResource(R.string.ed_2a_find_silences))
                 }
@@ -165,7 +172,7 @@ private fun AutoCutSheet(auto: AutoCutUiState, fps: FrameRate, onIntent: (Editor
                     stringResource(R.string.ed_2a_cuts_summary, auto.chosen.size, auto.cuts.size, "%.1f".format(saved * fps.den.toDouble() / fps.num)),
                     style = MaterialTheme.typography.labelLarge,
                 )
-                LazyColumn(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = rememberListMaxHeight(240.dp)).padding(vertical = 4.dp)) {
                     itemsIndexed(auto.cuts) { index, cut ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(
@@ -197,7 +204,7 @@ private fun ReframeSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(stringResource(R.string.ed_2a_reframe_for_x, state.canvasWidth, state.canvasHeight), style = MaterialTheme.typography.titleMedium)
@@ -215,7 +222,7 @@ private fun ReframeSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
             SettingSlider(stringResource(R.string.ed_2a_zoom_value, "%.2f".format(r.zoom)), r.zoom.toFloat(), Reframe.MIN_ZOOM.toFloat()..Reframe.MAX_ZOOM.toFloat(), stringResource(R.string.ed_2a_zoom)) {
                 onIntent(QuickEditIntent.SetReframe(r.u, r.v, it.toDouble()))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { onIntent(QuickEditIntent.MarkReframePoint) }) { Text(stringResource(R.string.ed_2a_mark_at_playhead)) }
                 TextButton(onClick = { onIntent(QuickEditIntent.ClearReframePoints) }, enabled = r.points.isNotEmpty()) { Text(stringResource(R.string.ed_2a_clear_marks)) }
             }
@@ -224,7 +231,7 @@ private fun ReframeSheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             r.message?.let { Text(it.asString(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onIntent(QuickEditIntent.ApplyReframe) }) { Text(stringResource(R.string.ed_2a_apply)) }
                 TextButton(onClick = { onIntent(QuickEditIntent.CloseReframe) }) { Text(stringResource(R.string.common_close)) }
             }

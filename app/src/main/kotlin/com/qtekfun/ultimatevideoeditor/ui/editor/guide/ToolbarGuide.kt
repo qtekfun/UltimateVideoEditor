@@ -62,6 +62,7 @@ internal object ToolbarGuide {
         GuideEntry("split", GuideSection.EDIT, EditorIcons.Split, R.string.g_split_name, R.string.g_split_help, R.string.g_split_when),
         GuideEntry("detach-audio", GuideSection.EDIT, EditorIcons.DetachAudio, R.string.g_detach_audio_name, R.string.g_detach_audio_help, R.string.g_detach_audio_when),
         GuideEntry("clip-volume", GuideSection.EDIT, EditorIcons.Volume, R.string.g_clip_volume_name, R.string.g_clip_volume_help, R.string.g_clip_volume_when),
+        GuideEntry("voice-over-button", GuideSection.EDIT, EditorIcons.Mic, R.string.g_voice_over_name, R.string.g_voice_over_help, 0),
         GuideEntry("delete", GuideSection.EDIT, EditorIcons.Delete, R.string.g_delete_name, R.string.g_delete_help, R.string.g_delete_when),
         GuideEntry("select-mode", GuideSection.EDIT, SelectionIcons.SelectMode, R.string.g_select_mode_name, R.string.g_select_mode_help, 0),
         GuideEntry("close-gap", GuideSection.EDIT, EditorIcons.CloseGap, R.string.g_close_gap_name, R.string.g_close_gap_help, R.string.g_close_gap_when),

@@ -567,6 +567,7 @@
     <string name="ed_2a_adjust_clip_text_position_scale">Ajustar el clip: texto, posición, escala, rotación, opacidad, volumen, fundido encadenado</string>
     <string name="ed_2a_change_the_canvas_format_and">Cambiar el formato y la resolución del lienzo</string>
     <string name="ed_2a_more_tools">Más herramientas: %1$s</string>
+    <string name="ed_chrome_more_actions">Más acciones</string>
     <string name="ed_2a_add_track">Añadir una pista</string>
     <string name="ed_2a_video_track">Pista de vídeo</string>
     <string name="ed_2a_audio_track">Pista de audio</string>
@@ -2531,10 +2532,24 @@
         <item quantity="other">La grabación empieza en %1$d segundos</item>
     </plurals>
     <string name="ed_vo_headphones">Usa auriculares para que la voz no recoja el sonido del vídeo.</string>
-    <string name="ed_vo_stop">Parar</string>
+    <string name="ed_vo_stop">Parar y conservar</string>
     <string name="ed_vo_discard">Descartar</string>
+    <string name="ed_vo_pause">Pausar</string>
+    <string name="ed_vo_resume">Reanudar</string>
+    <string name="ed_vo_recording">Grabando</string>
+    <string name="ed_vo_paused">En pausa</string>
+    <string name="ed_vo_level">Nivel del micrófono</string>
+    <string name="ed_vo_leave_hint">Si sales de esta pantalla se conserva lo que has grabado.</string>
+    <string name="ed_vo_asking">Permite el micrófono para grabar tu voz.</string>
+    <string name="ed_vo_mic_why">El micrófono solo se usa para esta grabación, que se queda en este teléfono.</string>
+    <string name="ed_vo_discard_title">¿Descartar esta grabación?</string>
+    <string name="ed_vo_discard_body">Se perderá lo que has grabado hasta ahora.</string>
+    <string name="ed_vo_keep_recording">Seguir grabando</string>
     <string name="ed_vo_finishing">Guardando la toma…</string>
-    <string name="ed_vo_added">Voz en off añadida en su propia pista de audio.</string>
+    <string name="ed_vo_added">Voz en off añadida</string>
+    <string name="ed_vo_undo">Deshacer</string>
+    <string name="ed_vo_again">Grabar otra vez</string>
+    <string name="ed_vo_done">Hecho</string>
     <string name="ed_vo_could_not_add">No se pudo añadir la voz en off.</string>
     <string name="ed_vo_no_permission">El micrófono no está permitido. Permítelo en los ajustes del teléfono para esta app, o graba con otra app.</string>
     <string name="ed_vo_mic_busy">Otra app o una llamada está usando el micrófono. Inténtalo cuando esté libre.</string>
@@ -2542,6 +2557,9 @@
     <string name="ed_vo_failed">No se pudo hacer la grabación.</string>
     <string name="ed_vo_other_app">Grabar con otra app</string>
     <string name="ed_vo_no_recorder">Este teléfono no tiene ninguna app que grabe sonido.</string>
-    <string name="gg_voice_over_title">Grabar una voz en off (pestaña Audio de la bandeja de medios)</string>
-    <string name="gg_voice_over_help">Tras una cuenta atrás de tres segundos graba el micrófono mientras el vídeo se reproduce desde el cursor. Páralo, o deja que el vídeo termine, y la toma se añade en su propia pista de audio sin tocar el sonido que hay debajo. Usa auriculares.</string>
+    <string name="gg_voice_over_title">Grabar una voz en off (botón del micrófono en la fila de herramientas)</string>
+    <string name="gg_voice_over_help">Tras una cuenta atrás de tres segundos graba el micrófono mientras el vídeo se reproduce desde el cursor. Pausar detiene a la vez el vídeo y el micrófono, y Reanudar sigue desde el mismo momento; el botón de reproducir del transporte hace lo mismo. Parar y conservar, o deja que el vídeo termine, y la toma se añade en su propia pista de audio sin tocar el sonido que hay debajo. Si sales de la pantalla se conserva lo grabado. Usa auriculares.</string>
+    <string name="g_voice_over_name">Voz en off</string>
+    <string name="g_voice_over_help">Graba tu voz con el micrófono mientras el vídeo se reproduce desde el cursor, tras una cuenta atrás de tres segundos. La toma se añade en su propia pista de audio.</string>
+    <string name="ed_2a_tool_voice_over">Voz en off</string>
 </resources>

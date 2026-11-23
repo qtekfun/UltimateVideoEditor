@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.foundation.layout.FlowRow
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
@@ -68,9 +71,9 @@ internal fun QualifierEditor(effect: Effect, onIntent: (EditorIntent) -> Unit) {
         ) { v -> if (bound != null) setBound(bound.first, bound.second, index, v) else set(index, v) }
     }
 
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        itemVerticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when {

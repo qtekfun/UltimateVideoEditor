@@ -146,7 +146,7 @@ internal fun LutPickerDialog(
         title = { Text(stringResource(R.string.ed_2b_filters_and_luts)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                LazyColumn(modifier = Modifier.weight(1f, fill = false).heightIn(max = 360.dp)) {
                     if (filters.isNotEmpty()) {
                         item(key = "filters-header") { Text(stringResource(R.string.ed_2b_filters), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 4.dp)) }
                         items(filters, key = { "filter-${it.id}" }) { look ->

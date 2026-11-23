@@ -1,5 +1,9 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.foundation.layout.FlowRow
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.R
@@ -111,7 +115,7 @@ internal fun AudioControls(state: EditorState, clip: Clip, onIntent: (EditorInte
         change(audio.copy(fadeOutFrames = it.roundToInt().toLong()))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-        Text(stringResource(R.string.ed_2b_fade_curve), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.ed_2b_fade_curve), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         for (shape in FadeShape.entries) {
             FilterChip(
                 selected = audio.fadeShape == shape,
@@ -164,8 +168,8 @@ private fun EqControls(audio: ClipAudio, change: (ClipAudio) -> Unit, commit: (C
         Text(stringResource(R.string.ed_2b_equaliser), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
         TextButton(onClick = { commit(audio.copy(eq = ClipEq.FLAT)) }, enabled = !eq.isFlat) { Text(stringResource(R.string.ed_2b_flat)) }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text(stringResource(R.string.ed_2b_low_cut), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.ed_2b_low_cut), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         for (hz in HIGH_PASS_CHOICES) {
             FilterChip(
                 selected = eq.highPassHz == hz,
@@ -174,8 +178,8 @@ private fun EqControls(audio: ClipAudio, change: (ClipAudio) -> Unit, commit: (C
             )
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text(stringResource(R.string.ed_2b_high_cut), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.ed_2b_high_cut), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         for (hz in LOW_PASS_CHOICES) {
             FilterChip(
                 selected = eq.lowPassHz == hz,
@@ -297,7 +301,7 @@ private fun VoiceSliderRow(
     val readout = voiceReadout(slider, local.toDouble())
     val sliderDescription = "${voiceSliderName(slider.name)} $readout"
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(voiceSliderName(slider.name), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+        Text(voiceSliderName(slider.name), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(72.dp))
         Slider(
             value = local.coerceIn(slider.min.toFloat(), slider.max.toFloat()),
             onValueChange = { local = it },
@@ -305,7 +309,7 @@ private fun VoiceSliderRow(
             valueRange = slider.min.toFloat()..slider.max.toFloat(),
             modifier = Modifier.weight(1f).semantics { contentDescription = sliderDescription },
         )
-        Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+        Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(72.dp))
         // The diamond keys the slider at the playhead; once it has keys the slider shows the value at the playhead.
         val keyUi = LocalParamKeys.current(paramId)
         if (keyUi != null) KeyDiamond(keyUi, onIntent)
@@ -323,7 +327,7 @@ internal fun voiceReadout(slider: VoiceSlider, value: Double): String = when {
 private fun LoudnessControls(state: EditorState, audio: ClipAudio, onIntent: (EditorIntent) -> Unit) {
     val busy = state.audioBusy != null
     Text(stringResource(R.string.ed_2b_loudness), style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
         for ((lufs, labelRes) in LOUDNESS_TARGETS) {
             val label = stringResource(labelRes)
             FilterChip(
@@ -422,8 +426,8 @@ private fun MixerTrackRow(timeline: Timeline, track: Track, onIntent: (EditorInt
         change(next)
         onIntent(end)
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.width(34.dp))
+    FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.labelWidth(34.dp))
         FilterChip(
             selected = a.mute,
             onClick = { commit(a.copy(mute = !a.mute)) },
@@ -439,7 +443,7 @@ private fun MixerTrackRow(timeline: Timeline, track: Track, onIntent: (EditorInt
         Text(pluralStringResource(R.plurals.ed_2b_clips_count, track.clips.size, track.clips.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(R.string.ed_2b_volume), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.ed_2b_volume), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         Slider(
             value = a.volumeDb.toFloat().coerceIn(VOLUME_MIN, VOLUME_MAX),
             onValueChange = { change(a.copy(volumeDb = (it.toDouble() * TENTH).roundToInt() / TENTH)) },
@@ -447,10 +451,10 @@ private fun MixerTrackRow(timeline: Timeline, track: Track, onIntent: (EditorInt
             valueRange = VOLUME_MIN..VOLUME_MAX,
             modifier = Modifier.weight(1f).described(stringResource(R.string.ed_2b_volume_of_track_db, label, signedDb(a.volumeDb))),
         )
-        Text(stringResource(R.string.ed_2b_db, signedDb(a.volumeDb)), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+        Text(stringResource(R.string.ed_2b_db, signedDb(a.volumeDb)), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(64.dp))
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(R.string.ed_2b_role), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.ed_2b_role), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         for (role in ROLE_CHOICES) {
             val name = stringResource(role.labelRes())
             FilterChip(selected = a.role == role, onClick = { commit(a.copy(role = role)) }, label = { Text(name) })
@@ -517,7 +521,7 @@ private fun DuckingControls(timeline: Timeline, onIntent: (EditorIntent) -> Unit
 @Composable
 private fun MixerSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, readout: String, onIntent: (EditorIntent) -> Unit, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(72.dp))
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onChange,
@@ -525,7 +529,7 @@ private fun MixerSlider(label: String, value: Float, range: ClosedFloatingPointR
             valueRange = range,
             modifier = Modifier.weight(1f).semantics { contentDescription = "$label $readout" },
         )
-        Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+        Text(readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(64.dp))
     }
 }
 

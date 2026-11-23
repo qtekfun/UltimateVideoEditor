@@ -34,6 +34,15 @@ interface VoiceRecorder {
     /** How much has been recorded so far, in milliseconds. */
     val elapsedMs: Long
 
+    /**
+     * Stops adding sound to the take until [resume]: [elapsedMs] holds still and [level] reads 0. The take stays one file, so what is
+     * recorded before and after the pause is contiguous. Safe to call when nothing records or it is already paused.
+     */
+    fun pause()
+
+    /** Goes on adding to the same take after [pause]. */
+    fun resume()
+
     /** Ends the recording and returns the take, or null when nothing was captured. @throws VoiceException */
     suspend fun stop(): VoiceRecording?
 
@@ -50,6 +59,10 @@ object NoVoiceRecorder : VoiceRecorder {
     override val elapsedMs: Long = 0
 
     override suspend fun stop(): VoiceRecording? = null
+
+    override fun pause() = Unit
+
+    override fun resume() = Unit
 
     override fun cancel() = Unit
 }

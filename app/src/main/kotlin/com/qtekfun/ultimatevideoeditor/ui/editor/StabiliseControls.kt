@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
@@ -60,7 +61,7 @@ internal fun StabiliseControls(clip: Clip, stab: StabUiState, onIntent: (EditorI
         // The slider moves freely while dragged and commits one undo step when released.
         var strength by remember(clip.id, settings.strength) { mutableFloatStateOf(settings.strength.toFloat()) }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.ed_2b_strength), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(stringResource(R.string.ed_2b_strength), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
             Slider(
                 value = strength,
                 onValueChange = { strength = it },
