@@ -13,3 +13,14 @@ fun formatTimecode(frame: Long, fps: FrameRate): String {
     val hours = totalSeconds / 3600
     return String.format(Locale.ROOT, "%02d:%02d:%02d:%02d", hours, minutes, seconds, frames)
 }
+
+/**
+ * The short form for a narrow transport row: `MM:SS:FF` with the hours folded into the minutes (`MMM:SS:FF` from 100 minutes),
+ * so it is never wider than nine characters and never ambiguous.
+ */
+fun formatTimecodeCompact(frame: Long, fps: FrameRate): String {
+    val nominal = ((fps.num + fps.den / 2) / fps.den).coerceAtLeast(1)
+    val frames = frame % nominal
+    val totalSeconds = frame / nominal
+    return String.format(Locale.ROOT, "%02d:%02d:%02d", totalSeconds / 60, totalSeconds % 60, frames)
+}

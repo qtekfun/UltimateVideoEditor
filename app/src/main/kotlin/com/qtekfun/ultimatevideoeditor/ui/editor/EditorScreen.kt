@@ -44,6 +44,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -118,7 +119,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.qtekfun.ultimatevideoeditor.ui.editor.layout.TIMECODE_MAX_FONT_SCALE
+import com.qtekfun.ultimatevideoeditor.ui.editor.layout.overlayChipLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -1153,28 +1157,19 @@ private fun EditorMain(
     if (state.leaveBlockedBySave) SaveFailedDialog(state.saveError) { viewModel.onIntent(it) }
     Column(modifier = modifier) {
         // Fullscreen: only the rows above and below the preview/timeline block go (they hold no native view).
-        if (!fullscreen.active) Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ToolButton(EditorIcons.Back, stringResource(R.string.common_back)) { viewModel.onIntent(EditorIntent.Back) }
-            Text(
-                text = state.projectName,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-            )
-            ToolButton(EditorIcons.Help, stringResource(R.string.ed_2a_toolbar_guide_what_every_symbol)) { guideOpen = true }
-            ToolButton(EditorIcons.LayoutPanes, stringResource(R.string.ed_2a_layout_presets_panels_track_height), onClick = onOpenLayout)
-            ToolButton(EditorIcons.Undo, stringResource(R.string.ed_2a_undo), enabled = state.canUndo) { viewModel.onIntent(EditorIntent.Undo) }
-            ToolButton(EditorIcons.Redo, stringResource(R.string.ed_2a_redo), enabled = state.canRedo) { viewModel.onIntent(EditorIntent.Redo) }
-            ToolButton(
-                EditorIcons.Export,
-                if (exportBlockedBy != null) stringResource(R.string.ed_2a_export_unavailable, exportBlockedBy) else stringResource(R.string.ed_2a_export_movie),
-                enabled = !state.isPlaying,
-                onClick = onExport,
-            )
-        }
+        if (!fullscreen.active) EditorTopBar(
+            projectName = state.projectName,
+            canUndo = state.canUndo,
+            canRedo = state.canRedo,
+            exportEnabled = !state.isPlaying,
+            exportDescription = if (exportBlockedBy != null) stringResource(R.string.ed_2a_export_unavailable, exportBlockedBy) else stringResource(R.string.ed_2a_export_movie),
+            onBack = { viewModel.onIntent(EditorIntent.Back) },
+            onHelp = { guideOpen = true },
+            onLayout = onOpenLayout,
+            onUndo = { viewModel.onIntent(EditorIntent.Undo) },
+            onRedo = { viewModel.onIntent(EditorIntent.Redo) },
+            onExport = onExport,
+        )
         if (!fullscreen.active) {
             voiceBar()
             MediaBanners(state, onImportFont = titleTools.onImportFont) { viewModel.onIntent(it) }
@@ -1344,32 +1339,23 @@ private fun EditorMain(
                 )
             },
             chrome = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                // Transport: timecode on the left, previous / play / next centred.
-                Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                    Column(modifier = Modifier.align(Alignment.CenterStart)) {
-                        Timecode(holder)
-                        LevelMeter(takePeaks, state.isPlaying)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ToolButton(EditorIcons.SkipPrevious, stringResource(R.string.ed_2a_previous_clip_boundary)) { viewModel.onIntent(EditorIntent.SeekPrevious) }
-                        ToolButton(
-                            icon = if (state.isPlaying) EditorIcons.Pause else EditorIcons.Play,
-                            description = if (state.isPlaying) stringResource(R.string.ed_2a_pause) else stringResource(R.string.ed_2a_play),
-                        ) { viewModel.onIntent(EditorIntent.TogglePlay) }
-                        ToolButton(EditorIcons.SkipNext, stringResource(R.string.ed_2a_next_clip_boundary)) { viewModel.onIntent(EditorIntent.SeekNext) }
-                    }
-                    Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
-                        ToolButton(EditorIcons.FrameImage, stringResource(R.string.ed_2a_save_frame_as_image_the), onClick = onSaveFrame)
-                        if (layout.detailZoom) {
-                            ToolButton(EditorIcons.ZoomDetail, stringResource(R.string.ed_zd_zoom_to_detail)) {
-                                engine.toggleDetailZoom(null)
-                                engine.ensureVisible(viewModel.state.value.playhead.value)
-                            }
-                        }
-                        ToolButton(EditorIcons.Fit, stringResource(R.string.ed_2a_fit_the_whole_project)) { engine.fitToContent() }
-                    }
-                }
+                // Scrolls when the window is too short to show every row without starving the preview and the timeline.
+                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                EditorTransportRow(
+                    holder = holder,
+                    isPlaying = state.isPlaying,
+                    takePeaks = takePeaks,
+                    detailZoom = layout.detailZoom,
+                    onPrevious = { viewModel.onIntent(EditorIntent.SeekPrevious) },
+                    onTogglePlay = { viewModel.onIntent(EditorIntent.TogglePlay) },
+                    onNext = { viewModel.onIntent(EditorIntent.SeekNext) },
+                    onSaveFrame = onSaveFrame,
+                    onZoomDetail = {
+                        engine.toggleDetailZoom(null)
+                        engine.ensureVisible(viewModel.state.value.playhead.value)
+                    },
+                    onFit = { engine.fitToContent() },
+                )
 
                 // The tools in the order the person chose (ToolbarOrder); hidden ones wait in the More menu at the end.
                 // [after] closes that menu once a plain button has been used.
@@ -1474,7 +1460,7 @@ private fun EditorMain(
             timeline = {
                 // The inspector is drawn over the timeline instead of replacing it, so the native timeline view
                 // is never recreated (a late surfaceDestroyed of an old view would tear down the new surface).
-                Box(modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     TimelineHost(
                         engine = engine,
                         onTap = { viewModel.onIntent(EditorIntent.TapTimeline(it)) },
@@ -1487,18 +1473,38 @@ private fun EditorMain(
                             trayDropBounds?.bounds = coordinates.boundsInRoot().let { RootBounds(it.left, it.top, it.right, it.bottom) }
                         },
                     )
-                    if (state.dropChoiceOffered) {
-                        DropModeChip(
+                    // The two chips sit under the ruler: side by side when the timeline is wide, stacked when it is not,
+                    // and over the ruler when the timeline is too short for them to sit under it.
+                    val chips = overlayChipLayout(maxWidth.value, maxHeight.value, LocalDensity.current.fontScale)
+                    @Composable fun dropChip() {
+                        if (state.dropChoiceOffered) DropModeChip(
                             effective = state.dropHint?.kind,
                             choice = state.dropChoice,
                             onFlip = { viewModel.onIntent(EditorIntent.FlipDropChoice) },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 8.dp),
                         )
                     }
-                    // Under the ruler, so the marker being edited stays in view above the popup.
-                    state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 40.dp)) }
+                    @Composable fun markerChip() {
+                        state.markerHint?.let { MarkerHintChip(it, viewModel::onIntent) }
+                    }
+                    if (chips.stacked) {
+                        Column(
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = chips.topDp.dp, start = 8.dp, end = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            dropChip()
+                            markerChip()
+                        }
+                    } else {
+                        Box(Modifier.align(Alignment.TopEnd).padding(top = chips.topDp.dp, end = 8.dp)) { dropChip() }
+                        Box(Modifier.align(Alignment.TopCenter).padding(top = chips.topDp.dp)) { markerChip() }
+                    }
                     if (state.flagListOpen) FlagListSheet(state, viewModel::onIntent)
-                    state.markerPopup?.let { MarkerPopupCard(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = 36.dp, start = 8.dp, end = 8.dp)) }
+                    state.markerPopup?.let {
+                        val top = chips.topDp.dp - 4.dp
+                        // Taller than a short timeline: the card scrolls inside what is left under the ruler.
+                        MarkerPopupCard(it, viewModel::onIntent, Modifier.align(Alignment.TopCenter).padding(top = top, start = 8.dp, end = 8.dp).heightIn(max = (maxHeight - top).coerceAtLeast(0.dp)))
+                    }
                     if (state.inspectorOpen && inspectorOverlay) {
                         Surface(
                             color = MaterialTheme.colorScheme.surface,
@@ -1533,9 +1539,15 @@ internal fun chromeOf(live: EditorState): Chrome =
 
 /** The timecode is the only chrome that follows every tick, so it reads the live state in its own scope. */
 @Composable
-private fun Timecode(holder: State<EditorState>, modifier: Modifier = Modifier) {
-    val text by remember(holder) { derivedStateOf { holder.value.let { formatTimecode(it.playhead.value, it.fps) } } }
-    Text(text = text, style = MaterialTheme.typography.labelLarge, modifier = modifier)
+internal fun Timecode(holder: State<EditorState>, compact: Boolean = false, modifier: Modifier = Modifier) {
+    val text by remember(holder, compact) {
+        derivedStateOf { holder.value.let { if (compact) formatTimecodeCompact(it.playhead.value, it.fps) else formatTimecode(it.playhead.value, it.fps) } }
+    }
+    // A readout whose width the transport row plans for: it follows the system font only up to a point.
+    val density = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale.coerceAtMost(TIMECODE_MAX_FONT_SCALE))) {
+        Text(text = text, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false, modifier = modifier)
+    }
 }
 
 /**
