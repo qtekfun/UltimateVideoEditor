@@ -20,6 +20,9 @@ commits, docs) is in English.
   for collisions, gaps and boundary frames, written together with the operation. The `domain/` package is pure Kotlin so
   they run on the JVM without a device.
 - Pure-logic C++ gets a host test in `app/src/main/cpp/tests/` (add it to that directory's `CMakeLists.txt`).
+- Add a feature the way `docs/ARCHITECTURE.md` section 6 describes (domain part, intent group and handler, one UI region). `ArchitectureGuardTest` caps
+  Kotlin files at 800 lines and C++ at 1500 and enforces the package rules; its allow-lists in `app/src/test/arch/` only shrink, never add to them.
+- Layout changes to an editor panel may add a screenshot test; re-record the goldens with `-Puveditor.recordScreenshots` and commit them.
 - Run `./gradlew :app:testDebugUnitTest :app:assembleDebug` and `scripts/run-native-tests.sh` before pushing.
 - Do not run `connectedDebugAndroidTest` on a phone holding data you care about: it clears the app's data.
 

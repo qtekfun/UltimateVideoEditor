@@ -58,8 +58,8 @@ class OfflineGuaranteeTest {
     fun `the microphone is only asked for where the voice-over starts, and only at the press of its button`() {
         val sources = File(appDir, "src/main/kotlin").walkTopDown().filter { it.extension == "kt" }.toList()
         val users = sources.filter { it.readText().contains("RECORD_AUDIO") }.map { it.name }.toSet()
-        assertEquals("Only the editor screen asks for the microphone", setOf("EditorScreen.kt"), users)
-        val screen = File(appDir, "src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor/EditorScreen.kt").readText()
+        assertEquals("Only the editor screen asks for the microphone", setOf("EditorVoice.kt"), users)
+        val screen = File(appDir, "src/main/kotlin/com/qtekfun/ultimatevideoeditor/ui/editor/EditorVoice.kt").readText()
         // It is requested inside the controller's requestPermission callback, which only the record button reaches.
         assertTrue(screen.contains("requestPermission = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }"))
         val activity = File(appDir, "src/main/kotlin/com/qtekfun/ultimatevideoeditor/MainActivity.kt").readText()

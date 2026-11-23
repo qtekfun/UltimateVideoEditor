@@ -3,6 +3,20 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## Unreleased
+
+- **Internal: guards against code drift.** `ArchitectureGuardTest` fails the build when a Kotlin file passes 800 lines or a C++ file 1500, when `domain/`
+  imports Android, Compose, `ui`, `engine` or `data` types, when JNI appears outside `engine/`, or when a new `ui/` file reaches into `data/`. Current exceptions are
+  listed in `app/src/test/arch/` and the lists can only shrink. `docs/ARCHITECTURE.md` section 6 now describes how to add a feature in that structure.
+- **Internal: JVM screenshot tests.** A first Compose screenshot test (the transport row at 320 dp with font scale 2.0 and at 411 dp) runs with the unit tests,
+  using test-only libraries and no network. `-Puveditor.recordScreenshots` re-records the images. No change for users.
+
+- Internal: `EditorViewModel` is now a thin router. Each editor feature (transport, autosave, selection, dragging, markers, audio tools, appearance and
+  effects, titles, placement and import, relinking, library, exports...) lives in its own handler class under `ui/editor/<feature>/`, behind a small `EditorHost`
+  interface, and the editor's state and intents are split into `EditorState`, `EditorContract` and `EditorUiState`. No behaviour or screen changes.
+
+- Internal: `EditorScreen` is split into one file per region (tool row, dialogs, preview and timeline areas, workspace, effects, controllers); no change for users. See `DECISIONS.md`.
+
 ## 1.6.1
 
 - **A clearer voice-over.** The record button is now a microphone in the tool row (it left the Audio tab of the media tray), and recording has its own bar right above

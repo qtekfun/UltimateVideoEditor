@@ -20,12 +20,12 @@ class VoiceOverEntryPointTest {
 
     @Test
     fun `the tool row has the microphone button and the panel is drawn in the chrome slot`() {
-        val editor = source("ui/editor/EditorScreen.kt")
-        assertTrue(editor.contains("ToolbarItem.VOICE_OVER ->"))
+        val editor = source("ui/editor/EditorMain.kt")
+        assertTrue(source("ui/editor/EditorToolRow.kt").contains("ToolbarItem.VOICE_OVER ->"))
         val chrome = editor.indexOf("chrome = {")
         val panel = editor.indexOf("VoiceOverPanel(voice")
         val transport = editor.indexOf("EditorTransportRow(", chrome)
         assertTrue(chrome in 0 until panel && panel < transport)
-        assertFalse(editor.contains("VoiceOverBar"))
+        assertFalse(listOf("EditorScreen", "EditorMain", "EditorToolRow", "EditorVoice").any { source("ui/editor/$it.kt").contains("VoiceOverBar") })
     }
 }
