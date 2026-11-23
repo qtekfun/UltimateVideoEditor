@@ -2410,13 +2410,14 @@ question is open the panel says why the microphone is needed (only for this reco
 
 **Recorder panel.** `VoiceOverPanel` (`ui/editor/voice/VoiceOverUi.kt`) is drawn at the top of the `chrome` slot of `PreviewTimelineLayout`, right above the transport row and the
 tool row, so it is in the same place in the stacked, workbench and side-by-side workspaces and never covers the preview. One state at a time:
-- **Counting**: the big number, the tip to use headphones, **Cancel**.
-- **Recording**: a red dot, "Recording", the recorded time, a level meter and three labelled buttons: **Pause**, **Stop and keep** (primary), **Discard**. Discarding a take longer than
-  3 s asks first.
-- **Paused**: "Paused", the time, **Resume** (primary), **Stop and keep**, **Discard**.
+- **Counting**: the number in a red ring, "Recording starts in N seconds", the tip to use headphones, **Cancel**.
+- **Recording** and **Paused** (one layout, so Pause and Resume share a place): a thin accent line on top (red while recording, grey while paused), a dot that pulses while the microphone is on,
+  the recorded time with the state in words under it, a level meter of the last 40 readings (newest at the right, a square-root scale so speech is visible) and three round buttons with their
+  name under them: **Discard** (error colour), **Pause** or **Resume**, **Stop** (a white square on red; its spoken name is "Stop and keep"). Discarding a take longer than 3 s asks first.
 - **Finishing**: progress. **Failed**: the message and what to do next (the system recorder for a refused permission). **Added**: "Voice-over added" with **Undo** (the placement is one
-  undo step), **Record again** and **Done**; it goes away by itself after 10 s (`EditorEffect.VoiceOverPlaced`, sent by the view model once the clip is on the timeline).
-The buttons are at least 48 dp tall and wrap into rows by `RecorderLayout.columns(width, fontScale, count)` (pure, unit tested), so nothing is clipped at 320 dp or at font scale 2.0. Only the
+  undo step) at the left edge, **Record again** and **Done** at the right edge, so none of them sits where Pause was; it goes away by itself after 10 s (`EditorEffect.VoiceOverPlaced`, sent by the view model once the clip is on the timeline).
+The bar is neutral (`surfaceContainerHigh`), not an error colour: red is only the dot, the ring and the Stop button. It is one row while it fits (`RecorderBarLayout.isWide(width, fontScale)`, pure and unit tested)
+and two rows otherwise (time and meter, then the actions), so nothing is clipped at 320 dp or at font scale 2.0; each action is at least 48 dp. Only the
 status words are a live region (not the clock, which would be read out on every tick). The screen is kept on while counting, recording or paused, and a haptic tick marks the start and
 the end of the microphone.
 

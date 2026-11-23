@@ -2466,13 +2466,13 @@
     </plurals>
     <string name="ed_vo_headphones">Use headphones, so the voice does not pick up the sound of the video.</string>
     <string name="ed_vo_stop">Stop and keep</string>
+    <string name="ed_vo_stop_short">Stop</string>
     <string name="ed_vo_discard">Discard</string>
     <string name="ed_vo_pause">Pause</string>
     <string name="ed_vo_resume">Resume</string>
     <string name="ed_vo_recording">Recording</string>
     <string name="ed_vo_paused">Paused</string>
     <string name="ed_vo_level">Microphone level</string>
-    <string name="ed_vo_leave_hint">Leaving this screen keeps what you have recorded.</string>
     <string name="ed_vo_asking">Allow the microphone to record your voice.</string>
     <string name="ed_vo_mic_why">The microphone is used only for this recording, which stays on this phone.</string>
     <string name="ed_vo_discard_title">Discard this recording?</string>

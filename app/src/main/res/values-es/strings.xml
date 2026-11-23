@@ -2533,13 +2533,13 @@
     </plurals>
     <string name="ed_vo_headphones">Usa auriculares para que la voz no recoja el sonido del vídeo.</string>
     <string name="ed_vo_stop">Parar y conservar</string>
+    <string name="ed_vo_stop_short">Parar</string>
     <string name="ed_vo_discard">Descartar</string>
     <string name="ed_vo_pause">Pausar</string>
     <string name="ed_vo_resume">Reanudar</string>
     <string name="ed_vo_recording">Grabando</string>
     <string name="ed_vo_paused">En pausa</string>
     <string name="ed_vo_level">Nivel del micrófono</string>
-    <string name="ed_vo_leave_hint">Si sales de esta pantalla se conserva lo que has grabado.</string>
     <string name="ed_vo_asking">Permite el micrófono para grabar tu voz.</string>
     <string name="ed_vo_mic_why">El micrófono solo se usa para esta grabación, que se queda en este teléfono.</string>
     <string name="ed_vo_discard_title">¿Descartar esta grabación?</string>
