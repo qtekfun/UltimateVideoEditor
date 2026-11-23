@@ -9,7 +9,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,6 +70,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qtekfun.ultimatevideoeditor.R
@@ -76,7 +83,6 @@ import com.qtekfun.ultimatevideoeditor.domain.relink.RelinkKind
 import com.qtekfun.ultimatevideoeditor.ui.editor.EditorIcons
 import com.qtekfun.ultimatevideoeditor.ui.editor.ToolButton
 
-private val FolderTileMinWidth = 96.dp
 private const val FOLDER_THUMBNAIL_PX = 256
 
 private fun RelinkKind.assetKind(): AssetKind = when (this) {
@@ -140,7 +146,7 @@ private fun LinkedList(controller: LinkedFoldersController, onLinkFolder: () -> 
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .heightIn(min = 52.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_fl_open_desc, folder.label)) { controller.open(folder) }
@@ -174,6 +180,7 @@ private fun LinkedList(controller: LinkedFoldersController, onLinkFolder: () -> 
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FolderView(
     controller: LinkedFoldersController,
@@ -205,42 +212,44 @@ private fun FolderView(
         }
         TextButton(onClick = controller::refresh) { Text(stringResource(R.string.ed_fl_refresh), fontSize = 12.sp) }
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = browse.query,
-            onValueChange = controller::setQuery,
-            placeholder = { Text(stringResource(R.string.ed_fl_search), fontSize = 13.sp) },
-            singleLine = true,
-            modifier = Modifier.weight(1f).height(52.dp),
-        )
-        TextButton(onClick = { controller.setSort(browse.sort.next()) }) {
-            Text(stringResource(browse.sort.labelRes()), fontSize = 12.sp)
-        }
-        TextButton(onClick = { controller.setPicking(!browse.picking) }) {
-            Text(stringResource(if (browse.picking) R.string.tray_pick_done else R.string.tray_pick))
-        }
-    }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (filter in FolderFilter.entries) {
-            FilterChip(
-                selected = browse.filter == filter,
-                onClick = { controller.setFilter(filter) },
-                label = { Text(stringResource(filter.labelRes()), fontSize = 12.sp) },
+    CappedControls {
+        FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = browse.query,
+                onValueChange = controller::setQuery,
+                placeholder = { Text(stringResource(R.string.ed_fl_search), fontSize = 13.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f).widthIn(min = 160.dp).defaultMinSize(minHeight = 52.dp),
             )
-        }
-    }
-    if (browse.picking) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                pluralStringResource(R.plurals.tray_picked_count, browse.picked.size, browse.picked.size),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(enabled = browse.picked.isNotEmpty(), onClick = controller::clearPicked) {
-                Text(stringResource(R.string.tray_pick_clear))
+            TextButton(onClick = { controller.setSort(browse.sort.next()) }) {
+                Text(stringResource(browse.sort.labelRes()), fontSize = 12.sp)
             }
-            Button(enabled = browse.picked.isNotEmpty(), onClick = { onAdd(browse.picked); controller.finishPicking() }) {
-                Text(stringResource(R.string.tray_pick_add, browse.picked.size))
+            TextButton(onClick = { controller.setPicking(!browse.picking) }) {
+                Text(stringResource(if (browse.picking) R.string.tray_pick_done else R.string.tray_pick))
+            }
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (filter in FolderFilter.entries) {
+                FilterChip(
+                    selected = browse.filter == filter,
+                    onClick = { controller.setFilter(filter) },
+                    label = { Text(stringResource(filter.labelRes()), fontSize = 12.sp) },
+                )
+            }
+        }
+        if (browse.picking) {
+            FlowRow(Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    pluralStringResource(R.plurals.tray_picked_count, browse.picked.size, browse.picked.size),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f).widthIn(min = 96.dp),
+                )
+                TextButton(enabled = browse.picked.isNotEmpty(), onClick = controller::clearPicked) {
+                    Text(stringResource(R.string.tray_pick_clear))
+                }
+                Button(enabled = browse.picked.isNotEmpty(), onClick = { onAdd(browse.picked); controller.finishPicking() }) {
+                    Text(stringResource(R.string.tray_pick_add, browse.picked.size))
+                }
             }
         }
     }
@@ -258,7 +267,7 @@ private fun FolderView(
                 )
             } else if (layout == TrayLayout.GRID) {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(FolderTileMinWidth),
+                    columns = GridCells.Adaptive(TraySizing.tileMinWidthDp(LocalConfiguration.current.screenWidthDp.toFloat(), LocalDensity.current.fontScale).dp),
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -282,6 +291,7 @@ private fun FolderView(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Problem(problem: BrowseProblem, controller: LinkedFoldersController, onLinkFolder: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -289,7 +299,7 @@ private fun Problem(problem: BrowseProblem, controller: LinkedFoldersController,
             stringResource(if (problem == BrowseProblem.ACCESS_LOST) R.string.ed_fl_lost else R.string.ed_fl_unavailable),
             style = MaterialTheme.typography.bodyMedium,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = controller::refresh) { Text(stringResource(R.string.ed_fl_retry)) }
             if (problem == BrowseProblem.ACCESS_LOST) OutlinedButton(onClick = onLinkFolder) { Text(stringResource(R.string.ed_fl_grant)) }
             controller.current?.let { folder ->
@@ -318,7 +328,7 @@ private fun FolderRow(entry: FolderEntry, onOpen: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .semantics { contentDescription = description }
@@ -396,7 +406,7 @@ private fun FileTile(
             if (picking) PickCircle(pickNumber, Modifier.align(Alignment.TopEnd)) else PlusCircle(Modifier.align(Alignment.TopEnd), onAdd)
         }
     } else {
-        Row(body.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(body.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(56.dp)) { Thumb(thumbnail, kind) }
             Column(Modifier.padding(horizontal = 8.dp).weight(1f)) {
                 Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)

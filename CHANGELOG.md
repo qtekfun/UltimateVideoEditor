@@ -9,6 +9,10 @@ and fields added later are optional in the project JSON). The detail behind each
   the top bar, the play controls and the toolbar rows fit: what does not fit moves into a **More actions** menu (Help, Layout and Redo first; frame save, zoom
   and Fit in the play row), the project name is shortened, the timecode gets a compact form, and the controls scroll instead of squeezing the picture and the
   timeline below a usable height. The chips that appear over the timeline no longer overlap, and the marker card scrolls in a short timeline.
+- **Panels fit the window.** The media tray, its Folders tab, the clip preview and the sheets and dialogs of the editor no longer lose controls when the window is
+  short or narrow (a phone sideways, split screen, a foldable) or the text is enlarged. The bottom tray takes a share of the window height and always leaves
+  room for the picture and the timeline; its search, Pick and List buttons wrap, its tabs scroll, and long sheets (cut silences, library, flag list,
+  templates, reframe, captions, multicam) scroll instead of running off the screen.
 
 ## 1.6.0
 

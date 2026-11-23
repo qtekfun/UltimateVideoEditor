@@ -1,5 +1,9 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor.multicam
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.R
@@ -82,7 +86,7 @@ private fun NewMulticam(state: EditorState, onIntent: (MulticamIntent) -> Unit) 
     val candidates = state.assets.filter { it.hasAudio && !it.isImage }
     if (candidates.isEmpty()) Text(stringResource(R.string.ed_s3_import_videos_with_sound_first), style = MaterialTheme.typography.bodyMedium)
     for (asset in candidates) AngleChoice(state, asset, onIntent)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
             onClick = { onIntent(MulticamIntent.Sync) },
             enabled = ui.draft.assetIds.size >= MulticamOps.MIN_ANGLES && !ui.syncing,
@@ -99,12 +103,12 @@ private fun AngleChoice(state: EditorState, asset: MediaAssetDto, onIntent: (Mul
     val draft = state.multicam.draft
     val position = draft.assetIds.indexOf(asset.id)
     val chosen = position >= 0
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(
             selected = chosen,
             onClick = { onIntent(MulticamIntent.ToggleAsset(asset.id)) },
             label = { Text(if (chosen) stringResource(R.string.ed_s3_numbered, position + 1, assetLabel(asset)) else assetLabel(asset)) },
-            modifier = Modifier.weight(1f).described(
+            modifier = Modifier.weight(1f).widthIn(min = 140.dp).described(
                 if (chosen) stringResource(R.string.ed_s3_remove_from_the_angles, assetLabel(asset)) else stringResource(R.string.ed_s3_use_as_an_angle, assetLabel(asset)),
             ),
         )
@@ -153,14 +157,14 @@ private fun LiveCutting(
             }
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (ui.recording) Button(onClick = { onIntent(MulticamIntent.ToggleRecording) }) { Text(stringResource(R.string.ed_s3_stop_recording)) }
         else OutlinedButton(onClick = { onIntent(MulticamIntent.ToggleRecording) }) { Text(stringResource(R.string.ed_s3_record_cuts)) }
         TextButton(onClick = { onIntent(MulticamIntent.RemoveCutHere(group.id)) }) { Text(stringResource(R.string.ed_s3_remove_cut_here)) }
     }
     if (group.audioTrackId != null) {
         Text(stringResource(R.string.ed_s3_sound_from), style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for ((i, angle) in group.angles.withIndex()) {
                 FilterChip(
                     selected = i == group.audioAngle,
@@ -179,7 +183,7 @@ private fun LiveCutting(
             TextButton(onClick = { onIntent(MulticamIntent.NudgeAngle(group.id, i, 1)) }, modifier = Modifier.described(stringResource(R.string.ed_s3_move_one_frame_later, angle.name))) { Text("+1") }
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = { onIntent(MulticamIntent.Resync(group.id)) }, enabled = !ui.syncing) { Text(if (ui.syncing) stringResource(R.string.ed_s3_listening) else stringResource(R.string.ed_s3_sync_again)) }
         OutlinedButton(onClick = { onIntent(MulticamIntent.Flatten(group.id)) }) { Text(stringResource(R.string.ed_s3_flatten)) }
     }

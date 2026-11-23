@@ -1,5 +1,9 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.rememberListMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -102,7 +106,7 @@ internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit)
         onDismissRequest = { onIntent(MarkerIntent.CloseList) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.flags_list_title), style = MaterialTheme.typography.titleMedium)
@@ -110,7 +114,7 @@ internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit)
                 }
                 TextButton(onClick = { onIntent(MarkerIntent.CloseList) }) { Text(stringResource(R.string.ed_2a_done)) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 FilterChip(selected = onlyPending, onClick = { onlyPending = !onlyPending }, label = { Text(stringResource(R.string.flags_only_pending)) })
                 for (colour in colours) {
                     val name = groupNames[colour].orEmpty()
@@ -127,7 +131,7 @@ internal fun FlagListSheet(state: EditorState, onIntent: (EditorIntent) -> Unit)
             if (shown.isEmpty()) {
                 Text(stringResource(R.string.flags_empty), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 24.dp))
             } else {
-                LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = rememberListMaxHeight(400.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     for (group in ShotList.grouped(shown)) {
                         item(key = "group-${group.color}") {
                             Text(

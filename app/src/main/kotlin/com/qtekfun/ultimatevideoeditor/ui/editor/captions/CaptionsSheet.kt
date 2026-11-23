@@ -1,5 +1,10 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor.captions
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.FlowRow
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.ui.editor.labelText
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
@@ -131,7 +136,7 @@ internal fun CaptionsSheet(state: CaptionsState, onIntent: (CaptionsIntent) -> U
 
             state.error?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                 if (state.existingCaptions > 0) {
                     OutlinedButton(onClick = { onIntent(CaptionsIntent.ApplyToExisting) }) { Text(pluralStringResource(R.plurals.ed_s3_restyle_existing, state.existingCaptions, state.existingCaptions)) }
                 }
@@ -169,8 +174,8 @@ private fun DraftEditor(state: CaptionsState, onIntent: (CaptionsIntent) -> Unit
 
 @Composable
 private fun Stepper(label: String, value: String, second: Long, onChange: (Long) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(60.dp))
+    FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.labelWidth(60.dp))
         TextButton(onClick = { onChange(-second) }, modifier = Modifier.described(stringResource(R.string.ed_s3_one_second_earlier, label))) { Text("-1 s") }
         TextButton(onClick = { onChange(-1) }, modifier = Modifier.described(stringResource(R.string.ed_s3_one_frame_earlier, label))) { Text("-1 f") }
         Text(value, style = MaterialTheme.typography.titleSmall)
@@ -216,7 +221,7 @@ private fun StyleCard(style: CaptionStyle, selected: Boolean, enabled: Boolean, 
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.fillMaxWidth().height(64.dp).background(Color(SAMPLE_BACKGROUND)),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).background(Color(SAMPLE_BACKGROUND)),
         ) {
             Text(sampleText(style), fontSize = 16.sp, fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal)
         }
@@ -282,8 +287,8 @@ private fun ColorOptions(state: CaptionsState, onIntent: (CaptionsIntent) -> Uni
 
 @Composable
 private fun ColorRow(label: String, current: Int, enabled: Boolean, onPick: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(76.dp))
+    FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.labelWidth(76.dp))
         for ((nameRes, argb) in PALETTE) {
             val name = stringResource(nameRes)
             val picked = argb == current

@@ -1765,6 +1765,7 @@ private const val SCOPES_HEIGHT = 0.6f
 
 
 /** The question Paste asks when another clip is selected: paste the content (a copy at the playhead) or the style (look and sound). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun PasteChoiceDialog(choice: PasteChoice, onIntent: (EditorIntent) -> Unit) {
     AlertDialog(
@@ -1777,7 +1778,7 @@ private fun PasteChoiceDialog(choice: PasteChoice, onIntent: (EditorIntent) -> U
             }
         },
         confirmButton = {
-            Row {
+            androidx.compose.foundation.layout.FlowRow {
                 TextButton(onClick = { onIntent(SelectionIntent.PasteContent) }) { Text(stringResource(R.string.ed_paste_choice_content)) }
                 TextButton(onClick = { onIntent(SelectionIntent.PasteStyle) }) { Text(stringResource(R.string.ed_paste_choice_style)) }
             }

@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
@@ -141,7 +142,7 @@ private fun LaneRow(state: EditorState, clip: Clip, row: LaneRowSpec, onIntent: 
         Text(
             text = "$label · ${keys.size}",
             style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.width(120.dp),
+            modifier = Modifier.labelWidth(120.dp),
             maxLines = 1,
         )
         IconButton(onClick = { onIntent(EditorIntent.JumpToParamKey(row.paramId, forward = false)) }, modifier = Modifier.size(32.dp), enabled = keys.isNotEmpty()) {
@@ -301,7 +302,7 @@ internal fun CurveControls(title: String, key: ParamKey, onShape: (Interpolation
 private fun HandleSlider(label: String, value: Double, range: ClosedFloatingPointRange<Float>, onApply: (Float) -> Unit) {
     var shown by remember(value) { mutableFloatStateOf(value.toFloat()) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text(text = label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         Slider(
             value = shown.coerceIn(range),
             onValueChange = { shown = it },
@@ -309,6 +310,6 @@ private fun HandleSlider(label: String, value: Double, range: ClosedFloatingPoin
             valueRange = range,
             modifier = Modifier.weight(1f).semantics { contentDescription = "$label %.2f".format(shown) },
         )
-        Text(text = "%.2f".format(shown), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+        Text(text = "%.2f".format(shown), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(48.dp))
     }
 }

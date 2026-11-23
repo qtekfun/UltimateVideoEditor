@@ -1,5 +1,9 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.foundation.layout.FlowRow
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
@@ -143,7 +147,7 @@ private fun EffectRow(effect: Effect, index: Int, count: Int, onIntent: (EditorI
 @Composable
 private fun KeyColourSwatches(effect: Effect, onIntent: (EditorIntent) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = stringResource(R.string.ed_2b_key_colour), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_key_colour), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         for ((nameRes, rgb) in KEY_COLOURS) {
             val name = stringResource(nameRes)
             val selectedDescription = stringResource(R.string.ed_2b_key_colour_selected, name)
@@ -192,7 +196,7 @@ private fun MaskControls(mask: ClipMask?, onIntent: (EditorIntent) -> Unit) {
         onIntent(EditorIntent.EndFxEdit(commit = true))
     }
     Text(text = stringResource(R.string.ed_2b_mask), style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(selected = mask == null, onClick = { change(null) }, label = { Text(stringResource(R.string.ed_2b_off)) })
         FilterChip(
             selected = mask?.shape == MaskShape.RECTANGLE,
@@ -223,7 +227,7 @@ private fun MaskControls(mask: ClipMask?, onIntent: (EditorIntent) -> Unit) {
         onIntent(EditorIntent.UpdateMask(mask.copy(feather = it.toDouble())))
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        Text(text = stringResource(R.string.ed_2b_invert), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_invert), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         Switch(checked = mask.invert, onCheckedChange = { change(mask.copy(invert = it)) })
     }
 }

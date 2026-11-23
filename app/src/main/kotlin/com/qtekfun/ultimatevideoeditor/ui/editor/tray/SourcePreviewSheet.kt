@@ -1,5 +1,11 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor.tray
 
+import com.qtekfun.ultimatevideoeditor.ui.SheetSizing
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.FlowRow
 import android.text.format.Formatter
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -94,12 +100,13 @@ internal fun SourcePreviewSheet(
                 SourcePhase.Ready -> if (item.kind != AssetKind.PHOTO) Transport(controller)
             }
             Facts(controller, item)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { onAddAtPlayhead(item); controller.close() }, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.ed_sp_add_playhead), maxLines = 1)
+            // Side by side while both names fit, one under the other when they do not (large text, a narrow window).
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { onAddAtPlayhead(item); controller.close() }, modifier = Modifier.weight(1f).widthIn(min = 160.dp)) {
+                    Text(stringResource(R.string.ed_sp_add_playhead))
                 }
-                OutlinedButton(onClick = { onAddAtEnd(item); controller.close() }, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.ed_sp_add_end), maxLines = 1)
+                OutlinedButton(onClick = { onAddAtEnd(item); controller.close() }, modifier = Modifier.weight(1f).widthIn(min = 160.dp)) {
+                    Text(stringResource(R.string.ed_sp_add_end))
                 }
             }
         }
@@ -109,7 +116,9 @@ internal fun SourcePreviewSheet(
 @Composable
 private fun Picture(controller: SourcePreviewController, item: SourceItem) {
     val shape = controller.videoSize?.let { (w, h) -> w.toFloat() / h } ?: (16f / 9f)
-    val frame = Modifier.fillMaxWidth().heightIn(max = 360.dp).aspectRatio(shape).background(Color.Black)
+    // The picture is a share of the window height, so the transport and the buttons under it stay in reach in a short window.
+    val pictureMax = SheetSizing.pictureMaxHeightDp(LocalConfiguration.current.screenHeightDp.toFloat()).dp
+    val frame = Modifier.fillMaxWidth().heightIn(max = pictureMax).aspectRatio(shape).background(Color.Black)
     when (item.kind) {
         AssetKind.VIDEO -> Box(frame) {
             // The player draws straight into this surface; it is handed over when it exists and taken back when it goes.
@@ -172,7 +181,7 @@ private fun Transport(controller: SourcePreviewController) {
             }
             Text(clockText(controller.durationMs), style = MaterialTheme.typography.labelMedium)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = controller.muted, onClick = controller::toggleMute, label = { Text(stringResource(R.string.ed_sp_mute)) })
             FilterChip(selected = controller.looping, onClick = controller::toggleLooping, label = { Text(stringResource(R.string.ed_sp_repeat)) })
         }

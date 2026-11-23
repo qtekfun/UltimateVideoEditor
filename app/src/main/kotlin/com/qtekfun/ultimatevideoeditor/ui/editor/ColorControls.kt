@@ -1,5 +1,6 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.foundation.verticalScroll
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
@@ -172,7 +173,7 @@ private fun LookRow(effect: Effect, onIntent: (EditorIntent) -> Unit) {
             onDismissRequest = { browsing = false },
             title = { Text(stringResource(R.string.ed_2b_looks_2)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (actions.state.looks.isEmpty()) {
                         Text(stringResource(R.string.ed_2b_no_looks_yet_grade_a), style = MaterialTheme.typography.bodyMedium)
                     }
