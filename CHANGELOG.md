@@ -3,6 +3,13 @@
 Format: newest first. `1.0.x` releases only fix bugs; `1.x.0` releases add features and never break saved projects (older files load,
 and fields added later are optional in the project JSON). The detail behind each decision is in `DECISIONS.md`.
 
+## 1.7.1
+
+- **Voice-over takes no longer pick up the video's sound.** Without headphones, a headset or a Bluetooth output the timeline is silent from the count-in to the end of the
+  take, so the microphone (the phone's or an external one) records only the voice; the count-in says so. Measured on a tablet: the sound that came in at the start of
+  every take (a peak of 7000 over a background of about 100) is gone. With headphones the timeline plays as before.
+- The microphone thread now runs at audio priority with a one-second buffer, so a busy moment of the editor cannot leave a gap in the take.
+
 ## 1.7.0
 
 - **Internal: guards against code drift.** `ArchitectureGuardTest` fails the build when a Kotlin file passes 800 lines or a C++ file 1500, when `domain/`
