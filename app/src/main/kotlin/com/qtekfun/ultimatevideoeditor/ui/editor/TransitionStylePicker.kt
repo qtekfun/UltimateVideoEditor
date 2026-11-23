@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
@@ -57,8 +60,8 @@ internal fun TransitionStylePicker(transition: Transition, onIntent: (EditorInte
             }
         }
         if (transition.type.hasDirection) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(text = stringResource(R.string.ed_2b_direction), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(text = stringResource(R.string.ed_2b_direction), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
                 for (direction in TransitionDirection.entries) {
                     FilterChip(
                         selected = transition.direction == direction,

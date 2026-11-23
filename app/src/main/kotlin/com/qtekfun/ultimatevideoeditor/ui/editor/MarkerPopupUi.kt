@@ -1,5 +1,10 @@
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import com.qtekfun.ultimatevideoeditor.ui.SheetSizing
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
@@ -65,9 +70,9 @@ internal fun MarkerPopupCard(popup: MarkerPopup, onIntent: (EditorIntent) -> Uni
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
-        modifier = modifier.widthIn(max = 360.dp).fillMaxWidth(),
+        modifier = modifier.widthIn(max = 360.dp).fillMaxWidth().heightIn(max = SheetSizing.popupMaxHeightDp(LocalConfiguration.current.screenHeightDp.toFloat()).dp),
     ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { onIntent(MarkerIntent.PopupPrevious) }, enabled = popup.hasPrevious) {
                     Icon(EditorIcons.ChevronLeft, contentDescription = stringResource(R.string.ed_2a_previous_marker))

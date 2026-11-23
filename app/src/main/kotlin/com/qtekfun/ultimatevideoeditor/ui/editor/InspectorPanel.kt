@@ -1,5 +1,9 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor
 
+import androidx.compose.foundation.layout.FlowRow
+import com.qtekfun.ultimatevideoeditor.ui.labelWidth
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.R
 import androidx.compose.ui.res.stringResource
@@ -207,7 +211,7 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
     }
     if (!freeze) {
         val rampless = clip.speedRamp.isEmpty()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             for (preset in SPEED_PRESETS) {
                 FilterChip(
                     selected = rampless && kotlin.math.abs(speed - preset) < SPEED_MATCH,
@@ -218,7 +222,7 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
         }
         var logSpeed by remember(clip.id, clip.durationFrames) { mutableFloatStateOf(log2(speed).toFloat()) }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = stringResource(R.string.ed_2b_custom), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(text = stringResource(R.string.ed_2b_custom), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
             Slider(
                 value = logSpeed.coerceIn(LOG_SPEED_MIN, LOG_SPEED_MAX),
                 onValueChange = { logSpeed = it },
@@ -226,7 +230,7 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
                 valueRange = LOG_SPEED_MIN..LOG_SPEED_MAX,
                 modifier = Modifier.weight(1f).described(stringResource(R.string.ed_2b_speed_2, formatSpeed(2.0.pow(logSpeed.toDouble())))),
             )
-            Text(text = formatSpeed(2.0.pow(logSpeed.toDouble())), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+            Text(text = formatSpeed(2.0.pow(logSpeed.toDouble())), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         }
         val shape = rampShapeOf(clip)
         Text(text = stringResource(R.string.ed_2b_speed_curve), style = MaterialTheme.typography.labelMedium)
@@ -269,7 +273,7 @@ private fun SpeedControls(state: EditorState, clip: Clip, isVisual: Boolean, onI
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = stringResource(R.string.ed_2b_reverse), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+            Text(text = stringResource(R.string.ed_2b_reverse), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
             Switch(checked = clip.reverse, onCheckedChange = { onIntent(EditorIntent.ToggleReverse) })
         }
         if (speed > MAX_AUDIBLE_SPEED || speed < MIN_AUDIBLE_SPEED) {
@@ -359,8 +363,8 @@ private fun KeyframeControls(state: EditorState, keyframeCount: Int, onIntent: (
         TextButton(onClick = { onIntent(EditorIntent.ClearKeyframes) }, enabled = keyframeCount > 0) { Text(stringResource(R.string.common_clear)) }
     }
     if (atPlayhead != null) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = stringResource(R.string.ed_2b_then), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        FlowRow(itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text = stringResource(R.string.ed_2b_then), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
             for (mode in Interpolation.entries) {
                 FilterChip(
                     selected = atPlayhead.interpolation == mode,
@@ -409,7 +413,7 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
         onIntent(EditorIntent.EndTitleEdit(commit = true))
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = stringResource(R.string.ed_2b_colour), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_colour), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         for (swatch in TITLE_COLORS) {
             val selected = title.colorArgb == swatch.toArgb()
             Box(
@@ -424,7 +428,7 @@ private fun TitleControls(title: TitleContent, clipId: String, onIntent: (Editor
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = stringResource(R.string.ed_2b_align), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.ed_2b_align), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         for (alignment in TitleAlignment.entries) {
             TextButton(onClick = { change(title.copy(alignment = alignment)) }) {
                 Text(
@@ -468,7 +472,7 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
     val seconds = frames.toDouble() * state.fps.den / state.fps.num
     val readout = "${(seconds * 100).roundToInt() / 100.0} s"
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text = stringResource(R.string.hub_sort_length), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = stringResource(R.string.hub_sort_length), style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         if (limit > Transition.MIN_DURATION_FRAMES) {
             Slider(
                 value = frames,
@@ -480,7 +484,7 @@ private fun TransitionControls(state: EditorState, onIntent: (EditorIntent) -> U
         } else {
             Box(modifier = Modifier.weight(1f))
         }
-        Text(text = readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(text = readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
     }
     if (limit <= Transition.MIN_DURATION_FRAMES) {
         Text(
@@ -508,7 +512,7 @@ internal fun InspectorSlider(
     onChange: (Float) -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text = label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(76.dp))
+        Text(text = label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(76.dp))
         Slider(
             value = value,
             onValueChange = onChange,
@@ -516,7 +520,7 @@ internal fun InspectorSlider(
             valueRange = range,
             modifier = Modifier.weight(1f).semantics { contentDescription = "$label $readout" },
         )
-        Text(text = readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+        Text(text = readout, style = MaterialTheme.typography.labelMedium, modifier = Modifier.labelWidth(60.dp))
         val keyUi = paramId?.let { LocalParamKeys.current(it) }
         if (keyUi != null) KeyDiamond(keyUi, onIntent)
     }

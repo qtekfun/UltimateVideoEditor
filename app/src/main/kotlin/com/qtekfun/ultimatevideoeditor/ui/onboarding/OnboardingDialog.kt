@@ -1,5 +1,7 @@
 package com.qtekfun.ultimatevideoeditor.ui.onboarding
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.qtekfun.ultimatevideoeditor.ui.text.asString
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.R
@@ -39,7 +41,7 @@ fun OnboardingTips(onFinished: () -> Unit) {
         onDismissRequest = { state = state.dismiss() },
         title = { Text(tip.title.asString()) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(tip.body.asString(), style = MaterialTheme.typography.bodyMedium)
                 Row(
                     modifier = Modifier

@@ -1,5 +1,9 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.editor.proxy
 
+import com.qtekfun.ultimatevideoeditor.ui.rememberListMaxHeight
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.proxy.ProxyMessages
 import com.qtekfun.ultimatevideoeditor.ui.text.UiText
@@ -138,7 +142,7 @@ fun ProxySheet(state: ProxyUiState, onIntent: (ProxyIntent) -> Unit) {
                 Switch(checked = state.enabled, onCheckedChange = null)
             }
             Text(stringResource(R.string.ed_s3_proxy_size), style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (shortSide in ProxyTargets.choices) {
                     FilterChip(
                         selected = state.targetShortSide == shortSide,
@@ -152,13 +156,13 @@ fun ProxySheet(state: ProxyUiState, onIntent: (ProxyIntent) -> Unit) {
                 Text(stringResource(R.string.ed_s3_there_is_no_video_in), style = MaterialTheme.typography.bodySmall)
             } else {
                 Button(onClick = { onIntent(ProxyIntent.GenerateAll) }) { Text(stringResource(R.string.ed_s3_make_proxies_for_all_videos)) }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = rememberListMaxHeight(260.dp)), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(state.items, key = { it.assetId }) { item -> ProxyRow(item, onIntent) }
                 }
             }
             Text(stringResource(R.string.about_storage), style = MaterialTheme.typography.labelLarge)
             Text(stringResource(R.string.ed_s3_using_of, megabytes(state.usage.bytes), megabytes(state.usage.budgetBytes)), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (budget in ProxyPrefs.budgetChoices) {
                     FilterChip(
                         selected = state.usage.budgetBytes == budget,

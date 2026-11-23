@@ -1,5 +1,10 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.library
 
+import com.qtekfun.ultimatevideoeditor.ui.rememberListMaxHeight
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.res.pluralStringResource
 import com.qtekfun.ultimatevideoeditor.ui.editor.described
 import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
@@ -109,7 +114,7 @@ private fun LibrarySheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
         onDismissRequest = { onIntent(LibraryIntent.Close) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.ed_2a_tool_library), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 Text(pluralStringResource(R.plurals.ed_s3_files, state.assets.size, state.assets.size), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -154,7 +159,7 @@ private fun LibrarySheet(state: EditorState, onIntent: (EditorIntent) -> Unit) {
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
             }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().heightIn(max = rememberListMaxHeight(420.dp)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(items, key = { _, item -> item.asset.id }) { _, item ->
                     LibraryRow(item, highlighted = item.asset.id == library.highlightAssetId, onIntent)
                 }
@@ -208,7 +213,7 @@ private fun LibraryRow(item: LibraryItem, highlighted: Boolean, onIntent: (Edito
                 Text(item.tags.joinToString("  ") { "#$it" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             item.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { onIntent(LibraryIntent.FindInTimeline(item.asset.id)) }, enabled = item.usage > 0) { Text(stringResource(R.string.ed_s3_find_in_timeline)) }
                 TextButton(onClick = { onIntent(LibraryIntent.EditAsset(item.asset.id)) }) { Text(stringResource(R.string.ed_s3_tags_note)) }
             }
@@ -221,17 +226,17 @@ private fun LibraryFooter(unusedCount: Int, busy: UiText?, onIntent: (EditorInte
     var exportOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         if (busy != null) Text(busy.asString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = { onIntent(LibraryIntent.AskDeleteUnused) }, enabled = unusedCount > 0) { Text(stringResource(R.string.ed_s3_remove_unused, unusedCount), maxLines = 1) }
+        FlowRow(Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = { onIntent(LibraryIntent.AskDeleteUnused) }, enabled = unusedCount > 0) { Text(stringResource(R.string.ed_s3_remove_unused, unusedCount)) }
             Box {
-                TextButton(onClick = { exportOpen = true }, enabled = busy == null) { Text(stringResource(R.string.export_dlg_export_button), maxLines = 1) }
+                TextButton(onClick = { exportOpen = true }, enabled = busy == null) { Text(stringResource(R.string.export_dlg_export_button)) }
                 DropdownMenu(expanded = exportOpen, onDismissRequest = { exportOpen = false }) {
                     for (kind in InterchangeKind.entries) {
                         DropdownMenuItem(text = { Text(stringResource(kind.labelRes)) }, onClick = { exportOpen = false; onIntent(LibraryIntent.RequestExport(kind)) })
                     }
                 }
             }
-            TextButton(onClick = { onIntent(LibraryIntent.Close) }) { Text(stringResource(R.string.common_close), maxLines = 1) }
+            TextButton(onClick = { onIntent(LibraryIntent.Close) }) { Text(stringResource(R.string.common_close)) }
         }
     }
 }

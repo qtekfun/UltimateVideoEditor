@@ -1,5 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.qtekfun.ultimatevideoeditor.ui.templates
 
+import com.qtekfun.ultimatevideoeditor.ui.rememberListMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.FlowRow
 import com.qtekfun.ultimatevideoeditor.ui.text.resolve
 import androidx.compose.ui.platform.LocalContext
 import com.qtekfun.ultimatevideoeditor.ui.editor.labelRes
@@ -83,7 +90,7 @@ fun TemplateWizardSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val selected = state.selected
@@ -94,7 +101,7 @@ fun TemplateWizardSheet(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = rememberListMaxHeight(360.dp)), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(state.templates, key = { it.id }) { template ->
                         val context = LocalContext.current
                         val templateName = template.nameText()
@@ -118,7 +125,7 @@ fun TemplateWizardSheet(
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.ed_s3_import_template_file)) }
                     TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
                 }
@@ -137,7 +144,7 @@ fun TemplateWizardSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.busy || state.busyPlaceholder != null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                LazyColumn(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = rememberListMaxHeight(360.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     items(selected.placeholders, key = { it.id }) { placeholder ->
                         PlaceholderRow(
                             placeholder = placeholder,
@@ -154,7 +161,7 @@ fun TemplateWizardSheet(
                 if (state.missingRequired.isNotEmpty()) {
                     Text(stringResource(R.string.ed_s3_still_to_choose, state.missingRequired.map { it.nameText(selected).asString() }.joinToString()), style = MaterialTheme.typography.bodySmall)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = viewModel::create, enabled = state.canCreate) { Text(stringResource(R.string.ed_s3_create_project)) }
                     TextButton(onClick = viewModel::back) { Text(stringResource(R.string.common_back)) }
                 }
