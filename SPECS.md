@@ -1973,6 +1973,30 @@ of the domain, a message of the encoder or the system), names and sample text th
 of the built-in templates, "Track 1" is worded when shown), the text of a crash report (addressed to the developer), the `<note>` written inside an
 FCPXML file, the online user guide and the website. Every such line says why with `// i18n-ok: reason`.
 
+### 5.45 Panels that fit the window
+
+Every panel, sheet and dialog below the editor's own rows has to stay usable when the window is short or narrow (a phone sideways,
+split screen, a folded or unfolded device) and when the system font is enlarged. The sizes are decided by pure functions, with a
+table-driven test over the window and font-scale matrix (320x568, 360x640, 411x891, 640x360, 600x960, 840x1200, 1280x800; font 0.85 to 2.0).
+
+- **Bottom tray** (`ui/editor/tray/TraySizing.kt`). The body height is a fraction of the window height: half is 32 % (160 to 280 dp), full is
+  55 % (240 to 520 dp), always at most what is left after the editor rows (150 dp times the font scale), a minimum picture (120 dp), a minimum
+  timeline (140 dp) and the tray header (48 dp times the font scale). A body that would be under 96 dp is not shown: the tray shows its header
+  only, and the header keeps its fold button while the tray is open so it can be closed. The window height is the one the activity reports
+  (`LocalConfiguration.screenHeightDp`), which follows split screen. The side-panel tray fills its column and scrolls its own content.
+- **Tray controls.** Search, Pick and List/Grid sit in a flow row (they wrap), the field has a minimum height instead of a fixed one, and the
+  whole block (controls, chips, pick row, drag hint) scrolls inside at most half of the body (`CappedControls`), so the list below keeps room.
+  The five tabs scroll sideways when they do not fit. The grid's tile minimum is 96 dp times the font scale (at most 1.6), never wider than the
+  panel. List rows have a minimum height, not a fixed one. The same applies to the Folders tab and to the clip preview sheet, whose picture is
+  at most 40 % of the window height and whose two add buttons wrap.
+- **Sheets and dialogs** (`ui/SheetSizing.kt`). A list inside a sheet or dialog is at most its usual height but no more than the window minus
+  180 dp times the font scale (never under 96 dp), and the sheet around it scrolls (cut silences, library, flag list, templates, reframe).
+  Rows of buttons and chips use `FlowRow`; a dialog's text that can be long scrolls (looks list, tips). Fixed label columns next to sliders grow
+  with the font scale (`labelWidth`, at most 1.6). The marker card over the timeline is at most 60 % of the window height and scrolls.
+- **Left as they were** (judged fine): the Layout sheet, the mixer and the title tools (already scroll, chips scroll sideways), the export
+  dialog (its settings scroll under a fixed size line), the relink dialog, the toolbar guide (full-screen dialog with a Scaffold that applies
+  the insets and a 640 dp column), the project list and its dialogs, About, the New project form.
+
 ## 6. Timeline operations (specification for tests)
 
 Free placement with magnetic snapping to clip edges and playhead. For each operation, tests must
